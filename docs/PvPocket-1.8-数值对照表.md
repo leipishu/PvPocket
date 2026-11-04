@@ -162,11 +162,28 @@ if (hurtResistantTime > maxHurtResistantTime / 2.0F) {   // 即 > 10 tick
 - 无敌窗口 20 tick，前 10 tick 内完全免疫；后 10 tick 内只有**超过上次伤害**的部分生效，且按
   增量结算。这是 1.8 连击手感的核心，现代实现不同，S3 处理。
 
-## 六、对 S2 实现的影响
+## 六、对实现的影响
 
 | 项 | 实现位置 | 值 |
 | --- | --- | --- |
-| 攻击满充能 | `PlayerEntityMixin#pvpocket$legacyFullCharge` | `1.0F` |
-| 格挡减伤 | `LivingEntityMixin#pvpocket$blockingDamage` | `(1+amount)*0.5`，跳过 `BYPASSES_ARMOR` |
-| 格挡移速 | `LivingEntityMixin#pvpocket$blockingSlowdown` | `×0.2`，双端 |
-| 格挡击退 | 不实现 | 1.8 无此机制 |
+| 攻击满充能（S2） | `PlayerEntityMixin#pvpocket$legacyFullCharge` | `1.0F` |
+| 格挡减伤（S2） | `LivingEntityMixin#pvpocket$blockingDamage` | `(1+amount)*0.5`，跳过 `BYPASSES_ARMOR` |
+| 格挡移速（S2） | `LivingEntityMixin#pvpocket$blockingSlowdown` | `×0.2`，双端 |
+| 格挡击退（S2） | 不实现 | 1.8 无此机制 |
+| 受击击退（S3） | `LivingEntityMixin#pvpocket$legacyHurtKnockback` | 固定 0.4，先减半，垂直恒定并 clamp |
+| 攻击击退（S3） | `PlayerEntityMixin#pvpocket$legacyAttackKnockback` | `i*0.5` 水平 + `0.1` 垂直，纯叠加 |
+| 护甲（S3） | `LivingEntityMixin#pvpocket$legacyArmor` | `amount*(25-护甲)/25`，保留护甲耐久 |
+| 横扫（S3） | `PlayerEntityMixin#pvpocket$noSweepForLegacy` | 关闭 |
+| 冲刺暴击（S3） | `PlayerEntityMixin#pvpocket$allowSprintCrit` | 允许 |
+| 受击冷却（L5，未实现） | — | 1.8 为 20 tick + 半窗增量 |
+
+## 七、尚未对齐的项
+
+按影响面排序，均未实现：
+
+1. **受击冷却**（L5）。1.8 是 20 tick 窗口，后 10 tick 只结算超过 `lastDamage` 的增量；1.21.1 是 10 tick。直接影响连击节奏。
+2. **抗性药水与保护附魔**。1.8 线性 `(25-k)/25`；抗性 I 恰好等效，高等级偏离。
+3. **饱食度与自然回复**（L5）。1.8 的饥饿回复阈值与现代不同。
+4. **药水时长与效果等级**（L6，P1）。
+5. **1.8 物品池过滤**。盾牌、三叉戟、重锤等 1.8 不存在的物品需要在配装层排除。
+

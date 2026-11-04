@@ -16,7 +16,8 @@ PvPocket/
 │   ├── PvPocket-v0.4-技术方案.md
 │   ├── PvPocket-1.8-数值对照表.md
 │   ├── PvPocket-S1-实现进度.md
-│   └── PvPocket-S2-实现进度.md
+│   ├── PvPocket-S2-实现进度.md
+│   └── PvPocket-S3-实现进度.md
 ├── scripts/
 │   └── dev-2clients.sh        双客户端联调启动脚本
 ├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程

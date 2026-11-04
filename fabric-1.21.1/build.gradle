@@ -68,6 +68,17 @@ if (quickJoin) {
     }
 }
 
+// -PmixinDebug exports every transformed class to <runDir>/.mixin.out/class/ and makes Mixin log
+// each applied injection. This mod rewrites hot paths inside PlayerEntity#attack, where "no exception
+// at startup" only proves a target matched, not that the right one did — javap the exported class to
+// confirm. Off by default because the export costs startup time and a lot of disk.
+if (project.hasProperty("mixinDebug")) {
+    loom.runs.configureEach { run ->
+        run.vmArg "-Dmixin.debug.export=true"
+        run.vmArg "-Dmixin.debug.verbose=true"
+    }
+}
+
 fabricApi {
     configureDataGeneration {
         client = true
