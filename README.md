@@ -13,7 +13,12 @@ PvPocket/
 │   ├── PvPocket-decisions-v0.1.md
 │   ├── PvPocket-v0.2-方案确认.md
 │   ├── PvPocket-v0.3-战斗规格与终稿.md
-│   └── PvPocket-v0.4-技术方案.md
+│   ├── PvPocket-v0.4-技术方案.md
+│   ├── PvPocket-1.8-数值对照表.md
+│   ├── PvPocket-S1-实现进度.md
+│   └── PvPocket-S2-实现进度.md
+├── scripts/
+│   └── dev-2clients.sh        双客户端联调启动脚本
 ├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
 │   ├── build.gradle
 │   ├── settings.gradle
@@ -68,6 +73,32 @@ cd fabric-1.21.1
 ```bash
 JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 ```
+
+## 双客户端联调
+
+决斗至少需要两名玩家，所以开发环境提供两个独立客户端。**它们不能共用一个运行目录**：同一个 `run/` 下两个 JVM 会抢 `logs/latest.log`（输的一方静默丢日志），`options.txt`、`saves`、资源索引也会互相覆盖。因此运行目录分成三份：
+
+| 运行配置 | 目录 | 用户名 | 用途 |
+| --- | --- | --- | --- |
+| `runServer` | `run/` | — | 共享服务端（存档与 `pvpocket/journal` 都在这里） |
+| `runClient` | `run-client1/` | `Dev1` | 客户端 1 |
+| `runClient2` | `run-client2/` | `Dev2` | 客户端 2 |
+
+用户名也必须不同：开发客户端默认用操作系统用户名登录，两个客户端会变成同一个玩家，后加入的会把先加入的顶掉。
+
+**推荐流程**（服务端单独占一个终端，这样控制台还能输入 `stop` / `op` / `pvpocket`）：
+
+```bash
+# 终端 1：共享服务端，保持前台运行
+cd fabric-1.21.1 && ./gradlew runServer
+
+# 终端 2：等看到 "Done (...)" 后，拉起两个客户端并自动连接
+scripts/dev-2clients.sh
+```
+
+脚本默认连 `localhost:25565`，可用 `PVP_ADDR` 覆盖（例如从另一台机器连进来）。
+
+不带 `-PquickJoin` 单独运行 `./gradlew runClient` / `runClient2` 时客户端停在标题界面，此时也可以手动「对局域网开放」：主机客户端开一个世界并点「对局域网开放」，记下聊天栏里的端口，另一个客户端用「直接连接 → `localhost:端口`」加入。这条路径每次端口都是随机的，所以日常测试优先用上面的专用服务端。
 
 ## 文档
 

@@ -27,6 +27,45 @@ loom {
             sourceSet sourceSets.client
         }
     }
+
+    // Two independent dev clients so a duel can actually be played, plus a dedicated server as the
+    // shared room. Three separate run directories are mandatory, not cosmetic:
+    //   - Minecraft writes logs/latest.log with a rolling file appender. Two JVMs in one directory
+    //     fight over the same file and the loser silently loses its log, which is the main debug
+    //     surface for this project.
+    //   - options.txt, saves, resource index and screenshots all collide as well.
+    // Distinct usernames are equally mandatory: the dev client otherwise logs in as the OS user,
+    // so both clients would be the same player and the second join would be rejected.
+    runs {
+        client {
+            client()
+            configName = "Minecraft Client (Dev1)"
+            runDir "run-client1"
+            programArgs "--username", "Dev1"
+        }
+        client2 {
+            client()
+            configName = "Minecraft Client (Dev2)"
+            runDir "run-client2"
+            programArgs "--username", "Dev2"
+        }
+        server {
+            server()
+            configName = "Minecraft Server (shared room)"
+            runDir "run"
+        }
+    }
+}
+
+// Passing -PquickJoin=localhost:25565 makes both dev clients skip the title screen and connect
+// straight to the shared room. Left off by default so a bare `runClient` still starts normally.
+def quickJoin = project.findProperty("quickJoin")
+if (quickJoin) {
+    loom.runs.configureEach { run ->
+        if (run.environment == "client") {
+            run.programArgs("--quickPlayMultiplayer", quickJoin.toString())
+        }
+    }
 }
 
 fabricApi {

@@ -5,6 +5,8 @@ build/
 
 # Loom / run directories
 run/
+run-client1/
+run-client2/
 remappedSrc/
 .loom/
 
