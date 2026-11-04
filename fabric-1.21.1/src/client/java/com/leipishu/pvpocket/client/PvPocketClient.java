@@ -4,8 +4,11 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.hud.MatchHud;
+import com.leipishu.pvpocket.client.render.ArenaBounds;
+import com.leipishu.pvpocket.client.render.BoundaryRenderer;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.CombatStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
@@ -75,15 +78,21 @@ public final class PvPocketClient implements ClientModInitializer {
             context.client().execute(() -> MatchHud.update(payload));
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(ArenaBoundsPayload.ID, (payload, context) -> {
+            context.client().execute(() -> ArenaBounds.update(payload));
+        });
+
         // A stale mirror after leaving a world would make the next join start with a phantom block
         // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             CombatState.clearAll();
             BlockingInput.reset();
             MatchHud.clear();
+            ArenaBounds.clear();
         });
 
         MatchHud.register();
+        BoundaryRenderer.register();
 
         PvPocket.LOGGER.info("PvPocket client bootstrap complete");
     }

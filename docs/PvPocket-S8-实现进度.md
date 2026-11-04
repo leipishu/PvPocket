@@ -644,3 +644,110 @@ ARENA_RELEASED / ARCHIVED
   `f.allowPlace` 未落地的同一个洞。
 - 倒计时数字的字号是原版 title 的默认尺寸（GUI 缩放 2 下约 1/4 屏高）。没有做自绘，因为 title
   会跟随玩家的 GUI 缩放，自绘反而不一致。
+
+---
+
+## 十二、追加修改（第三轮反馈）
+
+> 对应需求：
+> 「现在不受配置界面修改的影响啊！无论如何都是弹回走不出去！然后边界要有明显标识，
+> 不然都不知道边界在哪里，靠近再渲染吧，远距离不需要。」
+
+第一条是**真 bug**，而且是我上一轮亲手加的。第二条是新需求。
+
+### 12.1 「不受配置影响」的根因：一个看不见的 10 秒窗口
+
+`inOpeningGrace` 原本长这样：
+
+```java
+long countdown = rules.get("a.countdown") * 1000L;
+return now - roundStartedAt < Math.max(BOUNDARY_GRACE_FLOOR_MS, countdown);   // 下限 10 秒
+```
+
+这十秒是给「客户端还在下载一个从没去过的维度、位置包还是旧坐标」兜底的。问题在于它把
+**整条边界规则**也一起兜住了：这十秒里无论 `e.boundary` 选的是拉回还是判负，走的都是同一条
+`pullInside` 分支。于是玩家看到的是——
+
+```
+BOUNDARY_PUSHED_BACK  player=Dev2 grace=true     ← 开局 1.9 秒
+BOUNDARY_PUSHED_BACK  player=Dev2 grace=true     ← 2.4 秒
+BOUNDARY_PUSHED_BACK  player=Dev2 grace=true     ← 2.9 秒
+...连续 9 条，每 0.5 秒一次
+```
+
+这是你自己那次对局的 journal，时间轴摊开看的：开局 1.9 秒走到边界，然后被**连续弹回 9 次**，
+5.6 秒后放弃退出。玩家的感受就是「怎么改都没用，反正出不去」。
+
+而且这不只是「规则被忽略」——被弹回 9 次本身就是一个体验灾难：屏幕每半秒跳一次，没有提示，
+没有原因，看起来就像卡了。
+
+**改法不是把 10 秒调短，是把判据从「时间」换成「事实」**：
+
+```java
+private boolean awaitingFirstEntry(DuelSession session, String key) {
+    if (settledIn.contains(key)) return false;          // 已经在场地里站过 → 不再保护
+    long startedAt = roundStartedAt.getOrDefault(session.id, 0L);
+    return startedAt != 0L && now - startedAt < SETTLE_DEADLINE_MS;   // 30 秒逃生阀
+}
+```
+
+真正需要保护的只有一件事：**这个玩家在这一局里有没有被看到站在场地上过**。出生点在两端各内缩
+4 格，传送后第一个 tick 就会被判定为「在场地内」，所以保护在玩家能动之前就花掉了。之后他走出去，
+就是他的选择，规则立刻生效。
+
+`SETTLE_DEADLINE_MS = 30s` 只是逃生阀：一个 30 秒都没被看到在场的玩家不是在加载，是在别的地方，
+再弹下去就是把人锁死。
+
+顺带两件事：
+
+- **弹回提示**：`notifyPushBack` 走 action bar，1.5 秒最多一次（「已到场地边界，继续往外会被拉回。」）。
+  原来每 tick 一条 journal 也被同一个闸门挡掉了——九条一模一样的 `BOUNDARY_PUSHED_BACK`
+  不是证据，是噪音。
+- **规则写进 journal**：`ROUND_STARTED` 现在带 `boundary=push_back|countdown`。哈希 digest 没法反读出
+  「到底跑的是哪条规则」，而「配置没生效」这类抱怨事后是无法证伪的。
+
+**实测**（开局 0.5 秒就往外走，落在旧代码的 10 秒窗口正中间）：
+
+```
+ROUND_STARTED       round=2 boundary=countdown
+BOUNDARY_EXIT       player=Dev2 pos=104.19,3.00,86.03 countdownMs=5000    ← 开局 0.5 秒
+BOUNDARY_RETURNED   player=Dev2                                            ← 走回来，倒计时取消
+BOUNDARY_EXIT       player=Dev2 pos=104.10,3.00,93.44
+BOUNDARY_RETURNED   player=Dev2
+```
+
+没有一条 `BOUNDARY_PUSHED_BACK`。
+
+### 12.2 边界标识：客户端画的一圈光幕
+
+不做方块环的两个理由上一轮已经说过（能挖、会进偏差集），这一轮补上第三个：**光幕可以按规则换颜色**。
+
+| | |
+|---|---|
+| 画什么 | 四条边各一片竖直渐变幕布：脚下 0.28 格近乎不透明，往上 4 格渐隐到全透明 |
+| 颜色 | `拉回` = 蓝（0.36, 0.61, 1.00），`判负` = 红（0.89, 0.43, 0.43） |
+| 距离 | 距该边 16 格内满强度，16→26 格线性淡出，26 格外不画 |
+| 穿透 | 纯渲染，没有碰撞箱，走过去就是走过去 |
+| 同步 | 新 payload `pvpocket:arena_bounds`，在**准备阶段**就下发（准备时间就是给你看场地的） |
+
+实现要点：
+
+- 几何走 `RenderLayer.getDebugQuads()`——原版画 debug 视锥体用的就是它：`POSITION_COLOR`、
+  半透明、`DISABLE_CULLING`。剔除关掉意味着每个四边形只发一次顶点就能双面可见，不用正反各发一遍。
+- 顶点用世界坐标，所以矩阵栈要先 `translate(-camX, -camY, -camZ)`。这个约定不是猜的：
+  `WorldRenderer.renderCapturedFrustum` 里写的就是 `matrices.translate(worldPos - camera.getPos())`，
+  两者代数上等价。
+- 距离判定用的是**到线段**的距离而不是到平面的距离。否则站在西墙 2 格外、同时往北偏 500 格，
+  平面距离依然很小，会画出一面谁都不在旁边的墙。
+
+`ArenaBoundsPayload` 同时被 `pushHudTo` 复用：中途重连的客户端原来只会拿回计分板，光幕要等到
+下一个回合边界才有——那正好是「看不出边界在哪」最严重的时刻。
+
+### 12.3 没验到的
+
+- **光幕的视觉效果没有截图确认**。两台客户端在验证期间被最小化（`IsIconic=True`，rect 在 -32000），
+  `SW_RESTORE` 会让 GLFW 客户端原生崩溃，游戏内 F2 又因为窗口没有焦点收不到按键。
+  代码侧能确认的是：编译通过、客户端连续跑了数分钟没有异常（渲染器每帧都在跑）、
+  顶点约定与原版 debug 渲染逐行一致。**摆放位置需要眼睛确认一次。**
+- 光幕是 `AFTER_TRANSLUCENT` 阶段画的，开了 Fabulous 画质时可能与半透明合成顺序有关；
+  当前开发环境是普通画质，没有验证 Fabulous。

@@ -98,7 +98,8 @@ public final class RuleCatalog {
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
                 "平坦为唯一的 P0 模板，其余模板在后续版本加入。", 0, "平坦"));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
-                "拉回会把越界者放到最近的边境内；判负会开始 5 秒倒计时，倒计时结束仍在场外就输掉这一局。",
+                "拉回：越界即被放回最近的边境内。判负：越界开始 5 秒倒计时，结束仍在场外就输掉本局。"
+                        + "场地四边会画一圈半透明光幕标出边界（蓝=拉回，红=判负），光幕可以穿过。",
                 1, "拉回", "倒计时判负"));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, "时间",
                 "固定时间后场地时间不再流逝，昼夜循环关闭；「自然」保留原版循环。", 1,

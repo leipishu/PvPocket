@@ -8,6 +8,7 @@ import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
+import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -35,9 +36,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -58,13 +61,31 @@ public final class SessionManager {
     private static final int SWEEP_INTERVAL = 60;
 
     /**
-     * Lower bound on the opening grace window, in milliseconds.
+     * Upper bound on how long a participant can stay "not yet on the plot" before the boundary rule
+     * applies to them anyway, in milliseconds.
      *
-     * <p>Ten seconds is not a balance number: it is roughly the worst case measured for a dev client
-     * to finish streaming a dimension it has never loaded. Anything shorter turns a slow disk into a
-     * lost round.</p>
+     * <p>This is a safety valve, not a grace window. See {@link #awaitingFirstEntry}: the normal
+     * case is settled on the first tick the player is observed inside, which is immediate.</p>
      */
-    private static final long BOUNDARY_GRACE_FLOOR_MS = 10_000L;
+    private static final long SETTLE_DEADLINE_MS = 30_000L;
+
+    /**
+     * Minimum gap between two boundary notices to the same player, in milliseconds.
+     *
+     * <p>A player leaning on the edge produces one pull-back per tick; without a gate that is a
+     * chat flood, twenty journal lines a second, and a client that spends the whole fight being
+     * teleported half a block.</p>
+     */
+    private static final long BOUNDARY_NOTICE_GAP_MS = 1_500L;
+
+    /**
+     * How tall the client-side boundary curtain is drawn, in blocks.
+     *
+     * <p>Four is a compromise between "visible from across the plot" and "does not become a wall you
+     * think you can climb". Tall enough that a player standing on the ground sees it without looking
+     * up; short enough that the arena still reads as open sky above.</p>
+     */
+    private static final double BOUNDARY_CURTAIN_HEIGHT = 4.0D;
 
     /**
      * How long a player may stand outside the plot before the round is forfeited.
@@ -100,6 +121,15 @@ public final class SessionManager {
     private final Map<String, Long> roundReadyAt = new HashMap<>();
     /** Players currently outside their plot, waiting out the boundary countdown. */
     private final Map<String, BoundaryExit> boundaryExits = new HashMap<>();
+    /**
+     * {@code sessionId/playerUuid} of participants already seen standing on their plot this round.
+     *
+     * <p>Keyed per player, not per session, because the thing being waited for is a client finishing
+     * its chunk download — which happens at a different moment for each side.</p>
+     */
+    private final Set<String> settledIn = new HashSet<>();
+    /** {@code sessionId/playerUuid} -> wall clock of the last pull-back notice, for throttling. */
+    private final Map<String, Long> boundaryNotices = new HashMap<>();
     /** Rounds that have teleported everybody in but have not gone live yet. */
     private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
     private int sweepTimer;
@@ -418,6 +448,9 @@ public final class SessionManager {
                 }
                 String key = session.id + "/" + p.uuid;
                 if (ArenaManager.isInside(player, region)) {
+                    // First sighting on the plot settles this player. From here on the boundary rule
+                    // is theirs to test — walking out is a decision, not a loading glitch.
+                    settledIn.add(key);
                     // Coming back cancels the countdown. Announced, because a countdown that silently
                     // stops leaves the player unsure whether they are still at risk.
                     if (boundaryExits.remove(key) != null) {
@@ -432,16 +465,19 @@ public final class SessionManager {
                 // Logged with coordinates on purpose: "left the arena" has two very different
                 // causes (a player walked out, or a teleport did not stick) and the position is
                 // the only thing that tells them apart after the fact.
-                // During the opening grace window leaving is never a loss, it is a reset. A client
-                // that is still streaming the new dimension can report a position from before the
-                // teleport for several seconds after the server has already moved the player;
-                // judging that as "walked out" would end the duel before either side could see the
-                // arena. Snapping back is self-correcting.
-                if (inOpeningGrace(session) || boundaryIsPushBack(session)) {
+                //
+                // Two reasons to snap back instead of judging:
+                //   - the player has not been seen on the plot even once yet, so the position being
+                //     read is a client that is still streaming a dimension it has never loaded;
+                //   - the rule is 拉回, in which case snapping back is the rule.
+                // Anything else falls through to the countdown. Note what is deliberately NOT here:
+                // a fixed opening window. A 10-second window made the rule unobservable — every
+                // setting pulled back identically for the first ten seconds, which read as "the
+                // config panel does nothing".
+                if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)) {
                     boundaryExits.remove(key);
                     ArenaManager.pullInside(player, region);
-                    journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name,
-                            "grace", inOpeningGrace(session));
+                    notifyPushBack(session, player, key, awaitingFirstEntry(session, key));
                     continue;
                 }
                 long now = System.currentTimeMillis();
@@ -481,25 +517,59 @@ public final class SessionManager {
     }
 
     /**
-     * True while the round is still inside its opening grace window.
+     * True while this player has never once been observed standing on their plot this round.
      *
-     * <p>Length is the countdown rule, floored at {@link #BOUNDARY_GRACE_FLOOR_MS}. The floor exists
-     * because the countdown is a design value measured in seconds while the problem it protects
-     * against — a client finishing its chunk download for a dimension it has never visited — is
-     * measured in whatever the machine happens to take. Three seconds of countdown and no grace is
-     * a duel that can be lost during the loading screen.</p>
+     * <p>This is what replaced a fixed ten-second opening window. The window was there for one
+     * concrete failure — a client that has never loaded the arena dimension reports a position from
+     * before the teleport for a moment, and judging that as "walked out" loses the round during the
+     * loading screen. But a window is a blunt instrument: for its whole length the boundary rule is
+     * ignored, so every setting behaves the same, and a player who walks out inside it is teleported
+     * back over and over with no way to tell why. It looked exactly like the config panel doing
+     * nothing.</p>
+     *
+     * <p>The condition that actually needs protecting is narrower: <em>has this player ever been on
+     * the plot?</em> Once they have, their position is trustworthy and the rule applies from the very
+     * next tick. The spawn pads are four blocks inside each end, so the first tick after the teleport
+     * settles them — the protection is spent before anyone can move.</p>
+     *
+     * <p>{@link #SETTLE_DEADLINE_MS} is the escape hatch: a player who has somehow never been seen on
+     * the plot for thirty seconds is not loading any more, and keeping them under the pull-back rule
+     * would trap them forever.</p>
      */
-    private boolean inOpeningGrace(DuelSession session) {
-        long startedAt = roundStartedAt.getOrDefault(session.id, 0L);
-        if (startedAt == 0L) {
+    private boolean awaitingFirstEntry(DuelSession session, String key) {
+        if (settledIn.contains(key)) {
             return false;
         }
-        long countdown = DuelRules.decode(session.rules).get("a.countdown") * 1000L;
-        return System.currentTimeMillis() - startedAt < Math.max(BOUNDARY_GRACE_FLOOR_MS, countdown);
+        long startedAt = roundStartedAt.getOrDefault(session.id, 0L);
+        return startedAt != 0L && System.currentTimeMillis() - startedAt < SETTLE_DEADLINE_MS;
     }
 
     private static boolean boundaryIsPushBack(DuelSession session) {
         return DuelRules.decode(session.rules).get("e.boundary") == 0;
+    }
+
+    /**
+     * Tells a player who has been snapped back why, at most once every
+     * {@link #BOUNDARY_NOTICE_GAP_MS}.
+     *
+     * <p>Action bar, not chat: this is a state that repeats, and a repeated chat line pushes the
+     * fight's own messages off the screen. The journal line is throttled by the same gate — nine
+     * identical {@code BOUNDARY_PUSHED_BACK} rows for one player leaning on the edge is noise, not
+     * evidence.</p>
+     */
+    private void notifyPushBack(DuelSession session, ServerPlayerEntity player, String key, boolean settling) {
+        long now = System.currentTimeMillis();
+        Long last = boundaryNotices.get(key);
+        if (last != null && now - last < BOUNDARY_NOTICE_GAP_MS) {
+            return;
+        }
+        boundaryNotices.put(key, now);
+        journal(session).append("BOUNDARY_PUSHED_BACK", "player", player.getName().getString(),
+                "settling", settling, "rule", settling ? "pending" : "push_back");
+        player.sendMessage(Text.literal(settling
+                        ? "正在把你放回场地内…"
+                        : "已到场地边界，继续往外会被拉回。")
+                .formatted(Formatting.YELLOW), true);
     }
 
     /**
@@ -516,13 +586,20 @@ public final class SessionManager {
                 Text.literal(String.valueOf(second)).formatted(Formatting.RED, Formatting.BOLD)));
     }
 
-    /** Drops every pending countdown belonging to a session. Called at every round boundary. */
+    /**
+     * Drops every per-player boundary state belonging to a session. Called at every round boundary.
+     *
+     * <p>{@code settledIn} goes too, and that is the important part: the "have I been on the plot
+     * yet" answer is per round, because each round teleports everyone to a spawn pad again. Leaving a
+     * stale entry would skip the loading protection on round two, which is exactly when a client has
+     * the dimension cached and would not need it anyway — but the symmetry is cheaper to reason about
+     * than the exception.</p>
+     */
     private void clearBoundaryExits(DuelSession session) {
-        if (boundaryExits.isEmpty()) {
-            return;
-        }
         String prefix = session.id + "/";
         boundaryExits.keySet().removeIf(key -> key.startsWith(prefix));
+        settledIn.removeIf(key -> key.startsWith(prefix));
+        boundaryNotices.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     // ------------------------------------------------------------------ commands
@@ -1396,6 +1473,7 @@ public final class SessionManager {
             prepareDeadlines.put(session.id,
                     new Prepare(System.currentTimeMillis() + prepare * 1000L, prepare));
             broadcastHud(session, true);
+            broadcastBounds(session, true);
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
                 if (player != null) {
@@ -1433,6 +1511,10 @@ public final class SessionManager {
         ArenaRegion region = ArenaManager.region(session.id);
         journal(session).append("ROUND_STARTED", "round", session.round,
                 "digest", session.rulesDigest,
+                // The boundary rule in force, spelled out. Without it "the config panel did nothing"
+                // is unfalsifiable after the fact: the digest is a hash, and a hash cannot be read
+                // back into "which of the two boundary rules was actually running".
+                "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
                 "region", region == null ? "-" : region.id,
                 "spawns", region == null ? "-" : region.spawnX(0) + "," + ArenaRegion.SURFACE_Y
                         + "," + region.spawnZ()
@@ -1550,8 +1632,9 @@ public final class SessionManager {
         transition(session, SessionStage.ROUND_SETTLED);
         session.pendingWinner = null;
         session.pendingReason = null;
-        // Cleared here rather than at the end: the opening grace belongs to the round that just
-        // ended, and leaving it in place would let the intermission look like a grace window.
+        // Cleared here rather than at the end: the "has been seen on the plot" memory belongs to the
+        // round that just ended, and leaving it in place would carry a settled player into the next
+        // round before they had been teleported into it.
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
@@ -1616,6 +1699,7 @@ public final class SessionManager {
         // Hidden before ARCHIVED so the client never draws a scoreboard for a session that no longer
         // exists on the server — the payload is the only thing it has to go on.
         broadcastHud(session, false);
+        broadcastBounds(session, false);
         transition(session, SessionStage.ARCHIVED);
         inviteByTarget.values().removeIf(session.id::equals);
         announceSeriesResult(session, winnerUuid);
@@ -1712,6 +1796,39 @@ public final class SessionManager {
 
     // ------------------------------------------------------------------ scoreboard HUD
 
+    /**
+     * Pushes the plot outline to every participant, or clears it.
+     *
+     * <p>Called from {@code startRound} rather than {@code activateRound} on purpose: the whole
+     * point of the preparation window is to look around and see where you are, and an arena with no
+     * visible edge is the one thing you cannot see.</p>
+     */
+    private void broadcastBounds(DuelSession session, boolean active) {
+        ArenaRegion region = ArenaManager.region(session.id);
+        ArenaBoundsPayload payload;
+        if (!active || region == null) {
+            payload = ArenaBoundsPayload.hidden();
+        } else {
+            payload = new ArenaBoundsPayload(true,
+                    region.minX, region.minZ,
+                    region.maxX() + 1.0D, region.maxZ() + 1.0D,
+                    ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT,
+                    DuelRules.decode(session.rules).get("e.boundary"));
+        }
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player != null) {
+                PvPocketNetworking.sendBounds(player, payload);
+            }
+        }
+        // One line per round boundary, mirroring the "Rules panel ->" line. If the curtain ever fails
+        // to appear, the first question is whether the client was told about the plot at all, and
+        // this answers it without a debugger.
+        PvPocket.LOGGER.info("Arena bounds {} for session {} ({})",
+                active ? "pushed" : "cleared", session.id,
+                region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ));
+    }
+
     private void broadcastHud(DuelSession session, boolean active) {
         MatchHudPayload payload = active ? buildHud(session) : MatchHudPayload.hidden();
         for (Participant p : session.participants) {
@@ -1763,6 +1880,7 @@ public final class SessionManager {
         DuelSession session = id == null ? null : sessions.get(id);
         if (session == null || session.stage.isTerminal()) {
             PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
+            PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
             return;
         }
         PvPocketNetworking.sendHud(player,
@@ -1770,6 +1888,21 @@ public final class SessionManager {
                         || session.stage == SessionStage.FROZEN
                         ? MatchHudPayload.hidden()
                         : buildHud(session));
+        // Same reasoning for the plot outline: it is pushed on round boundaries, so a client that
+        // reconnects mid-round would see an arena with no visible edge at all — the exact problem
+        // the outline exists to solve.
+        if (session.stage == SessionStage.ROUND_READY || session.stage == SessionStage.ROUND_ACTIVE) {
+            ArenaRegion region = ArenaManager.region(session.id);
+            if (region != null) {
+                PvPocketNetworking.sendBounds(player, new ArenaBoundsPayload(true,
+                        region.minX, region.minZ,
+                        region.maxX() + 1.0D, region.maxZ() + 1.0D,
+                        ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT,
+                        DuelRules.decode(session.rules).get("e.boundary")));
+            }
+        } else {
+            PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
+        }
     }
 
     /**
@@ -1801,6 +1934,7 @@ public final class SessionManager {
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
         broadcastHud(session, false);
+        broadcastBounds(session, false);
         for (Participant p : session.participants) {
             if (p.snapshotFile != null) {
                 restoreParticipant(session, p);

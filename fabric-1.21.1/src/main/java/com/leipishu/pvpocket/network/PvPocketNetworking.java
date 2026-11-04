@@ -30,6 +30,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(MatchHudPayload.ID, MatchHudPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(ArenaBoundsPayload.ID, ArenaBoundsPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(BlockingPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -76,6 +77,18 @@ public final class PvPocketNetworking {
      */
     public static void sendHud(ServerPlayerEntity player, MatchHudPayload payload) {
         if (ServerPlayNetworking.canSend(player, MatchHudPayload.ID)) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /**
+     * Pushes the plot outline to one client, or clears it.
+     *
+     * <p>Silent like {@link #sendHud}: this fires at every round boundary for every participant, and
+     * a log line per player per round would drown the state transitions it sits next to.</p>
+     */
+    public static void sendBounds(ServerPlayerEntity player, ArenaBoundsPayload payload) {
+        if (ServerPlayNetworking.canSend(player, ArenaBoundsPayload.ID)) {
             ServerPlayNetworking.send(player, payload);
         }
     }
