@@ -8,17 +8,26 @@ re-save it, but vanilla's structure block is capped at 48x48x48, so anything lar
 be captured that way at all. Reading the region files directly has no such limit, and it means the
 only thing a human has to do is download the zip.
 
+Three input shapes, picked by extension:
+
+    * a world save   -- a directory containing `region/`, or the downloaded `.zip`
+    * `.litematic`   -- Litematica / Masa projection file (gzipped NBT, flat palette per region)
+    * `.schem`       -- Sponge schematic v2/v3 (gzipped NBT, varint block indices)
+
+`.litematic` is by far the cheapest to eat: there is no chunk or region layer at all, so the whole
+`.mca` dance below (8192-byte sector table, per-chunk compression byte, the pre/post-1.18 `Level`
+split) simply does not apply. Only the flat palette + bit-packed long array remains, and that inner
+packing is byte-for-byte the same as a vanilla chunk section.
+
 Two subcommands:
 
-    python scripts/world2struct.py probe <world> [--box x1 y1 z1 x2 y2 z2]
+    python scripts/world2struct.py probe <input> [--box x1 y1 z1 x2 y2 z2]
         Reports the bounding box of the non-air blocks, how many blocks that is, the palette size
         and the height histogram. Run this first: it is how we find out whether a build fits a plot
         and where its floor is.
 
-    python scripts/world2struct.py convert <world> --out <file.nbt> [options]
+    python scripts/world2struct.py convert <input> --out <file.nbt> [options]
         Writes a structure template. Prints the same report plus the output size.
-
-`<world>` is either a directory that contains `region/`, or the downloaded `.zip` itself.
 
 The output is deliberately *only* blocks: no entities, and no block-entity NBT unless asked. A
 downloaded arena can contain chests, hoppers, command blocks and item frames, and every one of those
@@ -211,6 +220,10 @@ def t_int(v):
     return (TAG_INT, v)
 
 
+def t_short(v):
+    return (TAG_SHORT, v)
+
+
 def t_string(v):
     return (TAG_STRING, v)
 
@@ -242,6 +255,17 @@ DEFAULT_STRIP = {
     "minecraft:command_block",
     "minecraft:chain_command_block",
     "minecraft:repeating_command_block",
+}
+
+# Renames between the versions these maps are authored in (1.16 era) and the one we run (1.21.1).
+# An id that no longer exists is not an error at conversion time -- it just becomes air in game,
+# silently, which is the worst possible failure mode for an arena floor. This list covers the ids a
+# 1.16-era build can realistically contain; anything newer than 1.21.1 still has to be eyeballed.
+RENAMES = {
+    "minecraft:grass_path": "minecraft:dirt_path",
+    "minecraft:grass": "minecraft:short_grass",
+    "minecraft:sign": "minecraft:oak_sign",
+    "minecraft:wall_sign": "minecraft:oak_wall_sign",
 }
 
 
@@ -359,8 +383,28 @@ def section_blocks(section):
         yield index & 15, index >> 8, (index >> 4) & 15, name, props
 
 
+def keep(name, props, x, y, z, box, strip_bedrock):
+    """The single place that decides whether a block survives into the output."""
+    if box and not (box[0] <= x <= box[3] and box[1] <= y <= box[4] and box[2] <= z <= box[5]):
+        return False
+    if name in AIRISH or name in DEFAULT_STRIP:
+        return False
+    if strip_bedrock and name == "minecraft:bedrock":
+        return False
+    return True
+
+
+def finish(blocks):
+    if not blocks:
+        raise SystemExit("no non-air blocks found")
+    xs = [p[0] for p in blocks]
+    ys = [p[1] for p in blocks]
+    zs = [p[2] for p in blocks]
+    return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)), blocks
+
+
 def scan(source, box=None, strip_bedrock=False):
-    """Walks every chunk and returns (bbox, blocks) where blocks maps (x,y,z) -> (name, props)."""
+    """Walks every chunk of a world save and returns (bbox, blocks)."""
     blocks = {}
     for rx, rz, data in iter_region_files(source):
         for cx, cz, body in iter_chunks(data):
@@ -372,23 +416,157 @@ def scan(source, box=None, strip_bedrock=False):
                     x = base_x + lx
                     y = section_y * 16 + ly
                     z = base_z + lz
-                    if box and not (box[0] <= x <= box[3] and box[1] <= y <= box[4]
-                                    and box[2] <= z <= box[5]):
-                        continue
-                    if name in AIRISH or name in DEFAULT_STRIP:
-                        continue
-                    if strip_bedrock and name == "minecraft:bedrock":
-                        continue
-                    blocks[(x, y, z)] = (name, props)
-    if not blocks:
-        raise SystemExit("no non-air blocks found")
-    xs = [p[0] for p in blocks]
-    ys = [p[1] for p in blocks]
-    zs = [p[2] for p in blocks]
-    return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)), blocks
+                    if keep(name, props, x, y, z, box, strip_bedrock):
+                        blocks[(x, y, z)] = (name, props)
+    return finish(blocks)
 
 
-def report(bbox, blocks):
+# ---------------------------------------------------------------- litematic / Sponge
+
+# A .litematic is gzipped NBT with no chunk/region layer at all: the block list is one flat
+# palette plus one flat long array per named sub-region. That is the whole reason it is easier to
+# eat than a world save -- no sector table, no per-chunk compression byte, no pre/post-1.18 split.
+# The inner bit packing is *identical* to the vanilla section packing already handled above.
+
+
+def unpack_longs(longs, bits, count):
+    """Vanilla-style packed long array -> list of `count` values of `bits` bits each."""
+    per_long = 64 // bits
+    mask = (1 << bits) - 1
+    out = []
+    for index in range(count):
+        long_index = index // per_long
+        if long_index >= len(longs):
+            break
+        out.append((longs[long_index] >> ((index % per_long) * bits)) & mask)
+    return out
+
+
+def palette_entry(entry):
+    """Both litematic and Sponge use the structure-template shape: Name + optional Properties."""
+    name = entry.get("Name", (TAG_STRING, "minecraft:air"))[1]
+    props_entry = entry.get("Properties")
+    props = {}
+    if props_entry is not None:
+        for key, value in props_entry[1].items():
+            props[key] = value[1]
+    return name, props
+
+
+def scan_litematic(path, box=None, strip_bedrock=False):
+    """Reads a Litematica .litematic. One file may hold several named sub-regions."""
+    with open(path, "rb") as handle:
+        _, root = read_nbt(handle.read())
+    regions_entry = root.get("Regions")
+    if regions_entry is None:
+        raise SystemExit("%s has no Regions compound -- not a litematic" % path)
+    blocks = {}
+    for _, region_entry in regions_entry[1].items():
+        region = region_entry[1]        # compound dict -> (tag, payload) pairs
+        palette_entry_ = region.get("BlockStatePalette")
+        states_entry = region.get("BlockStates")
+        if palette_entry_ is None or states_entry is None:
+            continue
+        pos = region["Position"][1]
+        size = region["Size"][1]
+        px, py, pz = pos["x"][1], pos["y"][1], pos["z"][1]
+        sx, sy, sz = size["x"][1], size["y"][1], size["z"][1]
+        # A negative component means the box runs backwards from Position; normalise to
+        # min-corner + positive extent so the index maths below stays uniform.
+        if sx < 0:
+            px, sx = px + sx + 1, -sx
+        if sy < 0:
+            py, sy = py + sy + 1, -sy
+        if sz < 0:
+            pz, sz = pz + sz + 1, -sz
+        if sx <= 0 or sy <= 0 or sz <= 0:
+            continue
+        palette = [palette_entry(e) for e in palette_entry_[1][1]]
+        if all(name in AIRISH for name, _ in palette):
+            continue
+        # Litematica floors this at 2 bits, vanilla floors chunk sections at 4.
+        bits = max(2, (len(palette) - 1).bit_length())
+        values = unpack_longs(states_entry[1], bits, sx * sy * sz)
+        for index, value in enumerate(values):
+            if value >= len(palette):
+                continue
+            name, props = palette[value]
+            if name in AIRISH:
+                continue
+            # Litematica iterates x fastest, then z, then y.
+            x = px + index % sx
+            z = pz + (index // sx) % sz
+            y = py + index // (sx * sz)
+            if keep(name, props, x, y, z, box, strip_bedrock):
+                blocks[(x, y, z)] = (name, props)
+    return finish(blocks)
+
+
+def decode_varints(data):
+    """Sponge stores block indices as a varint stream, not a packed long array."""
+    value = 0
+    shift = 0
+    for byte in data:
+        value |= (byte & 0x7F) << shift
+        if byte & 0x80:
+            shift += 7
+        else:
+            yield value
+            value = 0
+            shift = 0
+
+
+def scan_schem(path, box=None, strip_bedrock=False):
+    """Reads a Sponge .schem (v2 or v3). Legacy MCEdit .schematic is rejected, not mis-parsed."""
+    with open(path, "rb") as handle:
+        _, root = read_nbt(handle.read())
+    body = root
+    blocks_entry = root.get("Blocks")
+    if blocks_entry is not None and isinstance(blocks_entry[1], dict):
+        body = blocks_entry[1]          # v3 nests Palette/Data under Blocks
+    palette_entry_ = body.get("Palette")
+    data_entry = body.get("BlockData") or body.get("Data")
+    if palette_entry_ is None or data_entry is None:
+        raise SystemExit("%s has no Palette/BlockData -- legacy MCEdit .schematic stores numeric "
+                         "block ids and cannot be converted without a 1.12 block table" % path)
+    width = root["Width"][1]
+    height = root["Height"][1]
+    length = root["Length"][1]
+    offset_entry = root.get("Offset")
+    # Offset is a TAG_List of ints -> (elem_tag, [values]), so the payload is [1][1].
+    ox, oy, oz = offset_entry[1][1] if offset_entry is not None else [0, 0, 0]
+    index_to_name = {}
+    for name, (_, value) in palette_entry_[1].items():
+        index_to_name[value] = name
+    blocks = {}
+    for index, value in enumerate(decode_varints(data_entry[1])):
+        name = index_to_name.get(value)
+        if name is None or name in AIRISH:
+            continue
+        x = ox + index % width
+        z = oz + (index // width) % length
+        y = oy + index // (width * length)
+        if keep(name, {}, x, y, z, box, strip_bedrock):
+            blocks[(x, y, z)] = (name, {})
+    return finish(blocks)
+
+
+def load(path, box=None, strip_bedrock=False):
+    """Dispatches on file extension: world save / .zip, .litematic, or Sponge .schem."""
+    lower = path.lower()
+    if lower.endswith(".litematic"):
+        return scan_litematic(path, box, strip_bedrock)
+    if lower.endswith(".schem") or lower.endswith(".schematic"):
+        return scan_schem(path, box, strip_bedrock)
+    source = open_source(path)
+    try:
+        return scan(source, box, strip_bedrock)
+    finally:
+        if isinstance(source, zipfile.ZipFile):
+            source.close()
+
+
+def report(bbox, blocks, show_palette=False):
     size = (bbox[3] - bbox[0] + 1, bbox[4] - bbox[1] + 1, bbox[5] - bbox[2] + 1)
     names = {}
     for name, _ in blocks.values():
@@ -403,6 +581,10 @@ def report(bbox, blocks):
     print("blocks    %d non-air" % len(blocks))
     print("palette   %d distinct block names" % len(names))
     print("top       " + ", ".join("%s x%d" % (n.replace("minecraft:", ""), k) for n, k in top))
+    if show_palette:
+        # Every name in one place, so it is possible to spot a block that 1.21.1 does not have
+        # before it silently turns into air in game.
+        print("all       " + ", ".join(sorted(n.replace("minecraft:", "") for n in names)))
     floors = sorted(per_y.items())
     if floors:
         busiest_y, _ = max(per_y.items(), key=lambda kv: kv[1])
@@ -421,6 +603,15 @@ def report(bbox, blocks):
 
 def to_structure(bbox, blocks, data_version):
     """Builds a vanilla structure template tree: size + palette + blocks (positions explicit)."""
+    renamed = {}
+    for (x, y, z), (name, props) in list(blocks.items()):
+        new_name = RENAMES.get(name)
+        if new_name is not None and new_name != name:
+            renamed[name] = renamed.get(name, 0) + 1
+            blocks[(x, y, z)] = (new_name, props)
+    if renamed:
+        print("renamed   " + ", ".join("%s -> %s x%d" % (old, RENAMES[old], count)
+                                       for old, count in sorted(renamed.items())))
     palette = []
     palette_index = {}
     # props is a dict, so it cannot go in a set directly; the tuple-of-items form is both hashable
@@ -476,6 +667,8 @@ def main(argv):
     probe.add_argument("world")
     probe.add_argument("--box", nargs=6)
     probe.add_argument("--strip-bedrock", action="store_true")
+    probe.add_argument("--palette", action="store_true",
+                       help="also list every distinct block name")
 
     conv = sub.add_parser("convert", help="write a vanilla structure template")
     conv.add_argument("world")
@@ -490,37 +683,32 @@ def main(argv):
                            "is 13x: the test fixture is 178 KB plain, 13.7 KB gzipped")
 
     args = parser.parse_args(argv)
-    source = open_source(args.world)
     box = parse_box(args.box)
-    try:
-        bbox, blocks = scan(source, box, args.strip_bedrock)
-        size = report(bbox, blocks)
-        if args.command == "convert":
-            root = to_structure(bbox, blocks, args.data_version)
-            plain = write_nbt("", root)
-            raw = plain if args.no_gzip else gzip.compress(plain, 9)
-            out_dir = os.path.dirname(os.path.abspath(args.out))
-            os.makedirs(out_dir, exist_ok=True)
-            with open(args.out, "wb") as handle:
-                handle.write(raw)
-            print("wrote     %s (%.1f KB%s)" % (args.out, len(raw) / 1024.0,
-                                                "" if args.no_gzip else ", gzipped"))
-            # Read it back through the same parser. A converter that cannot read its own output is
-            # not a converter, and a silent off-by-one in the palette index would only surface as a
-            # scrambled build inside the game.
-            _, back = read_nbt(raw)
-            back_size = tuple(back["size"][1][1])
-            back_blocks = len(back["blocks"][1][1])
-            back_palette = len(back["palette"][1][1])
-            ok = (back_size == size and back_blocks == len(blocks)
-                  and back_palette == len(root["palette"][1][1]))
-            print("verify    size=%s blocks=%d palette=%d -> %s"
-                  % (back_size, back_blocks, back_palette, "OK" if ok else "MISMATCH"))
-            if not ok:
-                return 1
-    finally:
-        if isinstance(source, zipfile.ZipFile):
-            source.close()
+    bbox, blocks = load(args.world, box, args.strip_bedrock)
+    size = report(bbox, blocks, getattr(args, "palette", False))
+    if args.command == "convert":
+        root = to_structure(bbox, blocks, args.data_version)
+        plain = write_nbt("", root)
+        raw = plain if args.no_gzip else gzip.compress(plain, 9)
+        out_dir = os.path.dirname(os.path.abspath(args.out))
+        os.makedirs(out_dir, exist_ok=True)
+        with open(args.out, "wb") as handle:
+            handle.write(raw)
+        print("wrote     %s (%.1f KB%s)" % (args.out, len(raw) / 1024.0,
+                                            "" if args.no_gzip else ", gzipped"))
+        # Read it back through the same parser. A converter that cannot read its own output is
+        # not a converter, and a silent off-by-one in the palette index would only surface as a
+        # scrambled build inside the game.
+        _, back = read_nbt(raw)
+        back_size = tuple(back["size"][1][1])
+        back_blocks = len(back["blocks"][1][1])
+        back_palette = len(back["palette"][1][1])
+        ok = (back_size == size and back_blocks == len(blocks)
+              and back_palette == len(root["palette"][1][1]))
+        print("verify    size=%s blocks=%d palette=%d -> %s"
+              % (back_size, back_blocks, back_palette, "OK" if ok else "MISMATCH"))
+        if not ok:
+            return 1
     return 0
 
 
