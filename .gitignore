@@ -27,6 +27,9 @@ out/
 logs/
 crash-reports/
 
+# Screenshots taken by scripts/client-act.ps1 during UI checks
+shots/
+
 # OS
 .DS_Store
 Thumbs.db

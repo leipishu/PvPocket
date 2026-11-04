@@ -23,6 +23,20 @@ public final class DuelSession {
     public int bestOf = 1;
     public int round;
 
+    /**
+     * Encoded rule set plus its fingerprint. Both are written to disk and to the journal, so a
+     * disputed match can be checked against the exact rules that ran rather than the rules the
+     * proposer remembers proposing.
+     */
+    public String rules;
+    public String rulesDigest;
+    /** Bumped on every accepted edit, so "you agreed to v1, this is v3" is visible to both sides. */
+    public int rulesRevision;
+    /** Uuid of the player who authored the current revision. */
+    public String rulesAuthor;
+    /** Uuid of the player whose answer the session is waiting on. */
+    public String awaitingUuid;
+
     public List<Participant> participants = new ArrayList<>();
     /** Wins keyed by participant uuid (teams arrive in S5). */
     public Map<String, Integer> score = new LinkedHashMap<>();

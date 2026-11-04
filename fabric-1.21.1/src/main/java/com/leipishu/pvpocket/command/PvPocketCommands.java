@@ -33,6 +33,7 @@ public final class PvPocketCommands {
 
         root.then(CommandManager.literal("accept").executes(PvPocketCommands::accept));
         root.then(CommandManager.literal("deny").executes(PvPocketCommands::deny));
+        root.then(CommandManager.literal("review").executes(PvPocketCommands::review));
         root.then(CommandManager.literal("surrender").executes(PvPocketCommands::surrender));
         root.then(CommandManager.literal("status").executes(PvPocketCommands::status));
 
@@ -42,8 +43,9 @@ public final class PvPocketCommands {
     private static int help(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
         source.sendFeedback(() -> Text.literal("PvPocket 指令：").formatted(Formatting.AQUA), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家> [legacy]  发起决斗（加 legacy 为 1.8 战斗）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket accept|deny  接受或拒绝邀请").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家> [legacy]  发起决斗并打开规则面板").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket review    重新打开规则面板").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket accept|deny  接受或拒绝当前规则版本").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         return 1;
@@ -72,6 +74,15 @@ public final class PvPocketCommands {
     private static int deny(CommandContext<ServerCommandSource> ctx) {
         try {
             SessionManager.get().deny(ctx.getSource().getPlayerOrThrow());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int review(CommandContext<ServerCommandSource> ctx) {
+        try {
+            SessionManager.get().review(ctx.getSource().getPlayerOrThrow());
             return 1;
         } catch (Exception e) {
             return 0;

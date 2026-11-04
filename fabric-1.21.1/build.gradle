@@ -41,13 +41,16 @@ loom {
             client()
             configName = "Minecraft Client (Dev1)"
             runDir "run-client1"
-            programArgs "--username", "Dev1"
+            // 1280x720 is the smallest window that still exercises the panel at a realistic GUI
+            // scale; the default dev window lands around 427x240 virtual pixels, where every
+            // layout is in its most cramped branch and screenshots are unreadable.
+            programArgs "--username", "Dev1", "--width", "1280", "--height", "720"
         }
         client2 {
             client()
             configName = "Minecraft Client (Dev2)"
             runDir "run-client2"
-            programArgs "--username", "Dev2"
+            programArgs "--username", "Dev2", "--width", "1280", "--height", "720"
         }
         server {
             server()

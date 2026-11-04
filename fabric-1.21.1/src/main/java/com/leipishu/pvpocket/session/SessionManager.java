@@ -5,9 +5,13 @@ import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
+import com.leipishu.pvpocket.network.RulesOpenPayload;
+import com.leipishu.pvpocket.network.RulesSubmitPayload;
+import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -278,6 +282,14 @@ public final class SessionManager {
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
                 if (player != null && !ArenaManager.isInside(player)) {
+                    // e.boundary decides what leaving the arena means. "拉回" is a teleport back to
+                    // the spawn point rather than a nudge along the wall: it is unambiguous, it
+                    // cannot be fought against, and it reuses the same placement code as round start.
+                    if (boundaryIsPushBack(session)) {
+                        ArenaManager.teleportToSpawn(player, p.spawnIndex);
+                        journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name);
+                        continue;
+                    }
                     Participant opponent = session.opponentOf(p.uuid);
                     deferred.add(() -> settle(session, "OUT_OF_BOUNDS", opponent == null ? null : opponent.uuid));
                     break;
@@ -286,8 +298,19 @@ public final class SessionManager {
         }
     }
 
+    private static boolean boundaryIsPushBack(DuelSession session) {
+        return DuelRules.decode(session.rules).get("e.boundary") == 0;
+    }
+
     // ------------------------------------------------------------------ commands
 
+    // ------------------------------------------------------------------ negotiation
+
+    /**
+     * Opens a negotiation. Nothing is snapshotted and no rule is in force yet — the session sits in
+     * {@link SessionStage#DRAFT} until the challenger sends a first proposal, which is what makes a
+     * abandoned panel harmless: reconcile drops drafts on restart instead of rolling anyone back.
+     */
     public void requestDuel(ServerPlayerEntity challenger, ServerPlayerEntity target, CombatMode mode) {
         if (challenger.getUuid().equals(target.getUuid())) {
             fail(challenger, "不能向自己发起决斗。");
@@ -301,8 +324,12 @@ public final class SessionManager {
             fail(challenger, target.getName().getString() + " 已在决斗中。");
             return;
         }
-        if (inviteByTarget.containsKey(target.getUuid())) {
+        if (findOpenSession(target.getUuid()) != null) {
             fail(challenger, target.getName().getString() + " 有待处理的邀请。");
+            return;
+        }
+        if (findOpenSession(challenger.getUuid()) != null) {
+            fail(challenger, "你还有一个未完成的规则提案，先处理它。");
             return;
         }
         if (challenger.interactionManager.getGameMode() == GameMode.SPECTATOR
@@ -317,47 +344,170 @@ public final class SessionManager {
 
         DuelSession session = new DuelSession();
         session.id = UUID.randomUUID().toString();
-        session.mode = mode.id();
         session.createdAt = System.currentTimeMillis();
         session.updatedAt = session.createdAt;
         session.participants.add(new Participant(challenger.getUuidAsString(), challenger.getName().getString(), 0));
         session.participants.add(new Participant(target.getUuidAsString(), target.getName().getString(), 1));
-        sessions.put(session.id, session);
-        inviteByTarget.put(target.getUuid(), session.id);
 
+        // The `legacy` literal on the command is a seed for c.mode, not a separate code path: it
+        // pre-selects the rule so the panel opens on the mode the player asked for, and the other
+        // side still has to consent to it in the panel.
+        DuelRules rules = DuelRules.defaults();
+        rules.set("c.mode", mode == CombatMode.LEGACY_1_8 ? 1 : 0);
+        applyRulesToSession(session, rules);
+        session.rulesRevision = 0;
+        session.rulesAuthor = challenger.getUuidAsString();
+        session.awaitingUuid = challenger.getUuidAsString();
+
+        sessions.put(session.id, session);
         journal(session).append("SESSION_CREATED",
                 "challenger", challenger.getName().getString(),
-                "target", target.getName().getString());
-        transition(session, SessionStage.NEGOTIATING);
+                "target", target.getName().getString(),
+                "seedMode", mode.id());
+        journal(session).append("RULES_DRAFTED", "revision", 0, "digest", session.rulesDigest);
+        persist(session);
 
-        challenger.sendMessage(Text.literal("已向 " + target.getName().getString()
-                        + " 发起决斗（BO1，" + modeLabel(mode) + "）。")
-                .formatted(Formatting.GRAY), false);
-        target.sendMessage(Text.literal(challenger.getName().getString()
-                        + " 向你发起决斗（" + modeLabel(mode) + "）。输入 /pvpocket accept 接受，/pvpocket deny 拒绝。")
-                .formatted(Formatting.GOLD), false);
+        challenger.sendMessage(Text.literal("已打开规则面板。设置完成后点击「发送征询」提交给 "
+                + target.getName().getString() + "。").formatted(Formatting.GRAY), false);
+        openPanel(challenger, session, RulesOpenPayload.ROLE_PROPOSER);
     }
 
-    private static String modeLabel(CombatMode mode) {
-        return mode == CombatMode.LEGACY_1_8 ? "1.8 战斗" : "现代战斗";
+    /** Sends (or re-sends) the panel to a player. Used by the packet path and by /pvpocket review. */
+    private void openPanel(ServerPlayerEntity player, DuelSession session, int role) {
+        PvPocketNetworking.openRules(player, new RulesOpenPayload(
+                session.id,
+                session.rules,
+                role,
+                session.rulesRevision,
+                otherName(session, player.getUuidAsString())));
     }
 
-    public void accept(ServerPlayerEntity player) {
-        String sessionId = inviteByTarget.remove(player.getUuid());
-        if (sessionId == null) {
-            fail(player, "没有待接受的邀请。");
+    /** Re-opens the panel for whoever is currently expected to answer. Command fallback path. */
+    public void review(ServerPlayerEntity player) {
+        DuelSession session = findOpenSession(player.getUuid());
+        if (session == null) {
+            fail(player, "当前没有待处理的规则提案。");
             return;
         }
-        DuelSession session = sessions.get(sessionId);
-        if (session == null || session.stage != SessionStage.NEGOTIATING) {
-            fail(player, "邀请已失效。");
+        int role = player.getUuidAsString().equals(session.awaitingUuid)
+                ? (session.stage == SessionStage.DRAFT
+                    ? RulesOpenPayload.ROLE_PROPOSER
+                    : RulesOpenPayload.ROLE_REVIEWER)
+                : RulesOpenPayload.ROLE_REVIEWER;
+        openPanel(player, session, role);
+        player.sendMessage(Text.literal("规则版本 v" + session.rulesRevision
+                + "（" + shortDigest(session) + "）").formatted(Formatting.DARK_GRAY), false);
+    }
+
+    /**
+     * Handles one panel outcome.
+     *
+     * <p>Every branch re-derives permission from the session record. The client tells us what it
+     * wants to do, never whether it is allowed to: only the player the session is waiting on may
+     * act, and only the author of the current revision may replace it.</p>
+     */
+    public void onRulesSubmit(ServerPlayerEntity player, int action, String encoded) {
+        String uuid = player.getUuidAsString();
+        DuelSession session = findOpenSession(player.getUuid());
+        if (session == null) {
+            fail(player, "当前没有待处理的规则提案。");
             return;
         }
+
+        if (action == RulesSubmitPayload.ACTION_DISMISS) {
+            // A dismissed draft leaves nothing behind: no snapshot exists yet, so voiding is free.
+            if (session.stage == SessionStage.DRAFT) {
+                journal(session).append("SESSION_DROPPED", "stage", "DRAFT");
+                session.voidReason = "PROPOSER_DISMISSED";
+                transition(session, SessionStage.VOIDED);
+                closePanels(session);
+            }
+            return;
+        }
+
+        if (action == RulesSubmitPayload.ACTION_REJECT) {
+            if (!uuid.equals(session.awaitingUuid)) {
+                fail(player, "现在轮到对方决定。");
+                return;
+            }
+            journal(session).append("SESSION_DENIED", "player", player.getName().getString(),
+                    "revision", session.rulesRevision);
+            session.voidReason = "DENIED";
+            transition(session, SessionStage.VOIDED);
+            inviteByTarget.values().removeIf(session.id::equals);
+            closePanels(session);
+            ServerPlayerEntity other = online(otherParticipant(session, uuid));
+            if (other != null) {
+                other.sendMessage(Text.literal("对方拒绝了决斗。").formatted(Formatting.GRAY), false);
+            }
+            player.sendMessage(Text.literal("已拒绝决斗。").formatted(Formatting.GRAY), false);
+            return;
+        }
+
+        if (action == RulesSubmitPayload.ACTION_PROPOSE) {
+            if (!uuid.equals(session.awaitingUuid)) {
+                fail(player, "现在轮到对方决定。");
+                return;
+            }
+            DuelRules proposed = DuelRules.decode(encoded);
+            Participant other = otherParticipant(session, uuid);
+            if (other == null) {
+                return;
+            }
+            List<String> changed = DuelRules.decode(session.rules).differences(proposed);
+            applyRulesToSession(session, proposed);
+            session.rulesRevision++;
+            session.rulesAuthor = uuid;
+            session.awaitingUuid = other.uuid;
+            inviteByTarget.put(UUID.fromString(other.uuid), session.id);
+            journal(session).append("RULES_PROPOSED",
+                    "revision", session.rulesRevision,
+                    "author", player.getName().getString(),
+                    "digest", session.rulesDigest,
+                    "changed", String.join(",", changed));
+            transition(session, SessionStage.NEGOTIATING);
+
+            player.sendMessage(Text.literal("规则 v" + session.rulesRevision + " 已发送给 "
+                    + other.name + "，等待对方同意。").formatted(Formatting.GRAY), false);
+            ServerPlayerEntity target = online(other);
+            if (target != null) {
+                target.sendMessage(Text.literal(player.getName().getString() + " 向你发起决斗（v"
+                                + session.rulesRevision + "）：" + proposed.summary())
+                        .formatted(Formatting.GOLD), false);
+                target.sendMessage(Text.literal("规则面板已打开。也可以输入 /pvpocket accept 直接同意。")
+                        .formatted(Formatting.DARK_GRAY), false);
+                openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
+            }
+            return;
+        }
+
+        if (action == RulesSubmitPayload.ACTION_ACCEPT) {
+            if (session.stage != SessionStage.NEGOTIATING) {
+                fail(player, "还没有可接受的规则提案。");
+                return;
+            }
+            if (!uuid.equals(session.awaitingUuid)) {
+                fail(player, "现在轮到对方决定。");
+                return;
+            }
+            startAccepted(session, player);
+        }
+    }
+
+    /** Freeze, snapshot, teleport, start. Shared by the panel path and the /accept shortcut. */
+    private void startAccepted(DuelSession session, ServerPlayerEntity accepter) {
         if (!ArenaManager.isReady(server)) {
-            fail(player, "决斗维度未加载。");
+            fail(accepter, "决斗维度未加载。");
             return;
         }
-
+        journal(session).append("RULES_ACCEPTED",
+                "revision", session.rulesRevision,
+                "author", session.rulesAuthor,
+                "acceptedBy", accepter.getName().getString(),
+                "digest", session.rulesDigest,
+                "rules", session.rules);
+        inviteByTarget.values().removeIf(session.id::equals);
+        closePanels(session);
         try {
             freeze(session);
             transition(session, SessionStage.ROUND_READY);
@@ -368,24 +518,23 @@ public final class SessionManager {
         }
     }
 
-    public void deny(ServerPlayerEntity player) {
-        String sessionId = inviteByTarget.remove(player.getUuid());
-        if (sessionId == null) {
-            fail(player, "没有待处理的邀请。");
-            return;
-        }
-        DuelSession session = sessions.get(sessionId);
+    /** Command shortcut: accepts whatever revision is on the table. Same validation as the panel. */
+    public void accept(ServerPlayerEntity player) {
+        DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
+            fail(player, "没有待接受的邀请。");
             return;
         }
-        journal(session).append("SESSION_DENIED", "player", player.getName().getString());
-        session.voidReason = "DENIED";
-        transition(session, SessionStage.VOIDED);
-        ServerPlayerEntity challenger = online(session.participants.get(0));
-        if (challenger != null) {
-            challenger.sendMessage(Text.literal("对方拒绝了决斗邀请。").formatted(Formatting.GRAY), false);
+        if (session.stage != SessionStage.NEGOTIATING
+                || !player.getUuidAsString().equals(session.awaitingUuid)) {
+            fail(player, "没有待接受的邀请。");
+            return;
         }
-        player.sendMessage(Text.literal("已拒绝决斗邀请。").formatted(Formatting.GRAY), false);
+        startAccepted(session, player);
+    }
+
+    public void deny(ServerPlayerEntity player) {
+        onRulesSubmit(player, RulesSubmitPayload.ACTION_REJECT, "");
     }
 
     public void surrender(ServerPlayerEntity player) {
@@ -399,8 +548,71 @@ public final class SessionManager {
             fail(player, "当前没有进行中的回合。");
             return;
         }
+        if (!DuelRules.decode(session.rules).flag("g.allowSurrender")) {
+            fail(player, "本次决斗不允许投降。");
+            return;
+        }
         Participant opponent = session.opponentOf(player.getUuidAsString());
         settle(session, "SURRENDER", opponent == null ? null : opponent.uuid);
+    }
+
+    // ------------------------------------------------------------------ rule plumbing
+
+    /** Copies a rule set onto the session and refreshes the derived fields plus the fingerprint. */
+    private static void applyRulesToSession(DuelSession session, DuelRules rules) {
+        session.mode = rules.get("c.mode") == 1 ? CombatMode.LEGACY_1_8.id() : CombatMode.MODERN.id();
+        session.bestOf = switch (rules.get("a.series")) {
+            case 0 -> 1;
+            case 2 -> 5;
+            case 3 -> 7;
+            default -> 3;
+        };
+        session.rules = rules.encode();
+        session.rulesDigest = rules.digest();
+    }
+
+    private DuelSession findOpenSession(UUID uuid) {
+        String id = uuid.toString();
+        for (DuelSession session : sessions.values()) {
+            if (session.stage == SessionStage.DRAFT || session.stage == SessionStage.NEGOTIATING) {
+                if (session.isParticipant(id)) {
+                    return session;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Participant otherParticipant(DuelSession session, String uuid) {
+        for (Participant p : session.participants) {
+            if (!p.uuid.equals(uuid)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private static String otherName(DuelSession session, String uuid) {
+        Participant other = otherParticipant(session, uuid);
+        return other == null ? "对手" : other.name;
+    }
+
+    private static String shortDigest(DuelSession session) {
+        return session.rulesDigest == null ? "--------" : session.rulesDigest;
+    }
+
+    /** Drops any rule panel still open for this session on either side. */
+    private void closePanels(DuelSession session) {
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player != null) {
+                PvPocketNetworking.closeRules(player, session.id);
+            }
+        }
+    }
+
+    private static String modeLabel(CombatMode mode) {
+        return mode == CombatMode.LEGACY_1_8 ? "1.8 战斗" : "现代战斗";
     }
 
     public void status(ServerPlayerEntity player) {
@@ -417,10 +629,13 @@ public final class SessionManager {
         Participant opponent = session.opponentOf(player.getUuidAsString());
         player.sendMessage(Text.literal("会话 " + shortId(session.id)
                 + " | 阶段 " + session.stage
-                + " | 回合 " + session.round
+                + " | 回合 " + session.round + "/" + session.bestOf
                 + " | 比分 " + scoreLine(session)
                 + (opponent == null ? "" : " | 对手 " + opponent.name))
                 .formatted(Formatting.AQUA), false);
+        player.sendMessage(Text.literal("规则 v" + session.rulesRevision + "（" + shortDigest(session)
+                        + "）：" + DuelRules.decode(session.rules).summary())
+                .formatted(Formatting.DARK_GRAY), false);
         if (me != null) {
             PvPocket.LOGGER.debug("Status requested by {}", me.name);
         }
@@ -453,6 +668,8 @@ public final class SessionManager {
     private void startRound(DuelSession session) {
         session.round++;
         CombatMode mode = CombatMode.byId(session.mode);
+        DuelRules rules = DuelRules.decode(session.rules);
+        int maxHealth = rules.get("c.maxHealth");
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
@@ -462,15 +679,23 @@ public final class SessionManager {
                 throw new IllegalStateException("arena world unavailable");
             }
             player.changeGameMode(GameMode.SURVIVAL);
+            // The snapshot restores attributes wholesale, so a modified base value here is rolled
+            // back by the same mechanism that restores inventory — no separate undo bookkeeping.
+            var health = player.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
+            if (health != null) {
+                health.setBaseValue(maxHealth);
+                player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
+            }
             CombatState.setMode(player.getUuid(), mode);
             // The client mirrors the rule set to predict movement and to hide the attack cooldown
             // indicator, so it has to be told which mode this round runs before the first hit.
             PvPocketNetworking.sendState(player);
             player.sendMessage(Text.literal("决斗开始（" + modeLabel(mode)
-                            + "）。输入 /pvpocket surrender 认输。")
+                            + "，" + rules.summary() + "）。输入 /pvpocket surrender 认输。")
                     .formatted(Formatting.GREEN), false);
         }
-        journal(session).append("ROUND_STARTED", "round", session.round);
+        journal(session).append("ROUND_STARTED", "round", session.round,
+                "digest", session.rulesDigest);
         transition(session, SessionStage.ROUND_ACTIVE);
     }
 
@@ -502,6 +727,7 @@ public final class SessionManager {
     /** Rolls a session back after a failed start. Restores anyone already frozen, then voids it. */
     private void abort(DuelSession session, String reason) {
         session.voidReason = reason;
+        closePanels(session);
         for (Participant p : session.participants) {
             if (p.snapshotFile != null) {
                 restoreParticipant(session, p);

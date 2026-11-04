@@ -1,0 +1,153 @@
+package com.leipishu.pvpocket.rules;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Every configurable rule, in panel order.
+ *
+ * <p>This is the executable form of §3.4 of the locked specification. Defaults are the ones the
+ * spec recommends, so a session that is proposed and accepted without touching anything runs
+ * exactly the configuration the design was validated against.</p>
+ *
+ * <p>Two entries are deliberately not free-form:</p>
+ * <ul>
+ *   <li>{@code c.modeConflict} is {@link RuleKind#FIXED} — "both sides must agree" is a structural
+ *       property of the negotiation, not something a proposer may vote away.</li>
+ *   <li>{@code e.template} exposes only the flat template until the template system lands in P1.</li>
+ * </ul>
+ */
+public final class RuleCatalog {
+
+    private static final List<RuleDefinition> ORDERED = new ArrayList<>();
+    private static final Map<String, RuleDefinition> BY_ID = new LinkedHashMap<>();
+
+    static {
+        // A. 对局结构
+        // 赛制暂时锁成 BO1。多局赛制依赖"每回合重置配装与场地"，那是 S7 的内容；在此之前把 BO3
+        // 摆成一个可选值，会让面板承诺一场打不到的三局两胜。锁住比撒谎好。
+        add(RuleDefinition.fixed("a.series", RuleGroup.A, "赛制",
+                "多局赛制依赖每回合重置，随 S7 一起开放。当前版本每场只打一局。", "BO1"));
+        add(RuleDefinition.enumOf("a.roundLimit", RuleGroup.A, "单局时长上限",
+                "超过后按超时判定结算。0 表示无限制。", 5,
+                "无限制", "1 分钟", "3 分钟", "5 分钟", "10 分钟", "15 分钟"));
+        add(RuleDefinition.enumOf("a.timeoutVerdict", RuleGroup.A, "超时判定",
+                "时间耗尽时如何决定这一局。", 0, "血量高者胜", "平局", "双败"));
+        add(RuleDefinition.intRange("a.countdown", RuleGroup.A, "开局倒计时",
+                "传送进场后到可以行动之间的等待时间。", 1, 10, 1, 3, "秒"));
+        add(RuleDefinition.intRange("a.intermission", RuleGroup.A, "局间间隔",
+                "多局赛制下两局之间的休整时间。", 1, 10, 1, 3, "秒"));
+        add(RuleDefinition.multi("a.winConditions", RuleGroup.A, "胜利条件",
+                "这一局可以因哪些原因结束。至少保留一项。", 0b1111,
+                "击杀", "出界", "投降", "超时"));
+
+        // B. 参与者
+        add(RuleDefinition.intRange("b.teamCount", RuleGroup.B, "队伍数量",
+                "分成几方对抗。2 为经典 1v1 / 2v2。", 1, 4, 1, 2, " 队"));
+        add(RuleDefinition.intRange("b.teamSize", RuleGroup.B, "每队人数",
+                "每支队伍的人数。总人数 = 队伍数量 × 每队人数。", 1, 4, 1, 1, " 人"));
+        add(RuleDefinition.intRange("b.maxPlayers", RuleGroup.B, "总人数上限",
+                "超过这个人数无法开始。", 2, 16, 1, 4, " 人"));
+        add(RuleDefinition.toggle("b.friendlyFire", RuleGroup.B, "友伤",
+                "开启后队友之间可以互相造成伤害。", false));
+        add(RuleDefinition.toggle("b.spectator", RuleGroup.B, "允许观战",
+                "开启后非参与者可以进入场地旁观。", false));
+
+        // C. 战斗
+        add(RuleDefinition.enumOf("c.mode", RuleGroup.C, "战斗模式",
+                "经典模式关闭攻击冷却，并按 1.8 规则处理格挡、击退与护甲。", 0,
+                "现代", "经典 1.8"));
+        add(RuleDefinition.fixed("c.modeConflict", RuleGroup.C, "模式冲突",
+                "战斗模式必须全员同意才能开始，不能由发起方单方面决定。", "全员同意"));
+        add(RuleDefinition.intRange("c.maxHealth", RuleGroup.C, "最大生命",
+                "进场后双方的生命上限。原版为 20。", 1, 40, 1, 20, " 点"));
+        add(RuleDefinition.toggle("c.naturalRegen", RuleGroup.C, "自然回血",
+                "关闭后只有药水与金苹果可以回复生命。", true));
+        add(RuleDefinition.enumOf("c.hunger", RuleGroup.C, "饥饿消耗",
+                "关闭后饥饿值不会下降，也不会因饥饿掉血。", 0, "正常", "关闭"));
+        add(RuleDefinition.toggle("c.fallDamage", RuleGroup.C, "掉落伤害",
+                "关闭后高处落地不受伤害。", true));
+        add(RuleDefinition.percent("c.knockbackResistance", RuleGroup.C, "击退抗性",
+                "对所有参与者统一施加的击退抗性。", 0));
+
+        // D. 配装
+        add(RuleDefinition.enumOf("d.loadoutScope", RuleGroup.D, "配装归属",
+                "每队统一时，同队成员使用同一套配装。", 0, "每人独立", "每队统一"));
+        add(RuleDefinition.toggle("d.allowSwapBetweenRounds", RuleGroup.D, "局间可换配装",
+                "开启后每局开始前可以重新选择配装。", false));
+        add(RuleDefinition.toggle("d.allowPickup", RuleGroup.D, "允许拾取场地物品",
+                "关闭后无法捡起场地里掉落的物品。", false));
+        add(RuleDefinition.toggle("d.allowCrafting", RuleGroup.D, "允许合成",
+                "关闭后工作台与背包合成格不可用。", false));
+        add(RuleDefinition.toggle("d.allowConsumables", RuleGroup.D, "允许消耗品",
+                "关闭后药水、食物、金苹果不可使用。", true));
+
+        // E. 场地
+        add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, "场地长度",
+                "场地在 X 方向的格数。", 16, 128, 8, 48, " 格"));
+        add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, "场地宽度",
+                "场地在 Z 方向的格数。", 16, 128, 8, 48, " 格"));
+        add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, "场地高度",
+                "场地在 Y 方向的格数，决定可搭建的垂直空间。", 8, 64, 4, 32, " 格"));
+        add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
+                "平坦为唯一的 P0 模板，其余模板在后续版本加入。", 0, "平坦"));
+        add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
+                "拉回会把越界者推回场内，判负会直接结束这一局。", 1, "拉回", "判负"));
+        add(RuleDefinition.multi("e.hazard", RuleGroup.E, "环境危害",
+                "场地内生效的额外伤害来源。", 0b0010, "无", "掉落伤害", "岩浆", "虚空"));
+
+        // F. 方块
+        add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, "允许放置方块",
+                "开启后可以在场地内放置白名单内的方块。", false));
+        add(RuleDefinition.toggle("f.allowBreakOwn", RuleGroup.F, "允许拆除自己放置的方块",
+                "只对本次对局中自己放置的方块生效，场地本体始终不可破坏。", true));
+        add(RuleDefinition.multi("f.blockFilter", RuleGroup.F, "方块限制",
+                "选中的项目会被禁止使用。默认禁掉床、重生锚、TNT 与流体桶。", 0b1111,
+                "床", "重生锚", "TNT", "流体桶", "末地水晶"));
+        add(RuleDefinition.toggle("f.allowExplosives", RuleGroup.F, "允许爆炸物",
+                "关闭后 TNT、苦力怕与末地水晶不产生爆炸。", false));
+
+        // G. 其他
+        add(RuleDefinition.toggle("g.enderPearl", RuleGroup.G, "允许末影珍珠",
+                "关闭后末影珍珠无法投掷。", false));
+        add(RuleDefinition.toggle("g.allowSurrender", RuleGroup.G, "允许投降",
+                "关闭后只能通过击杀或超时结束这一局。", true));
+        add(RuleDefinition.toggle("g.showOpponentHealth", RuleGroup.G, "显示对手血量",
+                "在界面上方显示对手的生命值。", true));
+        add(RuleDefinition.enumOf("g.chatScope", RuleGroup.G, "决斗中聊天",
+                "限制对局期间的聊天可见范围。", 1, "全服", "仅队友", "禁言"));
+    }
+
+    private RuleCatalog() {
+    }
+
+    private static void add(RuleDefinition def) {
+        ORDERED.add(def);
+        BY_ID.put(def.id, def);
+    }
+
+    public static List<RuleDefinition> all() {
+        return Collections.unmodifiableList(ORDERED);
+    }
+
+    public static List<RuleDefinition> of(RuleGroup group) {
+        List<RuleDefinition> out = new ArrayList<>();
+        for (RuleDefinition def : ORDERED) {
+            if (def.group == group) {
+                out.add(def);
+            }
+        }
+        return out;
+    }
+
+    public static RuleDefinition byId(String id) {
+        return BY_ID.get(id);
+    }
+
+    public static int size() {
+        return ORDERED.size();
+    }
+}
