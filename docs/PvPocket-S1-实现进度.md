@@ -24,6 +24,40 @@
 - 维度正常注册并参与存档：`Saving chunks for level 'ServerLevel[world]'/pvpocket:arena`。
 - 指令树注册成功，控制台执行 `/pvpocket` 输出帮助。
 - 关服流程走 `SERVER_STOPPING` 分支，正常结算与清理。
+- **双人对局端到端跑通**（见 `PvPocket-S2-实现进度.md` 的双客户端联调环境）：完整事件序列
+  `SESSION_CREATED → NEGOTIATING → SNAPSHOT_WRITTEN ×2 → FROZEN → ROUND_READY →
+  ROUND_STARTED → ROUND_ACTIVE → ROUND_ENDED → ARENA_CLEARED → RESTORING →
+  RESTORE_COMPLETED ×2 (verified=true) → ARCHIVED`，双方状态摘要校验通过。
+- 断线路径：一方在对局中断线 → `ROUND_ENDED reason=DISCONNECT`，在线方立即恢复，离线方
+  `RESTORE_DEFERRED`，下次登录时恢复。
+
+## 联调中发现并修复的三个缺陷
+
+首次双人对局暴露了三个只在"玩家中途离线"时才会触发的问题，全部与**延迟恢复**这条路径有关。
+它们叠在一起会让玩家丢失生存状态，因此单独记录。
+
+1. **`ARCHIVED` 会话被对账跳过，恢复债务永久丢失。**
+   `reconcile()` 开头 `if (stage.isTerminal()) continue;`，而 `ARCHIVED` 正是终态。玩家在对局
+   中断线 → 会话正常走完并归档 → 服务端重启 → 对账跳过该会话 → 这名玩家的快照再也不会被应用。
+   修复：把"恢复债务"拆成独立的一遍扫描，**不按阶段过滤**，只按 `snapshotFile != null &&
+   !restored` 判定；第二遍才做未完成会话的回滚。
+
+2. **延迟恢复没有落盘 `restored=true`。**
+   `restoreParticipant` 成功后会置 `p.restored = true`，但只靠调用方的 `transition()` 落盘。
+   正常结算路径有 `transition(ARCHIVED)` 兜住，延迟恢复路径没有。后果不是"少恢复一次"，而是
+   **多恢复一次**：下次重启时该参与者仍被判定为未恢复，快照被第二次应用，把玩家在恢复之后取得
+   的一切回滚掉。修复：在 `restoreParticipant` 内部 `persist(session)`，并加 `if (p.restored)
+   return true;` 的幂等短路。
+
+3. **`ServerPlayConnectionEvents.JOIN` 触发时玩家还不在 `PlayerManager` 里。**
+   延迟恢复挂在 JOIN 事件上，而该事件早于玩家注册，`getPlayer(uuid)` 必然返回 null，于是恢复
+   被"再次推迟"，永远等不到。修复：把延迟恢复从事件回调改为在 `tick()` 里排空
+   （`flushPendingRestores`），与事件顺序无关，也顺带覆盖任何其他留下债务的路径。排空时先摘除
+   条目再尝试，失败不重排，避免坏快照每 tick 刷一次错误。
+
+验证方式：制造一笔真实债务（Dev1 对局中断线 → 服务端重启）后逐项确认——
+对账打出 `Outstanding restore for Dev1 ... (stage ARCHIVED)`；Dev1 登录后
+`RESTORE_COMPLETED verified=true` 且磁盘 `restored=True`；再重启一次，债务告警数为 0。
 
 ## 未实现（S2 及以后）
 

@@ -103,10 +103,30 @@ public final class SessionManager {
     }
 
     /**
-     * Startup reconciliation. Any session that was not archived is rolled back: participants get
-     * queued for restore, and the series is marked void. No attempt is made to resume a round.
+     * Startup reconciliation.
+     *
+     * <p>Two independent jobs, in this order:</p>
+     * <ol>
+     *   <li><b>Restore debt.</b> Any participant whose snapshot was written but never applied is
+     *       queued for restore, <em>regardless of the session's stage</em>. This is deliberately not
+     *       limited to unfinished sessions: a player who disconnects mid-round gets a deferred
+     *       restore, the session then completes normally and becomes {@link SessionStage#ARCHIVED},
+     *       and a stage-filtered sweep would drop the debt silently on the next restart — losing
+     *       exactly the survival state this mod exists to protect.</li>
+     *   <li><b>Rollback.</b> Anything unfinished is voided. No attempt is made to resume a round.</li>
+     * </ol>
      */
     public void reconcile() {
+        for (DuelSession session : sessions.values()) {
+            for (Participant p : session.participants) {
+                if (p.snapshotFile != null && !p.restored) {
+                    pendingRestore.put(UUID.fromString(p.uuid), session.id);
+                    PvPocket.LOGGER.warn("Outstanding restore for {} in session {} (stage {})",
+                            p.name, session.id, session.stage);
+                }
+            }
+        }
+
         for (DuelSession session : sessions.values()) {
             if (session.stage.isTerminal()) {
                 continue;
@@ -118,11 +138,6 @@ public final class SessionManager {
                 continue;
             }
             PvPocket.LOGGER.warn("Reconciling unfinished session {} at stage {}", session.id, session.stage);
-            for (Participant p : session.participants) {
-                if (p.snapshotFile != null && !p.restored) {
-                    pendingRestore.put(UUID.fromString(p.uuid), session.id);
-                }
-            }
             session.voidReason = "SERVER_CRASH";
             journal(session).append("ANOMALY", "detail", "unfinished session reconciled", "stage", session.stage.name());
             transition(session, SessionStage.VOIDED);
@@ -148,26 +163,57 @@ public final class SessionManager {
         // per join is a cheap price for never having to reason about how the state got there.
         PvPocketNetworking.sendState(player);
 
-        String sessionId = pendingRestore.remove(player.getUuid());
-        if (sessionId == null) {
+        // Deliberately no restore attempt here. ServerPlayConnectionEvents.JOIN fires before the
+        // player is registered with the PlayerManager, so a lookup by UUID still misses them and the
+        // restore would be deferred forever. Deferred restores are drained from tick() instead,
+        // which does not depend on event ordering and also covers every other path that can leave a
+        // debt behind.
+    }
+
+    /**
+     * Applies any deferred restores whose player is now online.
+     *
+     * <p>Runs every tick over a map that is empty in the common case, so the cost is a single
+     * {@code isEmpty()} check. Attempts are one-shot: the entry is removed before the attempt, so a
+     * snapshot that cannot be applied produces one error instead of one per tick. A subsequent
+     * restart re-queues it from disk if the participant is still marked unrestored.</p>
+     */
+    private void flushPendingRestores() {
+        if (pendingRestore.isEmpty()) {
             return;
         }
-        DuelSession session = sessions.get(sessionId);
-        if (session == null) {
-            PvPocket.LOGGER.error("Pending restore references unknown session {}", sessionId);
-            return;
+        List<UUID> ready = new ArrayList<>();
+        for (Map.Entry<UUID, String> entry : pendingRestore.entrySet()) {
+            if (server.getPlayerManager().getPlayer(entry.getKey()) != null) {
+                ready.add(entry.getKey());
+            }
         }
-        Participant p = session.participant(player.getUuidAsString());
-        if (p == null) {
-            return;
-        }
-        boolean ok = restoreParticipant(session, p);
-        if (ok) {
-            player.sendMessage(Text.literal("上一场决斗因服务器中断已作废，你的生存状态已恢复。")
-                    .formatted(Formatting.YELLOW), false);
-        } else {
-            player.sendMessage(Text.literal("生存状态恢复失败，请联系管理员（会话 " + sessionId + "）。")
-                    .formatted(Formatting.RED), false);
+        for (UUID uuid : ready) {
+            String sessionId = pendingRestore.remove(uuid);
+            ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+            if (player == null || sessionId == null) {
+                continue;
+            }
+            DuelSession session = sessions.get(sessionId);
+            if (session == null) {
+                PvPocket.LOGGER.error("Pending restore references unknown session {}", sessionId);
+                continue;
+            }
+            Participant p = session.participant(uuid.toString());
+            if (p == null) {
+                continue;
+            }
+            if (!restoreParticipant(session, p)) {
+                player.sendMessage(Text.literal("生存状态恢复失败，请联系管理员（会话 " + sessionId + "）。")
+                        .formatted(Formatting.RED), false);
+                continue;
+            }
+            // A deferred restore has two causes and they read very differently to a player: the
+            // session was voided by a crash, or it finished normally and they simply left early.
+            String note = session.voidReason == null
+                    ? "上一场决斗已结束，你的生存状态已恢复。"
+                    : "上一场决斗因服务器中断已作废，你的生存状态已恢复。";
+            player.sendMessage(Text.literal(note).formatted(Formatting.YELLOW), false);
         }
     }
 
@@ -224,6 +270,7 @@ public final class SessionManager {
             deferred.clear();
             copy.forEach(Runnable::run);
         }
+        flushPendingRestores();
         for (DuelSession session : sessions.values()) {
             if (session.stage != SessionStage.ROUND_ACTIVE) {
                 continue;
@@ -465,6 +512,12 @@ public final class SessionManager {
     }
 
     private boolean restoreParticipant(DuelSession session, Participant p) {
+        if (p.restored) {
+            // Idempotence is the whole point of the crash-safety design. Re-applying an old snapshot
+            // is never correct: it would roll the player back past everything they did since the
+            // first restore. Callers therefore do not need to know whether this already ran.
+            return true;
+        }
         UUID uuid = UUID.fromString(p.uuid);
         // Combat state is server-side bookkeeping and must be dropped even if the player is offline,
         // otherwise a later round would start with a stale legacy flag.
@@ -484,6 +537,14 @@ public final class SessionManager {
             snapshot.restore(player);
             boolean verified = snapshot.verify(player);
             p.restored = true;
+            // Persisted here rather than left to the caller's later transition(). The deferred
+            // restore path (the tick drainer) has no transition of its own, so without this the flag
+            // would live only in memory: the next restart would re-queue the same participant and
+            // apply the snapshot a second time, wiping everything the player earned after the first
+            // restore. Writing per participant also makes the restore loop itself crash-safe — a
+            // crash halfway through leaves a correct intermediate state that names exactly who is
+            // still owed a restore.
+            persist(session);
             sessionByPlayer.remove(player.getUuid());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {
@@ -496,7 +557,9 @@ public final class SessionManager {
         } catch (Exception e) {
             PvPocket.LOGGER.error("Restore failed for {} in session {}", p.name, session.id, e);
             journal(session).append("ANOMALY", "player", p.name, "detail", "restore failed: " + e);
-            pendingRestore.put(UUID.fromString(p.uuid), session.id);
+            // Not re-queued on purpose. The tick drainer removes the entry before attempting, so
+            // re-queueing here would retry a genuinely broken snapshot every tick forever. The
+            // participant stays marked unrestored on disk, so a restart will offer one more attempt.
             return false;
         }
     }
