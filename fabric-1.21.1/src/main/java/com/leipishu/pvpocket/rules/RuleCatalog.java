@@ -102,8 +102,11 @@ public final class RuleCatalog {
         // F. 方块
         add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, "允许放置方块",
                 "开启后可以在场地内放置白名单内的方块。", false));
+        add(RuleDefinition.toggle("f.protectTerrain", RuleGroup.F, "地形保护",
+                "开启后地图本身的方块不可破坏，只有本局放置的方块能拆。关闭后可以挖穿场地，"
+                        + "本局结束时地形仍会复原。", true));
         add(RuleDefinition.toggle("f.allowBreakOwn", RuleGroup.F, "允许拆除自己放置的方块",
-                "只对本次对局中自己放置的方块生效，场地本体始终不可破坏。", true));
+                "只对本次对局中放置的方块生效，场地本体是否可破坏由「地形保护」决定。", true));
         add(RuleDefinition.multi("f.blockFilter", RuleGroup.F, "方块限制",
                 "选中的项目会被禁止使用。默认禁掉床、重生锚、TNT 与流体桶。", 0b1111,
                 "床", "重生锚", "TNT", "流体桶", "末地水晶"));

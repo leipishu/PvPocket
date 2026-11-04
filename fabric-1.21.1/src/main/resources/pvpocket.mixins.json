@@ -4,7 +4,9 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "LivingEntityMixin",
-    "PlayerEntityMixin"
+    "PlayerEntityMixin",
+    "SpawnHelperMixin",
+    "WorldBlockChangeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

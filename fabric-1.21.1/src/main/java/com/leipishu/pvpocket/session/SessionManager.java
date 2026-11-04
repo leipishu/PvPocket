@@ -2,8 +2,11 @@ package com.leipishu.pvpocket.session;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.loadout.Loadout;
+import com.leipishu.pvpocket.loadout.LoadoutBuilder;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
@@ -42,6 +45,18 @@ public final class SessionManager {
 
     private static SessionManager instance;
 
+    /** How often stray mobs are swept out of leased plots, in server ticks. */
+    private static final int SWEEP_INTERVAL = 60;
+
+    /**
+     * Lower bound on the opening grace window, in milliseconds.
+     *
+     * <p>Ten seconds is not a balance number: it is roughly the worst case measured for a dev client
+     * to finish streaming a dimension it has never loaded. Anything shorter turns a slow disk into a
+     * lost round.</p>
+     */
+    private static final long BOUNDARY_GRACE_FLOOR_MS = 10_000L;
+
     private final MinecraftServer server;
     private final PvPocketStorage storage;
     private final Map<String, DuelSession> sessions = new LinkedHashMap<>();
@@ -51,6 +66,9 @@ public final class SessionManager {
     private final Map<UUID, String> pendingRestore = new LinkedHashMap<>();
     private final Map<String, SessionJournal> journals = new HashMap<>();
     private final List<Runnable> deferred = new ArrayList<>();
+    /** Session id -> wall-clock start of the current round, for the opening grace window. */
+    private final Map<String, Long> roundStartedAt = new HashMap<>();
+    private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
         this.server = server;
@@ -155,6 +173,7 @@ public final class SessionManager {
             }
         }
         CombatState.clearAll();
+        ArenaManager.clearAll();
         journals.values().forEach(SessionJournal::close);
         journals.clear();
     }
@@ -275,19 +294,46 @@ public final class SessionManager {
             copy.forEach(Runnable::run);
         }
         flushPendingRestores();
+        // Natural spawning is cancelled inside the arena dimension, so this is only a net for the
+        // doors that bypass it (spawn eggs, spawner blocks, /summon). Three seconds is frequent
+        // enough that a stray mob never gets to swing at anyone.
+        if (++sweepTimer >= SWEEP_INTERVAL) {
+            sweepTimer = 0;
+            int swept = ArenaManager.sweepMobs(server);
+            if (swept > 0) {
+                PvPocket.LOGGER.info("Swept {} stray mobs from leased arena plots", swept);
+            }
+        }
         for (DuelSession session : sessions.values()) {
             if (session.stage != SessionStage.ROUND_ACTIVE) {
                 continue;
             }
+            ArenaRegion region = ArenaManager.region(session.id);
+            if (region == null) {
+                continue;
+            }
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
-                if (player != null && !ArenaManager.isInside(player)) {
-                    // e.boundary decides what leaving the arena means. "拉回" is a teleport back to
-                    // the spawn point rather than a nudge along the wall: it is unambiguous, it
-                    // cannot be fought against, and it reuses the same placement code as round start.
-                    if (boundaryIsPushBack(session)) {
-                        ArenaManager.teleportToSpawn(player, p.spawnIndex);
-                        journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name);
+                if (player != null && !ArenaManager.isInside(player, region)) {
+                    // Logged with coordinates on purpose: "left the arena" has two very different
+                    // causes (a player walked out, or a teleport did not stick) and the position is
+                    // the only thing that tells them apart after the fact.
+                    journal(session).append("BOUNDARY_EXIT",
+                            "player", p.name,
+                            "region", region.id,
+                            "pos", String.format("%.2f,%.2f,%.2f",
+                                    player.getX(), player.getY(), player.getZ()),
+                            "world", player.getWorld().getRegistryKey().getValue().toString());
+                    // During the opening grace window leaving is never a loss, it is a reset. A
+                    // client that is still streaming the new dimension can report a position from
+                    // before the teleport for several seconds after the server has already moved
+                    // the player; judging that as "walked out" would end the duel before either
+                    // side could see the arena. Snapping back is self-correcting and matches what
+                    // the countdown rule already promises.
+                    if (inOpeningGrace(session) || boundaryIsPushBack(session)) {
+                        ArenaManager.teleportToSpawn(player, region, p.spawnIndex);
+                        journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name,
+                                "grace", inOpeningGrace(session));
                         continue;
                     }
                     Participant opponent = session.opponentOf(p.uuid);
@@ -296,6 +342,24 @@ public final class SessionManager {
                 }
             }
         }
+    }
+
+    /**
+     * True while the round is still inside its opening grace window.
+     *
+     * <p>Length is the countdown rule, floored at {@link #BOUNDARY_GRACE_FLOOR_MS}. The floor exists
+     * because the countdown is a design value measured in seconds while the problem it protects
+     * against — a client finishing its chunk download for a dimension it has never visited — is
+     * measured in whatever the machine happens to take. Three seconds of countdown and no grace is
+     * a duel that can be lost during the loading screen.</p>
+     */
+    private boolean inOpeningGrace(DuelSession session) {
+        long startedAt = roundStartedAt.getOrDefault(session.id, 0L);
+        if (startedAt == 0L) {
+            return false;
+        }
+        long countdown = DuelRules.decode(session.rules).get("a.countdown") * 1000L;
+        return System.currentTimeMillis() - startedAt < Math.max(BOUNDARY_GRACE_FLOOR_MS, countdown);
     }
 
     private static boolean boundaryIsPushBack(DuelSession session) {
@@ -348,6 +412,14 @@ public final class SessionManager {
         session.updatedAt = session.createdAt;
         session.participants.add(new Participant(challenger.getUuidAsString(), challenger.getName().getString(), 0));
         session.participants.add(new Participant(target.getUuidAsString(), target.getName().getString(), 1));
+
+        // Both sides start from the same editable preset rather than an empty loadout. An empty one
+        // would make the first duel an unarmed fistfight, which reads as a bug rather than a choice.
+        Loadout preset = Loadout.defaultDuel();
+        for (Participant p : session.participants) {
+            p.loadout = preset.encode();
+            p.loadoutDigest = preset.digest();
+        }
 
         // The `legacy` literal on the command is a seed for c.mode, not a separate code path: it
         // pre-selects the rule so the panel opens on the mode the player asked for, and the other
@@ -500,6 +572,23 @@ public final class SessionManager {
             fail(accepter, "决斗维度未加载。");
             return;
         }
+        // The lease is taken before anything is frozen. A full grid must fail while the session is
+        // still in NEGOTIATING — after the snapshot the only honest outcome would be a rollback of
+        // two inventories for a reason that had nothing to do with the players.
+        DuelRules rules = DuelRules.decode(session.rules);
+        ArenaRegion region = ArenaManager.allocate(server, session.id,
+                rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
+                rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
+        if (region == null) {
+            fail(accepter, "场地已满，暂时无法开始新的决斗。");
+            return;
+        }
+        session.arenaId = region.id;
+        journal(session).append("ARENA_LEASED", "region", region.id,
+                "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ,
+                "origin", region.minX + "," + region.minZ,
+                "protectTerrain", region.protectTerrain,
+                "allowBreakOwn", region.allowBreakOwn);
         journal(session).append("RULES_ACCEPTED",
                 "revision", session.rulesRevision,
                 "author", session.rulesAuthor,
@@ -531,6 +620,23 @@ public final class SessionManager {
             return;
         }
         startAccepted(session, player);
+    }
+
+    /**
+     * Command shortcut for the panel's 「发送征询」.
+     *
+     * <p>It re-submits the current revision unchanged, which is exactly what pressing the button
+     * without editing anything does — so the command path exercises the same code as the GUI rather
+     * than a parallel one. Without it, a duel could not be driven from the console at all: the panel
+     * is the only way out of {@link SessionStage#DRAFT}.</p>
+     */
+    public void propose(ServerPlayerEntity player) {
+        DuelSession session = findOpenSession(player.getUuid());
+        if (session == null) {
+            fail(player, "没有待发送的规则提案。");
+            return;
+        }
+        onRulesSubmit(player, RulesSubmitPayload.ACTION_PROPOSE, session.rules);
     }
 
     public void deny(ServerPlayerEntity player) {
@@ -615,6 +721,27 @@ public final class SessionManager {
         return mode == CombatMode.LEGACY_1_8 ? "1.8 战斗" : "现代战斗";
     }
 
+    /**
+     * The loadout this player would enter with right now.
+     *
+     * <p>Falls back to the default preset rather than returning null so that the diagnostic command
+     * and a first duel show the same thing — a null here would make "no loadout yet" look like
+     * "loadout support is broken".</p>
+     */
+    public Loadout loadoutFor(ServerPlayerEntity player) {
+        String uuid = player.getUuidAsString();
+        for (DuelSession session : sessions.values()) {
+            if (session.stage.isTerminal()) {
+                continue;
+            }
+            Participant p = session.participant(uuid);
+            if (p != null && p.loadout != null) {
+                return Loadout.decode(p.loadout);
+            }
+        }
+        return Loadout.defaultDuel();
+    }
+
     public void status(ServerPlayerEntity player) {
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
@@ -670,12 +797,16 @@ public final class SessionManager {
         CombatMode mode = CombatMode.byId(session.mode);
         DuelRules rules = DuelRules.decode(session.rules);
         int maxHealth = rules.get("c.maxHealth");
+        ArenaRegion region = ArenaManager.region(session.id);
+        if (region == null) {
+            throw new IllegalStateException("no arena plot leased for session " + session.id);
+        }
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
-            if (!ArenaManager.teleportToSpawn(player, p.spawnIndex)) {
+            if (!ArenaManager.teleportToSpawn(player, region, p.spawnIndex)) {
                 throw new IllegalStateException("arena world unavailable");
             }
             player.changeGameMode(GameMode.SURVIVAL);
@@ -687,6 +818,13 @@ public final class SessionManager {
                 player.setHealth(Math.min(player.getHealth(), player.getMaxHealth()));
             }
             CombatState.setMode(player.getUuid(), mode);
+            // Loadout is granted here, not at freeze(): the snapshot must contain the survival
+            // inventory, so anything written before it would be captured as if the player owned it.
+            Loadout loadout = p.loadout == null ? Loadout.defaultDuel() : Loadout.decode(p.loadout);
+            int granted = LoadoutBuilder.grant(player, loadout, p.spawnIndex);
+            p.loadoutApplied = true;
+            journal(session).append("LOADOUT_APPLIED", "player", p.name,
+                    "digest", p.loadoutDigest, "items", granted);
             // The client mirrors the rule set to predict movement and to hide the attack cooldown
             // indicator, so it has to be told which mode this round runs before the first hit.
             PvPocketNetworking.sendState(player);
@@ -695,7 +833,11 @@ public final class SessionManager {
                     .formatted(Formatting.GREEN), false);
         }
         journal(session).append("ROUND_STARTED", "round", session.round,
-                "digest", session.rulesDigest);
+                "digest", session.rulesDigest,
+                "region", region.id,
+                "spawns", region.spawnX(0) + "," + ArenaRegion.SURFACE_Y + "," + region.spawnZ()
+                        + " | " + region.spawnX(1) + "," + ArenaRegion.SURFACE_Y + "," + region.spawnZ());
+        roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
     }
 
@@ -712,7 +854,9 @@ public final class SessionManager {
         session.pendingWinner = null;
         session.pendingReason = null;
 
-        int cleared = ArenaManager.clearDroppedItems(server);
+        ArenaRegion region = ArenaManager.region(session.id);
+        var arenaWorld = ArenaManager.world(server);
+        int cleared = ArenaManager.clearDroppedItems(arenaWorld, region);
         journal(session).append("ARENA_CLEARED", "removed", cleared);
 
         transition(session, SessionStage.RESTORING);
@@ -720,6 +864,19 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             restoreParticipant(session, p);
         }
+
+        // Blocks are reverted after the restore, not before: restoring teleports the players out, so
+        // by the time the floor disappears there is nobody standing on it.
+        if (region != null) {
+            int tracked = region.changeCount();
+            int reverted = ArenaManager.revertRegion(arenaWorld, region);
+            journal(session).append("ARENA_REVERTED", "region", region.id,
+                    "blocks", reverted, "tracked", tracked);
+        }
+        ArenaManager.release(session.id);
+        journal(session).append("ARENA_RELEASED", "region", session.arenaId);
+        roundStartedAt.remove(session.id);
+
         transition(session, SessionStage.ARCHIVED);
         inviteByTarget.values().removeIf(session.id::equals);
     }
@@ -733,6 +890,7 @@ public final class SessionManager {
                 restoreParticipant(session, p);
             }
         }
+        ArenaManager.release(session.id);
         journal(session).append("SESSION_ABORTED", "reason", reason);
         transition(session, SessionStage.VOIDED);
     }

@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
@@ -86,6 +87,11 @@ public final class PvPocket implements ModInitializer {
                 manager.tick();
             }
         });
+
+        // Terrain protection is a veto, so it has to run before the block is removed. Recording the
+        // resulting change is handled separately by the World mixin, which also sees explosions.
+        PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) ->
+                com.leipishu.pvpocket.arena.ArenaManager.allowBreak(world, player, pos));
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 PvPocketCommands.register(dispatcher));
