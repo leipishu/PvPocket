@@ -43,6 +43,8 @@ public class RuleScreen extends PvScreen {
     private static final int MAX_H = 316;
     private static final int HEADER_H = 52;
     private static final int FOOTER_H = 36;
+    /** Below this the group hint is no longer a sentence, so the loadout summary shortens instead. */
+    private static final int MIN_HINT_W = 190;
 
     private final RulesOpenPayload payload;
     private final DuelRules incoming;
@@ -209,9 +211,18 @@ public class RuleScreen extends PvScreen {
         int hintRight = panelX + panelW - 12;
         int hintMax = hintRight - pane.x;
         if (loadout != null && !loadout.isEmpty()) {
-            String tag = "配装 " + loadout;
-            int tagW = tr.getWidth(tag);
-            PvDraw.textRight(ctx, tr, tag, hintRight, panelY + 38, PvTheme.TEXT_DIM);
+            int tagW = tr.getWidth(loadout);
+            // The summary wins the space, because it is the only place the agreement counter appears
+            // and a negotiation where nobody can see "同意 1/2" is a negotiation nobody can act on.
+            // The hint gives way instead — but only down to a point: cut below roughly a dozen
+            // characters it stops being a sentence at all ("一场决斗由几局组成、怎么…"), so at that
+            // width the summary drops to its agreement half and the hint gets its space back.
+            if (hintRight - tagW - 12 - pane.x < MIN_HINT_W) {
+                int tail = loadout.lastIndexOf('·');
+                loadout = tail < 0 ? loadout : "配装 ·" + loadout.substring(tail + 1);
+                tagW = tr.getWidth(loadout);
+            }
+            PvDraw.textRight(ctx, tr, loadout, hintRight, panelY + 38, PvTheme.TEXT_DIM);
             hintMax = hintRight - tagW - 12 - pane.x;
         }
         PvDraw.text(ctx, tr, PvDraw.fit(tr, groupHint(tabs.group()), Math.max(0, hintMax)),
@@ -227,7 +238,7 @@ public class RuleScreen extends PvScreen {
         int changes = changeCount();
 
         String left = reviewer
-                ? "同意即按当前版本开始 · 「编辑配装」调整进场物品"
+                ? "同意即按当前规则与双方配装开始 · 「编辑配装」调整进场物品"
                 : "设置完成后发送给对方 · 「编辑配装」调整进场物品";
         int color = PvTheme.TEXT_MUTED;
         if (changes > 0) {

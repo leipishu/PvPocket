@@ -205,10 +205,7 @@ public final class PvPocketCommands {
 
     private static int loadoutReset(CommandContext<ServerCommandSource> ctx) {
         try {
-            ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
-            SessionManager.get().loadoutBook().clear(player.getUuid());
-            player.sendMessage(Text.literal("个人配装已清空，下次发起决斗将使用默认预设。")
-                    .formatted(Formatting.GREEN), false);
+            SessionManager.get().resetPersonalLoadout(ctx.getSource().getPlayerOrThrow());
             return 1;
         } catch (Exception e) {
             return 0;

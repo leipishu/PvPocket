@@ -3,10 +3,12 @@ package com.leipishu.pvpocket.client;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.CombatStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
+import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import net.fabricmc.api.ClientModInitializer;
@@ -67,12 +69,21 @@ public final class PvPocketClient implements ClientModInitializer {
             });
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(MatchHudPayload.ID, (payload, context) -> {
+            // No log line: this arrives at every round boundary for every participant, and it would
+            // bury the panel lines that a developer actually needs to see.
+            context.client().execute(() -> MatchHud.update(payload));
+        });
+
         // A stale mirror after leaving a world would make the next join start with a phantom block
         // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             CombatState.clearAll();
             BlockingInput.reset();
+            MatchHud.clear();
         });
+
+        MatchHud.register();
 
         PvPocket.LOGGER.info("PvPocket client bootstrap complete");
     }

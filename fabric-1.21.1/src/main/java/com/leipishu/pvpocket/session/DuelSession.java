@@ -18,9 +18,11 @@ public final class DuelSession {
     public long updatedAt;
     public String voidReason;
 
-    /** S1 is fixed to one round of modern combat; the fields exist so later stages can widen it. */
+    /** "modern" or "legacy", derived from c.mode. */
     public String mode = "modern";
+    /** Rounds in the series. Odd, 1..15; 15 means "first to 8". Derived from a.series. */
     public int bestOf = 1;
+    /** 1-based index of the round currently being played or just played. */
     public int round;
 
     /**

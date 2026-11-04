@@ -29,6 +29,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(MatchHudPayload.ID, MatchHudPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(BlockingPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -64,6 +65,19 @@ public final class PvPocketNetworking {
                 }
             });
         });
+    }
+
+    /**
+     * Pushes the scoreboard to one client.
+     *
+     * <p>Silent on purpose — no log line. Unlike a panel opening (which a developer wants to see in
+     * the log when it does not appear), the HUD is sent on every round boundary to every participant,
+     * and logging it would bury the interesting lines.</p>
+     */
+    public static void sendHud(ServerPlayerEntity player, MatchHudPayload payload) {
+        if (ServerPlayNetworking.canSend(player, MatchHudPayload.ID)) {
+            ServerPlayNetworking.send(player, payload);
+        }
     }
 
     /**
