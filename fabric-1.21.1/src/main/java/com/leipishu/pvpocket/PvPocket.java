@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket;
 
 import com.leipishu.pvpocket.command.PvPocketCommands;
+import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.session.SessionManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -31,6 +32,8 @@ public final class PvPocket implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        PvPocketNetworking.registerCommon();
+
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             SessionManager manager = SessionManager.create(server);
             manager.load();

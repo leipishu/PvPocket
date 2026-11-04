@@ -2,6 +2,9 @@ package com.leipishu.pvpocket.session;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.combat.CombatMode;
+import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
@@ -132,6 +135,7 @@ public final class SessionManager {
                 settle(session, "SERVER_STOP", null);
             }
         }
+        CombatState.clearAll();
         journals.values().forEach(SessionJournal::close);
         journals.clear();
     }
@@ -139,6 +143,11 @@ public final class SessionManager {
     // ------------------------------------------------------------------ player events
 
     public void onJoin(ServerPlayerEntity player) {
+        // Unconditional, because the client mirror is a correctness requirement rather than a hint:
+        // a stale legacy flag would leave the player with a permanent block penalty. One tiny packet
+        // per join is a cheap price for never having to reason about how the state got there.
+        PvPocketNetworking.sendState(player);
+
         String sessionId = pendingRestore.remove(player.getUuid());
         if (sessionId == null) {
             return;
@@ -232,7 +241,7 @@ public final class SessionManager {
 
     // ------------------------------------------------------------------ commands
 
-    public void requestDuel(ServerPlayerEntity challenger, ServerPlayerEntity target) {
+    public void requestDuel(ServerPlayerEntity challenger, ServerPlayerEntity target, CombatMode mode) {
         if (challenger.getUuid().equals(target.getUuid())) {
             fail(challenger, "不能向自己发起决斗。");
             return;
@@ -261,6 +270,7 @@ public final class SessionManager {
 
         DuelSession session = new DuelSession();
         session.id = UUID.randomUUID().toString();
+        session.mode = mode.id();
         session.createdAt = System.currentTimeMillis();
         session.updatedAt = session.createdAt;
         session.participants.add(new Participant(challenger.getUuidAsString(), challenger.getName().getString(), 0));
@@ -273,11 +283,16 @@ public final class SessionManager {
                 "target", target.getName().getString());
         transition(session, SessionStage.NEGOTIATING);
 
-        challenger.sendMessage(Text.literal("已向 " + target.getName().getString() + " 发起决斗（BO1，现代战斗）。")
+        challenger.sendMessage(Text.literal("已向 " + target.getName().getString()
+                        + " 发起决斗（BO1，" + modeLabel(mode) + "）。")
                 .formatted(Formatting.GRAY), false);
         target.sendMessage(Text.literal(challenger.getName().getString()
-                        + " 向你发起决斗。输入 /pvpocket accept 接受，/pvpocket deny 拒绝。")
+                        + " 向你发起决斗（" + modeLabel(mode) + "）。输入 /pvpocket accept 接受，/pvpocket deny 拒绝。")
                 .formatted(Formatting.GOLD), false);
+    }
+
+    private static String modeLabel(CombatMode mode) {
+        return mode == CombatMode.LEGACY_1_8 ? "1.8 战斗" : "现代战斗";
     }
 
     public void accept(ServerPlayerEntity player) {
@@ -390,6 +405,7 @@ public final class SessionManager {
 
     private void startRound(DuelSession session) {
         session.round++;
+        CombatMode mode = CombatMode.byId(session.mode);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
@@ -399,7 +415,12 @@ public final class SessionManager {
                 throw new IllegalStateException("arena world unavailable");
             }
             player.changeGameMode(GameMode.SURVIVAL);
-            player.sendMessage(Text.literal("决斗开始。输入 /pvpocket surrender 认输。")
+            CombatState.setMode(player.getUuid(), mode);
+            // The client mirrors the rule set to predict movement and to hide the attack cooldown
+            // indicator, so it has to be told which mode this round runs before the first hit.
+            PvPocketNetworking.sendState(player);
+            player.sendMessage(Text.literal("决斗开始（" + modeLabel(mode)
+                            + "）。输入 /pvpocket surrender 认输。")
                     .formatted(Formatting.GREEN), false);
         }
         journal(session).append("ROUND_STARTED", "round", session.round);
@@ -444,12 +465,19 @@ public final class SessionManager {
     }
 
     private boolean restoreParticipant(DuelSession session, Participant p) {
+        UUID uuid = UUID.fromString(p.uuid);
+        // Combat state is server-side bookkeeping and must be dropped even if the player is offline,
+        // otherwise a later round would start with a stale legacy flag.
+        CombatState.clear(uuid);
         ServerPlayerEntity player = online(p);
         if (player == null) {
-            pendingRestore.put(UUID.fromString(p.uuid), session.id);
+            pendingRestore.put(uuid, session.id);
             journal(session).append("RESTORE_DEFERRED", "player", p.name);
             return false;
         }
+        // Cleared above, so this is the unconditional push: an offline-then-online player would
+        // otherwise keep a stale legacy flag and a phantom block penalty on their client.
+        PvPocketNetworking.sendState(player);
         try {
             Path file = storage.snapshotDir(session.id).resolve(p.snapshotFile);
             PlayerSnapshot snapshot = PlayerSnapshot.readFrom(file);

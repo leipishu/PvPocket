@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.command;
 
+import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -26,7 +27,9 @@ public final class PvPocketCommands {
 
         root.then(CommandManager.literal("duel")
                 .then(CommandManager.argument("target", EntityArgumentType.player())
-                        .executes(PvPocketCommands::duel)));
+                        .executes(ctx -> duel(ctx, CombatMode.MODERN))
+                        .then(CommandManager.literal("legacy")
+                                .executes(ctx -> duel(ctx, CombatMode.LEGACY_1_8)))));
 
         root.then(CommandManager.literal("accept").executes(PvPocketCommands::accept));
         root.then(CommandManager.literal("deny").executes(PvPocketCommands::deny));
@@ -39,18 +42,18 @@ public final class PvPocketCommands {
     private static int help(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
         source.sendFeedback(() -> Text.literal("PvPocket 指令：").formatted(Formatting.AQUA), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家>  发起决斗").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家> [legacy]  发起决斗（加 legacy 为 1.8 战斗）").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket accept|deny  接受或拒绝邀请").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         return 1;
     }
 
-    private static int duel(CommandContext<ServerCommandSource> ctx) {
+    private static int duel(CommandContext<ServerCommandSource> ctx, CombatMode mode) {
         try {
             ServerPlayerEntity self = ctx.getSource().getPlayerOrThrow();
             ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "target");
-            SessionManager.get().requestDuel(self, target);
+            SessionManager.get().requestDuel(self, target, mode);
             return 1;
         } catch (Exception e) {
             return 0;
