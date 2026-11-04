@@ -722,6 +722,78 @@ public final class SessionManager {
     }
 
     /**
+     * Opens the loadout editor for whoever is in a session that has not started yet.
+     *
+     * <p>Deliberately reachable from both sides and from either stage: a player who is proposing
+     * configures their loadout before sending, and a player who is reviewing configures it before
+     * accepting. It is the same screen either way, which is the point.</p>
+     */
+    public void onLoadoutRequest(ServerPlayerEntity player) {
+        DuelSession session = findOpenSession(player.getUuid());
+        if (session == null) {
+            fail(player, "当前没有可以配置配装的决斗。");
+            return;
+        }
+        Participant p = session.participant(player.getUuidAsString());
+        if (p == null) {
+            return;
+        }
+        if (p.loadout == null) {
+            Loadout preset = Loadout.defaultDuel();
+            p.loadout = preset.encode();
+            p.loadoutDigest = preset.digest();
+        }
+        int role = session.stage == SessionStage.DRAFT
+                ? RulesOpenPayload.ROLE_PROPOSER
+                : RulesOpenPayload.ROLE_REVIEWER;
+        PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
+                session.id, p.loadout, role, otherName(session, player.getUuidAsString())));
+    }
+
+    /**
+     * Stores a loadout submitted by a client, after re-validating it.
+     *
+     * <p>The client runs the same validation to keep its save button honest, but a client is not a
+     * source of truth: this is the pass that actually decides whether a loadout becomes items. A
+     * rejected loadout leaves the previous one untouched rather than half-applying.</p>
+     */
+    public void onLoadoutSubmit(ServerPlayerEntity player, String sessionId, String encoded) {
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage.isTerminal()) {
+            fail(player, "这场决斗已经结束。");
+            return;
+        }
+        if (!session.isParticipant(player.getUuidAsString())) {
+            fail(player, "你不在这场决斗里。");
+            return;
+        }
+        if (!session.stage.isPreFreeze()) {
+            fail(player, "决斗已经开始，配装不能再改。");
+            return;
+        }
+        Loadout loadout = Loadout.decode(encoded);
+        List<String> problems = loadout.validate();
+        if (!problems.isEmpty()) {
+            fail(player, "配装未保存：" + problems.get(0));
+            return;
+        }
+        Participant p = session.participant(player.getUuidAsString());
+        if (p == null) {
+            return;
+        }
+        p.loadout = loadout.encode();
+        p.loadoutDigest = loadout.digest();
+        journal(session).append("LOADOUT_SAVED",
+                "player", p.name,
+                "digest", p.loadoutDigest,
+                "items", loadout.size(),
+                "summary", loadout.name);
+        persist(session);
+        player.sendMessage(Text.literal("配装已保存（" + loadout.size() + " 项 · "
+                + p.loadoutDigest + "）。").formatted(Formatting.GREEN), false);
+    }
+
+    /**
      * The loadout this player would enter with right now.
      *
      * <p>Falls back to the default preset rather than returning null so that the diagnostic command

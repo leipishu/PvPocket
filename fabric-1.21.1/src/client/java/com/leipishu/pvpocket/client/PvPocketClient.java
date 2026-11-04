@@ -1,10 +1,12 @@
 package com.leipishu.pvpocket.client;
 
 import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.CombatStatePayload;
+import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import net.fabricmc.api.ClientModInitializer;
@@ -42,7 +44,26 @@ public final class PvPocketClient implements ClientModInitializer {
                         payload.sessionId(), showing);
                 if (showing) {
                     ((RuleScreen) context.client().currentScreen).closeSilently();
+                    return;
                 }
+                // The loadout editor is a child of the rule panel, so it has to go too: leaving it
+                // open over a finished session would let the player keep editing a loadout that can
+                // never be applied.
+                if (context.client().currentScreen instanceof LoadoutScreen editor
+                        && editor.sessionId().equals(payload.sessionId())) {
+                    context.client().setScreen(null);
+                }
+            });
+        });
+
+        ClientPlayNetworking.registerGlobalReceiver(LoadoutOpenPayload.ID, (payload, context) -> {
+            PvPocket.LOGGER.info("Received loadout_open for session {}", payload.sessionId());
+            context.client().execute(() -> {
+                // The editor is opened from the rule panel and returns to it, so the panel instance is
+                // carried across rather than reconstructed: rebuilding it would throw away any rule
+                // edits the player had made but not yet sent.
+                RuleScreen parent = context.client().currentScreen instanceof RuleScreen screen ? screen : null;
+                context.client().setScreen(new LoadoutScreen(payload, parent));
             });
         });
 

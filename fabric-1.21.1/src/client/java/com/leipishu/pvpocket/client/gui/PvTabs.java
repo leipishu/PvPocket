@@ -18,20 +18,43 @@ import java.util.List;
  */
 public class PvTabs extends PvWidget {
 
+    private final List<String> labels;
+    /** Right-aligned short badge per tab; null for strips that do not need one. */
+    private final List<String> badges;
+    /** Non-null only for the rule-group strip, which is the only caller that needs the group back. */
     private final List<RuleGroup> groups;
     private int selected;
     private Runnable onChange;
     private int tabHeight = PvTheme.TAB_H;
 
-    public PvTabs(List<RuleGroup> groups, int selected) {
-        this.groups = groups;
-        this.selected = selected;
-        this.width = 88;
-        this.height = groups.size() * PvTheme.TAB_H + (groups.size() - 1);
+    public PvTabs(List<String> labels, int selected) {
+        this(labels, null, null, selected);
     }
 
     /**
-     * Shrinks the tab pitch so every group stays reachable.
+     * The rule-group strip.
+     *
+     * <p>A static factory rather than an overload: {@code List<RuleGroup>} and {@code List<String>}
+     * erase to the same constructor signature, so the two variants cannot coexist as constructors.</p>
+     */
+    public static PvTabs ofRules(List<RuleGroup> groups, int selected) {
+        return new PvTabs(
+                groups.stream().map(g -> g.label).toList(),
+                groups.stream().map(g -> g.letter).toList(),
+                groups, selected);
+    }
+
+    private PvTabs(List<String> labels, List<String> badges, List<RuleGroup> groups, int selected) {
+        this.labels = labels;
+        this.badges = badges;
+        this.groups = groups;
+        this.selected = selected;
+        this.width = 88;
+        this.height = labels.size() * PvTheme.TAB_H + (labels.size() - 1);
+    }
+
+    /**
+     * Shrinks the tab pitch so every tab stays reachable.
      *
      * <p>A tab strip that clips its last entries is worse than a dense one: the hidden groups are
      * not merely off-screen, they are unreachable, because there is nothing to scroll. The panel
@@ -39,10 +62,10 @@ public class PvTabs extends PvWidget {
      * compress instead of disappearing.</p>
      */
     public void fitInto(int availableHeight) {
-        int n = Math.max(1, groups.size());
+        int n = Math.max(1, labels.size());
         int pitch = (availableHeight - (n - 1)) / n;
         tabHeight = Math.max(13, Math.min(PvTheme.TAB_H, pitch));
-        height = groups.size() * tabHeight + (groups.size() - 1);
+        height = labels.size() * tabHeight + (labels.size() - 1);
     }
 
     public int tabHeight() {
@@ -54,11 +77,11 @@ public class PvTabs extends PvWidget {
     }
 
     public RuleGroup group() {
-        return groups.get(selected);
+        return groups == null ? null : groups.get(selected);
     }
 
     public void select(int index) {
-        int next = Math.max(0, Math.min(groups.size() - 1, index));
+        int next = Math.max(0, Math.min(labels.size() - 1, index));
         if (next != selected) {
             selected = next;
             if (onChange != null) {
@@ -80,7 +103,7 @@ public class PvTabs extends PvWidget {
             return -1;
         }
         int index = (int) ((my - y) / (tabHeight + 1));
-        return index >= 0 && index < groups.size() ? index : -1;
+        return index >= 0 && index < labels.size() ? index : -1;
     }
 
     @Override
@@ -91,8 +114,7 @@ public class PvTabs extends PvWidget {
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         int hoverIndex = hovered ? tabAt(mouseY) : -1;
 
-        for (int i = 0; i < groups.size(); i++) {
-            RuleGroup group = groups.get(i);
+        for (int i = 0; i < labels.size(); i++) {
             int ty = tabY(i);
             if (ty + tabHeight > y + height) {
                 break;
@@ -109,9 +131,11 @@ public class PvTabs extends PvWidget {
 
             int textY = ty + (tabHeight - 8) / 2 + 1;
             int textColor = active ? PvTheme.TEXT : (hot ? PvTheme.TEXT : PvTheme.TEXT_DIM);
-            PvDraw.text(ctx, tr, group.label, x + 10, textY, textColor);
-            PvDraw.textRight(ctx, tr, group.letter, x + width - 8, textY,
-                    active ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
+            PvDraw.text(ctx, tr, labels.get(i), x + 10, textY, textColor);
+            if (badges != null) {
+                PvDraw.textRight(ctx, tr, badges.get(i), x + width - 8, textY,
+                        active ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
+            }
         }
     }
 

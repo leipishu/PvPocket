@@ -44,6 +44,16 @@ public class PvScrollPane extends PvWidget {
         return scroll;
     }
 
+    /**
+     * Restores a scroll offset, clamped to the current content.
+     *
+     * <p>Needed when a caller rebuilds its rows while the player is looking at them: without this the
+     * list would jump back to the top on every edit, which reads as the panel losing its place.</p>
+     */
+    public void scrollTo(int offset) {
+        scroll = Math.max(0, Math.min(offset, maxScroll()));
+    }
+
     public int maxScroll() {
         return Math.max(0, contentHeight - height);
     }

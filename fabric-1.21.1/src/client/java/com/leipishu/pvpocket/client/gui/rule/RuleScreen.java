@@ -11,6 +11,7 @@ import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
+import com.leipishu.pvpocket.network.LoadoutRequestPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
@@ -73,7 +74,7 @@ public class RuleScreen extends PvScreen {
         int paneX = panelX + 12 + tabsW + 10;
         int paneW = panelW - (paneX - panelX) - 12;
 
-        tabs = new PvTabs(groups, 0);
+        tabs = PvTabs.ofRules(groups, 0);
         tabs.x = panelX + 12;
         tabs.y = contentTop;
         tabs.width = tabsW;
@@ -149,7 +150,18 @@ public class RuleScreen extends PvScreen {
             PvButton revert = new PvButton("还原", PvButton.Style.GHOST, this::revert).size(48, PvTheme.BTN_H);
             right = place(revert, right, buttonY);
         }
+        // The loadout editor sits leftmost, furthest from 发送征询. Configuring items and committing a
+        // rule set are two different decisions and should not be neighbours.
+        right = place(new PvButton("配装", PvButton.Style.NORMAL, this::openLoadout)
+                .size(52, PvTheme.BTN_H), right, buttonY);
         footerTextRight = right - 8;
+    }
+
+    /** Asks the server to open the loadout editor; the server answers with a {@code loadout_open}. */
+    private void openLoadout() {
+        if (ClientPlayNetworking.canSend(LoadoutRequestPayload.ID)) {
+            ClientPlayNetworking.send(new LoadoutRequestPayload());
+        }
     }
 
     private int place(PvButton button, int right, int y) {
@@ -193,8 +205,8 @@ public class RuleScreen extends PvScreen {
         int changes = changeCount();
 
         String left = reviewer
-                ? "同意即按当前版本开始"
-                : "设置完成后发送给对方";
+                ? "同意即按当前版本开始 · 「配装」调整进场物品"
+                : "设置完成后发送给对方 · 「配装」调整进场物品";
         int color = PvTheme.TEXT_MUTED;
         if (changes > 0) {
             left = "已修改 " + changes + " 项";

@@ -40,7 +40,8 @@ public final class PvPocketCommands {
         root.then(CommandManager.literal("arena").executes(PvPocketCommands::arena));
         root.then(CommandManager.literal("loadout")
                 .executes(PvPocketCommands::loadout)
-                .then(CommandManager.literal("give").executes(PvPocketCommands::loadoutGive)));
+                .then(CommandManager.literal("give").executes(PvPocketCommands::loadoutGive))
+                .then(CommandManager.literal("edit").executes(PvPocketCommands::loadoutEdit)));
 
         dispatcher.register(root);
     }
@@ -55,7 +56,7 @@ public final class PvPocketCommands {
         source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket arena        查看场地分区占用").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket loadout [give]  查看配装；give 把配装发到手上（测试用）").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket loadout [give|edit]  查看配装；give 发到手上；edit 打开配装界面").formatted(Formatting.GRAY), false);
         return 1;
     }
 
@@ -179,6 +180,21 @@ public final class PvPocketCommands {
             int given = com.leipishu.pvpocket.loadout.LoadoutBuilder.give(player, loadout, 0);
             player.sendMessage(Text.literal("已发放 " + given + " 项（配装 " + loadout.digest() + "）")
                     .formatted(Formatting.GREEN), false);
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Opens the loadout editor without going through the rule panel.
+     *
+     * <p>The panel's 配装 button is the normal path; this is the same call for players who closed the
+     * panel by accident, and the only way to drive the editor from the console during testing.</p>
+     */
+    private static int loadoutEdit(CommandContext<ServerCommandSource> ctx) {
+        try {
+            SessionManager.get().onLoadoutRequest(ctx.getSource().getPlayerOrThrow());
             return 1;
         } catch (Exception e) {
             return 0;

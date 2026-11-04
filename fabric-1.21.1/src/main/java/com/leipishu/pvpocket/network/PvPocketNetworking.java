@@ -23,9 +23,12 @@ public final class PvPocketNetworking {
     public static void registerCommon() {
         PayloadTypeRegistry.playC2S().register(BlockingPayload.ID, BlockingPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(RulesSubmitPayload.ID, RulesSubmitPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(LoadoutRequestPayload.ID, LoadoutRequestPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(BlockingPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -38,6 +41,26 @@ public final class PvPocketNetworking {
                 SessionManager sessions = SessionManager.get();
                 if (sessions != null) {
                     sessions.onRulesSubmit(player, payload.action(), payload.rules());
+                }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(LoadoutRequestPayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> {
+                SessionManager sessions = SessionManager.get();
+                if (sessions != null) {
+                    sessions.onLoadoutRequest(player);
+                }
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(LoadoutSubmitPayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> {
+                SessionManager sessions = SessionManager.get();
+                if (sessions != null) {
+                    sessions.onLoadoutSubmit(player, payload.sessionId(), payload.loadout());
                 }
             });
         });
@@ -74,6 +97,16 @@ public final class PvPocketNetworking {
     public static void closeRules(ServerPlayerEntity player, String sessionId) {
         if (ServerPlayNetworking.canSend(player, RulesClosePayload.ID)) {
             ServerPlayNetworking.send(player, new RulesClosePayload(sessionId));
+        }
+    }
+
+    /** Opens the loadout editor. Same {@code canSend} reasoning as {@link #openRules}. */
+    public static void openLoadout(ServerPlayerEntity player, LoadoutOpenPayload payload) {
+        boolean canSend = ServerPlayNetworking.canSend(player, LoadoutOpenPayload.ID);
+        PvPocket.LOGGER.info("Loadout editor -> {} (canSend={}, session={})",
+                player.getName().getString(), canSend, payload.sessionId());
+        if (canSend) {
+            ServerPlayNetworking.send(player, payload);
         }
     }
 

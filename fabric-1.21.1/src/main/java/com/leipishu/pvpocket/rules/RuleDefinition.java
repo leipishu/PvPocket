@@ -24,10 +24,15 @@ public final class RuleDefinition {
     public final String unit;
     /** Renders an INT rule as a percentage of {@code max} (knockback resistance). */
     public final boolean percent;
+    /**
+     * Value is divided by this before display. 1 for every rule; 10 for the loadout editor's
+     * damage and armour fields, which are stored in tenths so that 6.5 is expressible.
+     */
+    public final int divisor;
 
     private RuleDefinition(String id, RuleGroup group, String label, String hint, RuleKind kind,
                            int min, int max, int step, String[] choices, int defaultValue,
-                           String unit, boolean percent) {
+                           String unit, boolean percent, int divisor) {
         this.id = id;
         this.group = group;
         this.label = label;
@@ -40,35 +45,48 @@ public final class RuleDefinition {
         this.defaultValue = defaultValue;
         this.unit = unit;
         this.percent = percent;
+        this.divisor = divisor;
     }
 
     public static RuleDefinition toggle(String id, RuleGroup g, String label, String hint, boolean def) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.TOGGLE, 0, 1, 1, null, def ? 1 : 0, "", false);
+        return new RuleDefinition(id, g, label, hint, RuleKind.TOGGLE, 0, 1, 1, null, def ? 1 : 0, "", false, 1);
     }
 
     public static RuleDefinition intRange(String id, RuleGroup g, String label, String hint,
                                           int min, int max, int step, int def, String unit) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.INT, min, max, step, null, def, unit, false);
+        return new RuleDefinition(id, g, label, hint, RuleKind.INT, min, max, step, null, def, unit, false, 1);
+    }
+
+    /**
+     * An INT rule displayed with one decimal place.
+     *
+     * <p>Stored value is tenths; {@code min}, {@code max}, {@code step} and {@code def} are all in
+     * tenths too. Used only by the loadout editor, where "7.0 伤害" is a different weapon from
+     * "7.5 伤害" and rounding to whole points would make the field a lie.</p>
+     */
+    public static RuleDefinition decimal(String id, RuleGroup g, String label, String hint,
+                                         int min, int max, int step, int def, String unit) {
+        return new RuleDefinition(id, g, label, hint, RuleKind.INT, min, max, step, null, def, unit, false, 10);
     }
 
     public static RuleDefinition percent(String id, RuleGroup g, String label, String hint, int def) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.INT, 0, 100, 5, null, def, "%", true);
+        return new RuleDefinition(id, g, label, hint, RuleKind.INT, 0, 100, 5, null, def, "%", true, 1);
     }
 
     public static RuleDefinition enumOf(String id, RuleGroup g, String label, String hint,
                                         int def, String... choices) {
         return new RuleDefinition(id, g, label, hint, RuleKind.ENUM, 0, choices.length - 1, 1,
-                choices, def, "", false);
+                choices, def, "", false, 1);
     }
 
     public static RuleDefinition multi(String id, RuleGroup g, String label, String hint,
                                        int def, String... choices) {
         return new RuleDefinition(id, g, label, hint, RuleKind.MULTI, 0, (1 << choices.length) - 1, 1,
-                choices, def, "", false);
+                choices, def, "", false, 1);
     }
 
     public static RuleDefinition fixed(String id, RuleGroup g, String label, String hint, String shown) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.FIXED, 0, 0, 1, new String[]{shown}, 0, "", false);
+        return new RuleDefinition(id, g, label, hint, RuleKind.FIXED, 0, 0, 1, new String[]{shown}, 0, "", false, 1);
     }
 
     /** Clamps a raw value into the range this definition accepts. */
@@ -140,6 +158,9 @@ public final class RuleDefinition {
             default:
                 if (percent) {
                     return value + "%";
+                }
+                if (divisor > 1) {
+                    return String.format("%.1f%s", value / (double) divisor, unit);
                 }
                 return value + unit;
         }
