@@ -474,6 +474,9 @@ E 组新增两条：
 
 ### 10.4 边界：墙 + 5 秒倒计时 / 拉回最近点
 
+> ⚠️ **本节描述的玻璃墙与 action bar 播报已被 §11.2 推翻**，保留原文只为记录当时的判断。
+> 现在的实现是纯逻辑边界 + 屏幕中央的大号数字，见 §11.2。
+
 三件事：
 
 1. **可见的边界墙**：每局开始时在分区最外圈建 3 格高的玻璃墙（48×48 场地 = 564 个方块），
@@ -516,3 +519,128 @@ Dev1 实际坐标 → 102.5, 3.0, 80.5    ← maxX() - 0.5，最近的边境内�
   玩家体验上一样（每场决斗四周都有墙、出去有倒计时），只是墙围着的是自己的场地而不是整个维度。
 - 时间/天气是维度级属性，多场同时进行时互相覆盖，已在规则提示里注明。
 - `pullInside` 只在宽限期路径上实测过，`e.boundary=拉回` 的正式路径走的是同一个方法。
+
+---
+
+## 十一、追加修改（第二轮反馈）
+
+> 对应需求：
+> 「1，好像还是能生成村庄等结构！2，边界要能走出去，提示数字在屏幕中央，而不是现在的可以挖掘的玻璃！
+> 这个是特殊的！3，添加回合准备时间，倒计时在聊天区，可以自定义准备时间」
+
+三条里有两条是**上一轮做错了**，一条是新需求。写清楚错在哪比写清楚改了什么更有用。
+
+### 11.1 结构还是会生成：改配置没用，因为区块已经在硬盘上了
+
+`structure_overrides: []` 是对的，但它只影响**尚未生成**的区块。上一轮改完配置后我跑 `locate structure`
+看到「Could not find a structure」就收工了——而那条指令查的是**新生成**的区块，老的村庄一直躺在
+`run/world/dimensions/pvpocket/arena/` 里（12 MB，`r.-1.-1.mca` … `r.0.0.mca`）。玩家一走近就加载出来。
+
+修法不是改代码，是**删掉旧区块**：停服 → `rm -rf run/world/dimensions/pvpocket/arena` → 重启 → 复查。
+
+```
+execute in pvpocket:arena positioned 0 0 0 run locate structure minecraft:village_plains
+  → Could not find a structure of type "minecraft:village_plains" nearby
+execute in pvpocket:arena positioned 0 0 0 run locate structure minecraft:pillager_outpost
+  → Could not find a structure of type "minecraft:pillager_outpost" nearby
+```
+
+**教训**：维度生成参数的修改对已有存档是**不回填**的。以后每次动 `dimension/`、`dimension_type/`
+或 flat 的 layers，都得顺手清掉该维度的区块，否则测出来的永远是旧世界。
+
+### 11.2 边界：撤掉玻璃墙，改成纯逻辑 + 屏幕中央的大号数字
+
+上一轮的墙错了两次：
+
+1. **能挖**。玻璃是可破坏方块，玩家带把镐就能在墙上开洞——「特殊的边界」不该是一个可以被正常游戏行为
+   拆掉的实体。做成基岩呢？又会进分区的偏差集，`ARENA_REVERTED` 每次都要多算 564 个方块，而且
+   48×48 的场地四周戳一圈基岩，视觉上很难看。
+2. **数字在 action bar**。action bar 在物品栏正上方，玩家的视线在水平线上——刚走出场地的人根本不会
+   往那儿看。而「你还有 4 秒」是这一瞬间唯一的有效信息。
+
+所以现在：
+
+- **`ArenaManager.buildWall` 与 `WALL_HEIGHT` 整个删掉**。边界只存在于 `ArenaRegion.isInside` 里，
+  玩家可以自由走出去，也可以走回来。走出去时脚下什么都没有，只是开始计时。
+- **倒计时改成 title**：`TitleFadeS2CPacket(0, 22, 4)` + `TitleS2CPacket`，内容是红色加粗的单个数字，
+  画在屏幕正中。fadeIn=0 是为了让每个数字立刻替换上一个，而不是排队；stay=22 tick 略长于 1 秒，
+  保证每秒至少有一个数字在屏上。
+- **回到场内**时补一个 `ClearTitleS2CPacket(false)`，否则玩家自救成功后屏幕上会挂着一个「1」不走。
+  同时发一条绿色「已回到场地内。」——静默取消的倒计时会让人不知道自己还算不算在风险里。
+- 判负那一刻同样清 title。
+
+改动后 `ARENA_REVERTED blocks=0`：场地里本来就什么都没有，没有东西需要还原。这是**正确**的读数，
+不是 revert 失效。
+
+### 11.3 回合准备时间（`a.countdown`）
+
+`a.countdown` 原本是「开局倒计时」，语义含糊。现在明确为**回合准备时间**：
+
+| 项 | 值 |
+|---|---|
+| 范围 | 0–30 秒，步进 1，默认 5 |
+| 播报 | 聊天栏逐秒「回合准备：N 秒」，最后一秒后接「第 X / Y 局开始（…）」 |
+| 期间 | 双方 `setInvulnerable(true)`，可以走动、看场地、翻背包，但打不掉血也挨不掉血 |
+| 结束 | `activateRound` 撤销无敌 → `ROUND_STARTED` → `ROUND_ACTIVE` → 广播 HUD |
+
+实现上把 `startRound` 拆成两半：
+
+```
+startRound      传送 / 游戏模式 / 血量 / resetRoundState / CombatState.setMode / grant 配装
+                → 若 prepare > 0：setInvulnerable(true)、ROUND_PREPARING、登记 Prepare 截止时间、return
+activateRound   撤无敌 → ROUND_STARTED → roundStartedAt → ROUND_ACTIVE → 广播 HUD → 开局聊天行
+```
+
+`tickPrepare()` 在 `tick()` 里紧跟 `startDueRounds()`，每秒比对一次 `announced` 字段决定是否播报，
+到点调 `activateRound`。**没有用调度器**：tick 里比对时间戳和整个状态机其余部分用的是同一套时钟，
+多一个线程只会多一种崩溃方式。
+
+**为什么不是「锁住移动」**：锁移动要在 `ServerPlayNetworkHandler` 上拦位置包，拦漏一个就会被判定
+「作弊」踢人，拦多了玩家会觉得卡。无敌是服务端权威的、零延迟的，而且准备时间的目的是「别在传送的
+半秒里被砍」，不是「不许动」。
+
+顺带修掉两个在这条链路上暴露的问题：
+
+- `startRound` 遇到血量 0 的参与者（上一局死在死亡画面、或者服务器停机时正在死亡画面）会抛
+  `IllegalStateException` 并**中断整场**。改成 `ROUND_START_REVIVE` 记一笔原始血量后回满血。
+- `ROUND_READY` 时有人掉线 → `startRound` 抛「participant offline」→ `abort` → `VOIDED`，
+  比分和两份存档一起被拖住。改成**回滚局数**后 `finishSeries(leaderOf())` 切断整场，
+  没打过的这一局不再计入比分。
+
+### 11.4 实测
+
+一局 3 局 2 胜的完整流程，全程 RCON 驱动，只看 journal：
+
+```
+ROUND_PREPARING   round=1 seconds=5
+ROUND_STARTED     round=1                         ← 5037 ms 后
+BOUNDARY_PUSHED_BACK player=Dev1 grace=true       ← 开局 10 秒内越界 = 拉回，不判负
+BOUNDARY_EXIT     player=Dev1 pos=130.50,4.00,80.50 countdownMs=5000
+BOUNDARY_FORFEIT  player=Dev1 elapsedMs=5010      ← 正好 5 秒
+ROUND_ENDED       round=1 reason=OUT_OF_BOUNDS winner=Dev2
+ARENA_REVERTED    blocks=0 tracked=0              ← 没有墙要拆
+ROUND_PREPARING   round=2 seconds=5
+ROUND_STARTED     round=2
+BOUNDARY_EXIT     → BOUNDARY_FORFEIT elapsedMs=5010 → ROUND_ENDED round=2 OUT_OF_BOUNDS
+SERIES_ENDED      winner=Dev2 score=0:2 rounds=2 bestOf=3
+RESTORE_COMPLETED player=Dev1 verified=true
+RESTORE_COMPLETED player=Dev2 verified=true
+ARENA_RELEASED / ARCHIVED
+```
+
+聊天栏倒计时在客户端日志里可以直接读到：
+
+```
+[CHAT] 回合准备：5 秒 … 回合准备：1 秒
+[CHAT] 第 2 / 3 局开始（现代战斗，3 局 2 胜 · 现代 · 2 队 × 1 人 · 48 格×48 格 · 生命 20）。先赢 2 局者胜。
+```
+
+### 11.5 没做的 / 没验到的
+
+- **屏幕中央那个数字没有截图**。两个 dev 客户端当时是最小化状态（`IsIconic=True`），
+  而 `ShowWindow(SW_RESTORE)` 在这个 GLFW 窗口上会把客户端打成原生崩溃（见 `scripts/client-act.ps1`
+  里那条注释）。逻辑侧的证据是全的（title 包已发出、无异常、返回时清 title），**视觉确认交给人工**。
+- 准备期间只挡伤害，不挡移动、不挡放方块。如果准备期有人往对手脚下垒方块，那是 §八 里
+  `f.allowPlace` 未落地的同一个洞。
+- 倒计时数字的字号是原版 title 的默认尺寸（GUI 缩放 2 下约 1/4 屏高）。没有做自绘，因为 title
+  会跟随玩家的 GUI 缩放，自绘反而不一致。

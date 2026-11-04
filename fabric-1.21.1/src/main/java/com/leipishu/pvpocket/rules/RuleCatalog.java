@@ -38,8 +38,9 @@ public final class RuleCatalog {
                 "无限制", "1 分钟", "3 分钟", "5 分钟", "10 分钟", "15 分钟"));
         add(RuleDefinition.enumOf("a.timeoutVerdict", RuleGroup.A, "超时判定",
                 "时间耗尽时如何决定这一局。", 0, "血量高者胜", "平局", "双败"));
-        add(RuleDefinition.intRange("a.countdown", RuleGroup.A, "开局倒计时",
-                "传送进场后到可以行动之间的等待时间。", 1, 10, 1, 3, "秒"));
+        add(RuleDefinition.intRange("a.countdown", RuleGroup.A, "回合准备时间",
+                "传送进场后、正式开打前的准备时间，倒计时逐秒显示在聊天栏。准备期间双方无法造成或受到伤害。",
+                0, 30, 1, 5, "秒"));
         add(RuleDefinition.intRange("a.intermission", RuleGroup.A, "局间间隔",
                 "多局赛制下两局之间的休整时间。", 1, 10, 1, 3, "秒"));
         add(RuleDefinition.multi("a.winConditions", RuleGroup.A, "胜利条件",

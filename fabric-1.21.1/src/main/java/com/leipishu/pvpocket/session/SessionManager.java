@@ -20,6 +20,9 @@ import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.network.packet.s2c.play.ClearTitleS2CPacket;
+import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
+import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.world.GameMode;
@@ -76,6 +79,10 @@ public final class SessionManager {
     private record BoundaryExit(long since, int announced) {
     }
 
+    /** Session id -> when the preparation window ends, and the last whole second announced. */
+    private record Prepare(long at, int announced) {
+    }
+
     private final MinecraftServer server;
     private final PvPocketStorage storage;
     private final Map<String, DuelSession> sessions = new LinkedHashMap<>();
@@ -93,6 +100,8 @@ public final class SessionManager {
     private final Map<String, Long> roundReadyAt = new HashMap<>();
     /** Players currently outside their plot, waiting out the boundary countdown. */
     private final Map<String, BoundaryExit> boundaryExits = new HashMap<>();
+    /** Rounds that have teleported everybody in but have not gone live yet. */
+    private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
     private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
@@ -260,12 +269,23 @@ public final class SessionManager {
             if (session == null || session.stage != SessionStage.ROUND_READY) {
                 continue;
             }
+            int before = session.round;
             try {
                 startRound(session);
             } catch (RuntimeException e) {
-                PvPocket.LOGGER.error("Failed to start round {} of {}",
-                        session.round + 1, session.id, e);
-                abort(session, "ROUND_START_FAILED");
+                // startRound increments the round counter before it can fail, and a cut must not
+                // count a round that was never played.
+                session.round = before;
+                if (session.participants.stream().anyMatch(p -> online(p) == null)) {
+                    // Somebody logged off during the intermission. That is an ordinary end to a
+                    // series, not a failure: abort() would discard the score and record a clean
+                    // logoff as an anomaly the next boot has to reconcile.
+                    journal(session).append("SERIES_CUT", "reason", "participant_offline");
+                    finishSeries(session, leaderOf(session));
+                } else {
+                    PvPocket.LOGGER.error("Failed to start round {} of {}", before + 1, session.id, e);
+                    abort(session, "ROUND_START_FAILED");
+                }
             }
         }
     }
@@ -372,6 +392,7 @@ public final class SessionManager {
         }
         flushPendingRestores();
         startDueRounds();
+        tickPrepare();
         // Natural spawning is cancelled inside the arena dimension, so this is only a net for the
         // doors that bypass it (spawn eggs, spawner blocks, /summon). Three seconds is frequent
         // enough that a stray mob never gets to swing at anyone.
@@ -402,7 +423,9 @@ public final class SessionManager {
                     if (boundaryExits.remove(key) != null) {
                         journal(session).append("BOUNDARY_RETURNED", "player", p.name);
                         player.sendMessage(Text.literal("已回到场地内。").formatted(Formatting.GREEN), false);
-                        player.sendMessage(Text.empty(), true);
+                        // Wipes the big number instead of leaving a stale "1" hanging in the middle
+                        // of the screen after the player has already saved themselves.
+                        player.networkHandler.sendPacket(new ClearTitleS2CPacket(false));
                     }
                     continue;
                 }
@@ -434,6 +457,7 @@ public final class SessionManager {
                             "countdownMs", BOUNDARY_COUNTDOWN_MS);
                     player.sendMessage(Text.literal("你离开了场地边界，5 秒内不返回本局判负。")
                             .formatted(Formatting.RED), false);
+                    announceBoundary(player, 5);
                     continue;
                 }
                 long remaining = BOUNDARY_COUNTDOWN_MS - (now - exit.since());
@@ -442,6 +466,7 @@ public final class SessionManager {
                     Participant opponent = session.opponentOf(p.uuid);
                     journal(session).append("BOUNDARY_FORFEIT", "player", p.name,
                             "elapsedMs", now - exit.since());
+                    player.networkHandler.sendPacket(new ClearTitleS2CPacket(false));
                     deferred.add(() -> settle(session, "OUT_OF_BOUNDS",
                             opponent == null ? null : opponent.uuid));
                     break;
@@ -449,10 +474,7 @@ public final class SessionManager {
                 int second = (int) Math.ceil(remaining / 1000.0D);
                 if (second != exit.announced()) {
                     boundaryExits.put(key, new BoundaryExit(exit.since(), second));
-                    // Action bar, not chat: this repeats every second and would otherwise push the
-                    // round-start instructions off the screen.
-                    player.sendMessage(Text.literal("离开边界 " + second + " 秒后判负")
-                            .formatted(Formatting.RED), true);
+                    announceBoundary(player, second);
                 }
             }
         }
@@ -478,6 +500,20 @@ public final class SessionManager {
 
     private static boolean boundaryIsPushBack(DuelSession session) {
         return DuelRules.decode(session.rules).get("e.boundary") == 0;
+    }
+
+    /**
+     * Draws the boundary countdown as a single large number in the middle of the screen.
+     *
+     * <p>A title rather than the action bar because of where the player's eyes are: someone who has
+     * just walked out of the arena is looking at the horizon, not at the hotbar. The fade is zero-in,
+     * one-second stay, short fade-out so each number replaces the previous one instead of queueing
+     * behind it.</p>
+     */
+    private static void announceBoundary(ServerPlayerEntity player, int second) {
+        player.networkHandler.sendPacket(new TitleFadeS2CPacket(0, 22, 4));
+        player.networkHandler.sendPacket(new TitleS2CPacket(
+                Text.literal(String.valueOf(second)).formatted(Formatting.RED, Formatting.BOLD)));
     }
 
     /** Drops every pending countdown belonging to a session. Called at every round boundary. */
@@ -1299,14 +1335,9 @@ public final class SessionManager {
             throw new IllegalStateException("no arena plot leased for session " + session.id);
         }
         var arenaWorld = ArenaManager.world(server);
-        // The wall is rebuilt every round rather than once per session: a round can end with a hole
-        // in it, and the revert between rounds takes the whole ring down anyway.
-        int wall = ArenaManager.buildWall(arenaWorld, region);
-        if (wall > 0) {
-            journal(session).append("ARENA_WALL_BUILT", "region", region.id, "blocks", wall);
-        }
         applyEnvironment(arenaWorld, rules);
         clearBoundaryExits(session);
+        int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
@@ -1353,20 +1384,120 @@ public final class SessionManager {
             // The client mirrors the rule set to predict movement and to hide the attack cooldown
             // indicator, so it has to be told which mode this round runs before the first hit.
             PvPocketNetworking.sendState(player);
-            player.sendMessage(Text.literal("第 " + session.round + " / " + session.bestOf + " 局开始（"
-                            + modeLabel(mode) + "，" + rules.summary() + "）。"
-                            + (session.bestOf > 1 ? "先赢 " + winsNeeded(session) + " 局者胜。" : "")
-                            + "输入 /pvpocket surrender 认输（输掉整场）。")
-                    .formatted(Formatting.GREEN), false);
+            if (prepare > 0) {
+                // The preparation window is a promise that nobody can land a hit yet, so it has to
+                // be enforced rather than announced: invulnerability is one line and covers both
+                // directions, where a movement lock would need a whole new stage.
+                player.setInvulnerable(true);
+            }
         }
+        if (prepare > 0) {
+            journal(session).append("ROUND_PREPARING", "round", session.round, "seconds", prepare);
+            prepareDeadlines.put(session.id,
+                    new Prepare(System.currentTimeMillis() + prepare * 1000L, prepare));
+            broadcastHud(session, true);
+            for (Participant p : session.participants) {
+                ServerPlayerEntity player = online(p);
+                if (player != null) {
+                    player.sendMessage(Text.literal("回合准备：" + prepare + " 秒，倒计时结束开始交火。")
+                            .formatted(Formatting.YELLOW), false);
+                }
+            }
+            return;
+        }
+        activateRound(session);
+    }
+
+    /**
+     * The round goes live: drop the preparation shield, start the clock, tell both sides.
+     *
+     * <p>Split from {@link #startRound} because everything that measures "the round" — the opening
+     * boundary grace, the scoreboard, the round timer — must start when the fight can actually
+     * begin, not when the players were teleported in.</p>
+     */
+    private void activateRound(DuelSession session) {
+        prepareDeadlines.remove(session.id);
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player == null) {
+                // Somebody left during the preparation window. Cut rather than throw: they never
+                // fought, so there is nothing to judge and no round to award.
+                journal(session).append("SERIES_CUT", "reason", "participant_offline");
+                finishSeries(session, leaderOf(session));
+                return;
+            }
+            player.setInvulnerable(false);
+        }
+        CombatMode mode = CombatMode.byId(session.mode);
+        DuelRules rules = DuelRules.decode(session.rules);
+        ArenaRegion region = ArenaManager.region(session.id);
         journal(session).append("ROUND_STARTED", "round", session.round,
                 "digest", session.rulesDigest,
-                "region", region.id,
-                "spawns", region.spawnX(0) + "," + ArenaRegion.SURFACE_Y + "," + region.spawnZ()
+                "region", region == null ? "-" : region.id,
+                "spawns", region == null ? "-" : region.spawnX(0) + "," + ArenaRegion.SURFACE_Y
+                        + "," + region.spawnZ()
                         + " | " + region.spawnX(1) + "," + ArenaRegion.SURFACE_Y + "," + region.spawnZ());
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player != null) {
+                player.sendMessage(Text.literal("第 " + session.round + " / " + session.bestOf + " 局开始（"
+                                + modeLabel(mode) + "，" + rules.summary() + "）。"
+                                + (session.bestOf > 1 ? "先赢 " + winsNeeded(session) + " 局者胜。" : "")
+                                + "输入 /pvpocket surrender 认输（输掉整场）。")
+                        .formatted(Formatting.GREEN), false);
+            }
+        }
+    }
+
+    /**
+     * Drives the preparation countdown, one chat line per whole second.
+     *
+     * <p>Chat rather than the action bar: this is the one message a player has several seconds to
+     * read, and the action bar is overwritten by whatever else the client wants to show. The
+     * boundary countdown goes the other way round (centre of the screen) because there the number
+     * has to interrupt someone who is mid-fight.</p>
+     */
+    private void tickPrepare() {
+        if (prepareDeadlines.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        List<String> due = new ArrayList<>();
+        for (Map.Entry<String, Prepare> entry : prepareDeadlines.entrySet()) {
+            String id = entry.getKey();
+            DuelSession session = sessions.get(id);
+            if (session == null) {
+                due.add(id);
+                continue;
+            }
+            long remaining = entry.getValue().at() - now;
+            if (remaining <= 0) {
+                due.add(id);
+                continue;
+            }
+            int second = (int) Math.ceil(remaining / 1000.0D);
+            if (second != entry.getValue().announced()) {
+                prepareDeadlines.put(id, new Prepare(entry.getValue().at(), second));
+                for (Participant p : session.participants) {
+                    ServerPlayerEntity player = online(p);
+                    if (player != null) {
+                        player.sendMessage(Text.literal("回合准备：" + second + " 秒")
+                                .formatted(Formatting.YELLOW), false);
+                    }
+                }
+            }
+        }
+        for (String id : due) {
+            prepareDeadlines.remove(id);
+            DuelSession session = sessions.get(id);
+            if (session == null || session.stage != SessionStage.ROUND_READY) {
+                continue;
+            }
+            activateRound(session);
+        }
     }
 
     /**
@@ -1423,17 +1554,23 @@ public final class SessionManager {
         // ended, and leaving it in place would let the intermission look like a grace window.
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
+        prepareDeadlines.remove(session.id);
 
         ArenaRegion region = ArenaManager.region(session.id);
         var arenaWorld = ArenaManager.world(server);
 
         String seriesWinner = seriesWinner(session);
         if (seriesWinner == null && session.participants.stream().anyMatch(p -> online(p) == null)) {
-            // Somebody left. Starting a round they cannot join would only reach abort() after the
-            // intermission, so the series is cut here instead, with the current leader taking it.
-            // Recorded as its own event so "why did this series end" has an answer in the journal.
+            // Somebody left. Starting a round they cannot join would only reach the intermission and
+            // fail there, so the series is cut now. Recorded as its own event so "why did this
+            // series end" has an answer in the journal.
+            //
+            // Cut always finishes, even when leaderOf() returns null: a tied series that is cut has
+            // no winner, and falling through to the intermission would have tried to start a round
+            // for a player who is not there.
             journal(session).append("SERIES_CUT", "reason", "participant_offline");
-            seriesWinner = leaderOf(session);
+            finishSeries(session, leaderOf(session));
+            return;
         }
         if (seriesWinner == null) {
             beginIntermission(session, region, arenaWorld);
@@ -1662,6 +1799,7 @@ public final class SessionManager {
         roundReadyAt.remove(session.id);
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
+        prepareDeadlines.remove(session.id);
         broadcastHud(session, false);
         for (Participant p : session.participants) {
             if (p.snapshotFile != null) {
