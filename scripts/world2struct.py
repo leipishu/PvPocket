@@ -268,6 +268,39 @@ RENAMES = {
     "minecraft:wall_sign": "minecraft:oak_wall_sign",
 }
 
+# Blocks that exist in the map's version but not in 1.21.1. There is no rename to fall back on --
+# the id is simply newer than our game -- so without this table they turn into air, silently, and
+# an arena loses whatever railing or trim they were holding. Every entry keeps the same blockstate
+# shape (stairs keep facing/half/shape, bars keep the four side booleans) so the silhouette survives.
+# Verified against 1.21.1's own blockstate list (1062 ids, taken from the client jar).
+FALLBACK = {
+    "minecraft:waxed_exposed_copper_bars": "minecraft:iron_bars",
+    "minecraft:exposed_copper_bars": "minecraft:iron_bars",
+    "minecraft:copper_bars": "minecraft:iron_bars",
+    "minecraft:weathered_copper_bars": "minecraft:iron_bars",
+    "minecraft:oxidized_copper_bars": "minecraft:iron_bars",
+    "minecraft:pale_oak_stairs": "minecraft:oak_stairs",
+    "minecraft:pale_oak_slab": "minecraft:oak_slab",
+    "minecraft:pale_oak_planks": "minecraft:oak_planks",
+    "minecraft:pale_oak_fence": "minecraft:oak_fence",
+    "minecraft:pale_oak_fence_gate": "minecraft:oak_fence_gate",
+    "minecraft:pale_oak_door": "minecraft:oak_door",
+    "minecraft:pale_oak_trapdoor": "minecraft:oak_trapdoor",
+    "minecraft:pale_oak_log": "minecraft:oak_log",
+    "minecraft:pale_oak_wood": "minecraft:oak_wood",
+    "minecraft:stripped_pale_oak_log": "minecraft:stripped_oak_log",
+    "minecraft:stripped_pale_oak_wood": "minecraft:stripped_oak_wood",
+    "minecraft:pale_oak_leaves": "minecraft:oak_leaves",
+    "minecraft:pale_oak_sapling": "minecraft:oak_sapling",
+    "minecraft:pale_oak_sign": "minecraft:oak_sign",
+    "minecraft:pale_oak_wall_sign": "minecraft:oak_wall_sign",
+    "minecraft:pale_oak_button": "minecraft:oak_button",
+    "minecraft:pale_oak_pressure_plate": "minecraft:oak_pressure_plate",
+    "minecraft:creaking_heart": "minecraft:oak_wood",
+    "minecraft:pale_moss_block": "minecraft:moss_block",
+    "minecraft:pale_moss_carpet": "minecraft:moss_carpet",
+}
+
 
 def _region_bytes(source, name):
     if isinstance(source, zipfile.ZipFile):
@@ -430,15 +463,32 @@ def scan(source, box=None, strip_bedrock=False):
 
 
 def unpack_longs(longs, bits, count):
-    """Vanilla-style packed long array -> list of `count` values of `bits` bits each."""
-    per_long = 64 // bits
+    """Litematica's packed long array -> list of `count` values of `bits` bits each.
+
+    <p><b>This is not the vanilla chunk packing.</b> A chunk section stores floor(64/bits) values per
+    long and throws the leftover bits away; Litematica packs a continuous bit stream, so a value that
+    starts at bit 61 of one long continues at bit 0 of the next. The two agree only when `bits`
+    divides 64 (4, 8, 16, 32). Every arena in this pack has 18-29 palette entries, i.e. 5 bits, which
+    is exactly the case where they disagree -- reading it the vanilla way produces a build that is
+    plausible-looking garbage: the first few dozen blocks land correctly and everything after drifts
+    by one bit position per value.</p>
+
+    <p>Cross-checked against litemapy (the reference Python implementation of this format) on all
+    four source files.</p>
+    """
     mask = (1 << bits) - 1
+    span = (1 << 64) - 1
     out = []
     for index in range(count):
-        long_index = index // per_long
-        if long_index >= len(longs):
+        start = index * bits
+        first = start >> 6
+        if first >= len(longs):
             break
-        out.append((longs[long_index] >> ((index % per_long) * bits)) & mask)
+        offset = start & 63
+        value = (longs[first] & span) >> offset
+        if offset + bits > 64 and first + 1 < len(longs):
+            value |= (longs[first + 1] & span) << (64 - offset)
+        out.append(value & mask)
     return out
 
 
@@ -555,15 +605,19 @@ def load(path, box=None, strip_bedrock=False):
     """Dispatches on file extension: world save / .zip, .litematic, or Sponge .schem."""
     lower = path.lower()
     if lower.endswith(".litematic"):
-        return scan_litematic(path, box, strip_bedrock)
-    if lower.endswith(".schem") or lower.endswith(".schematic"):
-        return scan_schem(path, box, strip_bedrock)
-    source = open_source(path)
-    try:
-        return scan(source, box, strip_bedrock)
-    finally:
-        if isinstance(source, zipfile.ZipFile):
-            source.close()
+        bbox, blocks = scan_litematic(path, box, strip_bedrock)
+    elif lower.endswith(".schem") or lower.endswith(".schematic"):
+        bbox, blocks = scan_schem(path, box, strip_bedrock)
+    else:
+        source = open_source(path)
+        try:
+            bbox, blocks = scan(source, box, strip_bedrock)
+        finally:
+            if isinstance(source, zipfile.ZipFile):
+                source.close()
+    # normalise recomputes the box: dropping an unsupported block that happened to be the extreme
+    # corner would otherwise leave the template one block larger than the build.
+    return normalise(blocks)
 
 
 def report(bbox, blocks, show_palette=False):
@@ -601,17 +655,106 @@ def report(bbox, blocks, show_palette=False):
     return size
 
 
-def to_structure(bbox, blocks, data_version):
-    """Builds a vanilla structure template tree: size + palette + blocks (positions explicit)."""
+def stabilise(name):
+    """Replaces blocks that fall when placed with the closest block that does not.
+
+    Concrete powder is the one that actually bites: it is a gravity block, so every floating patch of
+    it in a downloaded arena collapses the moment the template lands, and the build comes out with
+    powder piled on the floor and holes where it used to be. Concrete is the same colour, is not
+    affected by gravity, and is what the author would have used if they had not been building in
+    creative with a brush.
+
+    Sand and gravel are left alone on purpose: they are usually ground fill with support underneath,
+    and swapping them for sandstone would change the look of a map rather than fix a bug.
+    """
+    if name.endswith("_concrete_powder"):
+        return name[:-len("_powder")]
+    return name
+
+
+def needs_support(name):
+    """Blocks that pop off when the game finds nothing holding them up."""
+    return (name.endswith("_pressure_plate") or name == "minecraft:torch"
+            or name in ("minecraft:redstone_torch", "minecraft:wall_torch",
+                        "minecraft:redstone_wall_torch", "minecraft:fire",
+                        "minecraft:soul_fire"))
+
+
+# Blocks you cannot stand a fire on: their top face is not full, so `FireBlock.canPlaceAt` fails and
+# the fire is removed on the next tick.
+NON_SOLID_TOP = ("_bars", "_fence", "_fence_gate", "_wall", "_trapdoor", "_pane", "_chain")
+
+
+def supports_fire(name):
+    return not (name == "minecraft:chain" or name.endswith(NON_SOLID_TOP))
+
+
+def drop_unstable(blocks):
+    """Removes blocks that cannot survive being placed.
+
+    <p>Found the hard way: the quartz arena has a pale oak pressure plate sitting in mid-air, and
+    pressure plates break the instant the game ticks them with nothing underneath. Keeping it would
+    mean the file claims a block the world will never show, which then reads as a converter bug in
+    any check that trusts the file. It also matters at runtime: a block that pops *after* the plot's
+    baseline is captured leaves the arena permanently one block off its own map, and every revert
+    puts the block back just in time for it to pop again.</p>
+    """
+    doomed = []
+    for pos, (name, props) in blocks.items():
+        if not needs_support(name):
+            continue
+        x, y, z = pos
+        below = blocks.get((x, y - 1, z))
+        if name in ("minecraft:fire", "minecraft:soul_fire"):
+            supported = below is not None and supports_fire(below[0])
+        elif name.endswith("_pressure_plate") or name in ("minecraft:torch",
+                                                          "minecraft:redstone_torch"):
+            supported = below is not None
+        else:
+            # A wall torch can be attached on any of the four sides; the facing property decides
+            # which, but accepting any neighbour is enough to tell "attached" from "floating".
+            supported = any((x + dx, y, z + dz) in blocks
+                            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        if not supported:
+            doomed.append(pos)
+    for pos in doomed:
+        del blocks[pos]
+    if doomed:
+        print("dropped   %d unsupported block(s) that would pop off on placement" % len(doomed))
+    return len(doomed)
+
+
+def normalise(blocks):
+    """Brings a downloaded build into the 1.21.1 world it is going to be pasted into.
+
+    Three passes, in this order, and the order matters: rename first so the fallback table can see
+    ids the map's own version still had, stabilise second so a powder id that was just renamed is
+    still caught, and drop last because support is decided against final ids.
+    """
     renamed = {}
     for (x, y, z), (name, props) in list(blocks.items()):
-        new_name = RENAMES.get(name)
+        new_name = RENAMES.get(name) or FALLBACK.get(name)
         if new_name is not None and new_name != name:
             renamed[name] = renamed.get(name, 0) + 1
             blocks[(x, y, z)] = (new_name, props)
     if renamed:
-        print("renamed   " + ", ".join("%s -> %s x%d" % (old, RENAMES[old], count)
+        print("mapped    " + ", ".join("%s -> %s x%d" % (old, RENAMES.get(old) or FALLBACK[old], count)
                                        for old, count in sorted(renamed.items())))
+    settled = {}
+    for (x, y, z), (name, props) in list(blocks.items()):
+        new_name = stabilise(name)
+        if new_name != name:
+            settled[name] = settled.get(name, 0) + 1
+            blocks[(x, y, z)] = (new_name, props)
+    if settled:
+        print("settled   " + ", ".join("%s -> %s x%d" % (old, stabilise(old), count)
+                                       for old, count in sorted(settled.items())))
+    drop_unstable(blocks)
+    return finish(blocks)
+
+
+def to_structure(bbox, blocks, data_version):
+    """Builds a vanilla structure template tree: size + palette + blocks (positions explicit)."""
     palette = []
     palette_index = {}
     # props is a dict, so it cannot go in a set directly; the tuple-of-items form is both hashable

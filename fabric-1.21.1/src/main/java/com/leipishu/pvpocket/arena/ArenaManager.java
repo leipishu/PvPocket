@@ -56,8 +56,15 @@ public final class ArenaManager {
     public static final int COLS = 4;
     public static final int ROWS = 4;
 
-    /** Centre-to-centre spacing of two neighbouring plots, in blocks. */
-    public static final int PITCH = 160;
+    /**
+     * Centre-to-centre spacing of two neighbouring plots, in blocks.
+     *
+     * <p>Driven by the largest map rather than by the rule panel: the gladiator arena is 139 wide,
+     * and two of them 160 apart would have their stands overlapping. 192 leaves 53 blocks of gap at
+     * the maximum plot size, which is enough that a colosseum's outer wall does not appear in the
+     * neighbour's sky.</p>
+     */
+    public static final int PITCH = 192;
     /** Empty ring kept between the largest allowed plot and its neighbour. */
     public static final int MARGIN = 16;
 
@@ -99,12 +106,16 @@ public final class ArenaManager {
     /**
      * Leases a plot sized by the session's rules and wipes it clean.
      *
+     * <p>When a map is selected its bounding box wins over {@code sizeX/sizeY/sizeZ}: the plot has to
+     * cover the whole build, otherwise the boundary test would declare a player standing on the
+     * stands as having left the arena.</p>
+     *
      * <p>Returns null when the grid is full, which the caller must treat as "cannot start" rather
      * than as a soft failure — silently reusing a busy plot would teleport two duels into each
      * other.</p>
      */
     public static ArenaRegion allocate(MinecraftServer server, String sessionId,
-                                       int sizeX, int sizeY, int sizeZ,
+                                       int sizeX, int sizeY, int sizeZ, ArenaMap map,
                                        boolean protectTerrain, boolean allowBreakOwn) {
         release(sessionId);
         int slot = -1;
@@ -117,24 +128,38 @@ public final class ArenaManager {
         if (slot < 0) {
             return null;
         }
-        int sx = clampSize(sizeX, MAX_SIZE_XZ);
-        int sz = clampSize(sizeZ, MAX_SIZE_XZ);
-        int sy = clampSize(sizeY, MAX_SIZE_Y);
+        ArenaMap chosen = map == null ? ArenaMap.FLAT : map;
+        int sx = chosen.isFlat() ? clampSize(sizeX, MAX_SIZE_XZ) : clampSize(chosen.sizeX, MAX_SIZE_XZ);
+        int sz = chosen.isFlat() ? clampSize(sizeZ, MAX_SIZE_XZ) : clampSize(chosen.sizeZ, MAX_SIZE_XZ);
+        int sy = chosen.isFlat() ? clampSize(sizeY, MAX_SIZE_Y) : clampSize(chosen.sizeY, MAX_SIZE_Y);
         // Centring the plot inside its cell keeps two different-sized duels visually symmetric and
         // guarantees the margin even when one plot is at the maximum size.
         int originX = (slot % COLS) * PITCH + (PITCH - sx) / 2;
         int originZ = (slot / COLS) * PITCH + (PITCH - sz) / 2;
         ArenaRegion region = new ArenaRegion("arena-" + slot, slot, originX, originZ, sx, sy, sz,
-                protectTerrain, allowBreakOwn);
+                chosen, protectTerrain, allowBreakOwn);
         USED[slot] = true;
         BY_SESSION.put(sessionId, region);
 
         ServerWorld world = world(server);
         if (world != null) {
             int blocks = suppressRecording(() -> region.reset(world));
+            int pasted = 0;
+            if (!chosen.isFlat()) {
+                // Paste and capture both run with recording suppressed. The paste writes tens of
+                // thousands of blocks, and every one of them would otherwise be filed as "the
+                // player changed this" -- the deviation set would be full before the first round.
+                pasted = suppressRecording(() -> chosen.paste(world, region) ? 1 : 0);
+                suppressRecording(() -> {
+                    region.capture(world);
+                    return 0;
+                });
+            }
             int entities = purge(world, region);
-            PvPocket.LOGGER.info("Leased {} to session {} (reset {} blocks, purged {} entities)",
-                    region, shortId(sessionId), blocks, entities);
+            PvPocket.LOGGER.info("Leased {} to session {} (reset {} blocks, map {} pasted {}, "
+                            + "{} template blocks, purged {} entities)",
+                    region, shortId(sessionId), blocks, chosen.id, pasted == 1,
+                    region.templateBlockCount(), entities);
         }
         return region;
     }
@@ -253,8 +278,11 @@ public final class ArenaManager {
         }
         double x = region.spawnX(spawnIndex) + 0.5D;
         double z = region.spawnZ() + 0.5D;
+        // Not SURFACE_Y: a map's pit floor sits wherever the build put it, and spawning at the flat
+        // surface would bury the player inside the map's ground layer.
+        double y = region.spawnY(spawnIndex);
         player.stopRiding();
-        player.teleport(world, x, SURFACE_Y, z, region.spawnYaw(spawnIndex), 0.0F);
+        player.teleport(world, x, y, z, region.spawnYaw(spawnIndex), 0.0F);
         player.setVelocity(0.0D, 0.0D, 0.0D);
         return true;
     }

@@ -408,6 +408,9 @@ STAGE_CHANGED   RESTORING → ARCHIVED
    钓鱼竿「只在命中时造成伤害」的语义无法表达。
 8. **崩溃残留**：`SURFACE_Y + sizeY + 4` 以上的方块不会被打扫。
 9. **`a.countdown` 只实现了宽限那一半**，没有锁移动。
+10. **地图的边界矩形和战斗区矩形还是同一个**。斗兽场的 139×139 把看台也算进去了，
+    所以边界光幕画在看台外沿，玩家可以跑到看台上打（见 §十三 与
+    `docs/PvPocket-场地模板-调研与工具.md` §七）。
 
 ---
 
@@ -766,3 +769,58 @@ BOUNDARY_RETURNED   player=Dev2
   顶点约定与原版 debug 渲染逐行一致。**摆放位置需要眼睛确认一次。**
 - 光幕是 `AFTER_TRANSLUCENT` 阶段画的，开了 Fabulous 画质时可能与半透明合成顺序有关；
   当前开发环境是普通画质，没有验证 Fabulous。
+
+---
+
+## 十三、四张内置地图
+
+这一节是插进来的另一件事（「把这几个地图添加到设置对局时新的预设类型」）。完整记录在
+`docs/PvPocket-场地模板-调研与工具.md`，这里只留结论和踩过的坑。
+
+### 13.1 落地形态
+
+规则面板 E 组多了一项「场地模板」：平坦 / 斗兽场 / 泥砖场 / 石英圆场 / 城堡。选中地图后
+`e.sizeX/Y/Z` 被地图包围盒接管，面板同步刷新；切回「平坦」时原来填的数字还在。
+
+代码上是三个新文件：`ArenaMap`（一个可选地图）、`ArenaMaps`（常量表，索引即线格式）、
+四个 `data/pvpocket/structure/*.nbt`。改动集中在 `ArenaRegion`（模板基线 + `capture` +
+`groundY`）、`ArenaManager`（粘贴、`PITCH` 192）、`RuleScreen`（选中即刷尺寸）。
+
+### 13.2 最大的坑：位打包
+
+第一版转换出来的场地在游戏里**完全错乱**。根因是我把原版区块的位解包直接套到 litematic
+上——原版是「每个 long 装 floor(64/bits) 个，尾部浪费」，litematic 是**连续比特流**，一个值
+可以从某个 long 的第 61 位跨到下一个 long 的第 0 位。两者只在 `bits` 整除 64 时巧合一致，
+而这四张图的调色板是 18–29 个方块 → `bits = 5` → 必然错位。
+
+### 13.3 更值得记的是：我的校验是假阳性
+
+第一版 `arena-verify.py` 拿**自己生成的 `.nbt`** 当参照，80/80 通过。轴序错了、位打包错了
+也一样通过，因为两边错得一样。这个测试的价值是零，而且它让我在交付时说了「已验证」。
+
+改成以 **litemapy**（第三方实现，零共享代码）为参照之后，四张图逐格比对
+`wrong=0 missing=0 extra=0`，游戏内 `/place` 后回读采样 60/60。
+
+**教训：验证必须有一个和被测实现没有共享假设的参照物。** 拿自己当参照的测试只能证明
+「我没崩」，不能证明「我对」。
+
+### 13.4 顺带修掉的一个假 bug
+
+`ARENA_REVERTED blocks=2050`——整局没人碰方块却记了 2050 处改动。来源是斗兽场 253 处火把
+的 `age` 属性每 tick 自己增长。`onBlockChanged` 原来用 BlockState 身份比较，而 BlockState
+按属性组合 intern，`age` 变一次就是另一个实例。
+
+改成按方块比较（`getBlock()`）之后同一局是 `blocks=0 tracked=0`。代价是同种方块换朝向不再
+被记录——纯外观，且下次租场地会整个清掉。
+
+### 13.5 实测
+
+```
+Pasted arena_gladiator at 26,26 (ok) in 242 ms
+Leased arena-0[139x32x139 @26,26 arena_gladiator] (reset 65710 blocks, 84696 template blocks, purged 30 entities)
+ROUND_STARTED spawns=61,4,95 | 129,4,95
+ARENA_REVERTED blocks=0 tracked=0
+```
+
+四张图 `Leased` 行的模板方块数：84696 / 14817 / 9045 / 11405，与转换产物逐一对上
+（`arena_mud` 差 1 块，是放置阶段被游戏拒掉，不是解析问题）。

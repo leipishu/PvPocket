@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
+import com.leipishu.pvpocket.arena.ArenaMap;
+import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvChips;
 import com.leipishu.pvpocket.client.gui.PvCycle;
@@ -120,8 +122,32 @@ public class RuleScreen extends PvScreen {
         };
         if (control != null) {
             control.onChange(v -> edited.set(def.id, v));
+            if ("e.template".equals(def.id)) {
+                control.onChange(this::pickTemplate);
+            }
         }
         return control;
+    }
+
+    /**
+     * Selecting a map carries its size with it.
+     *
+     * <p>The server overrides the size rules with the map's bounding box anyway, so leaving the
+     * sliders on 48x48 would be showing the player a number that is not going to be used. The rows
+     * are rebuilt instead of patched in place because the size sliders belong to the same pane the
+     * click came from, and poking their value mid-callback is how a slider ends up drawing itself
+     * from a stale index.</p>
+     */
+    private void pickTemplate(int choice) {
+        edited.set("e.template", choice);
+        ArenaMap map = ArenaMaps.byIndex(choice);
+        if (map.isFlat()) {
+            return;
+        }
+        edited.set("e.sizeX", map.sizeX);
+        edited.set("e.sizeZ", map.sizeZ);
+        edited.set("e.sizeY", map.sizeY);
+        MinecraftClient.getInstance().execute(this::buildRows);
     }
 
     private void buildFooter() {

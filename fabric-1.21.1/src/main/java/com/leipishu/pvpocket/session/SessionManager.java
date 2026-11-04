@@ -2,6 +2,7 @@ package com.leipishu.pvpocket.session;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
@@ -965,6 +966,7 @@ public final class SessionManager {
         DuelRules rules = DuelRules.decode(session.rules);
         ArenaRegion region = ArenaManager.allocate(server, session.id,
                 rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
+                ArenaMaps.byIndex(rules.get("e.template")),
                 rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
         if (region == null) {
             fail(accepter, "场地已满，暂时无法开始新的决斗。");
@@ -973,6 +975,8 @@ public final class SessionManager {
         session.arenaId = region.id;
         journal(session).append("ARENA_LEASED", "region", region.id,
                 "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ,
+                "map", region.map.id,
+                "mapBlocks", region.templateBlockCount(),
                 "origin", region.minX + "," + region.minZ,
                 "protectTerrain", region.protectTerrain,
                 "allowBreakOwn", region.allowBreakOwn);
@@ -1519,9 +1523,9 @@ public final class SessionManager {
                 // back into "which of the two boundary rules was actually running".
                 "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
                 "region", region == null ? "-" : region.id,
-                "spawns", region == null ? "-" : region.spawnX(0) + "," + ArenaRegion.SURFACE_Y
+                "spawns", region == null ? "-" : region.spawnX(0) + "," + region.spawnY(0)
                         + "," + region.spawnZ()
-                        + " | " + region.spawnX(1) + "," + ArenaRegion.SURFACE_Y + "," + region.spawnZ());
+                        + " | " + region.spawnX(1) + "," + region.spawnY(1) + "," + region.spawnZ());
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);

@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.rules;
 
+import com.leipishu.pvpocket.arena.ArenaMaps;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -17,7 +19,8 @@ import java.util.Map;
  * <ul>
  *   <li>{@code c.modeConflict} is {@link RuleKind#FIXED} — "both sides must agree" is a structural
  *       property of the negotiation, not something a proposer may vote away.</li>
- *   <li>{@code e.template} exposes only the flat template until the template system lands in P1.</li>
+ *   <li>{@code e.template}'s choices come from {@link ArenaMaps} rather than from a literal here, so
+ *       the panel and the paste path cannot disagree about what map 2 means.</li>
  * </ul>
  */
 public final class RuleCatalog {
@@ -89,14 +92,17 @@ public final class RuleCatalog {
                 "关闭后药水、食物、金苹果不可使用。", true));
 
         // E. 场地
+        // 上限跟 ArenaManager.MAX_SIZE_XZ 对齐（PITCH 192 - 2*MARGIN 16 = 160）。最大的地图是
+        // 139 格宽，128 的老上限会把它裁掉一圈看台，被裁掉的部分会被判成「场外」。
         add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, "场地长度",
-                "场地在 X 方向的格数。", 16, 128, 8, 48, " 格"));
+                "场地在 X 方向的格数。选择地图后由地图尺寸接管。", 16, 160, 8, 48, " 格"));
         add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, "场地宽度",
-                "场地在 Z 方向的格数。", 16, 128, 8, 48, " 格"));
+                "场地在 Z 方向的格数。选择地图后由地图尺寸接管。", 16, 160, 8, 48, " 格"));
         add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, "场地高度",
-                "场地在 Y 方向的格数，决定可搭建的垂直空间。", 8, 64, 4, 32, " 格"));
+                "场地在 Y 方向的格数，决定可搭建的垂直空间。选择地图后由地图尺寸接管。", 8, 64, 4, 32, " 格"));
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
-                "平坦为唯一的 P0 模板，其余模板在后续版本加入。", 0, "平坦"));
+                "「平坦」是程序生成的空地；其余为内置地图，选中后场地尺寸自动跟随地图包围盒，"
+                        + "出生点落在场地中央两侧。", 0, ArenaMaps.labels()));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
                 "拉回：越界即被放回最近的边境内。判负：越界开始 5 秒倒计时，结束仍在场外就输掉本局。"
                         + "场地四边会画一圈半透明光幕标出边界（蓝=拉回，红=判负），光幕可以穿过。",
