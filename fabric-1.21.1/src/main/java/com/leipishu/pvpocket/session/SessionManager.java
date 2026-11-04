@@ -310,6 +310,7 @@ public final class SessionManager {
                     // Somebody logged off during the intermission. That is an ordinary end to a
                     // series, not a failure: abort() would discard the score and record a clean
                     // logoff as an anomaly the next boot has to reconcile.
+                    session.seriesEndReason = "CUT";
                     journal(session).append("SERIES_CUT", "reason", "participant_offline");
                     finishSeries(session, leaderOf(session));
                 } else {
@@ -1101,6 +1102,7 @@ public final class SessionManager {
             transition(session, SessionStage.ROUND_SETTLED);
         }
         roundReadyAt.remove(session.id);
+        session.seriesEndReason = "SURRENDER";
         player.sendMessage(Text.literal("你认输了，整场决斗结束。").formatted(Formatting.RED), false);
         finishSeries(session, winner);
     }
@@ -1500,6 +1502,7 @@ public final class SessionManager {
             if (player == null) {
                 // Somebody left during the preparation window. Cut rather than throw: they never
                 // fought, so there is nothing to judge and no round to award.
+                session.seriesEndReason = "CUT";
                 journal(session).append("SERIES_CUT", "reason", "participant_offline");
                 finishSeries(session, leaderOf(session));
                 return;
@@ -1651,6 +1654,7 @@ public final class SessionManager {
             // Cut always finishes, even when leaderOf() returns null: a tied series that is cut has
             // no winner, and falling through to the intermission would have tried to start a round
             // for a player who is not there.
+            session.seriesEndReason = "CUT";
             journal(session).append("SERIES_CUT", "reason", "participant_offline");
             finishSeries(session, leaderOf(session));
             return;
@@ -1783,8 +1787,15 @@ public final class SessionManager {
 
     private void announceSeriesResult(DuelSession session, String winnerUuid) {
         Participant winner = session.participant(winnerUuid);
+        // Both 认输 and 掉线 can end a series with the winner trailing on rounds. Saying so in the
+        // same sentence is the difference between "the rules worked" and "the score is broken".
+        String because = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
+            case "SURRENDER" -> "对方认输，";
+            case "CUT" -> "对手掉线，";
+            default -> "";
+        };
         String line = "决斗结束：" + (winner == null ? "无人获胜" : winner.name + " 获胜")
-                + "（" + scoreLine(session) + "）。";
+                + "（" + because + "比分 " + scoreLine(session) + "）。";
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {

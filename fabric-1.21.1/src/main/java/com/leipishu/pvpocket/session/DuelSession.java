@@ -53,6 +53,15 @@ public final class DuelSession {
     public String pendingWinner;
     public String pendingReason;
 
+    /**
+     * Why the series ended, when that reason is not "somebody reached the win count".
+     *
+     * <p>{@code "SURRENDER"} and {@code "CUT"} are the two that need saying out loud: both can end a
+     * series with the winner <em>behind</em> on rounds, and a bare "Dev1 获胜（0:1）" reads like a bug
+     * unless the sentence also says the opponent quit.</p>
+     */
+    public String seriesEndReason;
+
     public Participant participant(String uuid) {
         for (Participant p : participants) {
             if (p.uuid.equals(uuid)) {
