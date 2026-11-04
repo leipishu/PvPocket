@@ -33,3 +33,6 @@ desktop.ini
 # Local overrides
 local.properties
 *.local
+
+# Assistant workspace metadata
+.workbuddy-ai/
