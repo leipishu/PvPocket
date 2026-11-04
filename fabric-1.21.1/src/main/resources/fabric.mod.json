@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "pvpocket",
+  "version": "${version}",
+  "name": "PvPocket",
+  "description": "Isolated duel sessions for SMP servers: custom loadouts, best-of-N rounds, per-round Legacy 1.8 combat, and a full restore of survival state afterwards.",
+  "authors": [
+    "leipishu"
+  ],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.leipishu.pvpocket.PvPocket"
+    ],
+    "client": [
+      "com.leipishu.pvpocket.client.PvPocketClient"
+    ]
+  },
+  "mixins": [
+    "pvpocket.mixins.json",
+    {
+      "config": "pvpocket.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

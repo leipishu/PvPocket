@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Loom / run directories
+run/
+remappedSrc/
+.loom/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+out/
+
+# Logs and crash reports
+*.log
+logs/
+crash-reports/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local overrides
+local.properties
+*.local
