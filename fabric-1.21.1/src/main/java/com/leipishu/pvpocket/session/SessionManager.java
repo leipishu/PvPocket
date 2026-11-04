@@ -23,6 +23,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.world.GameMode;
+import net.minecraft.world.GameRules;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -62,6 +63,19 @@ public final class SessionManager {
      */
     private static final long BOUNDARY_GRACE_FLOOR_MS = 10_000L;
 
+    /**
+     * How long a player may stand outside the plot before the round is forfeited.
+     *
+     * <p>Five seconds, fixed rather than a rule, because it is the answer to "how long does it take
+     * to notice you are out and walk back", not a balance knob. It is also long enough to survive a
+     * one-second lag spike, which is the only false positive that matters.</p>
+     */
+    private static final long BOUNDARY_COUNTDOWN_MS = 5_000L;
+
+    /** session id + "/" + uuid -> when they crossed out, and the last whole second announced. */
+    private record BoundaryExit(long since, int announced) {
+    }
+
     private final MinecraftServer server;
     private final PvPocketStorage storage;
     private final Map<String, DuelSession> sessions = new LinkedHashMap<>();
@@ -77,6 +91,8 @@ public final class SessionManager {
     private final Map<String, Long> roundStartedAt = new HashMap<>();
     /** Session id -> wall-clock time the next round may begin, for the intermission. */
     private final Map<String, Long> roundReadyAt = new HashMap<>();
+    /** Players currently outside their plot, waiting out the boundary countdown. */
+    private final Map<String, BoundaryExit> boundaryExits = new HashMap<>();
     private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
@@ -376,31 +392,67 @@ public final class SessionManager {
             }
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
-                if (player != null && !ArenaManager.isInside(player, region)) {
-                    // Logged with coordinates on purpose: "left the arena" has two very different
-                    // causes (a player walked out, or a teleport did not stick) and the position is
-                    // the only thing that tells them apart after the fact.
+                if (player == null) {
+                    continue;
+                }
+                String key = session.id + "/" + p.uuid;
+                if (ArenaManager.isInside(player, region)) {
+                    // Coming back cancels the countdown. Announced, because a countdown that silently
+                    // stops leaves the player unsure whether they are still at risk.
+                    if (boundaryExits.remove(key) != null) {
+                        journal(session).append("BOUNDARY_RETURNED", "player", p.name);
+                        player.sendMessage(Text.literal("已回到场地内。").formatted(Formatting.GREEN), false);
+                        player.sendMessage(Text.empty(), true);
+                    }
+                    continue;
+                }
+                // Logged with coordinates on purpose: "left the arena" has two very different
+                // causes (a player walked out, or a teleport did not stick) and the position is
+                // the only thing that tells them apart after the fact.
+                // During the opening grace window leaving is never a loss, it is a reset. A client
+                // that is still streaming the new dimension can report a position from before the
+                // teleport for several seconds after the server has already moved the player;
+                // judging that as "walked out" would end the duel before either side could see the
+                // arena. Snapping back is self-correcting.
+                if (inOpeningGrace(session) || boundaryIsPushBack(session)) {
+                    boundaryExits.remove(key);
+                    ArenaManager.pullInside(player, region);
+                    journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name,
+                            "grace", inOpeningGrace(session));
+                    continue;
+                }
+                long now = System.currentTimeMillis();
+                BoundaryExit exit = boundaryExits.get(key);
+                if (exit == null) {
+                    boundaryExits.put(key, new BoundaryExit(now, 5));
                     journal(session).append("BOUNDARY_EXIT",
                             "player", p.name,
                             "region", region.id,
                             "pos", String.format("%.2f,%.2f,%.2f",
                                     player.getX(), player.getY(), player.getZ()),
-                            "world", player.getWorld().getRegistryKey().getValue().toString());
-                    // During the opening grace window leaving is never a loss, it is a reset. A
-                    // client that is still streaming the new dimension can report a position from
-                    // before the teleport for several seconds after the server has already moved
-                    // the player; judging that as "walked out" would end the duel before either
-                    // side could see the arena. Snapping back is self-correcting and matches what
-                    // the countdown rule already promises.
-                    if (inOpeningGrace(session) || boundaryIsPushBack(session)) {
-                        ArenaManager.teleportToSpawn(player, region, p.spawnIndex);
-                        journal(session).append("BOUNDARY_PUSHED_BACK", "player", p.name,
-                                "grace", inOpeningGrace(session));
-                        continue;
-                    }
+                            "world", player.getWorld().getRegistryKey().getValue().toString(),
+                            "countdownMs", BOUNDARY_COUNTDOWN_MS);
+                    player.sendMessage(Text.literal("你离开了场地边界，5 秒内不返回本局判负。")
+                            .formatted(Formatting.RED), false);
+                    continue;
+                }
+                long remaining = BOUNDARY_COUNTDOWN_MS - (now - exit.since());
+                if (remaining <= 0) {
+                    boundaryExits.remove(key);
                     Participant opponent = session.opponentOf(p.uuid);
-                    deferred.add(() -> settle(session, "OUT_OF_BOUNDS", opponent == null ? null : opponent.uuid));
+                    journal(session).append("BOUNDARY_FORFEIT", "player", p.name,
+                            "elapsedMs", now - exit.since());
+                    deferred.add(() -> settle(session, "OUT_OF_BOUNDS",
+                            opponent == null ? null : opponent.uuid));
                     break;
+                }
+                int second = (int) Math.ceil(remaining / 1000.0D);
+                if (second != exit.announced()) {
+                    boundaryExits.put(key, new BoundaryExit(exit.since(), second));
+                    // Action bar, not chat: this repeats every second and would otherwise push the
+                    // round-start instructions off the screen.
+                    player.sendMessage(Text.literal("离开边界 " + second + " 秒后判负")
+                            .formatted(Formatting.RED), true);
                 }
             }
         }
@@ -426,6 +478,15 @@ public final class SessionManager {
 
     private static boolean boundaryIsPushBack(DuelSession session) {
         return DuelRules.decode(session.rules).get("e.boundary") == 0;
+    }
+
+    /** Drops every pending countdown belonging to a session. Called at every round boundary. */
+    private void clearBoundaryExits(DuelSession session) {
+        if (boundaryExits.isEmpty()) {
+            return;
+        }
+        String prefix = session.id + "/";
+        boundaryExits.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     // ------------------------------------------------------------------ commands
@@ -866,6 +927,15 @@ public final class SessionManager {
         onRulesSubmit(player, RulesSubmitPayload.ACTION_REJECT, "");
     }
 
+    /**
+     * Forfeits the <em>whole series</em>, not the round.
+     *
+     * <p>Surrender is the way out of a match you no longer want to be in, not a way to drop one
+     * round. Awarding a single round for it would leave the forfeiting player still in the series
+     * — free to surrender again next round — which is not what anybody means by giving up. The
+     * score is left untouched: nobody won this round, the series simply ends with the opponent as
+     * its winner.</p>
+     */
     public void surrender(ServerPlayerEntity player) {
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
@@ -873,8 +943,9 @@ public final class SessionManager {
             return;
         }
         DuelSession session = sessions.get(sessionId);
-        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
-            fail(player, "当前没有进行中的回合。");
+        if (session == null
+                || (session.stage != SessionStage.ROUND_ACTIVE && session.stage != SessionStage.ROUND_READY)) {
+            fail(player, "当前没有进行中的决斗。");
             return;
         }
         if (session.pendingWinner != null) {
@@ -889,7 +960,36 @@ public final class SessionManager {
             return;
         }
         Participant opponent = session.opponentOf(player.getUuidAsString());
-        settle(session, "SURRENDER", opponent == null ? null : opponent.uuid);
+        forfeit(session, player, opponent);
+    }
+
+    /**
+     * Ends the series by forfeit: the surrendering side loses, the opponent takes the series.
+     *
+     * <p>Works from {@code ROUND_READY} as well as {@code ROUND_ACTIVE} — a player who wants out
+     * should not have to sit through the intermission and start another round to say so.</p>
+     */
+    private void forfeit(DuelSession session, ServerPlayerEntity player, Participant opponent) {
+        String winner = opponent == null ? null : opponent.uuid;
+        journal(session).append("SERIES_FORFEITED",
+                "player", player.getName().getString(),
+                "winner", winner,
+                "score", scoreLine(session),
+                "round", session.round,
+                "stage", session.stage.name());
+        if (session.stage == SessionStage.ROUND_ACTIVE) {
+            // winner=null on purpose: the round has no winner, the series does.
+            journal(session).append("ROUND_ENDED",
+                    "round", session.round, "reason", "SURRENDER", "winner", null);
+            session.pendingWinner = null;
+            session.pendingReason = null;
+            roundStartedAt.remove(session.id);
+            clearBoundaryExits(session);
+            transition(session, SessionStage.ROUND_SETTLED);
+        }
+        roundReadyAt.remove(session.id);
+        player.sendMessage(Text.literal("你认输了，整场决斗结束。").formatted(Formatting.RED), false);
+        finishSeries(session, winner);
     }
 
     // ------------------------------------------------------------------ rule plumbing
@@ -1198,6 +1298,15 @@ public final class SessionManager {
         if (region == null) {
             throw new IllegalStateException("no arena plot leased for session " + session.id);
         }
+        var arenaWorld = ArenaManager.world(server);
+        // The wall is rebuilt every round rather than once per session: a round can end with a hole
+        // in it, and the revert between rounds takes the whole ring down anyway.
+        int wall = ArenaManager.buildWall(arenaWorld, region);
+        if (wall > 0) {
+            journal(session).append("ARENA_WALL_BUILT", "region", region.id, "blocks", wall);
+        }
+        applyEnvironment(arenaWorld, rules);
+        clearBoundaryExits(session);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
@@ -1247,7 +1356,7 @@ public final class SessionManager {
             player.sendMessage(Text.literal("第 " + session.round + " / " + session.bestOf + " 局开始（"
                             + modeLabel(mode) + "，" + rules.summary() + "）。"
                             + (session.bestOf > 1 ? "先赢 " + winsNeeded(session) + " 局者胜。" : "")
-                            + "输入 /pvpocket surrender 认输。")
+                            + "输入 /pvpocket surrender 认输（输掉整场）。")
                     .formatted(Formatting.GREEN), false);
         }
         journal(session).append("ROUND_STARTED", "round", session.round,
@@ -1258,6 +1367,44 @@ public final class SessionManager {
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
+    }
+
+    /**
+     * Applies the round's sky: fixed time of day and weather.
+     *
+     * <p>Both are per-<em>world</em> properties, not per-plot, so two matches running side by side
+     * cannot have different weather. Last one to start wins, which is the honest behaviour of a
+     * shared dimension; the rule hint says so rather than pretending otherwise.</p>
+     *
+     * <p>The daylight cycle is switched off when a fixed time is chosen, and switched back on for
+     * "自然". Leaving it off would silently freeze the dimension's clock for the next match.</p>
+     */
+    private void applyEnvironment(ServerWorld world, DuelRules rules) {
+        if (world == null) {
+            return;
+        }
+        int time = rules.get("e.timeOfDay");
+        // 0 = 自然; the rest are fixed ticks. 1000 is shortly after sunrise, 6000 noon, 12000 dusk,
+        // 18000 midnight — the vanilla anchors, chosen so the four options read as four times of day
+        // rather than four arbitrary numbers.
+        boolean frozen = time > 0;
+        world.getGameRules().get(GameRules.DO_DAYLIGHT_CYCLE).set(!frozen, server);
+        if (frozen) {
+            world.setTimeOfDay(switch (time) {
+                case 2 -> 6000L;
+                case 3 -> 12000L;
+                case 4 -> 18000L;
+                default -> 1000L;
+            });
+        }
+        int weather = rules.get("e.weather");
+        if (weather == 1) {
+            world.setWeather(0, 12_000, true, false);
+        } else if (weather == 2) {
+            world.setWeather(0, 12_000, true, true);
+        } else {
+            world.setWeather(12_000, 0, false, false);
+        }
     }
 
     private void settle(DuelSession session, String reason, String winnerUuid) {
@@ -1275,6 +1422,7 @@ public final class SessionManager {
         // Cleared here rather than at the end: the opening grace belongs to the round that just
         // ended, and leaving it in place would let the intermission look like a grace window.
         roundStartedAt.remove(session.id);
+        clearBoundaryExits(session);
 
         ArenaRegion region = ArenaManager.region(session.id);
         var arenaWorld = ArenaManager.world(server);
@@ -1513,6 +1661,7 @@ public final class SessionManager {
         closePanels(session);
         roundReadyAt.remove(session.id);
         roundStartedAt.remove(session.id);
+        clearBoundaryExits(session);
         broadcastHud(session, false);
         for (Participant p : session.participants) {
             if (p.snapshotFile != null) {

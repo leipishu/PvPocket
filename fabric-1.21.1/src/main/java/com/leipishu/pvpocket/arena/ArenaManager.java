@@ -1,7 +1,9 @@
 package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ExperienceOrbEntity;
 import net.minecraft.entity.ItemEntity;
@@ -16,6 +18,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 
 import java.util.ArrayList;
@@ -262,6 +265,69 @@ public final class ArenaManager {
         }
         return region.isInside(player.getX(), player.getY(), player.getZ());
     }
+
+    /**
+     * Puts a player back at the nearest point inside the plot instead of at their spawn.
+     *
+     * <p>The distinction matters: "拉回" promises to undo the step that took them out, not to undo
+     * the whole fight. Teleporting to spawn would hand the opponent a free reset of position every
+     * time somebody clipped the edge.</p>
+     *
+     * <p>The clamp stops one block short of the wall ring on every side, otherwise the player would
+     * be placed inside the boundary blocks and suffocate.</p>
+     */
+    public static boolean pullInside(ServerPlayerEntity player, ArenaRegion region) {
+        ServerWorld world = world(player.getServer());
+        if (world == null || region == null) {
+            return false;
+        }
+        double x = MathHelper.clamp(player.getX(), region.minX + 1.5D, region.maxX() - 0.5D);
+        double z = MathHelper.clamp(player.getZ(), region.minZ + 1.5D, region.maxZ() - 0.5D);
+        double y = MathHelper.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
+        player.stopRiding();
+        player.teleport(world, x, y, z, player.getYaw(), player.getPitch());
+        player.setVelocity(0.0D, 0.0D, 0.0D);
+        return true;
+    }
+
+    /**
+     * Builds the visible boundary: a three-high glass wall on the plot's outermost ring.
+     *
+     * <p>Written through the normal block path on purpose, so every wall block lands in the plot's
+     * deviation set and the same revert that undoes a player's build also takes the wall down. A
+     * separate "remember to remove the wall" step is a step that gets forgotten on the error paths.</p>
+     *
+     * <p>Three high rather than tall enough to be impassable: leaving should be a deliberate act
+     * (build up, ender pearl, a broken section) because that is the case the boundary rule's
+     * countdown exists for. A wall nobody can cross would make the countdown dead code.</p>
+     */
+    public static int buildWall(ServerWorld world, ArenaRegion region) {
+        if (world == null || region == null) {
+            return 0;
+        }
+        BlockState glass = Blocks.GLASS.getDefaultState();
+        int placed = 0;
+        for (int y = SURFACE_Y; y < SURFACE_Y + WALL_HEIGHT; y++) {
+            for (int x = region.minX; x <= region.maxX(); x++) {
+                for (int z = region.minZ; z <= region.maxZ(); z++) {
+                    if (x != region.minX && x != region.maxX()
+                            && z != region.minZ && z != region.maxZ()) {
+                        continue;
+                    }
+                    BlockPos pos = new BlockPos(x, y, z);
+                    if (world.getBlockState(pos) == glass) {
+                        continue;
+                    }
+                    world.setBlockState(pos, glass, Block.NOTIFY_LISTENERS);
+                    placed++;
+                }
+            }
+        }
+        return placed;
+    }
+
+    /** Height of the boundary wall, in blocks above the surface. */
+    private static final int WALL_HEIGHT = 3;
 
     // ------------------------------------------------------------------ cleanup
 

@@ -97,7 +97,14 @@ public final class RuleCatalog {
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
                 "平坦为唯一的 P0 模板，其余模板在后续版本加入。", 0, "平坦"));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
-                "拉回会把越界者推回场内，判负会直接结束这一局。", 1, "拉回", "判负"));
+                "拉回会把越界者放到最近的边境内；判负会开始 5 秒倒计时，倒计时结束仍在场外就输掉这一局。",
+                1, "拉回", "倒计时判负"));
+        add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, "时间",
+                "固定时间后场地时间不再流逝，昼夜循环关闭；「自然」保留原版循环。", 1,
+                "自然", "清晨", "正午", "黄昏", "午夜"));
+        add(RuleDefinition.enumOf("e.weather", RuleGroup.E, "天气",
+                "每局开始时设定。天气是维度级属性，多场同时进行时以最后一局为准。", 0,
+                "晴朗", "降雨", "雷暴"));
         add(RuleDefinition.multi("e.hazard", RuleGroup.E, "环境危害",
                 "场地内生效的额外伤害来源。", 0b0010, "无", "掉落伤害", "岩浆", "虚空"));
 

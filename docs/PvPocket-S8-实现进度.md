@@ -426,3 +426,93 @@ STAGE_CHANGED   RESTORING → ARCHIVED
 7. 想验「关服不丢局」：在第 N 局进行中直接 `stop`，重启后日志应有
    `ROUND_ENDED reason=SERVER_STOP` → `SERIES_ENDED` → `RESTORE_COMPLETED` ×2 → `ARCHIVED`，
    并且**没有** `ANOMALY` / `VOIDED`。
+
+---
+
+## 十、追加修改（21:00）
+
+### 10.1 认输 = 输掉整场
+
+原来 `surrender` 走 `settle(..., "SURRENDER", opponent)`，只判掉**当前这一局**。现在改成 `forfeit`：
+
+```
+SERIES_FORFEITED  player=Dev1 winner=Dev2 score=0:1 round=2 stage=ROUND_ACTIVE
+ROUND_ENDED       round=2 reason=SURRENDER        ← 没有 winner 字段
+SERIES_ENDED      winner=Dev2 score=0:1 rounds=2 bestOf=3
+```
+
+`ROUND_ENDED` 刻意不带 winner：这一局**没人赢**，是整场结束了。比分保持原样，对手直接成为系列赛胜者。
+
+`ROUND_READY`（局间）也接受认输——想退出的人不该被迫再打一局才能说出口。
+
+### 10.2 竞技场维度不再生成结构
+
+`arena.json` 的 flat 设置加了 `"structure_overrides": []`。空列表不是「不覆盖」，是「结构集为空」，
+所以平原生物群系默认的村庄、前哨站、废弃传送门全部不生成。
+
+对照实测（同一条指令）：
+
+```
+主世界   locate structure minecraft:village_plains  → The nearest ... is at [0, ~, -800] (752 blocks away)
+竞技场   execute in pvpocket:arena positioned 0 0 0 run locate structure minecraft:village_plains
+                                                    → Could not find a structure ... nearby
+```
+
+刷怪仍然是三道门（`SpawnHelperMixin` 拦 `spawn` 与 `populateEntities`，加 tick 里的 `sweepMobs` 兜底），本次未改动。
+
+### 10.3 时间与天气可自定义
+
+E 组新增两条：
+
+| 规则 | 选项 | 效果 |
+|---|---|---|
+| `e.timeOfDay` | 自然 / 清晨 / 正午 / 黄昏 / 午夜 | 选固定值时关闭 `doDaylightCycle` 并设置时间；选「自然」时重新打开 |
+| `e.weather` | 晴朗 / 降雨 / 雷暴 | `ServerWorld.setWeather`，每局开始时应用 |
+
+两个都是**维度级**属性，不是分区级：两场同时进行时以最后一局为准。规则提示里直接写了这句，
+而不是假装能各下各的雨。时间同理，所以「自然」必须把 `doDaylightCycle` 打开——不打开的话下一场会继承一个停摆的时钟。
+
+### 10.4 边界：墙 + 5 秒倒计时 / 拉回最近点
+
+三件事：
+
+1. **可见的边界墙**：每局开始时在分区最外圈建 3 格高的玻璃墙（48×48 场地 = 564 个方块），
+   走正常方块写入路径，所以它进分区的偏差集，和玩家的建筑一起被同一次 revert 拆掉。
+   3 格高而不是高到翻不过去——「离开」应该是主动行为（搭方块、末影珍珠、拆一段），
+   否则倒计时就是死代码。
+2. **`e.boundary = 拉回`**：`ArenaManager.pullInside` 把玩家放到**最近的边境内**，
+   而不是传送回出生点。传送回出生点等于每次擦边都白送对手一次位置重置。
+   夹取时离墙圈内缩 1 格，否则玩家会被塞进墙里窒息。
+3. **`e.boundary = 倒计时判负`**：离开边界开始 5 秒倒计时，每秒用 action bar 播报剩余秒数
+   （用 action bar 不用聊天栏，否则每秒一条会把开局提示顶掉）；5 秒内回到场内则取消并提示「已回到场地内」。
+   倒计时结束 → `BOUNDARY_FORFEIT` → 本局判负。
+
+开局宽限期（`max(10s, a.countdown)`）仍然优先：客户端还在下载新维度时上报的旧坐标一律按「拉回」处理，
+不进入倒计时。
+
+#### 实测
+
+```
+ARENA_WALL_BUILT   region=arena-0 blocks=564
+BOUNDARY_EXIT      player=Dev1 pos=55.83,3.00,77.43 countdownMs=5000
+BOUNDARY_RETURNED  player=Dev1                       ← 3.7 秒后自己走回来，倒计时取消
+BOUNDARY_EXIT      player=Dev1 pos=110.50,3.00,80.50
+BOUNDARY_FORFEIT   player=Dev1 elapsedMs=5007        ← 正好 5 秒
+ROUND_ENDED        round=1 reason=OUT_OF_BOUNDS winner=Dev2
+ARENA_REVERTED     blocks=564 tracked=564            ← 墙跟着一起拆干净
+```
+
+拉回模式（宽限期内 `/tp` 到 x=130）：
+
+```
+BOUNDARY_PUSHED_BACK  player=Dev1 grace=true
+Dev1 实际坐标 → 102.5, 3.0, 80.5    ← maxX() - 0.5，最近的边境内一点
+```
+
+### 10.5 没做的
+
+- **维度级的边界墙没有做**。Minecraft 的世界边界是**全服单例**（下界边界跟着主世界按 1/8 缩放就是证据），
+  给竞技场维度单独设一条会把主世界一起缩掉，所以边界做在「场地分区」这一层。
+  玩家体验上一样（每场决斗四周都有墙、出去有倒计时），只是墙围着的是自己的场地而不是整个维度。
+- 时间/天气是维度级属性，多场同时进行时互相覆盖，已在规则提示里注明。
+- `pullInside` 只在宽限期路径上实测过，`e.boundary=拉回` 的正式路径走的是同一个方法。
