@@ -183,7 +183,10 @@ public final class Loadout {
 
     private static List<String> validateEntry(LoadoutEntry entry, String row) {
         List<String> problems = new ArrayList<>();
-        if (entry.kind.resolve(entry.material) == null) {
+        // Only materialised kinds are named <material>_<kind>. FOOD and BLOCK resolve through their
+        // variant instead, so asking "does iron_food exist" would reject every valid food row — and
+        // did, which made the default preset unsaveable until the editor exposed it.
+        if (entry.kind.materialised && entry.kind.resolve(entry.material) == null) {
             problems.add(row + "该材质没有对应的物品。");
         }
         if (entry.count < 1 || entry.count > 64) {

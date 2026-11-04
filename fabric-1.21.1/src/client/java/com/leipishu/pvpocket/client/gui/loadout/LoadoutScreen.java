@@ -84,7 +84,20 @@ public class LoadoutScreen extends PvScreen {
         this.loadout = Loadout.decode(payload.loadout());
         this.loadout.autoAssignSlots();
         this.baseline = this.loadout.copy();
-        this.note = "在左侧选择分类，中间点「+」添加物品";
+        this.note = isPersonal()
+                ? "这是你的个人配装，发起决斗时默认使用"
+                : "在左侧选择分类，中间点「+」添加物品";
+    }
+
+    /**
+     * An empty session id means the personal loadout, not a broken payload.
+     *
+     * <p>The same screen serves two situations — configuring before challenging anyone, and
+     * configuring inside an open negotiation — and the only difference is where 保存 writes. Branching
+     * on the id keeps one screen instead of two nearly identical ones.</p>
+     */
+    private boolean isPersonal() {
+        return payload.sessionId() == null || payload.sessionId().isEmpty();
     }
 
     // ------------------------------------------------------------------ layout
@@ -293,7 +306,9 @@ public class LoadoutScreen extends PvScreen {
         PvDraw.textScaled(ctx, tr, "配装", panelX + 16, panelY + 11, PvTheme.TITLE_SCALE, PvTheme.TEXT);
         int titleEnd = panelX + 16 + PvDraw.scaledWidth(tr, "配装", PvTheme.TITLE_SCALE) + 10;
 
-        String subtitle = "与 " + payload.otherName() + " 的决斗 · 进场时发放";
+        String subtitle = isPersonal()
+                ? "个人配装 · 发起决斗时默认使用"
+                : "与 " + payload.otherName() + " 的决斗 · 进场时发放";
         int digestW = 76;
         int subtitleMax = panelX + panelW - 12 - digestW - titleEnd;
         PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 14, PvTheme.TEXT_DIM);
@@ -333,7 +348,11 @@ public class LoadoutScreen extends PvScreen {
         String text;
         int color;
         if (!problems.isEmpty()) {
-            text = problems.get(0);
+            // Only the first problem fits, but silently hiding the rest would make the player fix one
+            // row, press save, and be told about the next one — so the count is part of the message.
+            text = problems.size() == 1
+                    ? problems.get(0)
+                    : problems.get(0) + "（共 " + problems.size() + " 项）";
             color = PvTheme.DANGER;
         } else if (isDirty()) {
             text = note + " · 未保存";

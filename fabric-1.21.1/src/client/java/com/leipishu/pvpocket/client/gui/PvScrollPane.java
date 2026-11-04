@@ -155,7 +155,7 @@ public class PvScrollPane extends PvWidget {
             jumpTo(my);
             return true;
         }
-        for (PvWidget child : children) {
+        for (PvWidget child : snapshot()) {
             if (child.visible && child.mouseClicked(mx, my, button)) {
                 return true;
             }
@@ -167,7 +167,7 @@ public class PvScrollPane extends PvWidget {
     public boolean mouseReleased(double mx, double my, int button) {
         draggingThumb = false;
         boolean handled = false;
-        for (PvWidget child : children) {
+        for (PvWidget child : snapshot()) {
             handled |= child.mouseReleased(mx, my, button);
         }
         return handled;
@@ -180,10 +180,26 @@ public class PvScrollPane extends PvWidget {
             return true;
         }
         boolean handled = false;
-        for (PvWidget child : children) {
+        for (PvWidget child : snapshot()) {
             handled |= child.mouseDragged(mx, my, button, dx, dy);
         }
         return handled;
+    }
+
+    /**
+     * A copy of the child list, for event dispatch.
+     *
+     * <p>Children are allowed to rebuild this pane from inside their own handlers — that is exactly
+     * what a row's "×" does, and what a slider does on every tick through {@code rebuildListQuietly}.
+     * Iterating the live list then throws {@link java.util.ConcurrentModificationException} on the
+     * client's render thread, which is a crash rather than a glitch: it took both dev clients down
+     * the first time a row was removed.</p>
+     *
+     * <p>The stale widgets in the copy are harmless — they have already been deselected, so their
+     * handlers return false.</p>
+     */
+    private List<PvWidget> snapshot() {
+        return children.isEmpty() ? List.of() : new ArrayList<>(children);
     }
 
     private void jumpTo(double my) {

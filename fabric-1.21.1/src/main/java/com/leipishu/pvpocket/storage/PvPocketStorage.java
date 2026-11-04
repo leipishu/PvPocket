@@ -23,6 +23,7 @@ import java.util.HexFormat;
  *   sessions/&lt;sessionId&gt;.json      session record
  *   snapshots/&lt;sessionId&gt;/&lt;uuid&gt;.dat  player survival snapshots (compressed NBT)
  *   journal/&lt;sessionId&gt;.jsonl      append-only event log
+ *   loadouts/&lt;uuid&gt;.json           a player's saved loadout, outside of any duel
  * </pre>
  *
  * <p>Every write goes through {@link #writeAtomically} so a crash can never leave a
@@ -57,6 +58,14 @@ public final class PvPocketStorage {
         return root.resolve("journal");
     }
 
+    public Path loadoutsDir() {
+        return root.resolve("loadouts");
+    }
+
+    public Path loadoutFile(String playerUuid) {
+        return loadoutsDir().resolve(playerUuid + ".json");
+    }
+
     public Path sessionFile(String sessionId) {
         return sessionsDir().resolve(sessionId + ".json");
     }
@@ -77,6 +86,7 @@ public final class PvPocketStorage {
         Files.createDirectories(sessionsDir());
         Files.createDirectories(snapshotsDir());
         Files.createDirectories(journalDir());
+        Files.createDirectories(loadoutsDir());
     }
 
     public void writeJson(Path target, Object value) throws IOException {

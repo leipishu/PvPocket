@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.loadout.Loadout;
+import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -65,6 +66,8 @@ public final class SessionManager {
     /** Player uuid -> session id whose snapshot still has to be restored. Survives restarts. */
     private final Map<UUID, String> pendingRestore = new LinkedHashMap<>();
     private final Map<String, SessionJournal> journals = new HashMap<>();
+    /** Per-player saved loadouts, usable with or without an open session. */
+    private final LoadoutBook loadouts;
     private final List<Runnable> deferred = new ArrayList<>();
     /** Session id -> wall-clock start of the current round, for the opening grace window. */
     private final Map<String, Long> roundStartedAt = new HashMap<>();
@@ -73,6 +76,7 @@ public final class SessionManager {
     private SessionManager(MinecraftServer server) {
         this.server = server;
         this.storage = new PvPocketStorage(server);
+        this.loadouts = new LoadoutBook(storage);
     }
 
     public static SessionManager create(MinecraftServer server) {
@@ -413,12 +417,14 @@ public final class SessionManager {
         session.participants.add(new Participant(challenger.getUuidAsString(), challenger.getName().getString(), 0));
         session.participants.add(new Participant(target.getUuidAsString(), target.getName().getString(), 1));
 
-        // Both sides start from the same editable preset rather than an empty loadout. An empty one
-        // would make the first duel an unarmed fistfight, which reads as a bug rather than a choice.
-        Loadout preset = Loadout.defaultDuel();
+        // Both sides start from their own saved loadout, not from a shared preset. A player who spent
+        // time on a sword should not have to re-enter it every time they challenge someone, and the
+        // target's side should be what *they* configured, not what the challenger happens to carry.
         for (Participant p : session.participants) {
-            p.loadout = preset.encode();
-            p.loadoutDigest = preset.digest();
+            Loadout seed = loadouts.get(UUID.fromString(p.uuid));
+            seed.autoAssignSlots();
+            p.loadout = seed.encode();
+            p.loadoutDigest = seed.digest();
         }
 
         // The `legacy` literal on the command is a seed for c.mode, not a separate code path: it
@@ -451,7 +457,16 @@ public final class SessionManager {
                 session.rules,
                 role,
                 session.rulesRevision,
-                otherName(session, player.getUuidAsString())));
+                otherName(session, player.getUuidAsString()),
+                loadoutSummary(session.participant(player.getUuidAsString()))));
+    }
+
+    /** "8 项 · 3f9c21", for the panel header. Empty when the participant has no loadout yet. */
+    private static String loadoutSummary(Participant p) {
+        if (p == null || p.loadout == null) {
+            return "";
+        }
+        return Loadout.decode(p.loadout).size() + " 项 · " + p.loadoutDigest;
     }
 
     /** Re-opens the panel for whoever is currently expected to answer. Command fallback path. */
@@ -722,16 +737,26 @@ public final class SessionManager {
     }
 
     /**
-     * Opens the loadout editor for whoever is in a session that has not started yet.
+     * Opens the loadout editor, either for an open session or for the player's own saved loadout.
      *
      * <p>Deliberately reachable from both sides and from either stage: a player who is proposing
      * configures their loadout before sending, and a player who is reviewing configures it before
      * accepting. It is the same screen either way, which is the point.</p>
+     *
+     * <p>With no open session it opens the <em>personal</em> loadout instead of refusing. The request
+     * was explicitly "configure before sending the request", and refusing there would mean the only
+     * way to prepare is to challenge somebody first — which is backwards, and would also send a
+     * challenge carrying a loadout nobody picked. The personal variant is marked by an empty session
+     * id, which is what tells the submit path to write to {@link LoadoutBook} rather than a
+     * participant.</p>
      */
     public void onLoadoutRequest(ServerPlayerEntity player) {
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
-            fail(player, "当前没有可以配置配装的决斗。");
+            Loadout personal = loadouts.get(player.getUuid());
+            personal.autoAssignSlots();
+            PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
+                    "", personal.encode(), RulesOpenPayload.ROLE_PROPOSER, ""));
             return;
         }
         Participant p = session.participant(player.getUuidAsString());
@@ -739,9 +764,10 @@ public final class SessionManager {
             return;
         }
         if (p.loadout == null) {
-            Loadout preset = Loadout.defaultDuel();
-            p.loadout = preset.encode();
-            p.loadoutDigest = preset.digest();
+            Loadout seed = loadouts.get(player.getUuid());
+            seed.autoAssignSlots();
+            p.loadout = seed.encode();
+            p.loadoutDigest = seed.digest();
         }
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_PROPOSER
@@ -756,8 +782,17 @@ public final class SessionManager {
      * <p>The client runs the same validation to keep its save button honest, but a client is not a
      * source of truth: this is the pass that actually decides whether a loadout becomes items. A
      * rejected loadout leaves the previous one untouched rather than half-applying.</p>
+     *
+     * <p>An empty session id means "the personal loadout". It is saved to the book <em>and</em>, if
+     * the player happens to be in a session that has not started, mirrored onto their participant —
+     * otherwise a player who edits from the command line during a negotiation would be told "saved"
+     * while the duel still carries the old one.</p>
      */
     public void onLoadoutSubmit(ServerPlayerEntity player, String sessionId, String encoded) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            submitPersonal(player, encoded);
+            return;
+        }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage.isTerminal()) {
             fail(player, "这场决斗已经结束。");
@@ -793,12 +828,44 @@ public final class SessionManager {
                 + p.loadoutDigest + "）。").formatted(Formatting.GREEN), false);
     }
 
+    /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
+    private void submitPersonal(ServerPlayerEntity player, String encoded) {
+        Loadout loadout = Loadout.decode(encoded);
+        List<String> problems = loadout.validate();
+        if (!problems.isEmpty()) {
+            fail(player, "配装未保存：" + problems.get(0));
+            return;
+        }
+        loadout.autoAssignSlots();
+        loadouts.put(player.getUuid(), loadout);
+
+        String mirrored = "仅保存为个人配装";
+        DuelSession session = findOpenSession(player.getUuid());
+        if (session != null && session.stage.isPreFreeze()) {
+            Participant p = session.participant(player.getUuidAsString());
+            if (p != null) {
+                p.loadout = loadout.encode();
+                p.loadoutDigest = loadout.digest();
+                journal(session).append("LOADOUT_SAVED",
+                        "player", p.name,
+                        "digest", p.loadoutDigest,
+                        "items", loadout.size(),
+                        "summary", loadout.name,
+                        "scope", "personal");
+                persist(session);
+                mirrored = "已同步到当前决斗";
+            }
+        }
+        player.sendMessage(Text.literal("配装已保存（" + loadout.size() + " 项 · "
+                + loadout.digest() + "，" + mirrored + "）。").formatted(Formatting.GREEN), false);
+    }
+
     /**
      * The loadout this player would enter with right now.
      *
-     * <p>Falls back to the default preset rather than returning null so that the diagnostic command
-     * and a first duel show the same thing — a null here would make "no loadout yet" look like
-     * "loadout support is broken".</p>
+     * <p>Falls back to the player's saved loadout rather than returning null so that the diagnostic
+     * command and a first duel show the same thing — a null here would make "no loadout yet" look
+     * like "loadout support is broken".</p>
      */
     public Loadout loadoutFor(ServerPlayerEntity player) {
         String uuid = player.getUuidAsString();
@@ -811,7 +878,12 @@ public final class SessionManager {
                 return Loadout.decode(p.loadout);
             }
         }
-        return Loadout.defaultDuel();
+        return loadouts.get(player.getUuid());
+    }
+
+    /** The book itself, so the command layer can reset a saved loadout. */
+    public LoadoutBook loadoutBook() {
+        return loadouts;
     }
 
     public void status(ServerPlayerEntity player) {

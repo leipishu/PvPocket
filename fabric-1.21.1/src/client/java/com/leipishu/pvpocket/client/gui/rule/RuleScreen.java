@@ -152,8 +152,13 @@ public class RuleScreen extends PvScreen {
         }
         // The loadout editor sits leftmost, furthest from 发送征询. Configuring items and committing a
         // rule set are two different decisions and should not be neighbours.
-        right = place(new PvButton("配装", PvButton.Style.NORMAL, this::openLoadout)
-                .size(52, PvTheme.BTN_H), right, buttonY);
+        //
+        // Labelled 编辑配装 rather than 配装 because the tab strip already has a 配装 tab (rule group
+        // D, which is about *rules* for what you bring). Two things called 配装 in one panel, one of
+        // which opens the editor and one of which shows a rule page, is a coin flip the player should
+        // not have to make.
+        right = place(new PvButton("编辑配装", PvButton.Style.NORMAL, this::openLoadout)
+                .size(64, PvTheme.BTN_H), right, buttonY);
         footerTextRight = right - 8;
     }
 
@@ -193,7 +198,24 @@ public class RuleScreen extends PvScreen {
                 PvTheme.ACCENT);
         PvDraw.hLine(ctx, panelX + 12, panelY + 32, panelW - 24, PvTheme.DIVIDER);
 
-        PvDraw.text(ctx, tr, groupHint(tabs.group()), pane.x, panelY + 38, PvTheme.TEXT_MUTED);
+        // The loadout summary sits on the hint line rather than the title: the title row is already
+        // carrying the opponent's name and the revision, and this is the line the eye passes on the
+        // way to the tab strip. Seeing "配装 8 项 · 3f9c21" here is what makes the 编辑配装 button in
+        // the footer discoverable instead of merely present.
+        //
+        // The hint starts at pane.x, not at panelX + 12 — the tab strip sits between them. Budgeting
+        // the hint against panelW instead of the pane's own width let the two strings overlap.
+        String loadout = payload.loadoutSummary();
+        int hintRight = panelX + panelW - 12;
+        int hintMax = hintRight - pane.x;
+        if (loadout != null && !loadout.isEmpty()) {
+            String tag = "配装 " + loadout;
+            int tagW = tr.getWidth(tag);
+            PvDraw.textRight(ctx, tr, tag, hintRight, panelY + 38, PvTheme.TEXT_DIM);
+            hintMax = hintRight - tagW - 12 - pane.x;
+        }
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, groupHint(tabs.group()), Math.max(0, hintMax)),
+                pane.x, panelY + 38, PvTheme.TEXT_MUTED);
 
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
         drawFooterText(ctx, tr, reviewer);
@@ -205,8 +227,8 @@ public class RuleScreen extends PvScreen {
         int changes = changeCount();
 
         String left = reviewer
-                ? "同意即按当前版本开始 · 「配装」调整进场物品"
-                : "设置完成后发送给对方 · 「配装」调整进场物品";
+                ? "同意即按当前版本开始 · 「编辑配装」调整进场物品"
+                : "设置完成后发送给对方 · 「编辑配装」调整进场物品";
         int color = PvTheme.TEXT_MUTED;
         if (changes > 0) {
             left = "已修改 " + changes + " 项";
