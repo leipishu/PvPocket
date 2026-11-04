@@ -39,7 +39,7 @@ PvPocket/
 | Fabric API | 0.116.17+1.21.1 |
 | Yarn mappings | 1.21.1+build.3 |
 | Fabric Loom | 1.11.8 |
-| Gradle | 8.11 |
+| Gradle | 8.14.3 |
 | Java | 21 |
 
 模组 ID `pvpocket`，Java 包名 `com.leipishu.pvpocket`。
@@ -63,13 +63,11 @@ cd fabric-1.21.1
 
 产物位于 `fabric-1.21.1/build/libs/`。
 
-如果 Gradle 未能自动找到 JDK 21，可显式指定：
+`gradle.properties` 中固定了 Gradle 守护进程使用的 JDK 路径（Loom 1.11 要求 JVM 21+）。换机器或接入 CI 时修改这一行，或删除它并改用环境变量：
 
 ```bash
 JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 ```
-
-或在 `~/.gradle/gradle.properties` 中设置 `org.gradle.java.home`。
 
 ## 文档
 
