@@ -1,0 +1,522 @@
+package com.leipishu.pvpocket.session;
+
+import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
+import com.leipishu.pvpocket.storage.PvPocketStorage;
+import com.leipishu.pvpocket.storage.SessionJournal;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import net.minecraft.world.GameMode;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+/**
+ * Orchestrates duel sessions: request, freeze, teleport, settle, restore, reconcile.
+ *
+ * <p>Two rules drive everything here:</p>
+ * <ol>
+ *   <li>The journal is written before the state change it describes.</li>
+ *   <li>Player state is only touched after the snapshot is safely on disk.</li>
+ * </ol>
+ */
+public final class SessionManager {
+
+    private static SessionManager instance;
+
+    private final MinecraftServer server;
+    private final PvPocketStorage storage;
+    private final Map<String, DuelSession> sessions = new LinkedHashMap<>();
+    private final Map<UUID, String> sessionByPlayer = new HashMap<>();
+    private final Map<UUID, String> inviteByTarget = new HashMap<>();
+    /** Player uuid -> session id whose snapshot still has to be restored. Survives restarts. */
+    private final Map<UUID, String> pendingRestore = new LinkedHashMap<>();
+    private final Map<String, SessionJournal> journals = new HashMap<>();
+    private final List<Runnable> deferred = new ArrayList<>();
+
+    private SessionManager(MinecraftServer server) {
+        this.server = server;
+        this.storage = new PvPocketStorage(server);
+    }
+
+    public static SessionManager create(MinecraftServer server) {
+        instance = new SessionManager(server);
+        return instance;
+    }
+
+    public static SessionManager get() {
+        return instance;
+    }
+
+    public static void clear() {
+        instance = null;
+    }
+
+    public PvPocketStorage storage() {
+        return storage;
+    }
+
+    // ------------------------------------------------------------------ startup / shutdown
+
+    public void load() {
+        try {
+            storage.ensureLayout();
+        } catch (IOException e) {
+            PvPocket.LOGGER.error("Cannot create pvpocket storage layout", e);
+            return;
+        }
+
+        Path dir = storage.sessionsDir();
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            files.filter(p -> p.getFileName().toString().endsWith(".json")).forEach(this::loadOne);
+        } catch (IOException e) {
+            PvPocket.LOGGER.error("Cannot list session directory", e);
+        }
+    }
+
+    private void loadOne(Path file) {
+        try {
+            DuelSession session = storage.readJson(file, DuelSession.class);
+            if (session != null && session.id != null) {
+                sessions.put(session.id, session);
+            }
+        } catch (Exception e) {
+            PvPocket.LOGGER.error("Cannot read session file {}", file, e);
+        }
+    }
+
+    /**
+     * Startup reconciliation. Any session that was not archived is rolled back: participants get
+     * queued for restore, and the series is marked void. No attempt is made to resume a round.
+     */
+    public void reconcile() {
+        for (DuelSession session : sessions.values()) {
+            if (session.stage.isTerminal()) {
+                continue;
+            }
+            if (session.stage.isPreFreeze()) {
+                journal(session).append("SESSION_DROPPED", "stage", session.stage.name());
+                session.voidReason = "SERVER_RESTART_BEFORE_START";
+                transition(session, SessionStage.VOIDED);
+                continue;
+            }
+            PvPocket.LOGGER.warn("Reconciling unfinished session {} at stage {}", session.id, session.stage);
+            for (Participant p : session.participants) {
+                if (p.snapshotFile != null && !p.restored) {
+                    pendingRestore.put(UUID.fromString(p.uuid), session.id);
+                }
+            }
+            session.voidReason = "SERVER_CRASH";
+            journal(session).append("ANOMALY", "detail", "unfinished session reconciled", "stage", session.stage.name());
+            transition(session, SessionStage.VOIDED);
+        }
+    }
+
+    public void shutdown() {
+        for (DuelSession session : sessions.values()) {
+            if (session.stage == SessionStage.ROUND_ACTIVE) {
+                settle(session, "SERVER_STOP", null);
+            }
+        }
+        journals.values().forEach(SessionJournal::close);
+        journals.clear();
+    }
+
+    // ------------------------------------------------------------------ player events
+
+    public void onJoin(ServerPlayerEntity player) {
+        String sessionId = pendingRestore.remove(player.getUuid());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null) {
+            PvPocket.LOGGER.error("Pending restore references unknown session {}", sessionId);
+            return;
+        }
+        Participant p = session.participant(player.getUuidAsString());
+        if (p == null) {
+            return;
+        }
+        boolean ok = restoreParticipant(session, p);
+        if (ok) {
+            player.sendMessage(Text.literal("上一场决斗因服务器中断已作废，你的生存状态已恢复。")
+                    .formatted(Formatting.YELLOW), false);
+        } else {
+            player.sendMessage(Text.literal("生存状态恢复失败，请联系管理员（会话 " + sessionId + "）。")
+                    .formatted(Formatting.RED), false);
+        }
+    }
+
+    public void onDisconnect(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+            return;
+        }
+        Participant opponent = session.opponentOf(player.getUuidAsString());
+        deferred.add(() -> settle(session, "DISCONNECT", opponent == null ? null : opponent.uuid));
+    }
+
+    public void onDeath(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+            return;
+        }
+        Participant opponent = session.opponentOf(player.getUuidAsString());
+        session.pendingWinner = opponent == null ? null : opponent.uuid;
+        session.pendingReason = "DEATH";
+        journal(session).append("ROUND_DECIDED", "reason", "DEATH", "winner", session.pendingWinner);
+        persist(session);
+    }
+
+    /**
+     * A dead player cannot be teleported, so the settle happens once they are alive again. By then
+     * the entity has been replaced, which is why everything is looked up by uuid.
+     */
+    public void onRespawn(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.ROUND_ACTIVE || session.pendingWinner == null) {
+            return;
+        }
+        deferred.add(() -> settle(session, session.pendingReason, session.pendingWinner));
+    }
+
+    // ------------------------------------------------------------------ tick
+
+    public void tick() {
+        if (!deferred.isEmpty()) {
+            List<Runnable> copy = new ArrayList<>(deferred);
+            deferred.clear();
+            copy.forEach(Runnable::run);
+        }
+        for (DuelSession session : sessions.values()) {
+            if (session.stage != SessionStage.ROUND_ACTIVE) {
+                continue;
+            }
+            for (Participant p : session.participants) {
+                ServerPlayerEntity player = online(p);
+                if (player != null && !ArenaManager.isInside(player)) {
+                    Participant opponent = session.opponentOf(p.uuid);
+                    deferred.add(() -> settle(session, "OUT_OF_BOUNDS", opponent == null ? null : opponent.uuid));
+                    break;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ commands
+
+    public void requestDuel(ServerPlayerEntity challenger, ServerPlayerEntity target) {
+        if (challenger.getUuid().equals(target.getUuid())) {
+            fail(challenger, "不能向自己发起决斗。");
+            return;
+        }
+        if (sessionByPlayer.containsKey(challenger.getUuid())) {
+            fail(challenger, "你已经在决斗中。");
+            return;
+        }
+        if (sessionByPlayer.containsKey(target.getUuid())) {
+            fail(challenger, target.getName().getString() + " 已在决斗中。");
+            return;
+        }
+        if (inviteByTarget.containsKey(target.getUuid())) {
+            fail(challenger, target.getName().getString() + " 有待处理的邀请。");
+            return;
+        }
+        if (challenger.interactionManager.getGameMode() == GameMode.SPECTATOR
+                || target.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+            fail(challenger, "旁观模式无法参与决斗。");
+            return;
+        }
+        if (!ArenaManager.isReady(server)) {
+            fail(challenger, "决斗维度未加载，无法发起。");
+            return;
+        }
+
+        DuelSession session = new DuelSession();
+        session.id = UUID.randomUUID().toString();
+        session.createdAt = System.currentTimeMillis();
+        session.updatedAt = session.createdAt;
+        session.participants.add(new Participant(challenger.getUuidAsString(), challenger.getName().getString(), 0));
+        session.participants.add(new Participant(target.getUuidAsString(), target.getName().getString(), 1));
+        sessions.put(session.id, session);
+        inviteByTarget.put(target.getUuid(), session.id);
+
+        journal(session).append("SESSION_CREATED",
+                "challenger", challenger.getName().getString(),
+                "target", target.getName().getString());
+        transition(session, SessionStage.NEGOTIATING);
+
+        challenger.sendMessage(Text.literal("已向 " + target.getName().getString() + " 发起决斗（BO1，现代战斗）。")
+                .formatted(Formatting.GRAY), false);
+        target.sendMessage(Text.literal(challenger.getName().getString()
+                        + " 向你发起决斗。输入 /pvpocket accept 接受，/pvpocket deny 拒绝。")
+                .formatted(Formatting.GOLD), false);
+    }
+
+    public void accept(ServerPlayerEntity player) {
+        String sessionId = inviteByTarget.remove(player.getUuid());
+        if (sessionId == null) {
+            fail(player, "没有待接受的邀请。");
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.NEGOTIATING) {
+            fail(player, "邀请已失效。");
+            return;
+        }
+        if (!ArenaManager.isReady(server)) {
+            fail(player, "决斗维度未加载。");
+            return;
+        }
+
+        try {
+            freeze(session);
+            transition(session, SessionStage.ROUND_READY);
+            startRound(session);
+        } catch (RuntimeException e) {
+            PvPocket.LOGGER.error("Failed to start session {}", session.id, e);
+            abort(session, "START_FAILED");
+        }
+    }
+
+    public void deny(ServerPlayerEntity player) {
+        String sessionId = inviteByTarget.remove(player.getUuid());
+        if (sessionId == null) {
+            fail(player, "没有待处理的邀请。");
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        journal(session).append("SESSION_DENIED", "player", player.getName().getString());
+        session.voidReason = "DENIED";
+        transition(session, SessionStage.VOIDED);
+        ServerPlayerEntity challenger = online(session.participants.get(0));
+        if (challenger != null) {
+            challenger.sendMessage(Text.literal("对方拒绝了决斗邀请。").formatted(Formatting.GRAY), false);
+        }
+        player.sendMessage(Text.literal("已拒绝决斗邀请。").formatted(Formatting.GRAY), false);
+    }
+
+    public void surrender(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            fail(player, "你不在决斗中。");
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+            fail(player, "当前没有进行中的回合。");
+            return;
+        }
+        Participant opponent = session.opponentOf(player.getUuidAsString());
+        settle(session, "SURRENDER", opponent == null ? null : opponent.uuid);
+    }
+
+    public void status(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            player.sendMessage(Text.literal("你不在决斗中。").formatted(Formatting.GRAY), false);
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        Participant me = session.participant(player.getUuidAsString());
+        Participant opponent = session.opponentOf(player.getUuidAsString());
+        player.sendMessage(Text.literal("会话 " + shortId(session.id)
+                + " | 阶段 " + session.stage
+                + " | 回合 " + session.round
+                + " | 比分 " + scoreLine(session)
+                + (opponent == null ? "" : " | 对手 " + opponent.name))
+                .formatted(Formatting.AQUA), false);
+        if (me != null) {
+            PvPocket.LOGGER.debug("Status requested by {}", me.name);
+        }
+    }
+
+    // ------------------------------------------------------------------ internals
+
+    private void freeze(DuelSession session) {
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player == null) {
+                throw new IllegalStateException("participant offline: " + p.name);
+            }
+            PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
+            Path file = storage.snapshotFile(session.id, p.uuid);
+            try {
+                snapshot.writeTo(file);
+            } catch (IOException e) {
+                throw new IllegalStateException("cannot write snapshot for " + p.name, e);
+            }
+            p.snapshotFile = file.getFileName().toString();
+            p.fingerprint = snapshot.fingerprint();
+            sessionByPlayer.put(player.getUuid(), session.id);
+            journal(session).append("SNAPSHOT_WRITTEN",
+                    "player", p.name, "fingerprint", p.fingerprint);
+        }
+        transition(session, SessionStage.FROZEN);
+    }
+
+    private void startRound(DuelSession session) {
+        session.round++;
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player == null) {
+                throw new IllegalStateException("participant offline: " + p.name);
+            }
+            if (!ArenaManager.teleportToSpawn(player, p.spawnIndex)) {
+                throw new IllegalStateException("arena world unavailable");
+            }
+            player.changeGameMode(GameMode.SURVIVAL);
+            player.sendMessage(Text.literal("决斗开始。输入 /pvpocket surrender 认输。")
+                    .formatted(Formatting.GREEN), false);
+        }
+        journal(session).append("ROUND_STARTED", "round", session.round);
+        transition(session, SessionStage.ROUND_ACTIVE);
+    }
+
+    private void settle(DuelSession session, String reason, String winnerUuid) {
+        if (session.stage != SessionStage.ROUND_ACTIVE) {
+            return;
+        }
+        journal(session).append("ROUND_ENDED",
+                "round", session.round, "reason", reason, "winner", winnerUuid);
+        if (winnerUuid != null) {
+            session.score.merge(winnerUuid, 1, Integer::sum);
+        }
+        transition(session, SessionStage.ROUND_SETTLED);
+        session.pendingWinner = null;
+        session.pendingReason = null;
+
+        int cleared = ArenaManager.clearDroppedItems(server);
+        journal(session).append("ARENA_CLEARED", "removed", cleared);
+
+        transition(session, SessionStage.RESTORING);
+
+        for (Participant p : session.participants) {
+            restoreParticipant(session, p);
+        }
+        transition(session, SessionStage.ARCHIVED);
+        inviteByTarget.values().removeIf(session.id::equals);
+    }
+
+    /** Rolls a session back after a failed start. Restores anyone already frozen, then voids it. */
+    private void abort(DuelSession session, String reason) {
+        session.voidReason = reason;
+        for (Participant p : session.participants) {
+            if (p.snapshotFile != null) {
+                restoreParticipant(session, p);
+            }
+        }
+        journal(session).append("SESSION_ABORTED", "reason", reason);
+        transition(session, SessionStage.VOIDED);
+    }
+
+    private boolean restoreParticipant(DuelSession session, Participant p) {
+        ServerPlayerEntity player = online(p);
+        if (player == null) {
+            pendingRestore.put(UUID.fromString(p.uuid), session.id);
+            journal(session).append("RESTORE_DEFERRED", "player", p.name);
+            return false;
+        }
+        try {
+            Path file = storage.snapshotDir(session.id).resolve(p.snapshotFile);
+            PlayerSnapshot snapshot = PlayerSnapshot.readFrom(file);
+            snapshot.restore(player);
+            boolean verified = snapshot.verify(player);
+            p.restored = true;
+            sessionByPlayer.remove(player.getUuid());
+            journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
+            if (!verified) {
+                journal(session).append("ANOMALY", "player", p.name,
+                        "detail", "state digest mismatch after restore");
+                PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}", p.name, session.id);
+            }
+            player.sendMessage(Text.literal("决斗结束，生存状态已恢复。").formatted(Formatting.GREEN), false);
+            return true;
+        } catch (Exception e) {
+            PvPocket.LOGGER.error("Restore failed for {} in session {}", p.name, session.id, e);
+            journal(session).append("ANOMALY", "player", p.name, "detail", "restore failed: " + e);
+            pendingRestore.put(UUID.fromString(p.uuid), session.id);
+            return false;
+        }
+    }
+
+    private void transition(DuelSession session, SessionStage next) {
+        journal(session).append("STAGE_CHANGED",
+                "from", session.stage.name(), "to", next.name(), "revision", session.revision + 1);
+        session.stage = next;
+        session.revision++;
+        session.updatedAt = System.currentTimeMillis();
+        persist(session);
+    }
+
+    private void persist(DuelSession session) {
+        try {
+            storage.writeJson(storage.sessionFile(session.id), session);
+        } catch (IOException e) {
+            PvPocket.LOGGER.error("Cannot persist session {}", session.id, e);
+        }
+    }
+
+    private SessionJournal journal(DuelSession session) {
+        return journals.computeIfAbsent(session.id, id -> new SessionJournal(storage.journalFile(id)));
+    }
+
+    private ServerPlayerEntity online(Participant p) {
+        return server.getPlayerManager().getPlayer(UUID.fromString(p.uuid));
+    }
+
+    private static void fail(ServerPlayerEntity player, String message) {
+        player.sendMessage(Text.literal(message).formatted(Formatting.RED), false);
+    }
+
+    private static String shortId(String id) {
+        return id.length() > 8 ? id.substring(0, 8) : id;
+    }
+
+    private static String scoreLine(DuelSession session) {
+        if (session.score.isEmpty()) {
+            return "0:0";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Participant p : session.participants) {
+            if (sb.length() > 0) {
+                sb.append(':');
+            }
+            sb.append(session.score.getOrDefault(p.uuid, 0));
+        }
+        return sb.toString();
+    }
+}
