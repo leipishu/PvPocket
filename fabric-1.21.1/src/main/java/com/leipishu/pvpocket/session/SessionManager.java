@@ -80,11 +80,12 @@ public final class SessionManager {
     private static final long BOUNDARY_NOTICE_GAP_MS = 1_500L;
 
     /**
-     * How tall the client-side boundary curtain is drawn, in blocks.
+     * The minimum height the client draws the boundary curtain at, in blocks.
      *
-     * <p>Four is a compromise between "visible from across the plot" and "does not become a wall you
-     * think you can climb". Tall enough that a player standing on the ground sees it without looking
-     * up; short enough that the arena still reads as open sky above.</p>
+     * <p>A minimum, not the height: the client raises the curtain to clear its own camera, because a
+     * fixed band stops being visible the moment somebody climbs. Four is what a player standing on
+     * the ground needs — tall enough to see without looking up, short enough that the arena still
+     * reads as open sky above.</p>
      */
     private static final double BOUNDARY_CURTAIN_HEIGHT = 4.0D;
 

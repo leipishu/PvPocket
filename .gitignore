@@ -50,5 +50,5 @@ fabric-1.21.1/arena-src/
 __pycache__/
 *.pyc
 
-# Generated arena render (scripts/arena-map.py)
-arena-map.png
+# Generated arena renders (scripts/arena-map.py)
+arena-map*.png

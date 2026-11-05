@@ -209,27 +209,125 @@ public final class ArenaManager {
         }
         int clearY = previous == null ? sy : Math.max(sy, previous.sizeY);
         int cleared = suppressRecording(() -> region.reset(world, clearY));
+        int floorBlocks = 0;
         int pasted = 0;
-        if (!map.isFlat()) {
+        if (map.isFlat()) {
+            floorBlocks = suppressRecording(() -> buildPlatform(world, region));
+        } else {
             // Paste and capture both run with recording suppressed. The paste writes tens of
             // thousands of blocks, and every one of them would otherwise be filed as "the player
             // changed this" -- the deviation set would be full before the first round.
             pasted = suppressRecording(() -> map.paste(world, region) ? 1 : 0);
-            suppressRecording(() -> {
-                region.capture(world);
-                return 0;
-            });
         }
+        // Capture runs for the flat plot too. Its platform has to be part of the baseline, or the
+        // first revert of a duel would delete the ground out from under the players.
+        suppressRecording(() -> {
+            region.capture(world);
+            return 0;
+        });
+        // After capture, so the barrier shelf is not mistaken for part of the map. It sits one block
+        // below the plot floor and outside the plot box, which is exactly the volume capture skips.
+        int bufferBlocks = suppressRecording(() -> buildBuffer(world, region));
         int entities = purge(world, region);
         // Registered here rather than by the caller so both paths -- a duel lease and the startup
         // warm-up -- leave the cell with an occupant. Forgetting it in warm-up meant the gallery was
         // stamped but invisible, and every later lease re-stamped over it.
         CELLS[slot] = region;
         PvPocket.LOGGER.info("Stamped {} into cell {} at {},{},{} (cleared {} blocks, map {} "
-                        + "pasted {}, {} template blocks, purged {} entities)",
+                        + "pasted {}, platform {} blocks, buffer {} barrier, {} template blocks, "
+                        + "purged {} entities)",
                 region, slot, originX, SURFACE_Y, originZ, cleared, map.id, pasted == 1,
-                region.templateBlockCount(), entities);
+                floorBlocks, bufferBlocks, region.templateBlockCount(), entities);
         return region;
+    }
+
+    /**
+     * Lays the flat arena's floor.
+     *
+     * <p>The dimension is void, so "flat" no longer means "whatever the generator put there" — there
+     * is nothing under anything. A flat plot is a platform of the requested size, floating exactly
+     * where a pasted map's base would be, which is why it sits at {@link ArenaRegion#PLATFORM_Y} and
+     * not at {@link ArenaRegion#SURFACE_Y}.</p>
+     *
+     * <p>Returns the block count so the caller can log it the same way it logs a paste.</p>
+     */
+    private static int buildPlatform(ServerWorld world, ArenaRegion region) {
+        BlockState floor = Blocks.SMOOTH_STONE.getDefaultState();
+        int placed = 0;
+        for (int x = region.minX; x <= region.maxX(); x++) {
+            for (int z = region.minZ; z <= region.maxZ(); z++) {
+                world.setBlockState(new BlockPos(x, ArenaRegion.PLATFORM_Y, z), floor,
+                        Block.NOTIFY_LISTENERS);
+                placed++;
+            }
+        }
+        return placed;
+    }
+
+    /**
+     * Builds the invisible buffer around a plot: a barrier shelf and a barrier wall at its rim.
+     *
+     * <p>Without it a plot's edge is a drop into nothing, because the dimension is void. Two
+     * separate problems, two separate pieces:</p>
+     * <ul>
+     *   <li><b>The shelf</b> covers the whole plot box plus {@link ArenaRegion#BUFFER} on every side,
+     *       one block <em>below</em> the plot floor. It is what catches a player who walks or is
+     *       knocked off the map: they land on it instead of dying to the void, and can walk back.
+     *       It covers the plot box as well as the ring because a build's box is not its footprint —
+     *       the island is a disc inside a square box, so its corners are empty and a ring-only shelf
+     *       would leave four holes to fall through.</li>
+     *   <li><b>The wall</b> stands at the outer rim of the shelf, from the shelf up past the tallest
+     *       thing the map can hold, so the shelf is a place you can be rescued from rather than a
+     *       ledge you walk off the far side of.</li>
+     * </ul>
+     *
+     * <p>Barrier rather than glass or stone on purpose: it is invisible, unbreakable, and cannot be
+     * obtained, so the buffer adds nothing to look at and nothing to exploit. The boundary curtain
+     * is still drawn at the plot box, inside the shelf, which is why the boundary rule keeps its
+     * meaning — leaving the plot is still a rule violation, it just is not a death sentence any
+     * more.</p>
+     *
+     * <p>Runs after {@link ArenaRegion#capture} so the shelf cannot be mistaken for map blocks: it
+     * is one below the plot floor and outside the plot box, and capture scans neither.</p>
+     */
+    private static int buildBuffer(ServerWorld world, ArenaRegion region) {
+        BlockState barrier = Blocks.BARRIER.getDefaultState();
+        int pad = ArenaRegion.BUFFER;
+        int shelfY = ArenaRegion.PLATFORM_Y - 1;
+        int x0 = region.minX - pad;
+        int x1 = region.maxX() + pad;
+        int z0 = region.minZ - pad;
+        int z1 = region.maxZ() + pad;
+        int placed = 0;
+
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                placed += setIfDifferent(world, x, shelfY, z, barrier);
+            }
+        }
+
+        int wallTop = SURFACE_Y + region.sizeY + 2;
+        for (int y = shelfY + 1; y <= wallTop; y++) {
+            for (int x = x0; x <= x1; x++) {
+                placed += setIfDifferent(world, x, y, z0, barrier);
+                placed += setIfDifferent(world, x, y, z1, barrier);
+            }
+            for (int z = z0 + 1; z < z1; z++) {
+                placed += setIfDifferent(world, x0, y, z, barrier);
+                placed += setIfDifferent(world, x1, y, z, barrier);
+            }
+        }
+        return placed;
+    }
+
+    /** Writes only on a real change, so re-stamping a cell does not rewrite an identical buffer. */
+    private static int setIfDifferent(ServerWorld world, int x, int y, int z, BlockState state) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (world.getBlockState(pos) == state) {
+            return 0;
+        }
+        world.setBlockState(pos, state, Block.NOTIFY_LISTENERS);
+        return 1;
     }
 
     /** Next exhibit to stamp during warm-up, or -1 when warm-up is idle or finished. */
@@ -518,6 +616,15 @@ public final class ArenaManager {
         double x = MathHelper.clamp(player.getX(), region.minX + 1.5D, region.maxX() - 0.5D);
         double z = MathHelper.clamp(player.getZ(), region.minZ + 1.5D, region.maxZ() - 0.5D);
         double y = MathHelper.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
+        // Below the map base the player is not being pushed back, they are falling out of the void.
+        // Clamping their Y to the map base would put them back at a height where there is nothing to
+        // stand on, and they would fall straight back out; look for the floor instead.
+        if (player.getY() < SURFACE_Y) {
+            int stand = region.standY(world, MathHelper.floor(x), MathHelper.floor(z));
+            if (stand >= 0) {
+                y = stand;
+            }
+        }
         player.stopRiding();
         player.teleport(world, x, y, z, player.getYaw(), player.getPitch());
         player.setVelocity(0.0D, 0.0D, 0.0D);

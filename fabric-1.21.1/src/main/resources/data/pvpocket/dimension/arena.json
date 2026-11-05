@@ -5,12 +5,8 @@
     "settings": {
       "layers": [
         {
-          "block": "minecraft:bedrock",
+          "block": "minecraft:air",
           "height": 1
-        },
-        {
-          "block": "minecraft:stone",
-          "height": 2
         }
       ],
       "biome": "minecraft:plains",

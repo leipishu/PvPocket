@@ -17,21 +17,48 @@ import net.minecraft.util.math.Box;
  * snapshot, and lets a round be rolled back by writing the baseline back over the handful of
  * positions that actually changed.</p>
  *
- * <p>For the generated flat plot the baseline is a pure function of y. For a map it is the map: after
- * the template is stamped, {@link #capture} records the non-air blocks and the baseline becomes
- * "look it up, fall back to flat". Only non-air blocks are kept, so a 102x44x99 bridge costs
- * 72k entries rather than 580k, and the fallback covers the air correctly because flat baseline
- * above {@link #SURFACE_Y} is air too.</p>
+ * <p>For the generated flat plot the baseline is a pure function of y — and since the dimension is
+ * void, that function is "air" everywhere except the platform the plot builds for itself. For a map
+ * it is the map: after the template is stamped, {@link #capture} records the non-air blocks and the
+ * baseline becomes "look it up, fall back to air". Only non-air blocks are kept, so an 88x36x87 town
+ * costs 60k entries rather than 275k, and the fallback covers the empty space correctly because the
+ * void baseline is air too.</p>
  *
  * <p>Regions are laid out on a grid by {@link ArenaManager}; a region never overlaps another one, so
  * the boundary test of one plot cannot accidentally accept a player standing in the next plot.</p>
  */
 public final class ArenaRegion {
 
-    /** y=0 is bedrock, y=1..2 stone, y=3 and above is the walkable surface. */
+    /**
+     * Bottom of the dimension.
+     *
+     * <p>Nothing is generated here any more: the arena is a void world and every arena is a
+     * structure floating in it. This is only the lower bound a reset has to sweep.</p>
+     */
     public static final int FLOOR_Y = 0;
-    public static final int STONE_TO = 2;
+
+    /** The y a map's template is pasted at: template-local y=0 lands here. */
     public static final int SURFACE_Y = 3;
+
+    /**
+     * The block a player stands on in a flat plot.
+     *
+     * <p>One below {@link #SURFACE_Y}, so a flat arena's walkable surface is at the same height as a
+     * pasted map's. The flat arena is the only one that needs a floor built for it — every other
+     * map arrives with its own.</p>
+     */
+    public static final int PLATFORM_Y = SURFACE_Y - 1;
+
+    /**
+     * How far outside a plot the invisible buffer extends, in blocks.
+     *
+     * <p>The dimension is void, so a plot's edge used to be a drop into nothing. The buffer is a
+     * shelf of barrier blocks one below the arena floor, ringed by a barrier wall: walk off the map
+     * and you land on something solid instead of dying to the void, and the wall stops you going
+     * further. Eight blocks is wide enough to catch a knockback and narrow enough that the shelf is
+     * still outside the boundary curtain, so the boundary rule keeps its meaning.</p>
+     */
+    public static final int BUFFER = 8;
 
     /**
      * Upper bound on tracked deviations. A 128x128 plot stacked to the ceiling is 1M blocks, which is
@@ -134,14 +161,15 @@ public final class ArenaRegion {
         changed.clear();
     }
 
-    /** What the generator would have put here. Identity comparison against a live state is valid. */
+    /**
+     * What the generator would have put here: nothing.
+     *
+     * <p>The duel dimension is a void world. An arena is a structure floating in it, and a flat arena
+     * is a platform floating in it, so the baseline of every position not covered by a template is
+     * air. This is what makes "the map sits in the void" literally true rather than "the map sits on
+     * a stone plain that is out of shot".</p>
+     */
     public static BlockState flatBaseline(int y) {
-        if (y == FLOOR_Y) {
-            return Blocks.BEDROCK.getDefaultState();
-        }
-        if (y <= STONE_TO) {
-            return Blocks.STONE.getDefaultState();
-        }
         return Blocks.AIR.getDefaultState();
     }
 
@@ -174,8 +202,11 @@ public final class ArenaRegion {
      */
     public void capture(ServerWorld world) {
         template.clear();
+        // Starts one below the map base so the flat arena's platform is captured too. Without that
+        // the platform would not be part of the baseline, and the first revert of a duel would
+        // delete the ground the players were standing on.
         int top = SURFACE_Y + sizeY;
-        for (int y = SURFACE_Y; y < top; y++) {
+        for (int y = PLATFORM_Y; y < top; y++) {
             for (int x = minX; x <= maxX(); x++) {
                 for (int z = minZ; z <= maxZ(); z++) {
                     BlockState state = world.getBlockState(cursor.set(x, y, z));
@@ -258,9 +289,9 @@ public final class ArenaRegion {
      * roofed arena has a solid ceiling well above the pit, and spawning on the roof drops the
      * player into the fight from above.</p>
      */
-    private int standY(ServerWorld world, int x, int z) {
+    public int standY(ServerWorld world, int x, int z) {
         int top = SURFACE_Y + sizeY;
-        for (int y = SURFACE_Y; y + 2 < top; y++) {
+        for (int y = PLATFORM_Y; y + 2 < top; y++) {
             BlockState floor = world.getBlockState(cursor.set(x, y, z));
             if (floor.isAir() || !floor.getFluidState().isEmpty()) {
                 continue;
@@ -369,11 +400,16 @@ public final class ArenaRegion {
     }
 
     /**
-     * True when the player is still on the plot. Falling below the floor counts as leaving: the only
-     * way down is through bedrock, which means something already went wrong.
+     * True when the player is still on the plot.
+     *
+     * <p>Falling below the platform counts as leaving. There is no ground under an arena any more —
+     * the dimension is void — so the alternative to catching this within a few blocks is a player
+     * who drops out of the world and dies to void damage before the boundary rule ever sees them.
+     * Eight blocks is about one second of falling: past that they are not on the map by any reading,
+     * and the pull-back puts them back on it.</p>
      */
     public boolean isInside(double x, double y, double z) {
-        return y >= FLOOR_Y - 24.0D && contains(x, z);
+        return y >= PLATFORM_Y - 8.0D && contains(x, z);
     }
 
     public Box entityBox(int bottomY, int topY) {
@@ -460,19 +496,27 @@ public final class ArenaRegion {
      * other. Since cells are the unit that gets handed between maps, cells are the unit that gets
      * cleared.</p>
      *
+     * <p>It also clears {@link #BUFFER} blocks past the cell on every side, because that is where
+     * the barrier shelf lives — a cell handed to a smaller map would otherwise keep the previous
+     * map's shelf sticking out into the gap.</p>
+     *
      * @param clearSizeY how tall to scan. Pass the taller of the outgoing and incoming map, or the
      *                   outgoing one's upper floors survive the handover.
      */
     public int reset(ServerWorld world, int clearSizeY) {
         int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getTopY() - 1);
         int restored = 0;
+        int fromX = cellMinX - BUFFER;
+        int toX = cellMinX + cellSizeX + BUFFER;
+        int fromZ = cellMinZ - BUFFER;
+        int toZ = cellMinZ + cellSizeZ + BUFFER;
         for (int y = FLOOR_Y; y <= top; y++) {
             // Flat baseline, not the map baseline: the point of a reset is to erase whatever the
             // previous lease left behind, and restoring it to the *current* map would leave the old
             // map's blocks standing wherever the two do not overlap.
             BlockState want = flatBaseline(y);
-            for (int x = cellMinX; x < cellMinX + cellSizeX; x++) {
-                for (int z = cellMinZ; z < cellMinZ + cellSizeZ; z++) {
+            for (int x = fromX; x < toX; x++) {
+                for (int z = fromZ; z < toZ; z++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     if (world.getBlockState(pos) != want) {
                         world.setBlockState(pos, want, Block.NOTIFY_LISTENERS);

@@ -25,7 +25,12 @@ import java.util.Optional;
  */
 public final class ArenaMap {
 
-    /** The generated flat plot. Not a template — it is what {@link ArenaRegion#flatBaseline} means. */
+    /**
+     * The generated flat plot: a platform of the requested size, floating in the void.
+     *
+     * <p>Not a template, because its size comes from the rules rather than from a file. It is the
+     * one arena that has to build its own ground — see {@code ArenaManager#buildPlatform}.</p>
+     */
     public static final ArenaMap FLAT = new ArenaMap("flat", "平坦", null, 0, 0, 0);
 
     public final String id;

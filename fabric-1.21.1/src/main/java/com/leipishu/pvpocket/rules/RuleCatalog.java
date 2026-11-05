@@ -102,11 +102,13 @@ public final class RuleCatalog {
         add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, "场地高度",
                 "场地在 Y 方向的格数，决定可搭建的垂直空间。选择地图后由地图尺寸接管。", 8, 64, 4, 32, " 格"));
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
-                "「平坦」是程序生成的空地；其余为内置地图，选中后场地尺寸自动跟随地图包围盒，"
-                        + "出生点落在场地中央两侧。", 0, ArenaMaps.labels()));
+                "「平坦」是一块悬空平台，尺寸就是下面填的长宽；其余为内置地图，选中后场地尺寸自动"
+                        + "跟随地图包围盒。所有场地都浮在虚空里，掉出场地就是掉进虚空。", 0,
+                ArenaMaps.labels()));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
                 "拉回：越界即被放回最近的边境内。判负：越界开始 5 秒倒计时，结束仍在场外就输掉本局。"
-                        + "场地四边会画一圈半透明光幕标出边界（蓝=拉回，红=判负），光幕可以穿过。",
+                        + "场地四边会画一圈半透明光幕标出边界（蓝=拉回，红=判负），光幕可以穿过，"
+                        + "高度会随你所在的高度长高。",
                 1, "拉回", "倒计时判负"));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, "时间",
                 "固定时间后场地时间不再流逝，昼夜循环关闭；「自然」保留原版循环。", 1,

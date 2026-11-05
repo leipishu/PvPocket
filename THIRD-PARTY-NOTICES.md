@@ -5,9 +5,9 @@ ships inside the jar under `data/pvpocket/structure/`.
 
 ## Arena maps
 
-Eight of the nine templates in this repository are derived from maps by **zzuf**
+Four of the five templates in this repository are derived from maps by **zzuf**
 (https://github.com/zzufx), published in the [zzuf-maps](https://github.com/zzufx/zzuf-maps)
-repository. Each source map carries its own `LICENSE.txt`; all eight used here are licensed under
+repository. Each source map carries its own `LICENSE.txt`; all four used here are licensed under
 the same terms:
 
 > **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**
@@ -16,12 +16,13 @@ the same terms:
 | File in this repo | Source map | Source path | Size (x×y×z) |
 |---|---|---|---|
 | `arena_fun_house.nbt` | Fun House | `maps/tdm/fun_house` | 82 × 28 × 57 |
-| `arena_trial_chambers.nbt` | Trial Chambers | `maps/tdm/trial_chambers` | 47 × 29 × 95 |
-| `arena_thistle.nbt` | Thistle | `maps/tension/thistle` | 102 × 44 × 99 |
 | `arena_earthborn.nbt` | GS: Earthborn | `maps/gs/gs_earthborn` | 45 × 34 × 60 |
-| `arena_avalon.nbt` | Avalon | `maps/bridge/avalon` | 85 × 32 × 79 |
 | `arena_dark_nebula.nbt` | BN: Dark Nebula | `maps/arcade/bn_dark_nebula` | 87 × 43 × 79 |
 | `arena_deadwood.nbt` | Deadwood | `maps/oitq/deadwood` | 88 × 36 × 87 |
+
+Three further zzuf maps (Trial Chambers, Thistle, Avalon) were converted and shipped earlier and
+have since been withdrawn at the project owner's request; their files are no longer in this
+repository.
 
 ### Changes made
 

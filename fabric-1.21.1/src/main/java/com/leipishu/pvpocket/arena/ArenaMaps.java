@@ -8,8 +8,14 @@ import java.util.List;
  * The map list the rule panel cycles through.
  *
  * <p>Index order is part of the wire format: {@code e.template} is stored as an enum value, so
- * reordering this list changes the meaning of every saved rule set. Append, never insert — and if a
- * map has to be withdrawn, leave a hole rather than shifting the ones after it.</p>
+ * reordering this list changes the meaning of every saved rule set. Append, never insert.</p>
+ *
+ * <p><b>This list was compacted once, on purpose.</b> 试炼密室 / 蓟桥 / 阿瓦隆 were withdrawn, and
+ * rather than leave three dead slots in the panel they were removed outright — which shifts every
+ * index after them. The cost is that a rule set saved before the change (a session recovered after a
+ * crash, and nothing else: rules live for the length of one duel) now resolves to a different map.
+ * That is a wrong arena, not a crash, and the alternative was three unusable entries in a cycle
+ * control. If a map is ever withdrawn again after a release, leave a hole instead.</p>
  *
  * <p>Every map here is converted from a world save with {@code scripts/world2struct.py}, and every
  * one is third-party artwork under <b>CC BY-SA 4.0</b>. See {@code THIRD-PARTY-NOTICES.md} at the
@@ -32,21 +38,6 @@ public final class ArenaMaps {
             PvPocket.id("arena_fun_house"), 82, 28, 57);
 
     /**
-     * Carved tuff cavern, the densest of the three (114k blocks in a 47x95 footprint). A single
-     * winding hall rather than a bowl, so fights happen along it — and the source map spawns its
-     * teams at {@code x=-30}, {@code z=-162..-102}, i.e. along Z.
-     */
-    public static final ArenaMap TRIAL_CHAMBERS = new ArenaMap("arena_trial_chambers", "试炼密室",
-            PvPocket.id("arena_trial_chambers"), 47, 29, 95, true);
-
-    /**
-     * Two raised bases joined by a bridge over a void. The only map here whose source XML defines
-     * its spawns as {@code x=0, z=-82..10}, so the two sides face each other along Z.
-     */
-    public static final ArenaMap THISTLE = new ArenaMap("arena_thistle", "蓟桥",
-            PvPocket.id("arena_thistle"), 102, 44, 99, true);
-
-    /**
      * A floating island disc with a rim of terracotta and a ring of lamps. The smallest map here
      * (7k blocks) and the only one you can fall out of: past the rim there is nothing, so the edge
      * of the build is the arena boundary rather than a wall. Source XML spawns at
@@ -54,13 +45,6 @@ public final class ArenaMaps {
      */
     public static final ArenaMap EARTHBORN = new ArenaMap("arena_earthborn", "浮岛",
             PvPocket.id("arena_earthborn"), 45, 34, 60);
-
-    /**
-     * Two bases facing each other across a gap, 85 wide. Symmetric to the block, which is why it
-     * is the fairest map here — and the reason the source XML spawns at {@code x=0.5, z=+-36}.
-     */
-    public static final ArenaMap AVALON = new ArenaMap("arena_avalon", "阿瓦隆",
-            PvPocket.id("arena_avalon"), 85, 32, 79, true);
 
     /**
      * Enclosed space station: corridors, two decks and a hole in the middle. 26 distinct block
@@ -89,8 +73,8 @@ public final class ArenaMaps {
     public static final ArenaMap COLOSSEUM = new ArenaMap("arena_colosseum", "斗兽场",
             PvPocket.id("arena_colosseum"), 147, 29, 119);
 
-    public static final List<ArenaMap> ALL = List.of(ArenaMap.FLAT, FUN_HOUSE, TRIAL_CHAMBERS,
-            THISTLE, EARTHBORN, AVALON, DARK_NEBULA, DEADWOOD, COLOSSEUM);
+    public static final List<ArenaMap> ALL = List.of(ArenaMap.FLAT, FUN_HOUSE, EARTHBORN,
+            DARK_NEBULA, DEADWOOD, COLOSSEUM);
 
     private ArenaMaps() {
     }

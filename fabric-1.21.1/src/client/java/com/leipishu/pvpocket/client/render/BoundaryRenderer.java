@@ -37,6 +37,10 @@ import org.joml.Matrix4f;
  *   <li><b>A gradient, not a flat quad.</b> Near-opaque at the ground, transparent by four blocks up.
  *       A flat wall reads as solid geometry; a gradient reads as a boundary, and it keeps the arena
  *       looking like an arena rather than a box.</li>
+ *   <li><b>It grows with you.</b> The height the server sends is a minimum; the curtain always
+ *       reaches a couple of blocks above the camera. Standing on the ground that changes nothing —
+ *       climbing a tower and finding the boundary has ended below your feet is the failure this
+ *       avoids.</li>
  * </ul>
  *
  * <p>Geometry goes through {@link RenderLayer#getDebugQuads()}, which is the vanilla layer for exactly
@@ -58,6 +62,24 @@ public final class BoundaryRenderer {
     private static final double BASE_BAND = 0.28D;
     private static final float BASE_ALPHA = 0.70F;
     private static final float CURTAIN_ALPHA = 0.40F;
+
+    /**
+     * How far above the camera the curtain always reaches.
+     *
+     * <p>The server sends a fixed minimum height, which is right for someone standing on the ground
+     * and useless for someone who climbed. A four-block band ends below your eyeline the moment you
+     * are four blocks up, so the one question a player on a tower is actually asking — "where does
+     * the arena end" — would get answered by nothing at all. Growing the curtain to a couple of
+     * blocks above the camera keeps the answer in view from any height, at no network cost: the
+     * camera position is already here.</p>
+     */
+    private static final double CURTAIN_ABOVE_CAMERA = 2.5D;
+
+    /** Hard cap, so flying to the build limit does not draw a curtain up to the sky. */
+    private static final double MAX_CURTAIN = 96.0D;
+
+    /** Height of the soft top edge, in blocks. */
+    private static final double TOP_FADE = 3.0D;
 
     private BoundaryRenderer() {
     }
@@ -112,36 +134,51 @@ public final class BoundaryRenderer {
         VertexConsumer vc = consumers.getBuffer(RenderLayer.getDebugQuads());
 
         double yLow = bounds.floorY();
-        double yHigh = bounds.floorY() + bounds.height();
+        // The server's height is the floor, not the answer: the curtain has to clear the camera, or
+        // it stops being a boundary and becomes a stripe on the ground. Capped so a player who flies
+        // to the build limit gets a tall curtain rather than one that reaches into the sky box.
+        double yHigh = Math.max(bounds.floorY() + bounds.height(),
+                Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
         double bandTop = yLow + BASE_BAND;
+        double fadeStart = Math.max(bandTop, yHigh - TOP_FADE);
 
         // Four edges. Each is culled and faded by the distance to the edge itself, not to its plane:
         // standing two blocks from the west wall but five hundred blocks north of the plot would pass
         // a plane-distance test and then draw a wall nobody is near.
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x0(), bounds.z1(),
-                yLow, bandTop, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b);
         drawEdge(vc, matrix, cam, bounds.x1(), bounds.z0(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x1(), bounds.z0(),
-                yLow, bandTop, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z1(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b);
 
         matrices.pop();
     }
 
     private static void drawEdge(VertexConsumer vc, Matrix4f matrix, Vec3d cam,
                                  double px, double pz, double qx, double qz,
-                                 double yLow, double bandTop, double yHigh,
+                                 double yLow, double bandTop, double fadeStart, double yHigh,
                                  float r, float g, float b) {
         float strength = strength(cam.x, cam.z, px, pz, qx, qz);
         if (strength <= 0.0F) {
             return;
         }
-        quad(vc, matrix, px, pz, qx, qz, yLow, bandTop,
-                r, g, b, BASE_ALPHA * strength, BASE_ALPHA * strength);
-        quad(vc, matrix, px, pz, qx, qz, bandTop, yHigh,
-                r, g, b, CURTAIN_ALPHA * strength, 0.0F);
+        // Three bands rather than two: the curtain now stretches to the player's own height, so a
+        // single fade from the foot would leave nothing to see at eye level.
+        if (bandTop > yLow) {
+            quad(vc, matrix, px, pz, qx, qz, yLow, bandTop,
+                    r, g, b, BASE_ALPHA * strength, BASE_ALPHA * strength);
+        }
+        if (fadeStart > bandTop) {
+            quad(vc, matrix, px, pz, qx, qz, bandTop, fadeStart,
+                    r, g, b, CURTAIN_ALPHA * strength, CURTAIN_ALPHA * strength);
+        }
+        if (yHigh > fadeStart) {
+            quad(vc, matrix, px, pz, qx, qz, fadeStart, yHigh,
+                    r, g, b, CURTAIN_ALPHA * strength, 0.0F);
+        }
     }
 
     /**
