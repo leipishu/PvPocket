@@ -52,27 +52,47 @@ public final class ArenaManager {
     /** Walkable surface; the flat generator puts bedrock at 0 and stone at 1..2. */
     public static final int SURFACE_Y = ArenaRegion.SURFACE_Y;
 
-    /** Grid shape. 4x4 = 16 concurrent duels, which is far past what an SMP server needs. */
+    /** Grid shape. One cell per map, plus spares for a second simultaneous duel on the same map. */
     public static final int COLS = 4;
     public static final int ROWS = 4;
 
     /**
-     * Centre-to-centre spacing of two neighbouring plots, in blocks.
+     * Interior size of one cell, and the largest plot the rule panel may request.
      *
-     * <p>Sized for the largest plot the rule panel allows ({@link #MAX_SIZE_XZ}), not for the
-     * biggest map currently shipped: a server that drops its own 160-wide map in has to get the same
-     * guarantee that its stands do not appear in the neighbour's sky. At 192 the gap is 32 blocks,
-     * which is enough that an outer wall does not read as part of the next arena.</p>
+     * <p>A cell is the unit the dimension is divided into, and the unit that gets cleared when a
+     * map is stamped. It is deliberately larger than most maps: the cell has to be able to hold the
+     * biggest one (the colosseum, 147x119) without its walls crossing into the neighbour.</p>
      */
-    public static final int PITCH = 192;
-    /** Empty ring kept between the largest allowed plot and its neighbour. */
-    public static final int MARGIN = 16;
+    public static final int CELL = 160;
 
-    /** Largest plot the rule panel may request. Must stay within {@code PITCH - 2*MARGIN}. */
-    public static final int MAX_SIZE_XZ = PITCH - MARGIN * 2;
+    /**
+     * Empty ring between two neighbouring cells, in blocks.
+     *
+     * <p>This is what makes two arenas read as two places. At the original 32 the colosseum's outer
+     * wall was close enough to the next cell to look like part of it; 96 leaves a clear band of flat
+     * ground between every pair.</p>
+     */
+    public static final int GAP = 96;
+
+    /** Cell centre-to-centre spacing, in blocks. */
+    public static final int PITCH = CELL + GAP;
+
+    /** Distance from the pitch origin to the corner of a cell's interior. */
+    public static final int MARGIN = (PITCH - CELL) / 2;
+
+    public static final int MAX_SIZE_XZ = CELL;
     public static final int MAX_SIZE_Y = 64;
 
     private static final int SLOTS = COLS * ROWS;
+
+    /**
+     * The stamped plot living in each cell, whether or not it is leased.
+     *
+     * <p>This array is why a map has a fixed address. A cell keeps its map between duels, so
+     * selecting the colosseum always means going to the same coordinates — and a second duel on the
+     * same map takes a spare cell rather than stamping over the first one.</p>
+     */
+    private static final ArenaRegion[] CELLS = new ArenaRegion[SLOTS];
 
     /** Session id -> leased plot. LinkedHashMap so iteration order is stable for logs. */
     private static final Map<String, ArenaRegion> BY_SESSION = new LinkedHashMap<>();
@@ -104,64 +124,238 @@ public final class ArenaManager {
     // ------------------------------------------------------------------ leases
 
     /**
-     * Leases a plot sized by the session's rules and wipes it clean.
+     * Leases the plot that belongs to the selected map, stamping it if this is the first time.
      *
      * <p>When a map is selected its bounding box wins over {@code sizeX/sizeY/sizeZ}: the plot has to
      * cover the whole build, otherwise the boundary test would declare a player standing on the
      * stands as having left the arena.</p>
      *
-     * <p>Returns null when the grid is full, which the caller must treat as "cannot start" rather
-     * than as a soft failure — silently reusing a busy plot would teleport two duels into each
-     * other.</p>
+     * <p><b>Every map has a fixed address.</b> The cell is chosen from the map's index in
+     * {@link ArenaMaps#ALL}, not from "whichever cell is free": the first version took the first
+     * free slot, so a server that runs one duel at a time pasted every map into slot 0, one on top
+     * of the previous. Because the plot is centred by its own size, the new map landed inside the
+     * old one and both were visible at once. Taking the map's own cell means the colosseum is always
+     * at the colosseum's coordinates.</p>
+     *
+     * <p>A cell that already holds the requested map is reused as-is — the map stays stamped between
+     * duels, so a round only has to undo the previous round's edits. A second simultaneous duel on
+     * the same map takes a spare cell and gets its own copy.</p>
+     *
+     * <p>Returns null when no cell is available, which the caller must treat as "cannot start"
+     * rather than as a soft failure — silently reusing a busy plot would teleport two duels into
+     * each other.</p>
      */
     public static ArenaRegion allocate(MinecraftServer server, String sessionId,
                                        int sizeX, int sizeY, int sizeZ, ArenaMap map,
                                        boolean protectTerrain, boolean allowBreakOwn) {
         release(sessionId);
-        int slot = -1;
-        for (int i = 0; i < SLOTS; i++) {
-            if (!USED[i]) {
-                slot = i;
-                break;
-            }
-        }
-        if (slot < 0) {
-            return null;
-        }
         ArenaMap chosen = map == null ? ArenaMap.FLAT : map;
         int sx = chosen.isFlat() ? clampSize(sizeX, MAX_SIZE_XZ) : clampSize(chosen.sizeX, MAX_SIZE_XZ);
         int sz = chosen.isFlat() ? clampSize(sizeZ, MAX_SIZE_XZ) : clampSize(chosen.sizeZ, MAX_SIZE_XZ);
         int sy = chosen.isFlat() ? clampSize(sizeY, MAX_SIZE_Y) : clampSize(chosen.sizeY, MAX_SIZE_Y);
-        // Centring the plot inside its cell keeps two different-sized duels visually symmetric and
-        // guarantees the margin even when one plot is at the maximum size.
-        int originX = (slot % COLS) * PITCH + (PITCH - sx) / 2;
-        int originZ = (slot / COLS) * PITCH + (PITCH - sz) / 2;
-        ArenaRegion region = new ArenaRegion("arena-" + slot, slot, originX, originZ, sx, sy, sz,
-                chosen, protectTerrain, allowBreakOwn);
+
+        int slot = homeSlot(chosen);
+        if (slot < 0 || USED[slot]) {
+            slot = freeSlot();
+        }
+        if (slot < 0) {
+            return null;
+        }
+
+        ArenaRegion region = CELLS[slot];
+        if (region == null || !region.matches(chosen, sx, sy, sz)) {
+            // stamp() registers the result in CELLS itself; that is what makes the cell's occupant
+            // visible to cellOf()/gallery() as well as to the next allocate().
+            region = stamp(server, slot, chosen, sx, sy, sz, protectTerrain, allowBreakOwn);
+            if (region == null) {
+                return null;
+            }
+        } else {
+            int reverted = revertRegion(world(server), region);
+            region.lease(protectTerrain, allowBreakOwn);
+            PvPocket.LOGGER.info("Reusing {} for session {} (reverted {} blocks)",
+                    region, shortId(sessionId), reverted);
+        }
         USED[slot] = true;
         BY_SESSION.put(sessionId, region);
+        return region;
+    }
+
+    /**
+     * Clears a cell and stamps a map into it, leaving the result registered as that cell's occupant.
+     *
+     * <p>Clearing uses the cell rectangle rather than the map's box, and clears to the taller of the
+     * outgoing and incoming build heights. Both details exist for the same reason: a cell handed
+     * from the colosseum to the 45-wide island must not keep the colosseum's outer wall standing
+     * around the island.</p>
+     */
+    private static ArenaRegion stamp(MinecraftServer server, int slot, ArenaMap map,
+                                     int sx, int sy, int sz,
+                                     boolean protectTerrain, boolean allowBreakOwn) {
+        int cellX = cellMinX(slot);
+        int cellZ = cellMinZ(slot);
+        // Centring inside the cell is the same arithmetic as centring inside the pitch, because the
+        // cell is the pitch minus a symmetric margin.
+        int originX = cellX + (CELL - sx) / 2;
+        int originZ = cellZ + (CELL - sz) / 2;
+        ArenaRegion previous = CELLS[slot];
+        ArenaRegion region = new ArenaRegion("arena-" + slot, slot, originX, originZ, sx, sy, sz,
+                cellX, cellZ, CELL, CELL, map, protectTerrain, allowBreakOwn);
 
         ServerWorld world = world(server);
-        if (world != null) {
-            int blocks = suppressRecording(() -> region.reset(world));
-            int pasted = 0;
-            if (!chosen.isFlat()) {
-                // Paste and capture both run with recording suppressed. The paste writes tens of
-                // thousands of blocks, and every one of them would otherwise be filed as "the
-                // player changed this" -- the deviation set would be full before the first round.
-                pasted = suppressRecording(() -> chosen.paste(world, region) ? 1 : 0);
-                suppressRecording(() -> {
-                    region.capture(world);
-                    return 0;
-                });
-            }
-            int entities = purge(world, region);
-            PvPocket.LOGGER.info("Leased {} to session {} (reset {} blocks, map {} pasted {}, "
-                            + "{} template blocks, purged {} entities)",
-                    region, shortId(sessionId), blocks, chosen.id, pasted == 1,
-                    region.templateBlockCount(), entities);
+        if (world == null) {
+            PvPocket.LOGGER.error("Arena world is not loaded; cannot stamp {}", map.id);
+            return null;
         }
+        int clearY = previous == null ? sy : Math.max(sy, previous.sizeY);
+        int cleared = suppressRecording(() -> region.reset(world, clearY));
+        int pasted = 0;
+        if (!map.isFlat()) {
+            // Paste and capture both run with recording suppressed. The paste writes tens of
+            // thousands of blocks, and every one of them would otherwise be filed as "the player
+            // changed this" -- the deviation set would be full before the first round.
+            pasted = suppressRecording(() -> map.paste(world, region) ? 1 : 0);
+            suppressRecording(() -> {
+                region.capture(world);
+                return 0;
+            });
+        }
+        int entities = purge(world, region);
+        // Registered here rather than by the caller so both paths -- a duel lease and the startup
+        // warm-up -- leave the cell with an occupant. Forgetting it in warm-up meant the gallery was
+        // stamped but invisible, and every later lease re-stamped over it.
+        CELLS[slot] = region;
+        PvPocket.LOGGER.info("Stamped {} into cell {} at {},{},{} (cleared {} blocks, map {} "
+                        + "pasted {}, {} template blocks, purged {} entities)",
+                region, slot, originX, SURFACE_Y, originZ, cleared, map.id, pasted == 1,
+                region.templateBlockCount(), entities);
         return region;
+    }
+
+    /** Next exhibit to stamp during warm-up, or -1 when warm-up is idle or finished. */
+    private static int warmUpCursor = -1;
+    private static int warmUpBuilt;
+    private static long warmUpStarted;
+
+    /**
+     * Queues the gallery fill: every map gets stamped into its own cell, one per tick.
+     *
+     * <p>Without this the cells only fill in as maps get played, and an operator flying around
+     * before the first duel sees an empty plain — which is what made the stacking bug hard to see in
+     * the first place.</p>
+     *
+     * <p>Spread over ticks rather than done in one go on purpose. A single stamp is a cell-sized
+     * clear (160x160x~40 reads) plus tens of thousands of block writes, and the colosseum alone is
+     * 109k blocks; doing eight of them back to back in {@code SERVER_STARTED} freezes the server for
+     * long enough that the watchdog starts complaining. One per tick keeps the start responsive, and
+     * nobody can be in a duel yet anyway.</p>
+     */
+    public static void beginWarmUp() {
+        warmUpCursor = 0;
+        warmUpBuilt = 0;
+        warmUpStarted = System.nanoTime();
+    }
+
+    public static boolean warmUpPending() {
+        return warmUpCursor >= 0;
+    }
+
+    /**
+     * Stamps at most one exhibit. Called from the server tick hook; a no-op once the gallery is done.
+     *
+     * <p>It also doubles as crash recovery: a cell whose map was half-edited when the process died
+     * is cleared and restamped, so debris cannot become part of the next round's baseline.</p>
+     */
+    public static void warmUpTick(MinecraftServer server) {
+        if (warmUpCursor < 0) {
+            return;
+        }
+        if (world(server) == null) {
+            warmUpCursor = -1;
+            return;
+        }
+        int limit = Math.min(SLOTS, ArenaMaps.ALL.size());
+        if (warmUpCursor >= limit) {
+            finishWarmUp();
+            return;
+        }
+
+        int slot = warmUpCursor++;
+        ArenaMap map = ArenaMaps.ALL.get(slot);
+        if (!map.isFlat() && !USED[slot] && CELLS[slot] == null) {
+            int sx = clampSize(map.sizeX, MAX_SIZE_XZ);
+            int sy = clampSize(map.sizeY, MAX_SIZE_Y);
+            int sz = clampSize(map.sizeZ, MAX_SIZE_XZ);
+            if (stamp(server, slot, map, sx, sy, sz, false, false) != null) {
+                warmUpBuilt++;
+            }
+        }
+        if (warmUpCursor >= limit) {
+            finishWarmUp();
+        }
+    }
+
+    private static void finishWarmUp() {
+        warmUpCursor = -1;
+        PvPocket.LOGGER.info("Arena gallery ready: {} maps stamped in {} ms",
+                warmUpBuilt, (System.nanoTime() - warmUpStarted) / 1_000_000L);
+    }
+
+    /** The cell a map permanently occupies, or -1 when the grid has more maps than cells. */
+    private static int homeSlot(ArenaMap map) {
+        int index = ArenaMaps.ALL.indexOf(map);
+        return index >= 0 && index < SLOTS ? index : -1;
+    }
+
+    /** First free cell, preferring the spares so an overflow duel does not erase an exhibit. */
+    private static int freeSlot() {
+        int homes = Math.min(ArenaMaps.ALL.size(), SLOTS);
+        for (int i = homes; i < SLOTS; i++) {
+            if (!USED[i]) {
+                return i;
+            }
+        }
+        for (int i = 0; i < homes; i++) {
+            if (!USED[i]) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int cellMinX(int slot) {
+        return (slot % COLS) * PITCH + MARGIN;
+    }
+
+    private static int cellMinZ(int slot) {
+        return (slot / COLS) * PITCH + MARGIN;
+    }
+
+    /** Where a map lives, for logs and for {@code /pvpocket arena}. Null when it has no cell. */
+    public static ArenaRegion cellOf(ArenaMap map) {
+        int slot = homeSlot(map);
+        return slot < 0 ? null : CELLS[slot];
+    }
+
+    /**
+     * Every cell that currently holds a stamped map, leased or not.
+     *
+     * <p>Distinct from {@link #leased()} on purpose: the gallery outlives any single duel, so an
+     * operator asking "where is the colosseum" needs the exhibits, not the active leases.</p>
+     */
+    public static List<ArenaRegion> gallery() {
+        List<ArenaRegion> out = new ArrayList<>(SLOTS);
+        for (ArenaRegion region : CELLS) {
+            if (region != null) {
+                out.add(region);
+            }
+        }
+        return out;
+    }
+
+    /** Cell count of the grid, for "n / total" style reporting. */
+    public static int slotCount() {
+        return SLOTS;
     }
 
     /** Returns a plot to the pool. Idempotent: releasing an unleased session is a no-op. */
@@ -170,6 +364,8 @@ public final class ArenaManager {
         if (region != null && region.index >= 0 && region.index < SLOTS) {
             USED[region.index] = false;
         }
+        // Deliberately does not clear CELLS[slot]: the map stays stamped where it is, which is what
+        // gives each map a stable address. The next lease of the same map reuses it.
         return region;
     }
 
@@ -206,9 +402,19 @@ public final class ArenaManager {
         return null;
     }
 
+    /**
+     * Drops every lease and every remembered exhibit, on server stop.
+     *
+     * <p>{@link #CELLS} is cleared here even though {@link #release} deliberately keeps it: a stop
+     * destroys the {@code ServerWorld} these regions were stamped into, so the objects would be
+     * pointing at a world that no longer exists. The blocks themselves are on disk, so the next
+     * start re-derives the whole gallery — which is the same path a crash takes.</p>
+     */
     public static void clearAll() {
         BY_SESSION.clear();
         java.util.Arrays.fill(USED, false);
+        java.util.Arrays.fill(CELLS, null);
+        warmUpCursor = -1;
     }
 
     // ------------------------------------------------------------------ block tracking

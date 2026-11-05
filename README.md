@@ -22,7 +22,8 @@ PvPocket/
 │   ├── dev-2clients.sh        双客户端联调启动脚本
 │   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem -> 结构模板
 │   ├── colosseum.py           生成斗兽场模板（唯一一张不是下载来的图）
-│   └── arena-verify.py        转换校验：以第三方读取器为参照逐格比对 + 游戏内回读
+│   ├── arena-verify.py        转换校验：以第三方读取器为参照逐格比对 + 游戏内回读
+│   └── arena-map.py           把决斗维度的存档渲染成俯视图，用来确认分区真的分开了
 ├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
 │   ├── build.gradle
 │   ├── settings.gradle

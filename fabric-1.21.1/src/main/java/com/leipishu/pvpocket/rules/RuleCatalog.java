@@ -92,8 +92,9 @@ public final class RuleCatalog {
                 "关闭后药水、食物、金苹果不可使用。", true));
 
         // E. 场地
-        // 上限跟 ArenaManager.MAX_SIZE_XZ 对齐（PITCH 192 - 2*MARGIN 16 = 160）。最大的地图是
-        // 139 格宽，128 的老上限会把它裁掉一圈看台，被裁掉的部分会被判成「场外」。
+        // 上限跟 ArenaManager.MAX_SIZE_XZ 对齐，也就是一个分区的内部边长 160。每张地图固定占一个
+        // 分区（CELL 160 + GAP 96，中心距 256），分区之间留 96 格空地，两张图不会连成一片。最大的
+        // 地图是 147 格宽的斗兽场，128 的老上限会把它裁掉一圈看台，被裁掉的部分会被判成「场外」。
         add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, "场地长度",
                 "场地在 X 方向的格数。选择地图后由地图尺寸接管。", 16, 160, 8, 48, " 格"));
         add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, "场地宽度",

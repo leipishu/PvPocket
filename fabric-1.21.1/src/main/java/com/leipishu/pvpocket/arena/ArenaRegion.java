@@ -49,9 +49,28 @@ public final class ArenaRegion {
     public final int sizeY;
     public final int sizeZ;
 
-    /** Copied from the session's rule set when the plot is leased, so protection needs no lookup. */
-    public final boolean protectTerrain;
-    public final boolean allowBreakOwn;
+    /**
+     * The cell this plot sits in, which is larger than the plot itself.
+     *
+     * <p>Clearing the plot's own bounding box is not enough: a cell that held a 147-wide map and
+     * then gets a 45-wide one would keep the first map's walls, because they fall outside the
+     * second map's box. That is exactly how the maps ended up piled on top of each other at the
+     * origin. Resetting the cell instead means a cell can be handed from one map to another with
+     * nothing left behind.</p>
+     */
+    public final int cellMinX;
+    public final int cellMinZ;
+    public final int cellSizeX;
+    public final int cellSizeZ;
+
+    /**
+     * Copied from the session's rule set on every lease, so protection needs no lookup.
+     *
+     * <p>Not final: a cell keeps its stamped map between duels, so the same region object is leased
+     * again with a different rule set rather than rebuilt from scratch.</p>
+     */
+    public boolean protectTerrain;
+    public boolean allowBreakOwn;
 
     /** The selected map, or {@link ArenaMap#FLAT}. Never null. */
     public final ArenaMap map;
@@ -79,6 +98,7 @@ public final class ArenaRegion {
     private final BlockPos.Mutable cursor = new BlockPos.Mutable();
 
     ArenaRegion(String id, int index, int minX, int minZ, int sizeX, int sizeY, int sizeZ,
+                int cellMinX, int cellMinZ, int cellSizeX, int cellSizeZ,
                 ArenaMap map, boolean protectTerrain, boolean allowBreakOwn) {
         this.id = id;
         this.index = index;
@@ -87,9 +107,31 @@ public final class ArenaRegion {
         this.sizeX = sizeX;
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
+        this.cellMinX = cellMinX;
+        this.cellMinZ = cellMinZ;
+        this.cellSizeX = cellSizeX;
+        this.cellSizeZ = cellSizeZ;
         this.map = map == null ? ArenaMap.FLAT : map;
         this.protectTerrain = protectTerrain;
         this.allowBreakOwn = allowBreakOwn;
+    }
+
+    /** True when this stamped plot already is exactly what the caller is asking for. */
+    public boolean matches(ArenaMap map, int sizeX, int sizeY, int sizeZ) {
+        return this.map == map && this.sizeX == sizeX && this.sizeY == sizeY && this.sizeZ == sizeZ;
+    }
+
+    /**
+     * Hands an already-stamped cell to a new session without touching the terrain.
+     *
+     * <p>Only the deviation set and the per-duel rules are reset. The map itself stays where it is,
+     * which is what makes each map's address stable: the colosseum is always in its own cell, so
+     * "select the colosseum" means "go there", not "stamp a colosseum somewhere".</p>
+     */
+    public void lease(boolean protectTerrain, boolean allowBreakOwn) {
+        this.protectTerrain = protectTerrain;
+        this.allowBreakOwn = allowBreakOwn;
+        changed.clear();
     }
 
     /** What the generator would have put here. Identity comparison against a live state is valid. */
@@ -407,21 +449,30 @@ public final class ArenaRegion {
      * round half-finished: the region's in-memory deviation set died with the process, and without a
      * scan the debris would become part of the next duel's map.</p>
      *
-     * <p>Scanned height is capped at the plot's own build height plus a small margin. Debris placed
+     * <p>Scanned height is capped at the requested build height plus a small margin. Debris placed
      * above the ceiling of a <em>shorter</em> later duel can therefore survive a crash; that is a
      * cosmetic leak in an unused volume, and the alternative (scanning all 256 layers) costs an order
      * of magnitude more for no gameplay benefit.</p>
+     *
+     * <p><b>Clears the cell, not the plot.</b> The plot's own bounding box is the wrong volume to
+     * erase: a cell that held the 147x119 colosseum and then gets the 45x60 island would keep every
+     * colosseum block outside the island's box, and the two builds would be visible on top of each
+     * other. Since cells are the unit that gets handed between maps, cells are the unit that gets
+     * cleared.</p>
+     *
+     * @param clearSizeY how tall to scan. Pass the taller of the outgoing and incoming map, or the
+     *                   outgoing one's upper floors survive the handover.
      */
-    public int reset(ServerWorld world) {
-        int top = Math.min(SURFACE_Y + sizeY + 4, world.getTopY() - 1);
+    public int reset(ServerWorld world, int clearSizeY) {
+        int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getTopY() - 1);
         int restored = 0;
         for (int y = FLOOR_Y; y <= top; y++) {
             // Flat baseline, not the map baseline: the point of a reset is to erase whatever the
             // previous lease left behind, and restoring it to the *current* map would leave the old
             // map's blocks standing wherever the two do not overlap.
             BlockState want = flatBaseline(y);
-            for (int x = minX; x <= maxX(); x++) {
-                for (int z = minZ; z <= maxZ(); z++) {
+            for (int x = cellMinX; x < cellMinX + cellSizeX; x++) {
+                for (int z = cellMinZ; z < cellMinZ + cellSizeZ; z++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     if (world.getBlockState(pos) != want) {
                         world.setBlockState(pos, want, Block.NOTIFY_LISTENERS);

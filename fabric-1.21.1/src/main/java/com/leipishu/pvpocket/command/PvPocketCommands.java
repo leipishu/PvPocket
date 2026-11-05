@@ -128,18 +128,37 @@ public final class PvPocketCommands {
 
     private static int arena(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
+        var gallery = com.leipishu.pvpocket.arena.ArenaManager.gallery();
         var leased = com.leipishu.pvpocket.arena.ArenaManager.leased();
-        source.sendFeedback(() -> Text.literal("场地分区：" + leased.size() + " / "
-                + (com.leipishu.pvpocket.arena.ArenaManager.COLS
-                   * com.leipishu.pvpocket.arena.ArenaManager.ROWS) + " 已占用")
-                .formatted(Formatting.AQUA), false);
+
+        source.sendFeedback(() -> Text.literal("场地分区：" + gallery.size() + " / "
+                + com.leipishu.pvpocket.arena.ArenaManager.slotCount() + " 已布置，"
+                + leased.size() + " 场进行中").formatted(Formatting.AQUA), false);
+
+        // The gallery is the point: every map sits in its own cell of the dimension, so "select the
+        // colosseum" is a teleport to fixed coordinates rather than a paste at the origin.
+        if (gallery.isEmpty()) {
+            source.sendFeedback(() -> Text.literal("分区尚未布置（服务端预热中或竞技世界未加载）。")
+                    .formatted(Formatting.GRAY), false);
+        } else {
+            source.sendFeedback(() -> Text.literal("分区坐标：").formatted(Formatting.DARK_AQUA), false);
+            for (var region : gallery) {
+                String line = "  " + region.id + "  " + region.map.id
+                        + "  " + region.sizeX + "x" + region.sizeY + "x" + region.sizeZ
+                        + "  " + region.minX + "," + region.minZ
+                        + "  中心 " + region.centerX() + "," + region.centerZ();
+                source.sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
+            }
+        }
+
         if (leased.isEmpty()) {
             source.sendFeedback(() -> Text.literal("当前没有进行中的决斗。").formatted(Formatting.GRAY), false);
             return 1;
         }
+        source.sendFeedback(() -> Text.literal("进行中：").formatted(Formatting.DARK_AQUA), false);
         for (var entry : leased) {
             var region = entry.getValue();
-            String line = region.id + "  " + region.sizeX + "x" + region.sizeY + "x" + region.sizeZ
+            String line = "  " + region.id + "  " + region.map.id
                     + "  原点 " + region.minX + "," + region.minZ
                     + "  变更 " + region.changeCount()
                     + "  保护 " + (region.protectTerrain ? "开" : "关")

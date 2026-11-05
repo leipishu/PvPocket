@@ -39,8 +39,15 @@ public final class PvPocket implements ModInitializer {
             SessionManager manager = SessionManager.create(server);
             manager.load();
             manager.reconcile();
-            LOGGER.info("PvPocket session manager ready (arena world available: {})",
-                    com.leipishu.pvpocket.arena.ArenaManager.isReady(server));
+            boolean ready = com.leipishu.pvpocket.arena.ArenaManager.isReady(server);
+            LOGGER.info("PvPocket session manager ready (arena world available: {})", ready);
+            if (ready) {
+                // Each map owns one cell of the duel dimension and stays stamped there between
+                // duels, so "select the colosseum" means "teleport to the colosseum's coordinates"
+                // rather than "paste a colosseum at the origin". Filling the gallery here means the
+                // dimension is laid out before anyone can pick a map.
+                com.leipishu.pvpocket.arena.ArenaManager.beginWarmUp();
+            }
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -86,6 +93,8 @@ public final class PvPocket implements ModInitializer {
             if (manager != null) {
                 manager.tick();
             }
+            // One exhibit per tick; a no-op once the gallery is filled.
+            com.leipishu.pvpocket.arena.ArenaManager.warmUpTick(server);
         });
 
         // Terrain protection is a veto, so it has to run before the block is removed. Recording the

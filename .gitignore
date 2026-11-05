@@ -49,3 +49,6 @@ fabric-1.21.1/arena-src/
 # Python bytecode from the conversion scripts
 __pycache__/
 *.pyc
+
+# Generated arena render (scripts/arena-map.py)
+arena-map.png
