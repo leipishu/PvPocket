@@ -818,7 +818,7 @@ BOUNDARY_RETURNED   player=Dev2
 最初四张来自 MineSchematic / BuildSchematics，这两个站**没有逐条 License 字段**，而文件是要
 打进 jar 的——那就是再分发，没有授权就是侵权。四张已全部移除。
 
-换成 [zzuf-maps](https://github.com/zzufx/zzuf-maps)：每张图自带 `LICENSE.txt`，现在内置的
+换成 [zzuf-maps](https://github.com/zzufx/zzuf-maps)：每张图自带 `LICENSE.txt`，当时内置的
 三张都是 **CC BY-SA 4.0**。义务是署名 + 声明改动 + 相同方式共享，三条都写进了仓库根目录的
 `THIRD-PARTY-NOTICES.md`。这个义务只挂在 `.nbt` 这几个美术资源上，不传染 Java 源码。
 
@@ -857,3 +857,112 @@ ARENA_REVERTED blocks=0 tracked=0
 ```
 
 出生点相对坐标 `(23,11,24)` / `(23,11,70)`，与离线模拟逐格一致。
+
+### 13.8 扩到九张：1.8 存档也能读了
+
+后来要求「`gs_earthborn` 必须加入，再选四张，最好有一张类似角斗场的大图」。挑图时才发现
+zzuf-maps 里想用的图有七张是 **1.8 存档**（`level.dat` 没有 `DataVersion`），而转换器只认
+`chunk.data["sections"]`——1.8 的 key 是 `Sections`，大写，还在 `Level` 下面。于是每张都报
+`no non-air blocks found`。
+
+补上 `legacy_section_blocks()` 之后，八张 zzuf 图里只留了一张 1.21（游乐屋），其余七张全走
+1.8 那条路。这条路的两个坑写在 `PvPocket-场地模板-调研与工具.md` §4.1：`index = y*256+z*16+x`
+的位序，和 `Add` 数组每字节两个 4 位值。
+
+**验证脚本比转换器更晚才修好，这一点值得记。** `arena-verify.py` 的 `read_source_world()`
+同样只认 `sections`，所以 1.8 图读出来是**零个方块**。它没有崩，也没有报错——它安静地走到
+「没有方块」，然后 `min()` 抛了个 `ValueError`，或者干脆比出 `wrong=0`。修完之后立刻冒出两批
+「错误」：
+
+| 现象 | 真实原因 |
+|---|---|
+| 198 处 `extended=True` vs `extended=true` | `OldBlock.convert()` 的属性值是 Python `bool`，`str(True)` 是大写 |
+| `KeyError: 'Block 132:2 not found'` | anvil-parser2 的 ID 表缺 tripwire 的 `132:2`，转换器那张表有 |
+
+两条都不是地图的问题，是**参照物自己的表示问题**。这说明交叉校验的价值有一半在「逼你把两边
+的表示对齐」，对不齐的地方恰恰是最容易藏 bug 的地方。
+
+### 13.9 斗兽场是生成的，不是下载的
+
+「最好有一张类似角斗场的大图」这一条，找遍了也没有可再分发的：
+
+- zzuf-maps 十二个目录里没有环形看台，最大的两张是桥（`armature` 171 宽超限、`double_cross`
+  149 宽但与蓟桥形态重复）；
+- OvercastCommunity/PublicMaps 是 PGM 社区最大的库，但**只有 XML 没有世界存档**；
+- Planet Minecraft 与各聚合站默认 All Rights Reserved；
+- mc-schematics 之类的「免费」站没有授权条款——免费不等于可再分发。
+
+于是写了 `scripts/colosseum.py`：同心椭圆套循环，十排看台 + 15 格外墙 + 48 根壁柱 + 两个门洞。
+`147 × 29 × 119`，109,586 块，291 KB gzip。**这是九张里唯一一张没有第三方义务的图**，也是唯一
+一张尺寸是设计出来的、不是裁出来的。
+
+过程中被渲染图纠正过三次，都记在脚本注释里：
+
+1. 地面斑块用 3 格栅格取哈希 → 出来是一片规整的 3×3 方格，一眼就是程序生成的。换成双线性
+   插值的 value noise。
+2. 三种材料挂在同一条噪声的递进阈值上 → 每种材料都变成上一种的**描边**，砾石湖镶了一圈红沙边。
+   改成每种材料一条独立噪声通道。
+3. 灯笼用 `cos/sin` 取点再四舍五入 → 椭圆的圆整点不在椭圆上，24 次采样只有 10 次落在墙帽上，
+   且全挤在 X 轴两端。改成先收集墙帽那一圈格子，再按角度排序取样。
+
+另外门洞的地基一开始漏了：`gate_span()` 那段直接 `continue`，连 y=-1 的砂岩一起跳过了，留下
+一个三格宽的地基缺口。虽然被上层盖住看不见，但那是唯一挡住沙子的那层。
+
+### 13.10 这批没有实机测
+
+需求原话是「不用测试了」，所以后五张只做了离线交叉校验：
+
+```
+arena_earthborn      45x34x60     7045 blocks   wrong=0 missing=0 extra=0
+arena_avalon         85x32x79    11042 blocks   wrong=0 missing=0 extra=0
+arena_dark_nebula    87x43x79    14509 blocks   wrong=0 missing=0 extra=0
+arena_deadwood       88x36x87    60005 blocks   wrong=0 missing=0 extra=0
+```
+
+斗兽场没有源文件可比，只能自校验（写出再读回，比对 `size` 与方块数）。
+
+风险收在两处，都是**会显形不会静默**的：1.8 图里可能有 1.21.1 不认的方块名（转换期会打印
+`mapped`/`dropped`，都看过），以及出生点靠 `resolvePads()` 的环形搜索兜底。前者表现为墙上
+凭空缺一块，后者表现为玩家卡在方块里。
+
+顺带在 `SELF_DESTRUCTING` 里加了 `fire` / `soul_fire` / `tripwire`：火会烧完，绊线被玩家走过
+就改 `attached`，两种都会让场地和基准对不上，`revert` 会一直触发。浮岛丢了 6 块火，枯木镇丢了
+2 条绊线。
+
+### 13.11 不测也有不测的替代：离线跑一遍出生点
+
+「不用测试」不等于「不用检查」。`nominalSpawnX/Z` → `findStand` → `standY` 这一串是纯函数，
+输入是模板方块表，所以可以在 Python 里照抄一遍跑。这个模拟抓到一个真 bug：
+
+```
+arena_avalon   85x32x79  Z
+   nominal (42,20) -> NOTHING FOUND
+   nominal (42,58) -> NOTHING FOUND
+```
+
+阿瓦隆深 79，两座基地在 `z=±35`，而名义点是 `z=±19`——正对着中间那片虚空。`findStand` 半径
+12 够不到基地，返回 `{-1}`，`resolvePads` 于是回落到名义点，两个人都被放到**地图底下那块
+裸石头地面**上。
+
+修法是把搜索半径从 12 提到 24（`MAX_PAD_SEARCH`）。改完：
+
+```
+arena_avalon  nominal (42,20) -> pad (39,30, 6) stand-on=smooth_stone_slab ON-MAP
+arena_avalon  nominal (42,58) -> pad (39,30,72) stand-on=smooth_stone_slab ON-MAP
+```
+
+`z=6` / `z=72` 关于中心 39 对称，落在两座基地的台阶上。其余七张图的落点一个没变（都在半径
+0 或 1 就命中），所以这个改动只是把「找不到」那一档兜住了。
+
+八张图全部 `ON-MAP`，站的都是地图自己的方块：
+
+```
+arena_earthborn      ( 11,8,30) coarse_dirt          (33,8,30) dirt
+arena_avalon         ( 39,30, 6) smooth_stone_slab   (39,30,72) smooth_stone_slab
+arena_dark_nebula    ( 43,13,20) quartz_stairs       (43,13,58) quartz_stairs
+arena_deadwood       ( 22,7,43) red_sand             (66,7,43) red_sand
+arena_colosseum      ( 37,5,59) sand                 (109,5,59) sand
+```
+
+`arena_trial_chambers` 的模拟结果 `(23,14,24)` / `(23,14,70)` 和 13.7 里实机测到的
+`spawns=95,14,72 | 95,14,118`（`minX=72, minZ=48`）逐格一致——这条模拟本身也是被校准过的。

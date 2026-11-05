@@ -370,20 +370,35 @@ def iter_chunks(region_data):
             _, root = read_nbt(raw)
         except Exception:
             continue
-        # Pre-1.18 worlds nest the chunk under "Level"; 1.18+ put sections at the root.
-        if "sections" in root:
-            body = root
-        elif "Level" in root and "sections" in root["Level"][1]:
-            body = root["Level"][1]
-        else:
+        # Three layouts in the wild: 1.18+ puts lowercase `sections` at the root, 1.13-1.17 nest
+        # them under `Level`, and 1.8-era chunks (including the ones PGM map packs ship) use a
+        # capitalised `Sections` array of numeric-id sections.
+        body = None
+        for candidate in (root, root.get("Level", (None, {}))[1]):
+            if not isinstance(candidate, dict):
+                continue
+            if "sections" in candidate or "Sections" in candidate:
+                body = candidate
+                break
+        if body is None:
             continue
         yield index % 32, index // 32, body
+
+
+def chunk_sections(body):
+    """The section list of a chunk, whichever key its era used."""
+    for key in ("sections", "Sections"):
+        entry = body.get(key)
+        if entry is not None:
+            return entry[1][1]
+    return []
 
 
 def section_blocks(section):
     """Yields (local_x, local_y, local_z, name, properties) for every non-air block in a section."""
     states = section.get("block_states")
     if states is None:
+        yield from legacy_section_blocks(section)
         return
     states = states[1]
     palette_entry = states.get("palette")
@@ -426,6 +441,48 @@ def section_blocks(section):
         yield index & 15, index >> 8, (index >> 4) & 15, name, props
 
 
+def legacy_section_blocks(section):
+    """1.8-era section: numeric block ids in `Blocks`, 4-bit metadata in `Data`.
+
+    <p>There is no palette to read, so every id+metadata pair has to be flattened to a modern block
+    name. Doing that by hand would be a table of a few hundred blocks; `anvil-parser2` already ships
+    Paper's conversion table (`LEGACY_ID_MAP`, 1631 entries), so this is twenty lines instead.</p>
+
+    <p>Properties come back as Python bools and ints. They are stringified here because everything
+    downstream — the structure palette, the comparison in `arena-verify.py` — treats properties as
+    the strings NBT would store.</p>
+    """
+    raw = section.get("Blocks")
+    if raw is None:
+        return
+    from anvil.legacy import LEGACY_ID_MAP
+
+    blocks = raw[1]
+    data = section.get("Data", (None, b""))[1]
+    add = section.get("Add", (None, b""))[1]
+    for index in range(min(4096, len(blocks))):
+        block_id = blocks[index] & 0xFF
+        if add:
+            block_id |= ((add[index >> 1] >> (4 * (index & 1))) & 0xF) << 8
+        if block_id == 0:
+            continue
+        meta = (data[index >> 1] >> (4 * (index & 1))) & 0xF if data else 0
+        entry = LEGACY_ID_MAP.get("%d:%d" % (block_id, meta))
+        if entry is None:
+            # An unmapped metadata value is almost always a variant we do not care about; falling
+            # back to metadata 0 keeps the block instead of punching a hole in the build.
+            entry = LEGACY_ID_MAP.get("%d:0" % block_id)
+        if entry is None:
+            continue
+        name = entry[0]
+        if not name.startswith("minecraft:"):
+            name = "minecraft:" + name
+        props = {}
+        for key, value in (entry[1] or {}).items():
+            props[key] = ("true" if value is True else "false" if value is False else str(value))
+        yield index & 15, index >> 8, (index >> 4) & 15, name, props
+
+
 def keep(name, props, x, y, z, box, strip_bedrock):
     """The single place that decides whether a block survives into the output."""
     if box and not (box[0] <= x <= box[3] and box[1] <= y <= box[4] and box[2] <= z <= box[5]):
@@ -453,7 +510,7 @@ def scan(source, box=None, strip_bedrock=False):
         for cx, cz, body in iter_chunks(data):
             base_x = (rx * 32 + cx) * 16
             base_z = (rz * 32 + cz) * 16
-            for section in body["sections"][1][1]:
+            for section in chunk_sections(body):
                 section_y = section.get("Y", (TAG_BYTE, 0))[1]
                 for lx, ly, lz, name, props in section_blocks(section):
                     x = base_x + lx
@@ -469,7 +526,7 @@ def scan(source, box=None, strip_bedrock=False):
 # A .litematic is gzipped NBT with no chunk/region layer at all: the block list is one flat
 # palette plus one flat long array per named sub-region. That is the whole reason it is easier to
 # eat than a world save -- no sector table, no per-chunk compression byte, no pre/post-1.18 split.
-# The inner bit packing is *identical* to the vanilla section packing already handled above.
+# The inner bit packing is NOT the vanilla section packing -- see unpack_longs below.
 
 
 def unpack_longs(longs, bits, count):
@@ -684,10 +741,9 @@ def stabilise(name):
 
 def needs_support(name):
     """Blocks that pop off when the game finds nothing holding them up."""
-    return (name.endswith("_pressure_plate") or name == "minecraft:torch"
-            or name in ("minecraft:redstone_torch", "minecraft:wall_torch",
-                        "minecraft:redstone_wall_torch", "minecraft:fire",
-                        "minecraft:soul_fire")
+    return (name.endswith("_pressure_plate")
+            or name in ("minecraft:torch", "minecraft:redstone_torch",
+                        "minecraft:wall_torch", "minecraft:redstone_wall_torch")
             or name in FLOOR_ATTACHED)
 
 
@@ -700,13 +756,14 @@ FLOOR_ATTACHED = ("minecraft:redstone_wire", "minecraft:rail", "minecraft:powere
                   "minecraft:lily_pad")
 
 
-# Blocks you cannot stand a fire on: their top face is not full, so `FireBlock.canPlaceAt` fails and
-# the fire is removed on the next tick.
-NON_SOLID_TOP = ("_bars", "_fence", "_fence_gate", "_wall", "_trapdoor", "_pane", "_chain")
-
-
-def supports_fire(name):
-    return not (name == "minecraft:chain" or name.endswith(NON_SOLID_TOP))
+# Blocks that are dropped however well supported they are, because they do not hold still.
+#
+# `fire` climbs its own `age` and then removes itself, so a template that ships fire puts the world
+# in a state the template no longer describes — which the arena reads as a change and reverts, for
+# ever, at the speed fire burns out. `tripwire` is worse: any entity that crosses one flips
+# `attached`, and a player walking through the map is exactly that. Both are decoration in every
+# map seen so far, and losing six blocks of fire is a better trade than a revert every few seconds.
+SELF_DESTRUCTING = ("minecraft:fire", "minecraft:soul_fire", "minecraft:tripwire")
 
 
 def drop_unstable(blocks):
@@ -721,13 +778,14 @@ def drop_unstable(blocks):
     """
     doomed = []
     for pos, (name, props) in blocks.items():
+        if name in SELF_DESTRUCTING:
+            doomed.append(pos)
+            continue
         if not needs_support(name):
             continue
         x, y, z = pos
         below = blocks.get((x, y - 1, z))
-        if name in ("minecraft:fire", "minecraft:soul_fire"):
-            supported = below is not None and supports_fire(below[0])
-        elif (name.endswith("_pressure_plate") or name in ("minecraft:torch",
+        if (name.endswith("_pressure_plate") or name in ("minecraft:torch",
                                                           "minecraft:redstone_torch")
               or name in FLOOR_ATTACHED):
             supported = below is not None
@@ -741,7 +799,7 @@ def drop_unstable(blocks):
     for pos in doomed:
         del blocks[pos]
     if doomed:
-        print("dropped   %d unsupported block(s) that would pop off on placement" % len(doomed))
+        print("dropped   %d block(s) that would not stay put after placement" % len(doomed))
     return len(doomed)
 
 

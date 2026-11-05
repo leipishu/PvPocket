@@ -80,8 +80,38 @@ def _axis(pos, size):
     return range(low, high + 1)
 
 
+def chunk_sections(chunk):
+    """Sections of a chunk as ``[(section_nbt, section_y), ...]``, for either save layout.
+
+    Modern saves keep ``sections`` at the root of the chunk compound; 1.8 keeps ``Sections`` under
+    ``Level``, which anvil-parser2 has already unwrapped into ``chunk.data``. Reading only the
+    modern key is what made every 1.8 map look empty here — and "empty" is not a failure this
+    script can afford to report as a pass, so it exits instead.
+    """
+    for key in ("sections", "Sections"):
+        found = chunk.data.get(key)
+        if found is None:
+            continue
+        out = []
+        for section in found:
+            raw = section.get("Y", 0)
+            out.append((section, int(getattr(raw, "value", raw))))
+        return out
+    return []
+
+
 def read_source_world(path):
-    """Reads every chunk of a world save through anvil-parser2."""
+    """Reads every chunk of a world save through anvil-parser2.
+
+    Two block layouts have to be handled, because the source maps come from both eras:
+
+    * 1.21 — a per-section ``block_states`` palette. ``chunk.get_block`` wants a global Y.
+    * 1.8 — flat ``Blocks`` / ``Data`` / ``Add`` byte arrays and numeric ids. ``chunk.get_block``
+      returns an ``OldBlock`` with no name, and wants a section-local Y when the section is passed
+      explicitly. ``OldBlock.convert()`` is anvil-parser2's own flattening table, which is what
+      makes this an independent check of the converter's hand-written legacy path rather than the
+      same code run twice.
+    """
     import anvil
 
     truth = {}
@@ -90,6 +120,8 @@ def read_source_world(path):
         raise SystemExit("no region/*.mca under %s" % path)
     for path_mca in files:
         region = anvil.Region.from_file(path_mca)
+        # `get_chunk` takes absolute chunk coordinates and masks them to a region slot, so walking
+        # 0..31 per file covers all 32x32 slots of *that* file and `chunk.x/z` report the truth.
         for cz in range(32):
             for cx in range(32):
                 try:
@@ -97,18 +129,32 @@ def read_source_world(path):
                 except Exception:
                     continue
                 base_x, base_z = chunk.x * 16, chunk.z * 16
-                for section in chunk.data.get("sections", []):
-                    sy = int(getattr(section.get("Y", 0), "value", section.get("Y", 0)))
+                for section, sy in chunk_sections(chunk):
+                    legacy = "Palette" not in section and "block_states" not in section
                     for ly in range(16):
                         y = sy * 16 + ly
                         for lz in range(16):
                             for lx in range(16):
-                                block = chunk.get_block(lx, y, lz)
+                                if legacy:
+                                    old = chunk.get_block(lx, ly, lz, section=section)
+                                    try:
+                                        block = old.convert()
+                                    except KeyError:
+                                        # anvil-parser2's table has holes the converter's does
+                                        # not (`132:2`, tripwire, is the one that actually bites).
+                                        # The converter falls back to meta 0 for those, so mirror
+                                        # that here — the point of this reader is to catch a
+                                        # misread *byte*, not to out-vote the id table.
+                                        block = anvil.OldBlock(old.id, 0).convert()
+                                else:
+                                    block = chunk.get_block(lx, y, lz)
                                 name = block.name()
                                 if name in W.AIRISH or name in W.DEFAULT_STRIP:
                                     continue
                                 truth[(base_x + lx, y, base_z + lz)] = (
                                     name, dict(block.properties or {}))
+    if not truth:
+        raise SystemExit("read no blocks out of %s — the reader is wrong, not the map" % path)
     return truth
 
 
@@ -130,6 +176,19 @@ def read_template(path):
 
 # --------------------------------------------------------------------- comparison
 
+def prop_text(value):
+    """Renders a block-state value the way it is written in a palette.
+
+    The legacy path is why this exists: `OldBlock.convert()` puts real Python ``True``/``False``
+    into ``properties``, and ``str(True)`` is ``"True"``. A block state string is always lowercase,
+    so comparing the two forms reports 198 "wrong" blocks that are in fact identical, and prints
+    them in a form where the difference is one capital letter in a 60-character line.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def cross_check(source_path, nbt_path):
     """Compares the template against an independent reading of the source. Returns failure count."""
     truth = read_source(source_path)
@@ -140,7 +199,7 @@ def cross_check(source_path, nbt_path):
     # anvil-parser2 and nbtlib hand back their own tag types, which do not compare equal to the
     # plain strings the template reader produces. Coerce both sides to str before comparing, or
     # every single block reports as wrong while printing identically.
-    truth = {pos: (str(name), {str(k): str(v) for k, v in props.items()})
+    truth = {pos: (str(name), {str(k): prop_text(v) for k, v in props.items()})
              for pos, (name, props) in truth.items()}
 
     size, blocks = read_template(nbt_path)

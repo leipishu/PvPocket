@@ -21,6 +21,7 @@ PvPocket/
 ├── scripts/
 │   ├── dev-2clients.sh        双客户端联调启动脚本
 │   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem -> 结构模板
+│   ├── colosseum.py           生成斗兽场模板（唯一一张不是下载来的图）
 │   └── arena-verify.py        转换校验：以第三方读取器为参照逐格比对 + 游戏内回读
 ├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
 │   ├── build.gradle
@@ -115,14 +116,26 @@ scripts/dev-2clients.sh
 
 ## 场地地图
 
-规则面板 E 组的「场地模板」可以在**平坦**（程序生成）和三张内置地图之间切换。地图存在
+规则面板 E 组的「场地模板」可以在**平坦**（程序生成）和八张内置地图之间切换。地图存在
 `data/pvpocket/structure/*.nbt`，是原版结构模板。
 
-三张图都来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，**CC BY-SA 4.0**，署名与改动
-声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+| 显示名 | 尺寸 (x×y×z) | 形态 |
+|---|---|---|
+| 游乐屋 | 82 × 28 × 57 | 封闭室内竞技场，石英 |
+| 试炼密室 | 47 × 29 × 95 | 凝灰岩洞窟长廊 |
+| 蓟桥 | 102 × 44 × 99 | 两端基地 + 中间桥 |
+| 浮岛 | 45 × 34 × 60 | 悬空圆盘岛，边缘外是空的 |
+| 阿瓦隆 | 85 × 32 × 79 | 两座基地隔空对望，左右镜像 |
+| 暗星云 | 87 × 43 × 79 | 封闭空间站，两层走廊 |
+| 枯木镇 | 88 × 36 × 87 | 西部小镇街道 |
+| 斗兽场 | 147 × 29 × 119 | 椭圆竞技场，十排看台 |
+
+七张来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，**CC BY-SA 4.0**；斗兽场是本仓库
+用 `scripts/colosseum.py` 生成的，没有第三方义务。署名与改动声明见
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 **想换成自己的地图**：不需要打开游戏，也不需要结构方块（它有 48³ 上限，装不下 1v1 场地）。
-用 `scripts/world2struct.py` 直接读源文件：
+用 `scripts/world2struct.py` 直接读源文件（1.21 / 1.13–1.17 / 1.8 的世界存档都支持）：
 
 ```bash
 python -m pip install nbtlib litemapy anvil-parser2

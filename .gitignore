@@ -45,3 +45,7 @@ local.properties
 # Downloaded arena world saves, used as input to scripts/world2struct.py.
 # Not shipped: the conversion output lives in src/main/resources/data/pvpocket/structure/.
 fabric-1.21.1/arena-src/
+
+# Python bytecode from the conversion scripts
+__pycache__/
+*.pyc

@@ -150,10 +150,10 @@ public final class ArenaRegion {
      * Finds a spot each player can actually stand on, near where the nominal pad says.
      *
      * <p>The nominal pad is a guess ("a quarter of the span either side of the centre") and on real
-     * maps it lands inside things: measured against the three shipped templates, one pad was
-     * underwater and two were inside solid rock with no headroom. Teleporting there means a player
-     * starts drowning, suffocating, or stuck in a wall — which reads as a broken duel, not as a
-     * misplaced coordinate.</p>
+     * maps it lands inside things: measured against the shipped templates, one pad was underwater,
+     * two were inside solid rock with no headroom, and one was over a void. Teleporting there means
+     * a player starts drowning, suffocating, or stuck in a wall — which reads as a broken duel, not
+     * as a misplaced coordinate.</p>
      *
      * <p>So the guess is only a starting point. The search walks outward in rings and takes the
      * first column that has a non-fluid floor with two blocks of air above it. Falling back to the
@@ -170,9 +170,23 @@ public final class ArenaRegion {
         padsResolved = true;
     }
 
+    /**
+     * How far the pad search may walk before giving up, in blocks.
+     *
+     * <p>Twelve was enough for the first three maps and is not enough for a bridge map whose bases
+     * sit near the ends: Avalon is 79 deep, its bases are at {@code z=+-35}, and the nominal pad
+     * lands at {@code z=+-19} — over the void between them. At radius 12 the search found nothing,
+     * fell back to the nominal point, and dropped both players onto the bare plot floor underneath
+     * the map. At 24 it finds the slabs at {@code z=+-33}.</p>
+     *
+     * <p>The cost is bounded and only paid when the small rings are empty: 48x48 columns, once per
+     * arena lease, and every map that works today resolves at radius 0 or 1.</p>
+     */
+    private static final int MAX_PAD_SEARCH = 24;
+
     /** Ring search around a target column. Returns {x, feetY, z}; feetY -1 means "nothing found". */
     private int[] findStand(ServerWorld world, int targetX, int targetZ) {
-        for (int radius = 0; radius <= 12; radius++) {
+        for (int radius = 0; radius <= MAX_PAD_SEARCH; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     // Ring only: the square inside was covered by the previous radius.
