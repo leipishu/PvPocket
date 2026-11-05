@@ -69,9 +69,14 @@ public final class ArenaMaps {
      * one that is ours outright. Two gates on the X axis, ten rows of seating, a 15-block outer
      * wall. It is also the only map whose two ends are a design decision instead of an observation
      * about somebody else's spawn XML.
+     *
+     * <p>The only map here with a fight area smaller than its box. The generator's arena ellipse is
+     * semi-axes 50 x 40 ({@code A_ARENA = 50}, {@code E_ARENA = A_ARENA / A_OUT}), so the sand is
+     * 100x80 inside a 147x119 box — insets 23 and 19. Without them the boundary curtain stands
+     * behind the top row of seats and a player on the seating is judged to still be fighting.</p>
      */
     public static final ArenaMap COLOSSEUM = new ArenaMap("arena_colosseum", "斗兽场",
-            PvPocket.id("arena_colosseum"), 147, 29, 119);
+            PvPocket.id("arena_colosseum"), 147, 29, 119, false, 23, 19);
 
     public static final List<ArenaMap> ALL = List.of(ArenaMap.FLAT, FUN_HOUSE, EARTHBORN,
             DARK_NEBULA, DEADWOOD, COLOSSEUM);

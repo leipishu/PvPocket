@@ -268,7 +268,9 @@ public final class ArenaRegion {
                     }
                     int x = targetX + dx;
                     int z = targetZ + dz;
-                    if (x < minX || x > maxX() || z < minZ || z > maxZ()) {
+                    // Searched inside the fight area, not the plot box: a pad outside the boundary
+                    // would spawn a player who is judged to have left before they can move.
+                    if (x < pitMinX() || x > pitMaxX() || z < pitMinZ() || z > pitMaxZ()) {
                         continue;
                     }
                     int y = standY(world, x, z);
@@ -343,6 +345,42 @@ public final class ArenaRegion {
         return minZ + sizeZ / 2;
     }
 
+    // ------------------------------------------------------------------ fight area
+
+    /**
+     * The rectangle a round is actually fought in, which is the plot box for most maps.
+     *
+     * <p>Separate from {@link #minX}/{@link #maxX()} because a bounding box is not a footprint. The
+     * colosseum's box is its outer wall plus ten rows of seating; the sand is 100x80 inside it. Every
+     * boundary decision — where the curtain is drawn, where "you left the arena" starts, where a
+     * pull-back lands — belongs on the fight area, while block protection and entity cleanup stay on
+     * the plot box so walking past the curtain does not put the stands out of reach of the rules.</p>
+     *
+     * <p>For a flat plot the two rectangles are identical, because the platform is built to the
+     * requested size and there is nothing else there.</p>
+     */
+    public int pitMinX() {
+        return minX + map.pitInsetX;
+    }
+
+    public int pitMaxX() {
+        return maxX() - map.pitInsetX;
+    }
+
+    public int pitMinZ() {
+        return minZ + map.pitInsetZ;
+    }
+
+    public int pitMaxZ() {
+        return maxZ() - map.pitInsetZ;
+    }
+
+    /** Horizontal containment in the fight area, with the outer face included. */
+    public boolean inBounds(double x, double z) {
+        return x >= pitMinX() && x <= pitMaxX() + 1.0D
+                && z >= pitMinZ() && z <= pitMaxZ() + 1.0D;
+    }
+
     /**
      * Spawn pads.
      *
@@ -400,16 +438,20 @@ public final class ArenaRegion {
     }
 
     /**
-     * True when the player is still on the plot.
+     * True when the player is still on the fight area.
      *
      * <p>Falling below the platform counts as leaving. There is no ground under an arena any more —
      * the dimension is void — so the alternative to catching this within a few blocks is a player
      * who drops out of the world and dies to void damage before the boundary rule ever sees them.
      * Eight blocks is about one second of falling: past that they are not on the map by any reading,
      * and the pull-back puts them back on it.</p>
+     *
+     * <p>Uses {@link #inBounds} rather than {@link #contains(double, double)}: the boundary rule
+     * judges the fight area, not the plot box. On the colosseum that is the difference between
+     * "standing on the sand" and "climbed the seating", and only the first is still a fight.</p>
      */
     public boolean isInside(double x, double y, double z) {
-        return y >= PLATFORM_Y - 8.0D && contains(x, z);
+        return y >= PLATFORM_Y - 8.0D && inBounds(x, z);
     }
 
     public Box entityBox(int bottomY, int topY) {

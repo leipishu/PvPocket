@@ -81,7 +81,15 @@ public final class ArenaManager {
     public static final int MARGIN = (PITCH - CELL) / 2;
 
     public static final int MAX_SIZE_XZ = CELL;
-    public static final int MAX_SIZE_Y = 64;
+    /**
+     * Tallest plot the rule panel may request.
+     *
+     * <p>Raised from 64 once the dimension became void: with nothing generated there is no reason
+     * to cap a build at 64 blocks, and the tallest shipped map is 43. The real ceiling is the
+     * dimension height minus the buffer wall, which is what {@code e.sizeY} 96 plus
+     * {@code SURFACE_Y + 2} leaves comfortably clear.</p>
+     */
+    public static final int MAX_SIZE_Y = 96;
 
     private static final int SLOTS = COLS * ROWS;
 
@@ -330,6 +338,119 @@ public final class ArenaManager {
         return 1;
     }
 
+    // ------------------------------------------------------------------ prepare wall
+
+    /**
+     * How far above the higher spawn pad the preparation wall reaches.
+     *
+     * <p>Eight blocks is enough that nobody jumps it by accident and short enough that it costs
+     * almost nothing to place and remove every round. It is not meant to survive a player who
+     * deliberately pillars up: the preparation window is thirty seconds of standing still, and the
+     * boundary rule is waiting on the other side of it anyway.</p>
+     */
+    private static final int PREPARE_WALL_MARGIN = 8;
+
+    /**
+     * Absolute y of the top block of the preparation wall.
+     *
+     * <p>Measured from the spawn pads rather than from the plot floor because a map's floor is not
+     * where the players are: the colosseum's sand is a few blocks up, and a wall sized from
+     * {@code PLATFORM_Y} would end below the players' feet on any raised build.</p>
+     */
+    public static int prepareWallTop(ArenaRegion region) {
+        int pads = Math.max(region.spawnY(0), region.spawnY(1));
+        return Math.max(ArenaRegion.SURFACE_Y, pads) + PREPARE_WALL_MARGIN;
+    }
+
+    /**
+     * Builds the solid wall that closes the arena during the preparation window.
+     *
+     * <p>This is the one place where the boundary is <em>real</em> rather than a rule. During
+     * preparation nobody can be hit, so the only thing a player can usefully do is walk out and be
+     * somewhere strange when the round goes live. A rendered curtain does not stop that — the
+     * existing curtain is deliberately walk-through, because a boundary you can push against is a
+     * boundary the countdown rule can never see. So for the preparation window the wall is made of
+     * {@code minecraft:barrier}: invisible, unbreakable, unobtainable, and solid to the engine.</p>
+     *
+     * <p>It sits one block <em>outside</em> the fight area, which puts it exactly where the white
+     * curtain is drawn. That is the whole trick: the player bumps into something invisible at the
+     * same place the client is painting a wall, so the two agree without the server having to send
+     * anything per frame.</p>
+     *
+     * <p>Barrier rather than glass so nothing has to be cleaned out of the player's inventory and
+     * nothing appears in the world to look at once the round starts. {@link #removePrepareWall} only
+     * clears blocks that are still barrier, so a map that happens to have its own barrier blocks at
+     * the same coordinates keeps them.</p>
+     *
+     * <p>Recording is suppressed: the wall is outside the plot box, but {@code regionAt} matches on
+     * the plot box and a wall at {@code pitMinX - 1} can still fall inside it on a map with no
+     * inset — and a barrier block filed as "the player placed this" would make the whole ring
+     * unbreakable-but-tracked and would be reverted into existence at the next settle.</p>
+     */
+    public static int buildPrepareWall(ServerWorld world, ArenaRegion region) {
+        if (world == null || region == null) {
+            return 0;
+        }
+        return suppressRecording(() -> {
+            BlockState barrier = Blocks.BARRIER.getDefaultState();
+            int x0 = region.pitMinX() - 1;
+            int x1 = region.pitMaxX() + 1;
+            int z0 = region.pitMinZ() - 1;
+            int z1 = region.pitMaxZ() + 1;
+            int top = prepareWallTop(region);
+            int placed = 0;
+            for (int y = ArenaRegion.PLATFORM_Y; y <= top; y++) {
+                for (int x = x0; x <= x1; x++) {
+                    placed += setIfDifferent(world, x, y, z0, barrier);
+                    placed += setIfDifferent(world, x, y, z1, barrier);
+                }
+                for (int z = z0 + 1; z < z1; z++) {
+                    placed += setIfDifferent(world, x0, y, z, barrier);
+                    placed += setIfDifferent(world, x1, y, z, barrier);
+                }
+            }
+            return placed;
+        });
+    }
+
+    /** Tears the preparation wall down. Only barrier blocks are removed. */
+    public static int removePrepareWall(ServerWorld world, ArenaRegion region) {
+        if (world == null || region == null) {
+            return 0;
+        }
+        return suppressRecording(() -> {
+            BlockState air = Blocks.AIR.getDefaultState();
+            BlockState barrier = Blocks.BARRIER.getDefaultState();
+            int x0 = region.pitMinX() - 1;
+            int x1 = region.pitMaxX() + 1;
+            int z0 = region.pitMinZ() - 1;
+            int z1 = region.pitMaxZ() + 1;
+            int top = prepareWallTop(region);
+            int removed = 0;
+            for (int y = ArenaRegion.PLATFORM_Y; y <= top; y++) {
+                for (int x = x0; x <= x1; x++) {
+                    removed += clearIfBarrier(world, x, y, z0, barrier, air);
+                    removed += clearIfBarrier(world, x, y, z1, barrier, air);
+                }
+                for (int z = z0 + 1; z < z1; z++) {
+                    removed += clearIfBarrier(world, x0, y, z, barrier, air);
+                    removed += clearIfBarrier(world, x1, y, z, barrier, air);
+                }
+            }
+            return removed;
+        });
+    }
+
+    private static int clearIfBarrier(ServerWorld world, int x, int y, int z,
+                                      BlockState barrier, BlockState air) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (world.getBlockState(pos) != barrier) {
+            return 0;
+        }
+        world.setBlockState(pos, air, Block.NOTIFY_LISTENERS);
+        return 1;
+    }
+
     /** Next exhibit to stamp during warm-up, or -1 when warm-up is idle or finished. */
     private static int warmUpCursor = -1;
     private static int warmUpBuilt;
@@ -480,6 +601,36 @@ public final class ArenaManager {
         return new ArrayList<>(BY_SESSION.entrySet());
     }
 
+    /**
+     * Map indices that a live duel is currently standing on, as a bitmask over {@link ArenaMaps#ALL}.
+     *
+     * <p>A mask rather than a list because it has to cross the wire: the rule panel greys these out,
+     * and a set of up to sixteen booleans is one integer. {@code exceptSessionId} lets a session
+     * re-open its own panel without seeing its own plot as taken.</p>
+     *
+     * <p>Keyed on the map, not on the cell. Two duels on the same map in two different cells is
+     * exactly what this exists to prevent — the second pair would be fighting on a copy of the same
+     * terrain with no way for either side to tell which one they were told about.</p>
+     */
+    public static int busyMapMask(String exceptSessionId) {
+        int mask = 0;
+        for (Map.Entry<String, ArenaRegion> entry : BY_SESSION.entrySet()) {
+            if (entry.getKey().equals(exceptSessionId)) {
+                continue;
+            }
+            int index = ArenaMaps.ALL.indexOf(entry.getValue().map);
+            if (index >= 0 && index < Integer.SIZE) {
+                mask |= 1 << index;
+            }
+        }
+        return mask;
+    }
+
+    /** True when some other session is already fighting on this map. */
+    public static boolean isMapBusy(int mapIndex, String exceptSessionId) {
+        return mapIndex >= 0 && (busyMapMask(exceptSessionId) & (1 << mapIndex)) != 0;
+    }
+
     /** Plot containing this block, or null when the position belongs to no live duel. */
     public static ArenaRegion regionAt(BlockPos pos) {
         for (ArenaRegion region : BY_SESSION.values()) {
@@ -613,8 +764,12 @@ public final class ArenaManager {
         if (world == null || region == null) {
             return false;
         }
-        double x = MathHelper.clamp(player.getX(), region.minX + 1.5D, region.maxX() - 0.5D);
-        double z = MathHelper.clamp(player.getZ(), region.minZ + 1.5D, region.maxZ() - 0.5D);
+        // Clamped to the fight area, not the plot box. On the colosseum the box includes the
+        // seating, so clamping to the box would "pull back" a player who walked out of the sand by
+        // dropping them onto the stands — inside the geometry, outside the fight, still out of
+        // bounds, and pulled again on the next tick.
+        double x = MathHelper.clamp(player.getX(), region.pitMinX() + 1.5D, region.pitMaxX() - 0.5D);
+        double z = MathHelper.clamp(player.getZ(), region.pitMinZ() + 1.5D, region.pitMaxZ() - 0.5D);
         double y = MathHelper.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
         // Below the map base the player is not being pushed back, they are falling out of the void.
         // Clamping their Y to the map base would put them back at a height where there is nothing to

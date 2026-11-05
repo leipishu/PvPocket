@@ -7,6 +7,8 @@ build/
 run/
 run-client1/
 run-client2/
+run-client3/
+run-client4/
 remappedSrc/
 .loom/
 

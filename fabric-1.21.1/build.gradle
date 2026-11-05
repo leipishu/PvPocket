@@ -52,6 +52,24 @@ loom {
             runDir "run-client2"
             programArgs "--username", "Dev2", "--width", "1280", "--height", "720"
         }
+        // A third client exists for one reason: spectating cannot be tested with two players, because
+        // both of them are in the duel. Three JVMs is heavy, so it is opt-in — nothing starts it
+        // unless PVP_CLIENTS=3 is passed to scripts/dev-2clients.sh.
+        client3 {
+            client()
+            configName = "Minecraft Client (Dev3)"
+            runDir "run-client3"
+            programArgs "--username", "Dev3", "--width", "1280", "--height", "720"
+        }
+        // A fourth exists for the one scenario three cannot express: two duels running at the same
+        // time. With Dev1+Dev2 in one duel, a second duel needs two free players, and Dev3 alone is
+        // one. Only used to check that a map already in use cannot be picked again.
+        client4 {
+            client()
+            configName = "Minecraft Client (Dev4)"
+            runDir "run-client4"
+            programArgs "--username", "Dev4", "--width", "1280", "--height", "720"
+        }
         server {
             server()
             configName = "Minecraft Server (shared room)"

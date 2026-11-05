@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -38,6 +39,12 @@ public final class PvPocketCommands {
         root.then(CommandManager.literal("surrender").executes(PvPocketCommands::surrender));
         root.then(CommandManager.literal("status").executes(PvPocketCommands::status));
         root.then(CommandManager.literal("arena").executes(PvPocketCommands::arena));
+        root.then(CommandManager.literal("list").executes(PvPocketCommands::list));
+        root.then(CommandManager.literal("spectate")
+                .executes(PvPocketCommands::spectateHelp)
+                .then(CommandManager.literal("leave").executes(PvPocketCommands::spectateLeave))
+                .then(CommandManager.argument("session", StringArgumentType.word())
+                        .executes(ctx -> spectate(ctx, StringArgumentType.getString(ctx, "session")))));
         root.then(CommandManager.literal("loadout")
                 .executes(PvPocketCommands::loadout)
                 .then(CommandManager.literal("give").executes(PvPocketCommands::loadoutGive))
@@ -57,6 +64,8 @@ public final class PvPocketCommands {
         source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket arena        查看场地分区占用").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket list         打开对局面板，可进入开启观战的对局").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket spectate leave   退出观战").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket loadout [give|edit|reset]  查看配装；edit 打开配装界面（无需决斗）；give 发到手上；reset 清空个人配装").formatted(Formatting.GRAY), false);
         return 1;
     }
@@ -168,8 +177,54 @@ public final class PvPocketCommands {
         return 1;
     }
 
-    private static int loadout(CommandContext<ServerCommandSource> ctx) {
+    /**
+     * Opens the match panel.
+     *
+     * <p>The panel, not a chat listing: the point of the command is to get into a duel as a
+     * spectator, and a chat line cannot be clicked. The server pushes the list as a payload and the
+     * client draws it, which is the same split the rule panel uses.</p>
+     */
+    private static int list(CommandContext<ServerCommandSource> ctx) {
         try {
+            SessionManager.get().listMatches(ctx.getSource().getPlayerOrThrow());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int spectateHelp(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource source = ctx.getSource();
+        source.sendFeedback(() -> Text.literal("观战：").formatted(Formatting.AQUA), false);
+        source.sendFeedback(() -> Text.literal("  /pvpocket list                     打开对局面板，点「观战」进入")
+                .formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("  /pvpocket spectate <对局 id 前缀>   直接进入观战")
+                .formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("  /pvpocket spectate leave            退出观战")
+                .formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("  观战中按 V 切换视角。").formatted(Formatting.GRAY), false);
+        return 1;
+    }
+
+    private static int spectateLeave(CommandContext<ServerCommandSource> ctx) {
+        try {
+            SessionManager.get().stopSpectating(ctx.getSource().getPlayerOrThrow());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int spectate(CommandContext<ServerCommandSource> ctx, String prefix) {
+        try {
+            SessionManager.get().spectate(ctx.getSource().getPlayerOrThrow(), prefix);
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int loadout(CommandContext<ServerCommandSource> ctx) {        try {
             ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
             com.leipishu.pvpocket.loadout.Loadout loadout = SessionManager.get().loadoutFor(player);
             player.sendMessage(Text.literal("配装：" + loadout.name + " · " + loadout.size()

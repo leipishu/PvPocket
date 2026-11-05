@@ -21,12 +21,24 @@ import net.minecraft.util.Identifier;
  * <p>{@code mode} is the {@code e.boundary} rule index. It travels with the bounds because the two
  * rules deserve different colours — a boundary you are snapped back from and a boundary that loses
  * you the round should not look identical.</p>
+ *
+ * <p>It also carries {@link #MODE_PREPARE}, which is not a rule at all: during the preparation
+ * window the wall is real (a barrier ring is standing at these coordinates) and the curtain is
+ * painted white to say so. The three modes are one field rather than a boolean because a client
+ * should not have to correlate two flags to decide what to draw.</p>
  */
 public record ArenaBoundsPayload(boolean active,
                                  double x0, double z0, double x1, double z1,
                                  double floorY, double height,
                                  int mode)
         implements CustomPayload {
+
+    /** {@code e.boundary = 拉回}: blue, walk-through. */
+    public static final int MODE_PUSH_BACK = 0;
+    /** {@code e.boundary = 判负}: red, walk-through, five-second countdown. */
+    public static final int MODE_COUNTDOWN = 1;
+    /** Preparation window: white, and backed by actual barrier blocks. */
+    public static final int MODE_PREPARE = 2;
 
     public static final Id<ArenaBoundsPayload> ID =
             new Id<>(Identifier.of("pvpocket", "arena_bounds"));
@@ -55,6 +67,11 @@ public record ArenaBoundsPayload(boolean active,
     /** The "stop drawing it" packet. Immutable, so one instance is enough. */
     public static ArenaBoundsPayload hidden() {
         return new ArenaBoundsPayload(false, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    /** True when this curtain stands on a real wall rather than on a rule. */
+    public boolean solid() {
+        return mode == MODE_PREPARE;
     }
 
     @Override

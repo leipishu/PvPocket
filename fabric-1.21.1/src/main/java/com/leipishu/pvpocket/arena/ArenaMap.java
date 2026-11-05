@@ -54,12 +54,37 @@ public final class ArenaMap {
      */
     public final boolean alongZ;
 
+    /**
+     * How far the <em>fightable</em> rectangle is inset from the plot box, per axis.
+     *
+     * <p>The plot box is the template's bounding box, and a bounding box is not a footprint. The
+     * colosseum is 147x119 because that is the size of its outer wall and its ten rows of seating;
+     * the sand the fight actually happens on is 100x80. Drawing the boundary on the box means the
+     * curtain stands behind the top row of seats, which is both wrong to look at and wrong to
+     * enforce: a player who climbs the seating has left the fight long before they reach the wall.</p>
+     *
+     * <p>Two insets rather than a full rectangle because every build here is centred in its box, so
+     * a symmetric inset expresses the same thing with two numbers instead of six. Maps whose whole
+     * box is playable leave both at 0 — which is the majority, and the reason this is opt-in rather
+     * than a required field.</p>
+     *
+     * <p>Inset only shrinks the <em>boundary</em>. The plot box still governs block protection,
+     * entity cleanup and the lease, so a player cannot break the stands by walking past the curtain.</p>
+     */
+    public final int pitInsetX;
+    public final int pitInsetZ;
+
     public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ) {
-        this(id, label, templateId, sizeX, sizeY, sizeZ, false);
+        this(id, label, templateId, sizeX, sizeY, sizeZ, false, 0, 0);
     }
 
     public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ,
                     boolean alongZ) {
+        this(id, label, templateId, sizeX, sizeY, sizeZ, alongZ, 0, 0);
+    }
+
+    public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+                    boolean alongZ, int pitInsetX, int pitInsetZ) {
         this.id = id;
         this.label = label;
         this.templateId = templateId;
@@ -67,6 +92,15 @@ public final class ArenaMap {
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
         this.alongZ = alongZ;
+        // Clamped so a typo cannot invert the rectangle: the fight area has to stay at least 8 wide
+        // on each axis, which is the same floor the rule panel puts on a flat plot's size.
+        this.pitInsetX = Math.max(0, Math.min(pitInsetX, (sizeX - 8) / 2));
+        this.pitInsetZ = Math.max(0, Math.min(pitInsetZ, (sizeZ - 8) / 2));
+    }
+
+    /** True when the fight area is smaller than the plot box, i.e. the boundary is not the wall. */
+    public boolean hasPit() {
+        return pitInsetX > 0 || pitInsetZ > 0;
     }
 
     public boolean isFlat() {

@@ -14,8 +14,10 @@ import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
+import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
+import com.leipishu.pvpocket.storage.HomePositions;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
 import net.minecraft.entity.attribute.EntityAttributes;
@@ -134,12 +136,48 @@ public final class SessionManager {
     private final Map<String, Long> boundaryNotices = new HashMap<>();
     /** Rounds that have teleported everybody in but have not gone live yet. */
     private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
+    /**
+     * Spectators, and the state needed to put them back.
+     *
+     * <p>A separate object rather than another dozen fields here: watching a duel is the only thing
+     * in this class that moves a player who is not in a session, and keeping that boundary explicit
+     * is what stops "restore the participant" logic from quietly growing a second meaning.</p>
+     */
+    private final Spectators spectators;
+    /**
+     * Where each player was before the arena. Loaded here rather than owned by a session because it
+     * outlives every session: it exists precisely for the case where a session died with somebody
+     * still inside.
+     */
+    private final HomePositions homes;
     private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
         this.server = server;
         this.storage = new PvPocketStorage(server);
         this.loadouts = new LoadoutBook(storage);
+        this.spectators = new Spectators(this);
+        this.homes = HomePositions.load(server);
+    }
+
+    /** Package-private: {@link Spectators} needs the server for lookups and teleports. */
+    MinecraftServer server() {
+        return server;
+    }
+
+    /** Package-private: session lookup for the spectator layer. */
+    DuelSession byId(String sessionId) {
+        return sessionId == null ? null : sessions.get(sessionId);
+    }
+
+    /** Package-private: the match list iterates every session. */
+    List<DuelSession> allSessions() {
+        return new ArrayList<>(sessions.values());
+    }
+
+    /** Package-private: which session this player is a participant of, or null. */
+    String sessionOf(UUID uuid) {
+        return sessionByPlayer.get(uuid);
     }
 
     public static SessionManager create(MinecraftServer server) {
@@ -234,6 +272,10 @@ public final class SessionManager {
     }
 
     public void shutdown() {
+        // First, before any session is finished: the rest of this method teleports participants out
+        // of the arena and writes their snapshots, and a spectator whose camera is on a player being
+        // teleported across dimensions is a spectator watching nothing.
+        spectators.ejectEverything("SERVER_STOP");
         for (DuelSession session : sessions.values()) {
             if (session.stage == SessionStage.ROUND_ACTIVE) {
                 journal(session).append("ROUND_ENDED",
@@ -256,6 +298,10 @@ public final class SessionManager {
         ArenaManager.clearAll();
         journals.values().forEach(SessionJournal::close);
         journals.clear();
+        // Last write before the process goes away. Everything above has already moved players out
+        // of the arena, so these are the positions they will be rescued to if the next boot finds
+        // anybody still standing on a plot.
+        homes.flush();
     }
 
     // ------------------------------------------------------------------ player events
@@ -268,12 +314,27 @@ public final class SessionManager {
         // A client that reconnects mid-match has no HUD state, and the payload is only pushed on
         // score changes — so re-send it here instead of waiting for the next round boundary.
         pushHudTo(player);
+        // Same for the spectator bar: a spectator who reconnects has no bar, and unlike the HUD
+        // there is no round boundary that would eventually repair it.
+        spectators.pushState(player);
 
         // Deliberately no restore attempt here. ServerPlayConnectionEvents.JOIN fires before the
         // player is registered with the PlayerManager, so a lookup by UUID still misses them and the
         // restore would be deferred forever. Deferred restores are drained from tick() instead,
         // which does not depend on event ordering and also covers every other path that can leave a
         // debt behind.
+        //
+        // The same ordering applies to the arena rescue, and for a second reason: the initial
+        // position packet has not gone out yet, so a teleport issued now would be overwritten by
+        // the one the join sequence sends a few lines later. Looked up by uuid rather than captured
+        // because a respawn inside the same tick replaces the entity.
+        UUID joining = player.getUuid();
+        deferred.add(() -> {
+            ServerPlayerEntity online = server.getPlayerManager().getPlayer(joining);
+            if (online != null) {
+                homes.rescue(online);
+            }
+        });
     }
 
     /**
@@ -371,6 +432,15 @@ public final class SessionManager {
     }
 
     public void onDisconnect(ServerPlayerEntity player) {
+        // Before the participant check below, because a spectator is by definition not a
+        // participant. Their game mode is restored here rather than deferred, so the playerdata
+        // written during this same disconnect records survival rather than spectator — otherwise
+        // they log back in inside the arena with no way to fly out.
+        spectators.onDisconnect(player);
+        // Last chance to record where they were: after this the playerdata is written and the
+        // player is gone, and a disconnect is the one moment the saved home is guaranteed current.
+        homes.remember(player);
+        homes.flush();
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
             return;
@@ -417,6 +487,21 @@ public final class SessionManager {
 
     // ------------------------------------------------------------------ tick
 
+    /**
+     * Keeps the "where was I before the arena" record current.
+     *
+     * <p>Sampling every player every tick rather than hooking movement: the store ignores anything
+     * smaller than two blocks, so a stationary player costs one comparison, and hooking a movement
+     * event would miss the case that matters most — a player who logs in, walks nowhere, and
+     * disconnects from inside the arena.</p>
+     */
+    private void tickHomes() {
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            homes.remember(player);
+        }
+        homes.flushIfDue();
+    }
+
     public void tick() {
         if (!deferred.isEmpty()) {
             List<Runnable> copy = new ArrayList<>(deferred);
@@ -426,6 +511,10 @@ public final class SessionManager {
         flushPendingRestores();
         startDueRounds();
         tickPrepare();
+        // Spectators: drops watchers of finished series and repairs cameras pointing at a body that
+        // was replaced by a respawn. Empty in the common case, so the cost is one isEmpty check.
+        spectators.tick();
+        tickHomes();
         // Natural spawning is cancelled inside the arena dimension, so this is only a net for the
         // doors that bypass it (spawn eggs, spawner blocks, /summon). Three seconds is frequent
         // enough that a stray mob never gets to swing at anyone.
@@ -692,8 +781,13 @@ public final class SessionManager {
                 session.rules,
                 role,
                 session.rulesRevision,
-                otherName(session, player.getUuidAsString()),
-                loadoutSummary(session)));
+                new RulesOpenPayload.Details(
+                        otherName(session, player.getUuidAsString()),
+                        loadoutSummary(session),
+                        // Recomputed on every open, not cached: a map frees up the moment the other
+                        // duel ends, and a stale "使用中" is a map nobody can pick until they
+                        // reopen the panel.
+                        ArenaManager.busyMapMask(session.id))));
     }
 
     /**
@@ -965,9 +1059,20 @@ public final class SessionManager {
         // still in NEGOTIATING — after the snapshot the only honest outcome would be a rollback of
         // two inventories for a reason that had nothing to do with the players.
         DuelRules rules = DuelRules.decode(session.rules);
+        int mapIndex = rules.get("e.template");
+        // Checked here as well as in the panel. The panel is a hint — it greys out maps that were
+        // taken when it was opened, and the player may have been looking at it for a minute while
+        // somebody else started a duel on the map they picked. Two duels on one map is not a
+        // cosmetic problem: they would be two copies of the same terrain, and a player told "the
+        // colosseum" has no way to know which one they were sent to.
+        if (ArenaManager.isMapBusy(mapIndex, session.id)) {
+            fail(accepter, "「" + ArenaMaps.byIndex(mapIndex).label
+                    + "」正在被另一场决斗使用，请换一张地图后再开始。");
+            return;
+        }
         ArenaRegion region = ArenaManager.allocate(server, session.id,
                 rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
-                ArenaMaps.byIndex(rules.get("e.template")),
+                ArenaMaps.byIndex(mapIndex),
                 rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
         if (region == null) {
             fail(accepter, "场地已满，暂时无法开始新的决斗。");
@@ -1385,6 +1490,66 @@ public final class SessionManager {
         }
     }
 
+    // ------------------------------------------------------------------ spectating
+
+    /**
+     * Single entry point for every spectator intent that arrives from a client.
+     *
+     * <p>One receiver for four actions because they are the same question asked four ways. The
+     * action byte is re-validated here rather than trusted: an unknown action is ignored instead of
+     * throwing, so a client built from a newer jar cannot disconnect itself by pressing a key this
+     * server has never heard of.</p>
+     */
+    public void onSpectateRequest(ServerPlayerEntity player, SpectateRequestPayload request) {
+        switch (request.action()) {
+            case SpectateRequestPayload.ACTION_LIST -> spectators.openList(player);
+            case SpectateRequestPayload.ACTION_JOIN -> spectators.join(player, request.sessionId());
+            case SpectateRequestPayload.ACTION_LEAVE -> {
+                if (!spectators.leave(player, "REQUEST", true)) {
+                    player.sendMessage(Text.literal("你当前不在观战中。").formatted(Formatting.GRAY), false);
+                }
+            }
+            case SpectateRequestPayload.ACTION_CYCLE -> spectators.cycle(player);
+            case SpectateRequestPayload.ACTION_DETACH -> spectators.detach(player);
+            default -> PvPocket.LOGGER.debug("Ignoring unknown spectate action {} from {}",
+                    request.action(), player.getName().getString());
+        }
+    }
+
+    /** Command path for {@code /pvpocket list}. */
+    public void listMatches(ServerPlayerEntity player) {
+        spectators.openList(player);
+    }
+
+    /** Command path for {@code /pvpocket spectate leave}. */
+    public void stopSpectating(ServerPlayerEntity player) {
+        if (!spectators.leave(player, "COMMAND", true)) {
+            player.sendMessage(Text.literal("你当前不在观战中。").formatted(Formatting.GRAY), false);
+        }
+    }
+
+    /** Command path for {@code /pvpocket spectate <session>}; prefix match, for typing. */
+    public void spectate(ServerPlayerEntity player, String sessionPrefix) {
+        DuelSession match = null;
+        for (DuelSession session : sessions.values()) {
+            if (session.id.startsWith(sessionPrefix)) {
+                match = session;
+                break;
+            }
+        }
+        if (match == null) {
+            player.sendMessage(Text.literal("找不到以 " + sessionPrefix + " 开头的对局。")
+                    .formatted(Formatting.RED), false);
+            return;
+        }
+        spectators.join(player, match.id);
+    }
+
+    /** Diagnostics for {@code /pvpocket list} from the console. */
+    public List<String> spectatorSummary() {
+        return new ArrayList<>(spectators.describe());
+    }
+
     // ------------------------------------------------------------------ internals
 
     private void freeze(DuelSession session) {
@@ -1479,8 +1644,15 @@ public final class SessionManager {
             journal(session).append("ROUND_PREPARING", "round", session.round, "seconds", prepare);
             prepareDeadlines.put(session.id,
                     new Prepare(System.currentTimeMillis() + prepare * 1000L, prepare));
+            // The wall is real for the length of the preparation window. Invulnerability already
+            // stops anyone landing a hit, so the only thing a player can usefully do in these
+            // seconds is wander out and be somewhere strange when the round goes live — which is
+            // exactly what a solid ring prevents and a walk-through curtain does not.
+            int wall = ArenaManager.buildPrepareWall(arenaWorld, region);
+            journal(session).append("PREPARE_WALL_BUILT", "blocks", wall,
+                    "top", ArenaManager.prepareWallTop(region));
             broadcastHud(session, true);
-            broadcastBounds(session, true);
+            broadcastBounds(session, true, ArenaBoundsPayload.MODE_PREPARE);
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
                 if (player != null) {
@@ -1502,6 +1674,14 @@ public final class SessionManager {
      */
     private void activateRound(DuelSession session) {
         prepareDeadlines.remove(session.id);
+        // Torn down before anything else, and before the players are released from invulnerability:
+        // the wall's job ends the moment the round can be fought, and a round that starts with the
+        // arena still sealed is a round where nobody can chase anybody to the edge.
+        ArenaRegion sealed = ArenaManager.region(session.id);
+        int removed = ArenaManager.removePrepareWall(ArenaManager.world(server), sealed);
+        if (removed > 0) {
+            journal(session).append("PREPARE_WALL_REMOVED", "blocks", removed);
+        }
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
@@ -1530,6 +1710,10 @@ public final class SessionManager {
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
+        // Re-pushed, not left as it was: the client is still holding the white preparation curtain,
+        // and the round it is now watching is governed by a rule, not by a wall. Leaving the old
+        // packet in place would show a solid white boundary over an open arena.
+        broadcastBounds(session, true);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
@@ -1682,6 +1866,15 @@ public final class SessionManager {
         ArenaRegion region = ArenaManager.region(session.id);
         var arenaWorld = ArenaManager.world(server);
 
+        // Defensive: the wall is normally torn down at activateRound, but a series can end during
+        // the preparation window (surrender, disconnect, server stop), and a leftover barrier ring
+        // would be an invisible cage around a plot nobody is in.
+        ArenaManager.removePrepareWall(arenaWorld, region);
+        // Ejected before the snapshots are restored, because restoring teleports the participants
+        // out and a spectator whose camera is attached to a player being teleported is a spectator
+        // watching the inside of a chunk loader.
+        spectators.ejectAll(session.id, "SERIES_END");
+
         int cleared = ArenaManager.clearDroppedItems(arenaWorld, region);
         journal(session).append("ARENA_CLEARED", "removed", cleared);
         journal(session).append("SERIES_ENDED",
@@ -1818,31 +2011,57 @@ public final class SessionManager {
      * <p>Called from {@code startRound} rather than {@code activateRound} on purpose: the whole
      * point of the preparation window is to look around and see where you are, and an arena with no
      * visible edge is the one thing you cannot see.</p>
+     *
+     * <p>Spectators get it too. They are in the same plot with the same wall, and a spectator whose
+     * client draws no boundary is a spectator who cannot tell whether the player they are watching
+     * is about to be judged out of bounds.</p>
      */
     private void broadcastBounds(DuelSession session, boolean active) {
+        broadcastBounds(session, active, DuelRules.decode(session.rules).get("e.boundary"));
+    }
+
+    private void broadcastBounds(DuelSession session, boolean active, int mode) {
         ArenaRegion region = ArenaManager.region(session.id);
-        ArenaBoundsPayload payload;
-        if (!active || region == null) {
-            payload = ArenaBoundsPayload.hidden();
-        } else {
-            payload = new ArenaBoundsPayload(true,
-                    region.minX, region.minZ,
-                    region.maxX() + 1.0D, region.maxZ() + 1.0D,
-                    ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT,
-                    DuelRules.decode(session.rules).get("e.boundary"));
-        }
+        ArenaBoundsPayload payload = !active || region == null
+                ? ArenaBoundsPayload.hidden()
+                : boundsOf(region, mode);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendBounds(player, payload);
             }
         }
+        for (ServerPlayerEntity watcher : spectators.watchersOf(session.id)) {
+            PvPocketNetworking.sendBounds(watcher, payload);
+        }
         // One line per round boundary, mirroring the "Rules panel ->" line. If the curtain ever fails
         // to appear, the first question is whether the client was told about the plot at all, and
         // this answers it without a debugger.
-        PvPocket.LOGGER.info("Arena bounds {} for session {} ({})",
+        PvPocket.LOGGER.info("Arena bounds {} for session {} ({}, mode {})",
                 active ? "pushed" : "cleared", session.id,
-                region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ));
+                region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ), mode);
+    }
+
+    /**
+     * The outline packet for one plot.
+     *
+     * <p>Uses the fight rectangle, not the plot box. The two differ only on maps that declare an
+     * inset, and on those the difference is the whole point: the colosseum's box is its outer wall,
+     * so a curtain on the box would be drawn behind ten rows of seating.</p>
+     */
+    private static ArenaBoundsPayload boundsOf(ArenaRegion region, int mode) {
+        // The preparation wall is a real thing with a real height, so the client is told that
+        // height and starts at the wall's own bottom block. A rule boundary is an abstraction and
+        // gets a nominal height the client is free to grow past the camera.
+        boolean solid = mode == ArenaBoundsPayload.MODE_PREPARE;
+        double floor = solid ? ArenaRegion.PLATFORM_Y : ArenaRegion.SURFACE_Y;
+        double height = solid
+                ? ArenaManager.prepareWallTop(region) - ArenaRegion.PLATFORM_Y
+                : BOUNDARY_CURTAIN_HEIGHT;
+        return new ArenaBoundsPayload(true,
+                region.pitMinX(), region.pitMinZ(),
+                region.pitMaxX() + 1.0D, region.pitMaxZ() + 1.0D,
+                floor, height, mode);
     }
 
     private void broadcastHud(DuelSession session, boolean active) {
@@ -1852,6 +2071,9 @@ public final class SessionManager {
             if (player != null) {
                 PvPocketNetworking.sendHud(player, payload);
             }
+        }
+        for (ServerPlayerEntity watcher : spectators.watchersOf(session.id)) {
+            PvPocketNetworking.sendHud(watcher, payload);
         }
     }
 
@@ -1910,15 +2132,54 @@ public final class SessionManager {
         if (session.stage == SessionStage.ROUND_READY || session.stage == SessionStage.ROUND_ACTIVE) {
             ArenaRegion region = ArenaManager.region(session.id);
             if (region != null) {
-                PvPocketNetworking.sendBounds(player, new ArenaBoundsPayload(true,
-                        region.minX, region.minZ,
-                        region.maxX() + 1.0D, region.maxZ() + 1.0D,
-                        ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT,
-                        DuelRules.decode(session.rules).get("e.boundary")));
+                PvPocketNetworking.sendBounds(player, boundsOf(region, boundsMode(session)));
             }
         } else {
             PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
         }
+    }
+
+    /**
+     * Which colour the curtain should be right now.
+     *
+     * <p>During the preparation window the answer is neither rule: the wall is a real barrier ring
+     * and the client paints it white. Deriving this in one place keeps the three call sites —
+     * round start, round activation, reconnect — from drifting apart, which is how a client ends up
+     * drawing a red boundary over a white wall.</p>
+     */
+    private static int boundsMode(DuelSession session) {
+        if (session.stage == SessionStage.ROUND_READY) {
+            return ArenaBoundsPayload.MODE_PREPARE;
+        }
+        return DuelRules.decode(session.rules).get("e.boundary");
+    }
+
+    /**
+     * Gives a freshly joined spectator the same overlay the participants have.
+     *
+     * <p>Not routed through {@link #pushHudTo}: that method looks the player up as a participant and
+     * would answer "no session" for a spectator. Spectating is a different relationship to a match,
+     * so it gets its own push rather than a special case inside the participant path.</p>
+     */
+    void pushSpectatorView(ServerPlayerEntity player, DuelSession session) {
+        PvPocketNetworking.sendHud(player, buildHud(session));
+        ArenaRegion region = ArenaManager.region(session.id);
+        PvPocketNetworking.sendBounds(player, region == null
+                ? ArenaBoundsPayload.hidden()
+                : boundsOf(region, boundsMode(session)));
+    }
+
+    /**
+     * Takes back everything {@link #pushSpectatorView} handed out.
+     *
+     * <p>Both of those payloads are borrowed state: the score bar and the boundary curtain belong to
+     * a match the spectator is no longer part of. Nothing else will ever clear them — the match's own
+     * broadcasts only reach its participants and its current watchers — so a spectator who leaves
+     * mid-series would carry a live scoreboard over their survival world until the match ended.</p>
+     */
+    void clearSpectatorView(ServerPlayerEntity player) {
+        PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
+        PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
     }
 
     /**
@@ -1949,6 +2210,8 @@ public final class SessionManager {
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
+        ArenaManager.removePrepareWall(ArenaManager.world(server), ArenaManager.region(session.id));
+        spectators.ejectAll(session.id, "ABORTED");
         broadcastHud(session, false);
         broadcastBounds(session, false);
         for (Participant p : session.participants) {
@@ -2031,11 +2294,12 @@ public final class SessionManager {
         }
     }
 
-    private SessionJournal journal(DuelSession session) {
+    /** Package-private: the spectator layer writes its own lines into the same journal. */
+    SessionJournal journal(DuelSession session) {
         return journals.computeIfAbsent(session.id, id -> new SessionJournal(storage.journalFile(id)));
     }
 
-    private ServerPlayerEntity online(Participant p) {
+    ServerPlayerEntity online(Participant p) {
         return server.getPlayerManager().getPlayer(UUID.fromString(p.uuid));
     }
 

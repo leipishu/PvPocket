@@ -26,21 +26,24 @@ import org.joml.Matrix4f;
  * would have to be mineable (which makes it a suggestion rather than a boundary). A render-only
  * overlay costs the world nothing, cannot be broken, and cannot be climbed.</p>
  *
- * <p>Three deliberate choices:</p>
+ * <p>Deliberate choices:</p>
  * <ul>
- *   <li><b>Drawn only when near.</b> The whole plot is 48 blocks across; a curtain rendered from the
- *       far side of the map is a curtain that eats frame time to show you something you are not
- *       about to touch. Edges fade in over the last few blocks of approach instead of popping.</li>
+ *   <li><b>Built from segments, not from one quad per edge.</b> An edge can be 147 blocks long; a
+ *       single quad for it is a wall that pops into existence the moment you come within range of
+ *       any part of it, including the parts a hundred blocks behind you. Each edge is cut into
+ *       {@link #SEGMENT}-block pieces and each piece fades on its own distance, so the boundary
+ *       appears a few blocks at a time as you walk towards it. It also cuts the fill rate: only the
+ *       pieces near the camera produce vertices at all.</li>
  *   <li><b>Coloured by the rule.</b> {@code e.boundary = 拉回} is blue, {@code 判负} is red. Two rules
  *       that behave completely differently should not look the same — and the colour is the fastest
  *       way to confirm from inside the fight that the rule you set is the rule in force.</li>
- *   <li><b>A gradient, not a flat quad.</b> Near-opaque at the ground, transparent by four blocks up.
- *       A flat wall reads as solid geometry; a gradient reads as a boundary, and it keeps the arena
- *       looking like an arena rather than a box.</li>
- *   <li><b>It grows with you.</b> The height the server sends is a minimum; the curtain always
- *       reaches a couple of blocks above the camera. Standing on the ground that changes nothing —
- *       climbing a tower and finding the boundary has ended below your feet is the failure this
- *       avoids.</li>
+ *   <li><b>White and solid during preparation.</b> For those seconds the boundary is not a rule, it
+ *       is a real barrier ring. The curtain is drawn white, to its actual height, with a hard top
+ *       edge — so what you see is exactly the wall you are bumping into.</li>
+ *   <li><b>It grows with you (except when it is solid).</b> The height the server sends is a minimum;
+ *       the curtain always reaches a couple of blocks above the camera. Standing on the ground that
+ *       changes nothing — climbing a tower and finding the boundary has ended below your feet is the
+ *       failure this avoids. A solid wall does not grow: its height is a fact about the world.</li>
  * </ul>
  *
  * <p>Geometry goes through {@link RenderLayer#getDebugQuads()}, which is the vanilla layer for exactly
@@ -53,15 +56,29 @@ public final class BoundaryRenderer {
     private static final RegistryKey<World> ARENA_WORLD =
             RegistryKey.of(RegistryKeys.WORLD, Identifier.of("pvpocket", "arena"));
 
-    /** Past this distance an edge is not drawn at all. */
+    /** Past this distance a segment is not drawn at all. */
     private static final double RENDER_RANGE = 26.0D;
-    /** Inside this distance an edge is drawn at full strength. */
-    private static final double FULL_STRENGTH = 16.0D;
+    /** Inside this distance a segment is drawn at full strength. */
+    private static final double FULL_STRENGTH = 14.0D;
+
+    /**
+     * Length of one drawn piece of an edge, in blocks.
+     *
+     * <p>Two is a compromise between the two costs: shorter pieces fade more smoothly but emit more
+     * quads, and every quad is three draw bands. At two blocks the fade is indistinguishable from a
+     * continuous gradient at walking speed, and a 147-block edge produces 74 pieces of which only
+     * the dozen or so within {@link #RENDER_RANGE} ever reach the buffer.</p>
+     */
+    private static final double SEGMENT = 2.0D;
 
     /** Height of the near-opaque band at the foot of the curtain. */
     private static final double BASE_BAND = 0.28D;
     private static final float BASE_ALPHA = 0.70F;
     private static final float CURTAIN_ALPHA = 0.40F;
+
+    /** A solid wall is more opaque: it is the only cue that the thing in front of you is real. */
+    private static final float SOLID_BASE_ALPHA = 0.88F;
+    private static final float SOLID_BODY_ALPHA = 0.55F;
 
     /**
      * How far above the camera the curtain always reaches.
@@ -69,9 +86,7 @@ public final class BoundaryRenderer {
      * <p>The server sends a fixed minimum height, which is right for someone standing on the ground
      * and useless for someone who climbed. A four-block band ends below your eyeline the moment you
      * are four blocks up, so the one question a player on a tower is actually asking — "where does
-     * the arena end" — would get answered by nothing at all. Growing the curtain to a couple of
-     * blocks above the camera keeps the answer in view from any height, at no network cost: the
-     * camera position is already here.</p>
+     * the arena end" — would get answered by nothing at all.</p>
      */
     private static final double CURTAIN_ABOVE_CAMERA = 2.5D;
 
@@ -111,12 +126,18 @@ public final class BoundaryRenderer {
 
         ArenaBoundsPayload bounds = ArenaBounds.get();
         Vec3d cam = context.camera().getPos();
+        boolean solid = bounds.solid();
 
-        // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round).
+        // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round),
+        // white for the preparation wall (neither rule is running yet).
         float r;
         float g;
         float b;
-        if (bounds.mode() == 0) {
+        if (solid) {
+            r = 0.93F;
+            g = 0.95F;
+            b = 1.00F;
+        } else if (bounds.mode() == ArenaBoundsPayload.MODE_PUSH_BACK) {
             r = 0.36F;
             g = 0.61F;
             b = 1.00F;
@@ -134,25 +155,29 @@ public final class BoundaryRenderer {
         VertexConsumer vc = consumers.getBuffer(RenderLayer.getDebugQuads());
 
         double yLow = bounds.floorY();
-        // The server's height is the floor, not the answer: the curtain has to clear the camera, or
-        // it stops being a boundary and becomes a stripe on the ground. Capped so a player who flies
-        // to the build limit gets a tall curtain rather than one that reaches into the sky box.
-        double yHigh = Math.max(bounds.floorY() + bounds.height(),
-                Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
-        double bandTop = yLow + BASE_BAND;
-        double fadeStart = Math.max(bandTop, yHigh - TOP_FADE);
+        // A solid wall does not grow with the camera: its height is the height of the barrier ring,
+        // and drawing it taller would promise a wall that is not there. A rule boundary does grow,
+        // because it has no physical height to be honest about.
+        double yHigh = solid
+                ? bounds.floorY() + bounds.height()
+                : Math.max(bounds.floorY() + bounds.height(),
+                        Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
+        double bandTop = Math.min(yLow + BASE_BAND, yHigh);
+        double fadeStart = solid ? yHigh : Math.max(bandTop, yHigh - TOP_FADE);
+        float baseAlpha = solid ? SOLID_BASE_ALPHA : BASE_ALPHA;
+        float bodyAlpha = solid ? SOLID_BODY_ALPHA : CURTAIN_ALPHA;
 
-        // Four edges. Each is culled and faded by the distance to the edge itself, not to its plane:
-        // standing two blocks from the west wall but five hundred blocks north of the plot would pass
-        // a plane-distance test and then draw a wall nobody is near.
+        // Four edges. Each is culled and faded per segment, not per edge: standing two blocks from
+        // the west wall but five hundred blocks north of the plot would pass a whole-edge distance
+        // test and then draw a wall nobody is near.
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x0(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
         drawEdge(vc, matrix, cam, bounds.x1(), bounds.z0(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x1(), bounds.z0(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z1(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
 
         matrices.pop();
     }
@@ -160,42 +185,58 @@ public final class BoundaryRenderer {
     private static void drawEdge(VertexConsumer vc, Matrix4f matrix, Vec3d cam,
                                  double px, double pz, double qx, double qz,
                                  double yLow, double bandTop, double fadeStart, double yHigh,
-                                 float r, float g, float b) {
-        float strength = strength(cam.x, cam.z, px, pz, qx, qz);
-        if (strength <= 0.0F) {
+                                 float r, float g, float b,
+                                 float baseAlpha, float bodyAlpha) {
+        double dx = qx - px;
+        double dz = qz - pz;
+        double length = Math.hypot(dx, dz);
+        if (length <= 0.0D) {
             return;
         }
-        // Three bands rather than two: the curtain now stretches to the player's own height, so a
-        // single fade from the foot would leave nothing to see at eye level.
-        if (bandTop > yLow) {
-            quad(vc, matrix, px, pz, qx, qz, yLow, bandTop,
-                    r, g, b, BASE_ALPHA * strength, BASE_ALPHA * strength);
-        }
-        if (fadeStart > bandTop) {
-            quad(vc, matrix, px, pz, qx, qz, bandTop, fadeStart,
-                    r, g, b, CURTAIN_ALPHA * strength, CURTAIN_ALPHA * strength);
-        }
-        if (yHigh > fadeStart) {
-            quad(vc, matrix, px, pz, qx, qz, fadeStart, yHigh,
-                    r, g, b, CURTAIN_ALPHA * strength, 0.0F);
+        int pieces = Math.max(1, (int) Math.ceil(length / SEGMENT));
+        for (int i = 0; i < pieces; i++) {
+            double t0 = (double) i / pieces;
+            double t1 = (double) (i + 1) / pieces;
+            double ax = px + dx * t0;
+            double az = pz + dz * t0;
+            double bx = px + dx * t1;
+            double bz = pz + dz * t1;
+
+            // Per-endpoint strength, so a piece straddling the fade radius is drawn as a gradient
+            // rather than popping in and out as a whole.
+            float a0 = strength(cam.x, cam.z, ax, az);
+            float a1 = strength(cam.x, cam.z, bx, bz);
+            if (a0 <= 0.0F && a1 <= 0.0F) {
+                continue;
+            }
+
+            // Three bands: the near-opaque foot, the body, and (for a rule boundary) a soft top edge.
+            // A solid wall has no soft top — its top is where the barrier blocks stop.
+            if (bandTop > yLow) {
+                quad(vc, matrix, ax, az, bx, bz, yLow, bandTop, r, g, b,
+                        baseAlpha * a0, baseAlpha * a1, baseAlpha * a0, baseAlpha * a1);
+            }
+            if (fadeStart > bandTop) {
+                quad(vc, matrix, ax, az, bx, bz, bandTop, fadeStart, r, g, b,
+                        bodyAlpha * a0, bodyAlpha * a1, bodyAlpha * a0, bodyAlpha * a1);
+            }
+            if (yHigh > fadeStart) {
+                quad(vc, matrix, ax, az, bx, bz, fadeStart, yHigh, r, g, b,
+                        bodyAlpha * a0, bodyAlpha * a1, 0.0F, 0.0F);
+            }
         }
     }
 
     /**
-     * Opacity for one edge, from the horizontal distance between the camera and the nearest point on
-     * that edge.
+     * Opacity at one point on an edge, from its horizontal distance to the camera.
      *
-     * <p>Returns 0 outside {@link #RENDER_RANGE} so the caller can skip the quad entirely rather than
-     * emit invisible vertices — the check exists to save work, not just to look right.</p>
+     * <p>Returns 0 past {@link #RENDER_RANGE}, which the caller uses to skip the piece entirely
+     * rather than emit invisible vertices — the check exists to save work, not just to look right.
+     * This is what makes the boundary appear a few blocks at a time as the player walks along it:
+     * the far end of a long edge is simply not in the buffer.</p>
      */
-    private static float strength(double camX, double camZ,
-                                  double px, double pz, double qx, double qz) {
-        double vx = qx - px;
-        double vz = qz - pz;
-        double len2 = vx * vx + vz * vz;
-        double t = len2 == 0.0D ? 0.0D : ((camX - px) * vx + (camZ - pz) * vz) / len2;
-        t = Math.max(0.0D, Math.min(1.0D, t));
-        double d = Math.hypot(camX - (px + t * vx), camZ - (pz + t * vz));
+    private static float strength(double camX, double camZ, double x, double z) {
+        double d = Math.hypot(camX - x, camZ - z);
         if (d >= RENDER_RANGE) {
             return 0.0F;
         }
@@ -206,13 +247,14 @@ public final class BoundaryRenderer {
     }
 
     private static void quad(VertexConsumer vc, Matrix4f matrix,
-                             double px, double pz, double qx, double qz,
+                             double ax, double az, double bx, double bz,
                              double yLow, double yHigh,
                              float r, float g, float b,
-                             float alphaLow, float alphaHigh) {
-        vc.vertex(matrix, (float) px, (float) yLow, (float) pz).color(r, g, b, alphaLow);
-        vc.vertex(matrix, (float) qx, (float) yLow, (float) qz).color(r, g, b, alphaLow);
-        vc.vertex(matrix, (float) qx, (float) yHigh, (float) qz).color(r, g, b, alphaHigh);
-        vc.vertex(matrix, (float) px, (float) yHigh, (float) pz).color(r, g, b, alphaHigh);
+                             float alphaLowA, float alphaLowB,
+                             float alphaHighA, float alphaHighB) {
+        vc.vertex(matrix, (float) ax, (float) yLow, (float) az).color(r, g, b, alphaLowA);
+        vc.vertex(matrix, (float) bx, (float) yLow, (float) bz).color(r, g, b, alphaLowB);
+        vc.vertex(matrix, (float) bx, (float) yHigh, (float) bz).color(r, g, b, alphaHighB);
+        vc.vertex(matrix, (float) ax, (float) yHigh, (float) az).color(r, g, b, alphaHighA);
     }
 }

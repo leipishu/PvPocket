@@ -116,7 +116,13 @@ public class RuleScreen extends PvScreen {
         PvValueControl control = switch (def.kind) {
             case TOGGLE -> new PvToggle(value != 0);
             case INT -> new PvSlider(def, value);
-            case ENUM -> new PvCycle(def, value);
+            case ENUM -> {
+                PvCycle cycle = new PvCycle(def, value);
+                if ("e.template".equals(def.id)) {
+                    cycle.skip(this::mapTaken);
+                }
+                yield cycle;
+            }
             case MULTI -> new PvChips(def, value);
             case FIXED -> null;
         };
@@ -127,6 +133,18 @@ public class RuleScreen extends PvScreen {
             }
         }
         return control;
+    }
+
+    /**
+     * True when another duel is already standing on this map.
+     *
+     * <p>The bitmask comes from the server on every panel open, so it is a snapshot: a map can be
+     * taken a second after the panel opens. That race is settled at "同意并开始", which re-checks
+     * and refuses — this method only stops the player from picking a map that was already gone,
+     * which is the common case and the one that would otherwise waste a full negotiation.</p>
+     */
+    private boolean mapTaken(int index) {
+        return index >= 0 && index < Integer.SIZE && (payload.busyMaps() & (1 << index)) != 0;
     }
 
     /**

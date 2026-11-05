@@ -1088,3 +1088,224 @@ Arena gallery ready: 5 maps stamped in 4528 ms
 `max(4, 相机高度 + 2.5)`，封顶 `地板 + 96`。同时把幕从「地脚 + 一整段渐隐」改成三段
 （地脚 / 幕身 / 顶部 3 格渐隐），因为幕一拉高，原来那条从脚到头一路渐隐的算法会让眼睛所在
 的高度完全透明。
+
+## 十四、观战、准备硬墙、分段光幕、战斗区
+
+### 14.1 观战：为什么要单独一套状态
+
+观战是这个 mod 里唯一会移动**非参与者**的功能。所以它是唯一不能靠 `PlayerSnapshot` 兜底的地方
+——旁观者的背包、效果、经验从头到尾没被碰过，为这点小事冻结整个人是拿大炮打蚊子。真正被改的
+只有三样：游戏模式、维度、坐标朝向。这三样存在 `Spectators.Watching` 里，退出时原样放回。
+
+维度存的是 `RegistryKey<World>` 而不是 `ServerWorld` 实例：维度卸载再加载之后旧实例就不再被
+tick 了，拿着它传送等于把人送进一个不动的世界。
+
+**相机绑定有两个半份。** `setCameraEntity` 是权威态（`getCameraEntity()` 读它，也决定下一 tick
+相机还合不合法），`SetCameraEntityS2CPacket` 是可见态。只做前者客户端不会动，只做后者下一 tick
+就被服务端改回来。所以 `pointCamera()` 两件都做，解绑时包里的实体传自己（协议没有 null 形式）。
+
+### 14.2 附身 HUD：原版不给，只能自己画
+
+`setCameraEntity` 免费给了一切**渲染**上的东西——世界、手持物、挥手、受击闪红，因为相机就是那个
+玩家。它唯一不给的是 HUD：快捷栏属于旁观者自己，而旁观者在旁观模式，原版根本不画快捷栏。
+
+于是分成两半：
+
+| 谁画 | 画什么 |
+|---|---|
+| 原版渲染器 | 第一人称视角、手持物、挥手/使用动作、受击反馈 |
+| `PossessionHud`（自研） | 九格快捷栏、选中格高亮、物品数量、`名字 · HP · 护甲` |
+
+数据走新的 `PossessPayload`：`id,count` 用 `;` 拼成九组，空槽就是空串。发的是物品 id 不是 NBT
+——客户端只需要画个图标和数量，每秒九格全量 NBT 换一个附魔光效不值。
+
+**只在变化时发。** 每个 tick 算一次签名（选中槽 + 生命 + 护甲 + 九格内容），和上次相同就不发。
+旁观一个站着不动的人，每 tick 一次字符串比较、零个包。
+
+`PacketCodec.tuple` 只到六个分量，所以生命/护甲收成了一个嵌套的 `Vitals` 记录，而不是硬塞进
+字符串——那样唯一真正是数字的东西反而要解析。
+
+### 14.3 G 解除附身
+
+原版旁观模式附身之后没有明显的退出方式，这正是「切到附身就没法拉出来」的来源。现在：
+
+| 键 | 动作 |
+|---|---|
+| `V` | 切下一位（绕圈）；从解除状态按它会重新附身 |
+| `G` | 解除附身，相机回到自己身上，仍在观战、仍看得到比分 |
+
+解除是「回到自由飞行」，不是「退出观战」——退出会丢掉旁观者的原坐标，而解除不会。两条路
+走的是不同的 payload 动作（`ACTION_DETACH` / `ACTION_LEAVE`），因为它们是两个问题。
+
+`Spectators.tick()` 里有一条容易写错的判断：相机修复逻辑看到 `getCameraEntity()` 返回自己时
+**必须跳过**，否则刚解除的旁观者会在下一 tick 被"修"回别人眼睛里。
+
+### 14.4 退出观战后顶部比分条不消失
+
+`pushSpectatorView()` 推了两样**借来的**状态：比分条和边界光幕。这两样都不属于旁观者自己的
+玩家状态，所以没有任何东西会替他清掉——对局的广播只发给参与者和当前观战者。人在中途退出，
+比分条就会一直挂在他的生存世界上面。
+
+补了 `SessionManager.clearSpectatorView()`，在三条退出路径上调用：主动退出、对局结束被踢、
+断线。实测退出后比分条、观战条、附身快捷栏三者同时消失，人回到主世界原来的坐标。
+
+### 14.5 准备阶段的白色硬墙
+
+倒计时期间场上没人能打（无敌），所以玩家唯一能做的事就是走出去，然后在对局真正开始时站在一个
+莫名其妙的位置。**画出来的幕挡不住这个**——光幕是故意可穿的，因为"能被推着走的边界"是倒计时
+规则永远看不见的。所以准备窗口里用的是真方块：`minecraft:barrier`，立在战斗区外一格，从平台砌
+到 `max(SURFACE_Y, 出生点高度) + 8`。
+
+立在战斗区外一格不是随手选的：那里正好是客户端画白色光幕的位置。玩家撞到的看不见的墙，和屏幕
+上看到的白墙，是同一个坐标——服务端不需要每帧发任何东西。
+
+用 barrier 而不是玻璃：不占背包、不需要清理、对局开始后场上什么都不剩。`removePrepareWall()`
+只清**仍然是 barrier** 的格子，所以地图自己在同一坐标放了屏障也不会被误删。
+
+生命周期：`startRound` 建 → `activateRound` 拆 → `finishSeries`/`abort` 兜底再拆一次。
+
+实测（48×48 平坦场地，场地 `104..151`，墙在 `103/152`）：
+
+```
+103,5,120   → barrier     x 负向边
+152,5,120   → barrier     x 正向边
+120,5,103   → barrier     z 负向边
+120,5,152   → barrier     z 正向边
+120,11,152  → barrier     顶（top=11）
+120,12,152  → 空气        不再往上长
+120,2,152   → barrier     砌到平台
+120,5,120   → 不是屏障    空心环
+```
+
+journal 里对应 `PREPARE_WALL_BUILT blocks=1960 top=11` / `PREPARE_WALL_REMOVED blocks=1960`，
+1960 = 50×50 环的周长 196 × 10 层。缓冲区墙在 `96/159`，和准备墙不重叠，拆墙不会伤到缓冲带
+（已探针确认四条边仍是 barrier）。
+
+### 14.6 光幕按位置分段渲染
+
+147 格长的一条边原来只要一进渲染范围就整条出现，站在中间看像一堵突然亮起来的墙。现在每条边切
+成 `ceil(长度 / 2.0)` 段，**逐段按两端各自的距离**淡出：`RENDER_RANGE=26`、`FULL_STRENGTH=14`，
+两端都超出范围才跳过整段。结果是光幕随玩家移动一点点亮起来，走到哪亮到哪。
+
+白色实心模式（准备阶段）另有两处不同：顶部不渐隐（硬顶），高度固定取服务端给的值，不跟着相机
+长高——因为那面墙是真实存在的，它多高就是多高。
+
+### 14.7 战斗区（pit）与包围盒分离
+
+`ArenaMap` 多了 `pitInsetX/pitInsetZ`，`ArenaRegion` 由它派生 `pitMinX()/pitMaxX()/pitMinZ()/
+pitMaxZ()`。判定和渲染全部改读 pit：`isInside()`、`pullInside()`、光幕坐标、出生点搜索。方块
+保护、实体清理、租约仍然用包围盒——那些关心的是"这张图占了多少地"，不是"人在哪打"。
+
+目前只有斗兽场有内场：inset `23/19`，对应椭圆半轴 50×40 的沙地 `100×80`，包围盒 `147×119`。
+其余五张 inset 是 0，行为和以前完全一样。
+
+### 14.8 没验到的
+
+- **G 解除附身没能在本机自动化验证**。这台机器上合成按键（`SendKeys`）这一轮完全进不去游戏
+  ——`Esc` 打不开暂停菜单、`t` 打不开聊天框，窗口是前台也不行。真人按键是正常的（用户实测 V
+  切换成功，HUD 从 `视角 Dev1 (1/2)` 变到 `视角 Dev2 (2/2)`）。服务端那半（`detach` →
+  相机归位 + 推送 `index=-1`）和 `leave` 走的是同一段代码，`leave` 已实测。
+- **斗兽场 pit 没有实机跑过一局**。规则面板选的还是 48×48 平坦图，要验 pit 得先选到斗兽场。
+  几何是纯函数，`pitMinX()` 那串已经在离线脚本里对过。
+- **五张图没有各跑一局冒烟**。`warmUp` 每张开服都会贴一遍（日志里每张都有 `pasted true`），
+  但"贴上去之后打一局"仍然只做过平坦图。
+
+## 十五、附身手部渲染、观战入场状态、掉线兜底、地图占用
+
+### 15.1 附身手部渲染：矩阵是错的，不是变换是错的
+
+第一版把 `context.matrixStack()` 当成相机坐标系直接用，结果"主副手不分、副手画到主手上、状态也
+不对"。根因在坐标系，不在那四行装备/挥手变换。
+
+`GameRenderer.renderWorld` 里：
+
+```java
+Quaternionf q = camera.getRotation().conjugate(new Quaternionf());
+Matrix4f viewRotation = new Matrix4f().rotation(q);      // 只有旋转，没有平移
+worldRenderer.render(..., viewRotation, projection);
+renderHand(camera, f, viewRotation);
+```
+
+`WorldRenderer.render` 把 `viewRotation` 压进 model view 栈，然后 `new MatrixStack()`（单位阵）用于
+实体。实体渲染时 `matrices.translate(x - camX, ...)` 走的是**世界轴向**，旋转交给 model view 收尾。
+
+`GameRenderer.renderHand` 里补的是另一半：
+
+```java
+matrixStack.multiplyPositionMatrix(viewRotation.invert(new Matrix4f()));  // 相机→世界
+modelView.pushMatrix().mul(viewRotation);
+```
+
+两者相乘抵消，所以 `translate(0.56, -0.52, -0.72)` 落在屏幕固定位置。之前只做了前半段的错位版本，
+于是 0.56 变成了"世界 +X 半格"，朝向也跟着乱。
+
+现在在 `WorldRenderEvents.LAST` 里照抄这套：`LAST` 触发点在 `renderChunkDebugInfo` 之前，
+model view 栈还压着 `viewRotation`（`popMatrix` 在它后面几行），所以只要自己 `new MatrixStack()` 再
+乘上 `viewRotation.invert()`，就是原版 `renderHand` 的初始状态。同时 `RenderSystem.clear(GL_DEPTH_BUFFER_BIT)`
+——世界已经画完，后面只剩方块描边调试层和 GUI，都不读深度，和原版 `renderHand` 开头那一次 clear
+等价。用 `disableDepthTest` 代替是不行的：物品模型内部的面会失去排序。
+
+主副手严格按 `HeldItemRenderer` 分开：`Arm.RIGHT` → `side=+1` + `FIRST_PERSON_RIGHT_HAND` +
+`leftHanded=false`；`Arm.LEFT` → `side=-1` + `FIRST_PERSON_LEFT_HAND` + `leftHanded=true`。空手时
+走 `renderArmHoldingItem` 的完整变换 + `PlayerEntityRenderer.renderRightArm/renderLeftArm`，用的
+是目标玩家自己的皮肤。
+
+**实测**：Dev3 附身 Dev1 看到的铁剑，和 Dev1 自己屏幕上截的图逐像素一致（位置、角度、明暗都同）。
+
+没做的：吃/喝/拉弓/举盾这些使用动作。它们依赖 `getActiveHand()` 和 `getItemUseTimeLeft()`，原版
+不同步给其他玩家，猜错比不画更糟——"状态不太对"正是猜出来的。
+
+### 15.2 观战入场不再自动附身
+
+`Spectators.join` 原来 `state.target = 0` 后立刻 `attach()`，所以一进观战就是别人的第一人称，
+快捷栏也直接出现。现在入场是 `target = -1` + `pointCamera(自己)` + `sendPossess(hidden)`：先自由
+飞行看清场地和两个人，按 `V` 再附身。
+
+`PossessionHud` 完全由 `PossessPayload.active()` 驱动，所以服务端不发就自然不画——客户端不需要
+额外判断。实测截图：入场时只有底部横条 `视角 自由视角 · V 附身`，没有九格；按 `V` 后九格、
+`Dev1 · HP 20 · 护甲 0` 和手持铁剑同时出现；按 `G` 三者同时消失。
+
+### 15.3 掉线兜底：`homes.json`
+
+观战状态只在内存里（`Spectators.Watching`）。服务器被强杀时还原来不及跑，`playerdata` 里就留下
+决斗维度的坐标和 `SPECTATOR` 模式——下次登录出生在一块悬空场地上，还挖不了方块。
+
+新增 `storage/HomePositions`：每个玩家**不在**决斗维度时，位置、朝向、游戏模式记录进
+`<world>/pvpocket/homes.json`，位移超过 2 格或维度/模式变化才更新，30 秒最多落一次盘。加入服务器
+时 `onJoin` 往 `deferred` 里排一次 `rescue()`，下一 tick 执行（`JOIN` 事件里玩家还没注册进
+`PlayerManager`，而且初始位置包还没发，当场传送会被覆盖）。人在决斗维度就送回记录的位置；如果当
+前是 `SPECTATOR` 再按记录改回去。没有记录（首次运行）就送主世界出生点。
+
+**实测**：
+- 开服时两个玩家的 `playerdata` 还停在上一次测试的场地里，两条 `Rescued ... sent to spawn` 直接
+  生效（`homes.json` 还不存在，走的是兜底分支）。
+- 把 Dev3 `tp` 进 `pvpocket:arena` 到 `104.5, 3, 104.5`，强杀客户端（模拟崩溃，`onDisconnect` 只
+  记录不改位置），重启后日志：`logged in ... at (104.5, 3.0, 104.5)` →
+  `Rescued Dev3 from the arena to -15.5 77.0 -47.5 in minecraft:overworld`。`homes.json` 里
+  Dev3 那条全程是主世界坐标，没被决斗维度覆盖。
+
+### 15.4 同一张地图不能开两场
+
+`ArenaManager.busyMapMask(exceptSessionId)` 把当前被租出去的地图折成一个位掩码。选择在三个地方：
+
+1. **面板显示**：`RulesOpenPayload` 多了 `busyMaps`。`PacketCodec.tuple` 最多 6 个分量，原来的
+   6 个字段已经占满，所以 `otherName`/`loadoutSummary` 收进嵌套的 `Details` record，再带上掩码。
+2. **不能选**：`PvCycle.skip(IntPredicate)`，左右箭头跳过被占的选项（绕一圈还没有就原地不动），
+   当前值被占时显示橙色的 `平坦（使用中）`。
+3. **服务端拒绝**：`startAccepted` 在 `ArenaManager.allocate` 之前再查一次。面板是快照，可能开着
+   的时候别人刚好开局。
+
+**实测**（Dev1 vs Dev2 在平坦图开打，Dev3 找 Dev4 开新局）：
+
+- 面板 E 组：`场地模板 = 平坦（使用中）`（橙色），点 ▶ 直接跳到 `游乐屋`，长宽高同时变成
+  `82×57×28`（游乐屋包围盒）。
+- 不改图直接「同意并开始」：Dev4 收到 `「平坦」正在被另一场决斗使用，请换一张地图后再开始。`
+- `/pvpocket arena` 同步显示 `arena-0 flat ... 会话 1767b2ce`，`1 场进行中`。
+
+为了测这条加了一个 `runClient4` / `Dev4` 运行配置：Dev1+Dev2 占住一张图之后，第二局需要两个空闲
+玩家，Dev3 一个人不够。
+
+### 15.5 本轮没验到的
+
+- 同一张图被占时**换到另一张图跑完整一局**：只验到"跳过 + 服务端拒绝"，没把第二局真的打完。
+- 斗兽场 pit、五张图各跑一局的冒烟，仍然是 14.8 里那两条没做完的事。

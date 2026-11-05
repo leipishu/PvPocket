@@ -7,6 +7,8 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.sound.SoundEvents;
 
+import java.util.function.IntPredicate;
+
 /**
  * Left/right selector for a fixed list of choices.
  *
@@ -17,18 +19,35 @@ import net.minecraft.sound.SoundEvents;
  * <p>Both arrow zones are 20px wide, which is the smallest target that is still comfortable at GUI
  * scale 1. The middle is dead space rather than a third action, so a mis-click does nothing instead
  * of silently advancing the value.</p>
+ *
+ * <p>An option can be made unselectable with {@link #skip}. The arrows step <em>over</em> it rather
+ * than landing on it and refusing, because a control that stops responding on the way to a valid
+ * choice reads as broken. Only the arena map picker uses this: a map another duel is standing on
+ * cannot host a second one.</p>
  */
 public class PvCycle extends PvValueControl {
 
     private static final int ARROW = 20;
 
     private final RuleDefinition def;
+    /** Values to step over, or null when every choice is available. */
+    private IntPredicate skip;
 
     public PvCycle(RuleDefinition def, int value) {
         this.def = def;
         this.value = value;
         this.width = 132;
         this.height = 18;
+    }
+
+    /** Marks values as unavailable. They stay visible if the value is already on one, in warning colour. */
+    public PvCycle skip(IntPredicate skip) {
+        this.skip = skip;
+        return this;
+    }
+
+    private boolean blocked(int candidate) {
+        return skip != null && skip.test(candidate);
     }
 
     @Override
@@ -53,8 +72,9 @@ public class PvCycle extends PvValueControl {
         PvDraw.textCenter(ctx, tr, "▶", x + width - ARROW / 2, y + (height - 8) / 2 + 1,
                 overRight ? PvTheme.ACCENT : arrowIdle);
 
-        String label = def.format(value);
-        int textColor = enabled ? PvTheme.TEXT : PvTheme.TEXT_MUTED;
+        boolean taken = blocked(value);
+        String label = taken ? def.format(value) + "（使用中）" : def.format(value);
+        int textColor = !enabled ? PvTheme.TEXT_MUTED : taken ? PvTheme.WARN : PvTheme.TEXT;
         int maxLabel = width - ARROW * 2 - 4;
         PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, label, maxLabel), x + width / 2,
                 y + (height - 8) / 2 + 1, textColor);
@@ -82,7 +102,19 @@ public class PvCycle extends PvValueControl {
     }
 
     public void step(int direction) {
-        value = def.step(value, direction);
+        int next = def.step(value, direction);
+        if (skip != null) {
+            // One full lap at most: if every choice is taken there is nowhere to go, and wrapping
+            // forever would be an infinite loop inside a click handler.
+            int span = def.max - def.min + 1;
+            for (int i = 0; i < span && blocked(next); i++) {
+                next = def.step(next, direction);
+            }
+            if (blocked(next)) {
+                return;
+            }
+        }
+        value = next;
         MinecraftClient.getInstance().getSoundManager()
                 .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.2F));
         emit();

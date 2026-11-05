@@ -5,7 +5,15 @@ param(
     # Both dev clients open at the same spot, so the one that is not wanted sits on top of the one
     # that is. Minimising it is safe (it is a visibility change, not a resize) and keeps the capture
     # to a single window.
-    [switch]$HideOthers
+    [switch]$HideOthers,
+    # Sends Esc once the window is in front, before the capture.
+    #
+    # The game opens its pause menu whenever the window loses focus, which on this machine happens
+    # every time the editor window is activated -- so by the time a capture runs, the pause menu is
+    # already covering the thing being captured. Pressing Esc from inside this script is the only
+    # place it works: between two separate script invocations the focus bounces back to the editor
+    # and the menu reopens. Only pass this when the game is known to be paused.
+    [switch]$DismissMenu
 )
 
 # Raise one dev client and capture just its window.
@@ -62,9 +70,25 @@ if ([ShotWin]::IsIconic($hwnd)) {
 }
 
 # Topmost without stealing geometry. 0x0013 = NOSIZE|NOMOVE|NOACTIVATE.
-[void][ShotWin]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, 0, 0, 0x0013)
+#
+# HWND_TOPMOST (-1) rather than HWND_TOP (0): HWND_TOP only moves the window to the front of the
+# non-topmost band, so an editor or chat window that was activated in between still covers it and
+# CopyFromScreen silently captures that window instead. The flag is undone right after the copy,
+# so the game does not stay pinned above everything.
+[void][ShotWin]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0013)
+# SetForegroundWindow alone is routinely refused for a process the user did not just click on, and
+# the difference is invisible: the capture still works (the window is topmost), but SendKeys goes to
+# whatever really has focus. AppActivate goes through the shell and is allowed.
+$shell = New-Object -ComObject WScript.Shell
+[void]$shell.AppActivate($p.Id)
 [void][ShotWin]::SetForegroundWindow($hwnd)
 Start-Sleep -Milliseconds $SettleMs
+
+if ($DismissMenu) {
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
+    Start-Sleep -Milliseconds 350
+}
 
 $r = New-Object ShotWin+RECT
 [void][ShotWin]::GetWindowRect($hwnd, [ref]$r)
@@ -77,6 +101,8 @@ $bmp = New-Object System.Drawing.Bitmap $w, $h
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
 $g.Dispose()
+# Back to the normal band as soon as the pixels are ours. HWND_NOTOPMOST (-2), same flags.
+[void][ShotWin]::SetWindowPos($hwnd, [IntPtr](-2), 0, 0, 0, 0, 0x0013)
 
 if ($Out -eq "") {
     $dir = Join-Path $PSScriptRoot "..\shots"

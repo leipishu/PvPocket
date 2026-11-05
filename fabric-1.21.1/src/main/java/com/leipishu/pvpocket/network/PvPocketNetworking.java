@@ -25,12 +25,26 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playC2S().register(RulesSubmitPayload.ID, RulesSubmitPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(LoadoutRequestPayload.ID, LoadoutRequestPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(MatchHudPayload.ID, MatchHudPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(ArenaBoundsPayload.ID, ArenaBoundsPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(MatchListPayload.ID, MatchListPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(SpectateStatePayload.ID, SpectateStatePayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(PossessPayload.ID, PossessPayload.CODEC);
+
+        ServerPlayNetworking.registerGlobalReceiver(SpectateRequestPayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> {
+                SessionManager sessions = SessionManager.get();
+                if (sessions != null) {
+                    sessions.onSpectateRequest(player, payload);
+                }
+            });
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(BlockingPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -133,6 +147,48 @@ public final class PvPocketNetworking {
         PvPocket.LOGGER.info("Loadout editor -> {} (canSend={}, session={})",
                 player.getName().getString(), canSend, payload.sessionId());
         if (canSend) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /**
+     * Opens (or refreshes) the match list panel on the client.
+     *
+     * <p>Logged like the other panel openers: "the panel did not appear" is the one failure mode
+     * that cannot be diagnosed from the client, and the answer is always one of two things —
+     * {@code canSend} was false, or the payload never left the server.</p>
+     */
+    public static void openMatchList(ServerPlayerEntity player, MatchListPayload payload) {
+        boolean canSend = ServerPlayNetworking.canSend(player, MatchListPayload.ID);
+        PvPocket.LOGGER.info("Match list -> {} (canSend={}, {} rows)",
+                player.getName().getString(), canSend,
+                payload.entries().isEmpty() ? 0 : payload.entries().split("\n").length);
+        if (canSend) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /**
+     * Pushes the spectator bar state to one client, or clears it.
+     *
+     * <p>Silent, like the HUD: it is sent on join, on every camera switch and on every leave, and a
+     * log line per press of the cycle key would be noise.</p>
+     */
+    public static void sendSpectate(ServerPlayerEntity player, SpectateStatePayload payload) {
+        if (ServerPlayNetworking.canSend(player, SpectateStatePayload.ID)) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /**
+     * Pushes the possessed body's hotbar and vitals to one spectator.
+     *
+     * <p>Only sent while the camera is attached, and only when the content actually changed — the
+     * caller compares signatures first. A spectator watching someone stand still costs one string
+     * compare per tick and no packets at all.</p>
+     */
+    public static void sendPossess(ServerPlayerEntity player, PossessPayload payload) {
+        if (ServerPlayNetworking.canSend(player, PossessPayload.ID)) {
             ServerPlayNetworking.send(player, payload);
         }
     }

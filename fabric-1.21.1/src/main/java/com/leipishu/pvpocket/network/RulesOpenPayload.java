@@ -16,17 +16,35 @@ import net.minecraft.util.Identifier;
  * <p>{@code role} decides which footer buttons exist: {@link #ROLE_PROPOSER} can only send a
  * proposal, {@link #ROLE_REVIEWER} can accept, reject, or edit and send it back.</p>
  *
- * <p>{@code loadoutSummary} is display-only: "8 项 · 3f9c21", shown next to the 配装 button so the
- * player can see what they are carrying without opening the editor. It is a string rather than the
- * encoded loadout because the panel never edits it — sending the whole loadout twice per panel open
- * would be a lot of bytes to render eight characters.</p>
+ * <p>The three display strings live in a nested {@link Details} record rather than as three more
+ * top-level fields because {@code PacketCodec.tuple} stops at six components, and the alternative —
+ * a second payload racing the first — would let the panel open before the data it needs arrives.</p>
  */
-public record RulesOpenPayload(String sessionId, String rules, int role, int revision, String otherName,
-                               String loadoutSummary)
+public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details)
         implements CustomPayload {
 
     public static final int ROLE_PROPOSER = 0;
     public static final int ROLE_REVIEWER = 1;
+
+    /**
+     * Everything the panel shows that is not a rule value.
+     *
+     * @param otherName      the opponent, for the subtitle
+     * @param loadoutSummary "配装 8 项 · 3f9c21 · 同意 1/2", display only — the panel never edits a
+     *                       loadout, and sending the whole thing twice per open would be a lot of
+     *                       bytes to render eight characters
+     * @param busyMaps       bitmask over {@code ArenaMaps.ALL} of maps another duel is standing on,
+     *                       so the picker can refuse to select them instead of letting the player
+     *                       find out at "同意并开始" time
+     */
+    public record Details(String otherName, String loadoutSummary, int busyMaps) {
+
+        public static final PacketCodec<RegistryByteBuf, Details> CODEC = PacketCodec.tuple(
+                PacketCodecs.STRING, Details::otherName,
+                PacketCodecs.STRING, Details::loadoutSummary,
+                PacketCodecs.VAR_INT, Details::busyMaps,
+                Details::new);
+    }
 
     public static final Id<RulesOpenPayload> ID =
             new Id<>(Identifier.of("pvpocket", "rules_open"));
@@ -36,9 +54,20 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
             PacketCodecs.STRING, RulesOpenPayload::rules,
             PacketCodecs.VAR_INT, RulesOpenPayload::role,
             PacketCodecs.VAR_INT, RulesOpenPayload::revision,
-            PacketCodecs.STRING, RulesOpenPayload::otherName,
-            PacketCodecs.STRING, RulesOpenPayload::loadoutSummary,
+            Details.CODEC, RulesOpenPayload::details,
             RulesOpenPayload::new);
+
+    public String otherName() {
+        return details.otherName();
+    }
+
+    public String loadoutSummary() {
+        return details.loadoutSummary();
+    }
+
+    public int busyMaps() {
+        return details.busyMaps();
+    }
 
     @Override
     public Id<? extends CustomPayload> getId() {

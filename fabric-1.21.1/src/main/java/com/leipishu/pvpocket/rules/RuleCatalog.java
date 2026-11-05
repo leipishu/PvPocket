@@ -42,7 +42,8 @@ public final class RuleCatalog {
         add(RuleDefinition.enumOf("a.timeoutVerdict", RuleGroup.A, "超时判定",
                 "时间耗尽时如何决定这一局。", 0, "血量高者胜", "平局", "双败"));
         add(RuleDefinition.intRange("a.countdown", RuleGroup.A, "回合准备时间",
-                "传送进场后、正式开打前的准备时间，倒计时逐秒显示在聊天栏。准备期间双方无法造成或受到伤害。",
+                "传送进场后、正式开打前的准备时间，倒计时逐秒显示在聊天栏。准备期间双方无法造成或受到"
+                        + "伤害，场地四周会立起一圈白色实心屏障，开打瞬间拆除。",
                 0, 30, 1, 5, "秒"));
         add(RuleDefinition.intRange("a.intermission", RuleGroup.A, "局间间隔",
                 "多局赛制下两局之间的休整时间。", 1, 10, 1, 3, "秒"));
@@ -59,8 +60,12 @@ public final class RuleCatalog {
                 "超过这个人数无法开始。", 2, 16, 1, 4, " 人"));
         add(RuleDefinition.toggle("b.friendlyFire", RuleGroup.B, "友伤",
                 "开启后队友之间可以互相造成伤害。", false));
+        // 默认开启。规格里写的是关闭，那是在观战还只是一个开关、没有实现的时候定的；现在它有完整
+        // 的进出流程（旁观模式 + 相机绑定 + 退出复位），关掉它反而让功能发现不了。旁观者不影响对局：
+        // 不能碰撞、不能改方块、不参与边界判定，所以开着没有代价。
         add(RuleDefinition.toggle("b.spectator", RuleGroup.B, "允许观战",
-                "开启后非参与者可以进入场地旁观。", false));
+                "开启后非参与者可以用 /pvpocket list 看到这一局并点「观战」进入。观战是旁观模式，"
+                        + "相机绑定在参与者身上，按 V 切换视角；退出后回到原来的位置。", true));
 
         // C. 战斗
         add(RuleDefinition.enumOf("c.mode", RuleGroup.C, "战斗模式",
@@ -100,15 +105,17 @@ public final class RuleCatalog {
         add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, "场地宽度",
                 "场地在 Z 方向的格数。选择地图后由地图尺寸接管。", 16, 160, 8, 48, " 格"));
         add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, "场地高度",
-                "场地在 Y 方向的格数，决定可搭建的垂直空间。选择地图后由地图尺寸接管。", 8, 64, 4, 32, " 格"));
+                "场地在 Y 方向的格数，决定可搭建的垂直空间。选择地图后由地图尺寸接管。", 8, 96, 4, 32, " 格"));
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, "场地模板",
                 "「平坦」是一块悬空平台，尺寸就是下面填的长宽；其余为内置地图，选中后场地尺寸自动"
-                        + "跟随地图包围盒。所有场地都浮在虚空里，掉出场地就是掉进虚空。", 0,
+                        + "跟随地图包围盒。所有场地都浮在虚空里，掉出场地就是掉进虚空。"
+                        + "同一张地图同一时间只能有一场决斗，正在使用中的地图会标出来并跳过。", 0,
                 ArenaMaps.labels()));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, "边界规则",
                 "拉回：越界即被放回最近的边境内。判负：越界开始 5 秒倒计时，结束仍在场外就输掉本局。"
                         + "场地四边会画一圈半透明光幕标出边界（蓝=拉回，红=判负），光幕可以穿过，"
-                        + "高度会随你所在的高度长高。",
+                        + "高度会随你所在的高度长高，并且只画你附近的一段。"
+                        + "有内场的图（如斗兽场）只圈中间的战斗区，不算看台。",
                 1, "拉回", "倒计时判负"));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, "时间",
                 "固定时间后场地时间不再流逝，昼夜循环关闭；「自然」保留原版循环。", 1,
