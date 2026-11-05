@@ -19,7 +19,9 @@ PvPocket/
 │   ├── PvPocket-S2-实现进度.md
 │   └── PvPocket-S3-实现进度.md
 ├── scripts/
-│   └── dev-2clients.sh        双客户端联调启动脚本
+│   ├── dev-2clients.sh        双客户端联调启动脚本
+│   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem -> 结构模板
+│   └── arena-verify.py        转换校验：以第三方读取器为参照逐格比对 + 游戏内回读
 ├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
 │   ├── build.gradle
 │   ├── settings.gradle
@@ -33,7 +35,7 @@ PvPocket/
 │       └── client/            客户端专用（split source set）
 │           ├── java/com/leipishu/pvpocket/client/
 │           └── resources/pvpocket.client.mixins.json
-└── .gitignore / .gitattributes
+└── .gitignore / .gitattributes / THIRD-PARTY-NOTICES.md
 ```
 
 ## 版本矩阵（fabric-1.21.1）
@@ -111,6 +113,40 @@ scripts/dev-2clients.sh
 4. `PvPocket-v0.3-战斗规格与终稿.md` — 1.8 战斗六层规格、双端约束、验收标准
 5. `PvPocket-v0.4-技术方案.md` — 工程架构、接管点、协议、存储、测试
 
+## 场地地图
+
+规则面板 E 组的「场地模板」可以在**平坦**（程序生成）和三张内置地图之间切换。地图存在
+`data/pvpocket/structure/*.nbt`，是原版结构模板。
+
+三张图都来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，**CC BY-SA 4.0**，署名与改动
+声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+
+**想换成自己的地图**：不需要打开游戏，也不需要结构方块（它有 48³ 上限，装不下 1v1 场地）。
+用 `scripts/world2struct.py` 直接读源文件：
+
+```bash
+python -m pip install nbtlib litemapy anvil-parser2
+
+# 1. 看尺寸、方块数、调色板
+python scripts/world2struct.py probe 你的图.litematic --palette
+
+# 2. 转换
+python scripts/world2struct.py convert 你的图.litematic \
+    --out fabric-1.21.1/src/main/resources/data/pvpocket/structure/arena_你的图.nbt
+
+# 3. 验证（必须以第三方读取器为参照，不能拿自己的输出当参照）
+python scripts/arena-verify.py --source 你的图.litematic --nbt .../arena_你的图.nbt
+```
+
+然后在 `ArenaMaps.java` 里加一个常量、追加进 `ALL`（**只能追加，索引是线格式的一部分**），
+补一行授权声明。
+
+完整流程、尺寸门槛、常见坑见
+[`docs/PvPocket-场地模板-调研与工具.md`](docs/PvPocket-场地模板-调研与工具.md)。
+
 ## 许可
 
-未指定。`fabric.mod.json` 中暂标为 `All-Rights-Reserved`，确定后再改。
+模组代码的许可未指定，`fabric.mod.json` 中暂标为 `All-Rights-Reserved`，确定后再改。
+
+**内置地图不受此影响**：`data/pvpocket/structure/*.nbt` 是第三方美术资源，按各自的
+CC BY-SA 4.0 分发，详见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。

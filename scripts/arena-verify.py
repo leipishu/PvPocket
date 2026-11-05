@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
-"""Checks a converted arena against an independent reading of the source projection.
+"""Checks a converted arena template against an *independent* reading of its source.
 
-The first version of this script compared the world against the `.nbt` that the converter had just
-written. That check cannot fail: if the converter decodes the projection wrongly, it writes the same
-wrongness into the template, and the template matches the world perfectly. It reported 80/80 on four
-arenas that were completely scrambled in game.
+The first version of this script compared the pasted world against the `.nbt` that the converter
+had just written. That check cannot fail: if the converter decodes the source wrongly, it writes
+the same wrongness into the template, and the template then matches the world perfectly. It
+reported 80/80 on four arenas that were completely scrambled in game.
 
-So the reference is now **litemapy**, a third-party Python implementation of the Litematica format.
-It reads the original `.litematic` and produces the expected block at every coordinate; the server is
-then asked what is actually there. A decoding bug shows up as a mismatch instead of as a pass.
+So the reference is always a third-party implementation of the *source* format, never our own
+reader:
 
-Usage:
-    python scripts/arena-verify.py --source fabric-1.21.1/arena-src/pvp-castle.litematic \
-                                   --template arena_castle
-    # a plot that is already pasted (leased by a running duel):
-    python scripts/arena-verify.py --source ... --template arena_castle \
-                                   --origin 26 3 26 --no-place
+    .litematic      -> litemapy        (independent Python implementation of Litematica)
+    world save      -> anvil-parser2   (independent .mca reader)
+
+`.schem` has no third-party reader wired up here. Rather than pretend, that path is refused — see
+`--source` below.
+
+Two modes:
+
+    # offline: compare the .nbt against the source, no server needed
+    python scripts/arena-verify.py --source <world dir> --nbt <file.nbt>
+
+    # in game: /place the template and probe it through RCON
+    python scripts/arena-verify.py --source <world dir> --template arena_thistle
+
+The in-game mode additionally proves the paste itself (palette resolution, block states the game
+rejects, gravity blocks that fall), which the offline comparison cannot.
 """
 import argparse
+import glob
 import os
 import random
 import sys
@@ -26,26 +36,37 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon  # noqa: E402
 import world2struct as W  # noqa: E402
 
-from litemapy import Schematic  # noqa: E402
 import nbtlib  # noqa: E402
 
 DIMENSION = "pvpocket:arena"
 
 
+# --------------------------------------------------------------------- source readers
+
 def read_source(path):
-    """Reads a projection through litemapy and returns {world_pos: block_id}."""
+    """Independent reading of the source, as {(world_x, world_y, world_z): (name, props)}."""
+    if os.path.isdir(path):
+        return read_source_world(path)
+    if path.lower().endswith(".litematic"):
+        return read_source_litemapy(path)
+    if path.lower().endswith(".schem"):
+        raise SystemExit(
+            "no independent reader for .schem is wired up, so this comparison would be "
+            "self-referential. Use the in-game mode with a hand-checked sample instead.")
+    raise SystemExit("unknown source type: %s" % path)
+
+
+def read_source_litemapy(path):
+    from litemapy import Schematic
+
     raw = open(path, "rb").read()
-    gzipped = raw[:2] == b"\x1f\x8b"
-    nbt = nbtlib.File.load(path, gzipped=gzipped)
+    nbt = nbtlib.File.load(path, gzipped=raw[:2] == b"\x1f\x8b")
     schem = Schematic.from_nbt(nbt)
     truth = {}
     for region in schem.regions.values():
-        xs = _axis(region.x, region.width)
-        ys = _axis(region.y, region.height)
-        zs = _axis(region.z, region.length)
-        for x in xs:
-            for y in ys:
-                for z in zs:
+        for x in _axis(region.x, region.width):
+            for y in _axis(region.y, region.height):
+                for z in _axis(region.z, region.length):
                     state = region[x - region.x, y - region.y, z - region.z]
                     if state.id not in W.AIRISH and state.id not in W.DEFAULT_STRIP:
                         truth[(x, y, z)] = (state.id, dict(state.properties()))
@@ -59,40 +80,153 @@ def _axis(pos, size):
     return range(low, high + 1)
 
 
-def main(argv):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--source", required=True, help="the .litematic the template came from")
-    parser.add_argument("--template", required=True, help="template id, i.e. arena_castle")
-    parser.add_argument("--origin", nargs=3, type=int, default=[2000, 3, 2000])
-    parser.add_argument("--samples", type=int, default=40)
-    parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--no-place", action="store_true",
-                        help="the template is already there (a leased plot); only sample")
-    args = parser.parse_args(argv)
+def read_source_world(path):
+    """Reads every chunk of a world save through anvil-parser2."""
+    import anvil
 
-    truth = read_source(args.source)
-    # The converter renames ids that 1.21.1 does not have and drops blocks that cannot be placed.
-    # Apply exactly the same transform here, so the comparison is about decoding and pasting, not
-    # about whether the transform tables are the ones we expect.
+    truth = {}
+    files = sorted(glob.glob(os.path.join(path, "region", "*.mca")))
+    if not files:
+        raise SystemExit("no region/*.mca under %s" % path)
+    for path_mca in files:
+        region = anvil.Region.from_file(path_mca)
+        for cz in range(32):
+            for cx in range(32):
+                try:
+                    chunk = region.get_chunk(cx, cz)
+                except Exception:
+                    continue
+                base_x, base_z = chunk.x * 16, chunk.z * 16
+                for section in chunk.data.get("sections", []):
+                    sy = int(getattr(section.get("Y", 0), "value", section.get("Y", 0)))
+                    for ly in range(16):
+                        y = sy * 16 + ly
+                        for lz in range(16):
+                            for lx in range(16):
+                                block = chunk.get_block(lx, y, lz)
+                                name = block.name()
+                                if name in W.AIRISH or name in W.DEFAULT_STRIP:
+                                    continue
+                                truth[(base_x + lx, y, base_z + lz)] = (
+                                    name, dict(block.properties or {}))
+    return truth
+
+
+def read_template(path):
+    """Reads a structure template as (size, {(x, y, z): (name, props)}) in template coordinates."""
+    nbt = nbtlib.load(path)
+    size = tuple(int(v) for v in nbt["size"])
+    palette = []
+    for entry in nbt["palette"]:
+        name = str(entry["Name"])
+        props = {str(k): str(v) for k, v in dict(entry.get("Properties", {})).items()}
+        palette.append((name, props))
+    blocks = {}
+    for entry in nbt["blocks"]:
+        pos = tuple(int(v) for v in entry["pos"])
+        blocks[pos] = palette[int(entry["state"])]
+    return size, blocks
+
+
+# --------------------------------------------------------------------- comparison
+
+def cross_check(source_path, nbt_path):
+    """Compares the template against an independent reading of the source. Returns failure count."""
+    truth = read_source(source_path)
+    # The converter renames ids 1.21.1 does not have and drops blocks that cannot be placed.
+    # Apply the same transform to the reference so the comparison is about *reading*, not about
+    # whether the transform tables are the ones we expect.
+    _, truth = W.normalise(dict(truth))
+    # anvil-parser2 and nbtlib hand back their own tag types, which do not compare equal to the
+    # plain strings the template reader produces. Coerce both sides to str before comparing, or
+    # every single block reports as wrong while printing identically.
+    truth = {pos: (str(name), {str(k): str(v) for k, v in props.items()})
+             for pos, (name, props) in truth.items()}
+
+    size, blocks = read_template(nbt_path)
+
+    xs = [p[0] for p in truth]
+    ys = [p[1] for p in truth]
+    zs = [p[2] for p in truth]
+    origin = (min(xs), min(ys), min(zs))
+    span = (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1, max(zs) - min(zs) + 1)
+    print("source    %s  %dx%dx%d  %d blocks (after strip/normalise)"
+          % (os.path.basename(os.path.normpath(source_path)), span[0], span[1], span[2],
+             len(truth)))
+    print("template  %s  %dx%dx%d  %d blocks"
+          % (os.path.basename(nbt_path), size[0], size[1], size[2], len(blocks)))
+
+    if span != size:
+        print("SIZE MISMATCH  source %s vs template %s" % (span, size))
+        return 1
+
+    # Rebase the reference onto the template's own coordinate system.
+    rebased = {(x - origin[0], y - origin[1], z - origin[2]): (name, props)
+               for (x, y, z), (name, props) in truth.items()}
+
+    wrong = extra = missing = 0
+    for pos, got in blocks.items():
+        want = rebased.get(pos)
+        if want is None:
+            extra += 1
+            if extra <= 10:
+                print("  EXTRA   %s is %s, source has air" % (pos, _fmt(got)))
+        elif want != got:
+            wrong += 1
+            if wrong <= 10:
+                print("  WRONG   %s is %s, source says %s" % (pos, _fmt(got), _fmt(want)))
+    for pos, want in rebased.items():
+        if pos not in blocks:
+            missing += 1
+            if missing <= 10:
+                print("  MISSING %s should be %s" % (pos, _fmt(want)))
+
+    print("result    wrong=%d missing=%d extra=%d" % (wrong, missing, extra))
+    return 0 if wrong == 0 and missing == 0 and extra == 0 else 1
+
+
+def _fmt(state):
+    """`name[k=v,...]`, with the properties sorted so two runs diff cleanly."""
+    name, props = state
+    if not props:
+        return name
+    inner = ",".join("%s=%s" % (k, props[k]) for k in sorted(props))
+    return "%s[%s]" % (name, inner)
+
+
+# --------------------------------------------------------------------- in-game mode
+
+def in_game(source_path, template, origin, samples, seed, no_place):
+    truth = read_source(source_path)
     _, truth = W.normalise(dict(truth))
     truth = {pos: name for pos, (name, _) in truth.items()}
 
-    ox, oy, oz = args.origin
+    ox, oy, oz = origin
     xs = [p[0] for p in truth]
     ys = [p[1] for p in truth]
     zs = [p[2] for p in truth]
     size = (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1, max(zs) - min(zs) + 1)
     print("source    %s  %dx%dx%d  %d blocks (after strip/normalise)"
-          % (os.path.basename(args.source), size[0], size[1], size[2], len(truth)))
+          % (os.path.basename(os.path.normpath(source_path)), size[0], size[1], size[2],
+             len(truth)))
+
+    # A world save is built wherever the author felt like it, so its bounding box almost never
+    # starts at 0. The template does, because the converter rebases it. Sampling has to happen in
+    # template coordinates or every probe lands somewhere else in the plot.
+    low = (min(xs), min(ys), min(zs))
+    truth = {(x - low[0], y - low[1], z - low[2]): name for (x, y, z), name in truth.items()}
+    xs = [p[0] for p in truth]
+    ys = [p[1] for p in truth]
+    zs = [p[2] for p in truth]
 
     sock = rcon.connect("127.0.0.1", 25575, "pvpocket")
     try:
-        if not args.no_place:
+        if not no_place:
             rcon.command(sock, "execute in %s run forceload add %d %d %d %d"
                          % (DIMENSION, ox - 16, oz - 16, ox + size[0] + 16, oz + size[2] + 16),
                          linger=2.0)
-            # One /fill per layer: /fill refuses more than 32768 blocks and a 139x30x139 arena is
-            # 580k, and the refusal is silent unless the reply is checked.
+            # One /fill per layer: /fill refuses more than 32768 blocks and the refusal is silent
+            # unless the reply is checked.
             for dy in range(size[1] + 1):
                 reply = rcon.command(sock, "execute in %s run fill %d %d %d %d %d %d air"
                                      % (DIMENSION, ox, oy + dy, oz, ox + size[0] - 1, oy + dy,
@@ -100,17 +234,17 @@ def main(argv):
                 if "Too many" in reply or "not loaded" in reply:
                     raise SystemExit("clear failed at y=%d: %s" % (oy + dy, reply.strip()))
             out = rcon.command(sock, "execute in %s run place template pvpocket:%s %d %d %d"
-                               % (DIMENSION, args.template, ox, oy, oz), linger=3.0)
+                               % (DIMENSION, template, ox, oy, oz), linger=3.0)
             print("place     %s" % (out.strip() or "(no output)"))
 
-        rng = random.Random(args.seed)
+        rng = random.Random(seed)
         solid = list(truth.items())
         rng.shuffle(solid)
-        picks = solid[:args.samples]
+        picks = solid[:samples]
         # Air samples are what catch a converter that shifts everything: a wrong offset would leave
         # the build present but displaced, and every "should be air" probe would then fail.
         air = []
-        while len(air) < args.samples // 2:
+        while len(air) < samples // 2:
             pos = (rng.randrange(min(xs), max(xs) + 1), rng.randrange(min(ys), max(ys) + 1),
                    rng.randrange(min(zs), max(zs) + 1))
             if pos not in truth:
@@ -132,6 +266,27 @@ def main(argv):
         return 0 if bad == 0 else 1
     finally:
         sock.close()
+
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", required=True,
+                        help="the world save / .litematic the template came from")
+    parser.add_argument("--nbt", help="offline mode: compare this template file")
+    parser.add_argument("--template", help="in-game mode: template id, i.e. arena_thistle")
+    parser.add_argument("--origin", nargs=3, type=int, default=[2000, 3, 2000])
+    parser.add_argument("--samples", type=int, default=40)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--no-place", action="store_true",
+                        help="the template is already there (a leased plot); only sample")
+    args = parser.parse_args(argv)
+
+    if args.nbt:
+        return cross_check(args.source, args.nbt)
+    if not args.template:
+        parser.error("give either --nbt (offline) or --template (in game)")
+    return in_game(args.source, args.template, args.origin, args.samples, args.seed,
+                   args.no_place)
 
 
 if __name__ == "__main__":

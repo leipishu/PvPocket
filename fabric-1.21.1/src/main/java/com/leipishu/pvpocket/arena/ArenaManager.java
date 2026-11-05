@@ -59,10 +59,10 @@ public final class ArenaManager {
     /**
      * Centre-to-centre spacing of two neighbouring plots, in blocks.
      *
-     * <p>Driven by the largest map rather than by the rule panel: the gladiator arena is 139 wide,
-     * and two of them 160 apart would have their stands overlapping. 192 leaves 53 blocks of gap at
-     * the maximum plot size, which is enough that a colosseum's outer wall does not appear in the
-     * neighbour's sky.</p>
+     * <p>Sized for the largest plot the rule panel allows ({@link #MAX_SIZE_XZ}), not for the
+     * biggest map currently shipped: a server that drops its own 160-wide map in has to get the same
+     * guarantee that its stands do not appear in the neighbour's sky. At 192 the gap is 32 blocks,
+     * which is enough that an outer wall does not read as part of the next arena.</p>
      */
     public static final int PITCH = 192;
     /** Empty ring kept between the largest allowed plot and its neighbour. */
@@ -277,7 +277,7 @@ public final class ArenaManager {
             return false;
         }
         double x = region.spawnX(spawnIndex) + 0.5D;
-        double z = region.spawnZ() + 0.5D;
+        double z = region.spawnZ(spawnIndex) + 0.5D;
         // Not SURFACE_Y: a map's pit floor sits wherever the build put it, and spawning at the flat
         // surface would bury the player inside the map's ground layer.
         double y = region.spawnY(spawnIndex);

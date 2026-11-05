@@ -1524,8 +1524,8 @@ public final class SessionManager {
                 "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
                 "region", region == null ? "-" : region.id,
                 "spawns", region == null ? "-" : region.spawnX(0) + "," + region.spawnY(0)
-                        + "," + region.spawnZ()
-                        + " | " + region.spawnX(1) + "," + region.spawnY(1) + "," + region.spawnZ());
+                        + "," + region.spawnZ(0)
+                        + " | " + region.spawnX(1) + "," + region.spawnY(1) + "," + region.spawnZ(1));
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);

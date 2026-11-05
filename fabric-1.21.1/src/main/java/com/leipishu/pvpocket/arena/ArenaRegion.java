@@ -19,7 +19,7 @@ import net.minecraft.util.math.Box;
  *
  * <p>For the generated flat plot the baseline is a pure function of y. For a map it is the map: after
  * the template is stamped, {@link #capture} records the non-air blocks and the baseline becomes
- * "look it up, fall back to flat". Only non-air blocks are kept, so a 139x30x139 colosseum costs
+ * "look it up, fall back to flat". Only non-air blocks are kept, so a 102x44x99 bridge costs
  * 72k entries rather than 580k, and the fallback covers the air correctly because flat baseline
  * above {@link #SURFACE_Y} is air too.</p>
  *
@@ -67,8 +67,14 @@ public final class ArenaRegion {
      */
     private final Long2ObjectOpenHashMap<BlockState> template = new Long2ObjectOpenHashMap<>();
 
-    /** Feet height of the two spawn pads, measured from the map rather than assumed. */
-    private final int[] spawnY = {SURFACE_Y, SURFACE_Y};
+    /**
+     * Resolved spawn pads, filled by {@link #capture}. Until then the nominal guess is used, which
+     * is all a flat plot needs.
+     */
+    private final int[] padX = new int[2];
+    private final int[] padY = {SURFACE_Y, SURFACE_Y};
+    private final int[] padZ = new int[2];
+    private boolean padsResolved;
 
     private final BlockPos.Mutable cursor = new BlockPos.Mutable();
 
@@ -137,28 +143,97 @@ public final class ArenaRegion {
                 }
             }
         }
-        spawnY[0] = groundY(world, spawnX(0), spawnZ());
-        spawnY[1] = groundY(world, spawnX(1), spawnZ());
+        resolvePads(world);
     }
 
     /**
-     * Feet height of the first standing surface in a column, scanning up from the plot floor.
+     * Finds a spot each player can actually stand on, near where the nominal pad says.
      *
-     * <p>Scanning up rather than down matters: a roofed arena has a solid ceiling well above the
-     * pit, and spawning on the roof would drop the player into the fight from above.</p>
+     * <p>The nominal pad is a guess ("a quarter of the span either side of the centre") and on real
+     * maps it lands inside things: measured against the three shipped templates, one pad was
+     * underwater and two were inside solid rock with no headroom. Teleporting there means a player
+     * starts drowning, suffocating, or stuck in a wall — which reads as a broken duel, not as a
+     * misplaced coordinate.</p>
+     *
+     * <p>So the guess is only a starting point. The search walks outward in rings and takes the
+     * first column that has a non-fluid floor with two blocks of air above it. Falling back to the
+     * nominal point when nothing is found keeps a pathological map from dropping players at the
+     * origin of the dimension.</p>
      */
-    private int groundY(ServerWorld world, int x, int z) {
+    private void resolvePads(ServerWorld world) {
+        for (int i = 0; i < 2; i++) {
+            int[] found = findStand(world, nominalSpawnX(i), nominalSpawnZ(i));
+            padX[i] = found[0];
+            padY[i] = found[1];
+            padZ[i] = found[2];
+        }
+        padsResolved = true;
+    }
+
+    /** Ring search around a target column. Returns {x, feetY, z}; feetY -1 means "nothing found". */
+    private int[] findStand(ServerWorld world, int targetX, int targetZ) {
+        for (int radius = 0; radius <= 12; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    // Ring only: the square inside was covered by the previous radius.
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) {
+                        continue;
+                    }
+                    int x = targetX + dx;
+                    int z = targetZ + dz;
+                    if (x < minX || x > maxX() || z < minZ || z > maxZ()) {
+                        continue;
+                    }
+                    int y = standY(world, x, z);
+                    if (y >= 0) {
+                        return new int[]{x, y, z};
+                    }
+                }
+            }
+        }
+        return new int[]{targetX, SURFACE_Y, targetZ};
+    }
+
+    /**
+     * Feet height of the first standable gap in a column, or -1.
+     *
+     * <p>A fluid is not a floor: the bridge map's nominal pad sat on top of open water, and
+     * treating that as ground put the player in it. Scanning up rather than down matters too — a
+     * roofed arena has a solid ceiling well above the pit, and spawning on the roof drops the
+     * player into the fight from above.</p>
+     */
+    private int standY(ServerWorld world, int x, int z) {
         int top = SURFACE_Y + sizeY;
-        for (int y = SURFACE_Y; y < top; y++) {
-            if (!world.getBlockState(cursor.set(x, y, z)).isAir()) {
+        for (int y = SURFACE_Y; y + 2 < top; y++) {
+            BlockState floor = world.getBlockState(cursor.set(x, y, z));
+            if (floor.isAir() || !floor.getFluidState().isEmpty()) {
+                continue;
+            }
+            if (world.getBlockState(cursor.set(x, y + 1, z)).isAir()
+                    && world.getBlockState(cursor.set(x, y + 2, z)).isAir()) {
                 return y + 1;
             }
         }
-        return SURFACE_Y;
+        return -1;
+    }
+
+    public int spawnX(int spawnIndex) {
+        int i = clampIndex(spawnIndex);
+        return padsResolved ? padX[i] : nominalSpawnX(i);
     }
 
     public int spawnY(int spawnIndex) {
-        return spawnY[Math.max(0, Math.min(spawnY.length - 1, spawnIndex))];
+        int i = clampIndex(spawnIndex);
+        return padsResolved ? padY[i] : SURFACE_Y;
+    }
+
+    public int spawnZ(int spawnIndex) {
+        int i = clampIndex(spawnIndex);
+        return padsResolved ? padZ[i] : nominalSpawnZ(i);
+    }
+
+    private static int clampIndex(int index) {
+        return Math.max(0, Math.min(1, index));
     }
 
     public int templateBlockCount() {
@@ -185,24 +260,37 @@ public final class ArenaRegion {
      * Spawn pads.
      *
      * <p>The flat plot puts them four blocks inside each end, because the two players start at
-     * opposite ends of a bare rectangle. A map is usually a bowl: its two ends are the stands, so
-     * spawning there would drop the player onto the seating. For a map the pads are placed a quarter
-     * of the width either side of the centre instead, which lands inside the pit of every map in the
-     * list.</p>
+     * opposite ends of a bare rectangle. A downloaded map is not a rectangle: its two ends are
+     * stands, raised bases, or the far side of a bridge, and spawning there drops the player onto
+     * something that is not the floor of the fight. For a map the pads are placed a quarter of the
+     * span either side of the centre instead, along whichever axis the build separates its sides
+     * on — see {@link ArenaMap#alongZ}.</p>
      */
-    public int spawnX(int spawnIndex) {
+    private int nominalSpawnX(int spawnIndex) {
         if (!map.isFlat()) {
+            if (map.alongZ) {
+                return centerX();
+            }
             int reach = Math.max(6, sizeX / 4);
             return spawnIndex == 0 ? centerX() - reach : centerX() + reach;
         }
         return spawnIndex == 0 ? minX + 4 : minX + sizeX - 5;
     }
 
-    public int spawnZ() {
+    private int nominalSpawnZ(int spawnIndex) {
+        if (!map.isFlat() && map.alongZ) {
+            int reach = Math.max(6, sizeZ / 4);
+            return spawnIndex == 0 ? centerZ() - reach : centerZ() + reach;
+        }
         return centerZ();
     }
 
+    /** Faces the opponent: along X for a flat plot, along whichever axis the map is built on. */
     public float spawnYaw(int spawnIndex) {
+        if (!map.isFlat() && map.alongZ) {
+            // yaw 0 is +Z (south), 180 is -Z (north).
+            return spawnIndex == 0 ? 0.0F : 180.0F;
+        }
         return spawnIndex == 0 ? -90.0F : 90.0F;
     }
 
@@ -260,7 +348,7 @@ public final class ArenaRegion {
      * so a state comparison treats every property drift as a player edit — and a dozen vanilla blocks
      * rewrite their own state on a random tick: fire climbs {@code age} until it burns out, water
      * settles its {@code level}, farmland loses {@code moisture}, leaves age their {@code distance},
-     * redstone updates {@code power}, snow gains {@code layers}. In the gladiator map the 253 braziers
+     * redstone updates {@code power}, snow gains {@code layers}. In one downloaded map the 253 braziers
      * alone produced 2050 "changes" over one round in which nobody touched a block.</p>
      *
      * <p>The trade-off is that a player who replaces a block with a differently-rotated copy of the
@@ -330,8 +418,9 @@ public final class ArenaRegion {
         }
         changed.clear();
         template.clear();
-        spawnY[0] = SURFACE_Y;
-        spawnY[1] = SURFACE_Y;
+        padsResolved = false;
+        padY[0] = SURFACE_Y;
+        padY[1] = SURFACE_Y;
         return restored;
     }
 

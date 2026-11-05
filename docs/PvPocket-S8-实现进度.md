@@ -408,9 +408,9 @@ STAGE_CHANGED   RESTORING → ARCHIVED
    钓鱼竿「只在命中时造成伤害」的语义无法表达。
 8. **崩溃残留**：`SURFACE_Y + sizeY + 4` 以上的方块不会被打扫。
 9. **`a.countdown` 只实现了宽限那一半**，没有锁移动。
-10. **地图的边界矩形和战斗区矩形还是同一个**。斗兽场的 139×139 把看台也算进去了，
-    所以边界光幕画在看台外沿，玩家可以跑到看台上打（见 §十三 与
-    `docs/PvPocket-场地模板-调研与工具.md` §七）。
+10. **地图的边界矩形和战斗区矩形还是同一个**。蓟桥的 102×99 把两端基地也算进去了，
+    所以边界光幕画在基地外沿（见 §十三 与
+    `docs/PvPocket-场地模板-调研与工具.md` §八）。
 
 ---
 
@@ -772,18 +772,18 @@ BOUNDARY_RETURNED   player=Dev2
 
 ---
 
-## 十三、四张内置地图
+## 十三、内置地图
 
 这一节是插进来的另一件事（「把这几个地图添加到设置对局时新的预设类型」）。完整记录在
 `docs/PvPocket-场地模板-调研与工具.md`，这里只留结论和踩过的坑。
 
 ### 13.1 落地形态
 
-规则面板 E 组多了一项「场地模板」：平坦 / 斗兽场 / 泥砖场 / 石英圆场 / 城堡。选中地图后
+规则面板 E 组多了一项「场地模板」：平坦 / 游乐屋 / 试炼密室 / 蓟桥。选中地图后
 `e.sizeX/Y/Z` 被地图包围盒接管，面板同步刷新；切回「平坦」时原来填的数字还在。
 
 代码上是三个新文件：`ArenaMap`（一个可选地图）、`ArenaMaps`（常量表，索引即线格式）、
-四个 `data/pvpocket/structure/*.nbt`。改动集中在 `ArenaRegion`（模板基线 + `capture` +
+`data/pvpocket/structure/*.nbt`。改动集中在 `ArenaRegion`（模板基线 + `capture` +
 `groundY`）、`ArenaManager`（粘贴、`PITCH` 192）、`RuleScreen`（选中即刷尺寸）。
 
 ### 13.2 最大的坑：位打包
@@ -791,36 +791,69 @@ BOUNDARY_RETURNED   player=Dev2
 第一版转换出来的场地在游戏里**完全错乱**。根因是我把原版区块的位解包直接套到 litematic
 上——原版是「每个 long 装 floor(64/bits) 个，尾部浪费」，litematic 是**连续比特流**，一个值
 可以从某个 long 的第 61 位跨到下一个 long 的第 0 位。两者只在 `bits` 整除 64 时巧合一致，
-而这四张图的调色板是 18–29 个方块 → `bits = 5` → 必然错位。
+而真实地图的调色板大多在 18–29 个方块 → `bits = 5` → 必然错位。
 
 ### 13.3 更值得记的是：我的校验是假阳性
 
 第一版 `arena-verify.py` 拿**自己生成的 `.nbt`** 当参照，80/80 通过。轴序错了、位打包错了
 也一样通过，因为两边错得一样。这个测试的价值是零，而且它让我在交付时说了「已验证」。
 
-改成以 **litemapy**（第三方实现，零共享代码）为参照之后，四张图逐格比对
-`wrong=0 missing=0 extra=0`，游戏内 `/place` 后回读采样 60/60。
+现在参照物永远是第三方实现：`.litematic` 用 **litemapy**，世界存档用 **anvil-parser2**，
+`.schem` 没有第三方实现所以脚本直接拒绝而不是假装通过。
 
 **教训：验证必须有一个和被测实现没有共享假设的参照物。** 拿自己当参照的测试只能证明
 「我没崩」，不能证明「我对」。
 
 ### 13.4 顺带修掉的一个假 bug
 
-`ARENA_REVERTED blocks=2050`——整局没人碰方块却记了 2050 处改动。来源是斗兽场 253 处火把
-的 `age` 属性每 tick 自己增长。`onBlockChanged` 原来用 BlockState 身份比较，而 BlockState
+`ARENA_REVERTED blocks=2050`——整局没人碰方块却记了 2050 处改动。来源是某张图的 253 处火把，
+火的 `age` 属性每 tick 自己增长。`onBlockChanged` 原来用 BlockState 身份比较，而 BlockState
 按属性组合 intern，`age` 变一次就是另一个实例。
 
 改成按方块比较（`getBlock()`）之后同一局是 `blocks=0 tracked=0`。代价是同种方块换朝向不再
 被记录——纯外观，且下次租场地会整个清掉。
 
-### 13.5 实测
+### 13.5 撤图换源：授权问题
+
+最初四张来自 MineSchematic / BuildSchematics，这两个站**没有逐条 License 字段**，而文件是要
+打进 jar 的——那就是再分发，没有授权就是侵权。四张已全部移除。
+
+换成 [zzuf-maps](https://github.com/zzufx/zzuf-maps)：每张图自带 `LICENSE.txt`，现在内置的
+三张都是 **CC BY-SA 4.0**。义务是署名 + 声明改动 + 相同方式共享，三条都写进了仓库根目录的
+`THIRD-PARTY-NOTICES.md`。这个义务只挂在 `.nbt` 这几个美术资源上，不传染 Java 源码。
+
+### 13.6 出生点：两张图沿 Z 轴
+
+`spawnX` 原来固定沿 X 摆（中心 ± 跨度 1/4）。三张图里只有游乐屋是这样——试炼密室和蓟桥的源
+XML 都把两队放在 `z` 轴上（`x` 恒为定值），照 X 摆会把人并排放进走廊中段。所以 `ArenaMap`
+多了 `alongZ`，`spawnX/Z/spawnYaw` 都按它分支。
+
+另外名义点本身也站不住：实测蓟桥的落点**在水面上**，另外两张在岩石里没有净空。
+`resolvePads()` 于是把名义点当起点，向外搜「非流体地面 + 头顶两格空气」的列。修好后
+游乐屋的两端正好落在它自己的橙队/紫队平台上。
+
+### 13.7 实测
+
+三张图，两道关卡都过：
 
 ```
-Pasted arena_gladiator at 26,26 (ok) in 242 ms
-Leased arena-0[139x32x139 @26,26 arena_gladiator] (reset 65710 blocks, 84696 template blocks, purged 30 entities)
-ROUND_STARTED spawns=61,4,95 | 129,4,95
+                                 离线交叉校验            游戏内回读
+arena_fun_house    82x28x57     wrong=0 missing=0 extra=0   60/60
+arena_trial_chambers 47x29x95   wrong=0 missing=0 extra=0   60/60
+arena_thistle     102x44x99     wrong=0 missing=0 extra=0   60/60
+```
+
+蓟桥第一次跑是 58/60，两处 `redstone_wire` 失败。追下去发现源世界里 254 条红石线有 220 条
+下面全是空气——PGM 加载世界不触发方块更新所以不脱，`/place` 会触发。于是把它们加进
+`FLOOR_ATTACHED` 在转换阶段丢掉，重转后 60/60。
+
+完整链路（试炼密室，`alongZ=true`）：
+
+```
+Pasted arena_trial_chambers at 72,48 (ok) in 523 ms
+Leased arena-0[47x29x95 @72,48 arena_trial_chambers] 113899 template blocks
+ROUND_STARTED spawns=95,14,72 | 95,14,118
 ARENA_REVERTED blocks=0 tracked=0
 ```
 
-四张图 `Leased` 行的模板方块数：84696 / 14817 / 9045 / 11405，与转换产物逐一对上
-（`arena_mud` 差 1 块，是放置阶段被游戏拒掉，不是解析问题）。
+出生点相对坐标 `(23,11,24)` / `(23,11,70)`，与离线模拟逐格一致。

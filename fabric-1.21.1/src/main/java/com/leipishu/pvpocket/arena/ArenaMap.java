@@ -36,13 +36,32 @@ public final class ArenaMap {
     public final int sizeY;
     public final int sizeZ;
 
+    /**
+     * True when the build's two sides are separated along Z rather than X.
+     *
+     * <p>Not cosmetic: {@link ArenaRegion#spawnX} puts the two players a quarter of the width either
+     * side of the centre, and if the play axis is Z that lands them beside each other in the middle
+     * of the corridor instead of at opposite ends. Two of the three shipped maps are built this way
+     * — a 47x95 cavern and a 102x99 bridge whose source XML spawns players at {@code x=0}.</p>
+     *
+     * <p>The honest fix is a per-map play rectangle (see the design doc), which would make this
+     * flag unnecessary. Until then this is the smallest thing that gets the spawns right.</p>
+     */
+    public final boolean alongZ;
+
     public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ) {
+        this(id, label, templateId, sizeX, sizeY, sizeZ, false);
+    }
+
+    public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+                    boolean alongZ) {
         this.id = id;
         this.label = label;
         this.templateId = templateId;
         this.sizeX = sizeX;
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
+        this.alongZ = alongZ;
     }
 
     public boolean isFlat() {

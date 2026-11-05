@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn a downloaded Minecraft world save into a vanilla structure template.
 
-Why this exists: the arena presets we want (colosseum builds) are published as *world saves* — a zip
+Why this exists: the arena presets we want (PvP arenas) are published as *world saves* — a zip
 containing `region/*.mca`. PvPocket needs a *structure template* (`data/pvpocket/structure/<id>.nbt`)
 that it can paste onto a plot. The obvious conversion route is to open the world in a client and
 re-save it, but vanilla's structure block is capped at 48x48x48, so anything larger than that cannot
@@ -16,8 +16,18 @@ Three input shapes, picked by extension:
 
 `.litematic` is by far the cheapest to eat: there is no chunk or region layer at all, so the whole
 `.mca` dance below (8192-byte sector table, per-chunk compression byte, the pre/post-1.18 `Level`
-split) simply does not apply. Only the flat palette + bit-packed long array remains, and that inner
-packing is byte-for-byte the same as a vanilla chunk section.
+split) simply does not apply. What remains is the flat palette plus a long array of block indices —
+and that long array is packed *differently* from a chunk section, which is the one trap in this
+whole file:
+
+    chunk section   floor(64 / bits) values per long, leftover high bits wasted
+    litematic       one continuous bit stream; a value starting at bit 61 of one long
+                    continues at bit 0 of the next
+
+The two agree only when `bits` divides 64 (4, 8, 16, 32). A palette of 18..29 blocks needs 5 bits,
+so almost every real map falls in the disagreeing case. See `unpack_longs` for the reader and
+`docs/PvPocket-场地模板-调研与工具.md` for how this was found (short version: the first conversion
+looked fine on synthetic samples and produced a completely scrambled arena in game).
 
 Two subcommands:
 
@@ -677,7 +687,17 @@ def needs_support(name):
     return (name.endswith("_pressure_plate") or name == "minecraft:torch"
             or name in ("minecraft:redstone_torch", "minecraft:wall_torch",
                         "minecraft:redstone_wall_torch", "minecraft:fire",
-                        "minecraft:soul_fire"))
+                        "minecraft:soul_fire")
+            or name in FLOOR_ATTACHED)
+
+
+# Blocks that must have *something* directly beneath them. Same failure mode as a pressure plate:
+# the game removes them on the first tick after placement, so the template would claim a block the
+# world never shows. `redstone_wire` is here because a bridge map lost two of them in testing —
+# they had been laid across a gap and the paste put them in mid-air.
+FLOOR_ATTACHED = ("minecraft:redstone_wire", "minecraft:rail", "minecraft:powered_rail",
+                  "minecraft:detector_rail", "minecraft:activator_rail",
+                  "minecraft:lily_pad")
 
 
 # Blocks you cannot stand a fire on: their top face is not full, so `FireBlock.canPlaceAt` fails and
@@ -707,8 +727,9 @@ def drop_unstable(blocks):
         below = blocks.get((x, y - 1, z))
         if name in ("minecraft:fire", "minecraft:soul_fire"):
             supported = below is not None and supports_fire(below[0])
-        elif name.endswith("_pressure_plate") or name in ("minecraft:torch",
-                                                          "minecraft:redstone_torch"):
+        elif (name.endswith("_pressure_plate") or name in ("minecraft:torch",
+                                                          "minecraft:redstone_torch")
+              or name in FLOOR_ATTACHED):
             supported = below is not None
         else:
             # A wall torch can be attached on any of the four sides; the facing property decides
