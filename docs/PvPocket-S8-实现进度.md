@@ -1459,3 +1459,50 @@ playerdata 恢复走的是另一个方法 `setGameMode(GameMode, GameMode)`，�
 
 - 重置时**有观战者**在场：代码路径是先 `ejectEverything`，但没有实机跑过"观战中被重置"。
 - 服务器刚启动、展位还在填的时候执行 `arena reset`：会被拒绝（`warmUpPending`），拒绝分支没实测。
+
+## 十八、指令收口：删掉三条，补一个 help
+
+### 18.1 删的是什么，凭什么删
+
+`/pvpocket accept`、`/pvpocket propose`、`/pvpocket deny` 三条删除。判据只有一条：**面板能做的，指令就不该有第二条路**。
+
+这三条恰好是全量对照里唯一被 GUI 完整覆盖的一组：
+
+| 指令 | 面板按钮 | 服务端入口 |
+| --- | --- | --- |
+| `accept` | 同意并开始 | `onRulesSubmit(ACTION_ACCEPT)` |
+| `propose` | 发送征询 / 修改后征询 | `onRulesSubmit(ACTION_PROPOSE)` |
+| `deny` | 拒绝 | `onRulesSubmit(ACTION_REJECT)` |
+
+而且面板**不需要玩家自己去找**：`requestDuel` 一创建会话就 `openPanel(challenger, ROLE_PROPOSER)`，对方在 `ACTION_PROPOSE` 分支里被 `openPanel(target, ROLE_REVIEWER)`。三个动作中的每一个，可被按下的那一刻面板都已经在屏幕上了。指令在此之外唯一多出来的能力是"面板被 Esc 关掉之后再操作一次"，而那个能力已经由 `/pvpocket review` 覆盖。
+
+`SessionManager` 里对应的 `accept` / `propose` / `deny` 三个方法一起删掉——删了指令它们就没有调用点，留着是死代码，而且 `accept()` 的 javadoc 写着"与面板同样的校验"，会让人以为存在两条并行的路径。`startAccepted` 只剩面板一个调用方，注释跟着改。
+
+### 18.2 连带的谎话要一起修
+
+删指令本身是十行的事，真正的成本在三处会变成假话的注释和提示：
+
+- `SessionManager` 邀请提示：`规则面板已打开。也可以输入 /pvpocket accept 直接同意。` → 改成指面板按钮。**这行是玩家能看见的**，不改就是教人去打一条已经不存在的指令。
+- `PvPocketNetworking.closeRules` 与 `RulesClosePayload` 的 javadoc：原本用"一方用 `/pvpocket accept` 接受、另一方面板还开着"举例。场景仍然成立（面板接受同样会让对面面板过期），只是主语从指令换成按钮。
+- `startAccepted` 里那句"`/pvpocket accept` 走的是另一条分支"——它当时解释的是为什么入口检查过一次还要再查一次。现在只有一个入口，理由改成真正的原因：接受是对"规则 + 全员配装"的同意，而"全员同意"不是调用方的属性，对面可能在这两次点击之间改过配装。
+
+### 18.3 help 补成一条真指令
+
+`/pvpocket` 无参本来就打印帮助，但玩家习惯打 `/pvpocket help`，而 Brigadier 对未知子命令是报错——一条"看起来应该能用"的指令不能用，比没有更烦人。加 `literal("help")` 指向同一个 `help()`，两条路径一份输出，不会漂移。
+
+帮助文本同步重排：删掉三条，补 `help` 与 `spectate <前缀>`（原来只在 `spectate` 子帮助里），末尾加一行"征询、接受、拒绝都在面板上完成"，把"为什么没有这些指令"直接写在玩家看得见的地方。
+
+### 18.4 剩下的 17 条为什么留着
+
+按不可替代的原因分四类，没有一类是"懒得删"：
+
+| 原因 | 指令 |
+| --- | --- |
+| 控制台 / RCON / 命令方块 / 脚本没有客户端 | `arena`、`arena reset`、`guard`、`loadout give` |
+| 需要选玩家或按 id 找一场（面板只画 6 行） | `duel`、`spectate <前缀>` |
+| 只读诊断，做成面板等于重写一套只读视图 | `help`、`status`、`arena`、`loadout` |
+| GUI 自己会失效（`canSend` 为假时服务端静默不发） | 全部，指令是兜底通道 |
+
+沙盒白名单 `Sandbox.ALLOWED_ROOT = "pvpocket"` 只放行根字面量，所以这些指令在场地里始终可用，而面板不受该限制——两者互补，不是替代关系。
+
+本轮按用户要求未做实机测试，只过了 `compileJava compileClientJava`。

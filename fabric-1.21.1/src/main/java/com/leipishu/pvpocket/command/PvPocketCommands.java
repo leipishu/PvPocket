@@ -33,9 +33,11 @@ public final class PvPocketCommands {
                         .then(CommandManager.literal("legacy")
                                 .executes(ctx -> duel(ctx, CombatMode.LEGACY_1_8)))));
 
-        root.then(CommandManager.literal("accept").executes(PvPocketCommands::accept));
-        root.then(CommandManager.literal("propose").executes(PvPocketCommands::propose));
-        root.then(CommandManager.literal("deny").executes(PvPocketCommands::deny));
+        // No accept/propose/deny here. Those three live on the rule panel and only there: the panel
+        // is opened by the server at every point where one of them could be pressed, so a command
+        // was a second path to the same three intents with nothing the panel cannot do — and three
+        // lines of the help text spent explaining a slower way to click a button.
+        root.then(CommandManager.literal("help").executes(PvPocketCommands::help));
         root.then(CommandManager.literal("review").executes(PvPocketCommands::review));
         root.then(CommandManager.literal("surrender").executes(PvPocketCommands::surrender));
         root.then(CommandManager.literal("status").executes(PvPocketCommands::status));
@@ -67,19 +69,20 @@ public final class PvPocketCommands {
 
     private static int help(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
-        source.sendFeedback(() -> Text.literal("PvPocket 指令：").formatted(Formatting.AQUA), false);
+        source.sendFeedback(() -> Text.literal("PvPocket 指令（/pvpocket help）：").formatted(Formatting.AQUA), false);
         source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家> [legacy]  发起决斗并打开规则面板").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket review    重新打开规则面板").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket propose   把当前规则发送给对方（等同面板上的「发送征询」）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket accept|deny  接受或拒绝当前规则版本").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket review    重新打开规则面板（关掉面板后用这个回去）").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输（输掉整场）").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket arena        查看场地分区占用").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket arena reset  强制结束所有对局并重建整个场地维度（需要 OP）").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket guard <true|false>  开关「滞留决斗维度自动移出」（需要 OP；按玩家记录）").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket list         打开对局面板，可进入开启观战的对局").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket spectate <前缀>  不进面板，直接用 session id 前缀进入观战").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket spectate leave   退出观战").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket loadout [give|edit|reset]  查看配装；edit 打开配装界面（无需决斗）；give 发到手上；reset 清空个人配装").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("规则与配装：征询、接受、拒绝都在面板上完成，指令不再提供这三项。")
+                .formatted(Formatting.DARK_GRAY), false);
         return 1;
     }
 
@@ -88,33 +91,6 @@ public final class PvPocketCommands {
             ServerPlayerEntity self = ctx.getSource().getPlayerOrThrow();
             ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "target");
             SessionManager.get().requestDuel(self, target, mode);
-            return 1;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static int accept(CommandContext<ServerCommandSource> ctx) {
-        try {
-            SessionManager.get().accept(ctx.getSource().getPlayerOrThrow());
-            return 1;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static int propose(CommandContext<ServerCommandSource> ctx) {
-        try {
-            SessionManager.get().propose(ctx.getSource().getPlayerOrThrow());
-            return 1;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static int deny(CommandContext<ServerCommandSource> ctx) {
-        try {
-            SessionManager.get().deny(ctx.getSource().getPlayerOrThrow());
             return 1;
         } catch (Exception e) {
             return 0;

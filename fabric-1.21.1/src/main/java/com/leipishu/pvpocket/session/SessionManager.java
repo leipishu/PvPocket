@@ -1116,7 +1116,7 @@ public final class SessionManager {
                 target.sendMessage(Text.literal(player.getName().getString() + " 向你发起决斗（v"
                                 + session.rulesRevision + "）：" + proposed.summary())
                         .formatted(Formatting.GOLD), false);
-                target.sendMessage(Text.literal("规则面板已打开。也可以输入 /pvpocket accept 直接同意。")
+                target.sendMessage(Text.literal("规则面板已打开，点「同意并开始」即可；想改条件就用「修改后征询」。")
                         .formatted(Formatting.DARK_GRAY), false);
                 openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
             }
@@ -1159,7 +1159,7 @@ public final class SessionManager {
         }
     }
 
-    /** Freeze, snapshot, teleport, start. Shared by the panel path and the /accept shortcut. */
+    /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
     private void startAccepted(DuelSession session, ServerPlayerEntity accepter) {
         if (!ArenaManager.isReady(server)) {
             fail(accepter, "决斗维度未加载。");
@@ -1172,9 +1172,9 @@ public final class SessionManager {
             fail(accepter, "场地正在重建，请等这一次完成再开始。");
             return;
         }
-        // Checked again here rather than trusting the caller: /pvpocket accept reaches this method
-        // through a different branch, and "everyone agreed to these loadouts" is not a property of
-        // the caller but of the session.
+        // Checked again here rather than trusting the caller: accepting agrees to the rules and to
+        // everyone's loadout, but "everyone agreed" is not a property of the caller — the other side
+        // may have edited their loadout between the proposal and this click.
         if (!allLoadoutsAgreed(session)) {
             fail(accepter, "配装还没有全员同意，暂不能开始。");
             return;
@@ -1226,53 +1226,6 @@ public final class SessionManager {
             PvPocket.LOGGER.error("Failed to start session {}", session.id, e);
             abort(session, "START_FAILED");
         }
-    }
-
-    /** Command shortcut: accepts whatever revision is on the table. Same validation as the panel. */
-    public void accept(ServerPlayerEntity player) {
-        DuelSession session = findOpenSession(player.getUuid());
-        if (session == null) {
-            fail(player, "没有待接受的邀请。");
-            return;
-        }
-        if (session.stage != SessionStage.NEGOTIATING
-                || !player.getUuidAsString().equals(session.awaitingUuid)) {
-            fail(player, "没有待接受的邀请。");
-            return;
-        }
-        Participant me = session.participant(player.getUuidAsString());
-        if (me != null) {
-            me.agreedLoadoutDigest = combinedLoadoutDigest(session);
-            journal(session).append("LOADOUT_AGREED", "player", me.name,
-                    "combined", me.agreedLoadoutDigest);
-            persist(session);
-        }
-        if (!allLoadoutsAgreed(session)) {
-            fail(player, "还有参与者没同意当前配装，暂不能开始。");
-            return;
-        }
-        startAccepted(session, player);
-    }
-
-    /**
-     * Command shortcut for the panel's 「发送征询」.
-     *
-     * <p>It re-submits the current revision unchanged, which is exactly what pressing the button
-     * without editing anything does — so the command path exercises the same code as the GUI rather
-     * than a parallel one. Without it, a duel could not be driven from the console at all: the panel
-     * is the only way out of {@link SessionStage#DRAFT}.</p>
-     */
-    public void propose(ServerPlayerEntity player) {
-        DuelSession session = findOpenSession(player.getUuid());
-        if (session == null) {
-            fail(player, "没有待发送的规则提案。");
-            return;
-        }
-        onRulesSubmit(player, RulesSubmitPayload.ACTION_PROPOSE, session.rules);
-    }
-
-    public void deny(ServerPlayerEntity player) {
-        onRulesSubmit(player, RulesSubmitPayload.ACTION_REJECT, "");
     }
 
     /**

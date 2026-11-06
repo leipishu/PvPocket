@@ -9,10 +9,10 @@ import net.minecraft.util.Identifier;
 /**
  * Server to client: "this negotiation is over, close the panel".
  *
- * <p>Without it a panel can outlive its session. The obvious case is one side accepting through
- * {@code /pvpocket accept} while the other side still has the panel open — the round then starts
- * with a modal dialog in front of a player who is already in the arena. The same applies to a
- * rejection, a dismissal, or a failed start.</p>
+ * <p>Without it a panel can outlive its session. The obvious case is one side accepting while the
+ * other side still has the panel open — the round then starts with a modal dialog in front of a
+ * player who is already in the arena. The same applies to a rejection, a dismissal, or a failed
+ * start.</p>
  *
  * <p>The client only closes a panel whose session id matches, so a late packet can never shut a
  * newer negotiation's panel.</p>

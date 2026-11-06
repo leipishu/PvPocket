@@ -129,8 +129,8 @@ public final class PvPocketNetworking {
      *
      * <p>Sent at every terminal transition of a negotiation: accepted, rejected, dismissed or
      * aborted. Without it a panel can outlive its session — the visible case is one side accepting
-     * through {@code /pvpocket accept} while the other side still has the panel open, which starts
-     * the round with a modal dialog in front of a player who is already in the arena.</p>
+     * while the other side still has the panel open, which starts the round with a modal dialog in
+     * front of a player who is already in the arena.</p>
      *
      * <p>The client only closes a panel whose session id matches, so a late packet can never shut a
      * newer negotiation's panel and over-sending is harmless.</p>
