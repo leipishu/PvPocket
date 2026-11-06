@@ -519,15 +519,33 @@ public class RuleScreen extends PvScreen {
 
         // The draft footer talks about the roster, not about the other side: there is no other side
         // yet, and "you are proposing to nobody" would be a sentence the player has to decode.
-        String left = rosterEditable()
-                ? PvLang.str("pvpocket.gui.roster.footer")
-                : reviewer
-                ? PvLang.str("pvpocket.gui.rule.footer.reviewer")
-                : PvLang.str("pvpocket.gui.rule.footer.proposer");
+        //
+        // On the roster page it names the blocker rather than restating the button. "Send when the
+        // sides are set" was the same sentence as the button label, and it did not survive the
+        // footer's width — a line that ends in an ellipsis is not a hint. Naming what is still
+        // missing is shorter and is the one thing the reader cannot see for themselves: the cards
+        // show who is placed, not how many sides the rules require.
+        String left;
         int color = PvTheme.TEXT_MUTED;
-        if (changes > 0) {
-            left = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
-            color = PvTheme.ACCENT;
+        if (rosterEditable()) {
+            int teams = board == null ? 0 : board.playingTeams();
+            int people = board == null ? 0 : board.playerCount();
+            left = teams < 2
+                    ? PvLang.str("pvpocket.gui.roster.footer.need_sides")
+                    : people < 2
+                    ? PvLang.str("pvpocket.gui.roster.footer.need_people")
+                    : PvLang.str("pvpocket.gui.roster.footer");
+            if (teams >= 2 && people >= 2) {
+                color = PvTheme.ACCENT;
+            }
+        } else {
+            left = reviewer
+                    ? PvLang.str("pvpocket.gui.rule.footer.reviewer")
+                    : PvLang.str("pvpocket.gui.rule.footer.proposer");
+            if (changes > 0) {
+                left = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
+                color = PvTheme.ACCENT;
+            }
         }
         PvDraw.text(ctx, tr, PvDraw.fit(tr, left, Math.max(0, maxW)), panelX + 16, y, color);
     }

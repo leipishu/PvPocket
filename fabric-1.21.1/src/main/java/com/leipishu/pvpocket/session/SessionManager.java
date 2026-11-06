@@ -574,6 +574,15 @@ public final class SessionManager {
         homes.flush();
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
+            // A negotiation is not in sessionByPlayer — nothing has started yet — but a player who
+            // drops out of one leaves everybody else waiting for an answer that can no longer
+            // arrive, and the panel on their side cannot tell "still thinking" from "gone".
+            // Deferred so the session is not mutated in the middle of the disconnect unwinding.
+            DuelSession open = findOpenSession(player.getUuid());
+            if (open != null && open.stage == SessionStage.NEGOTIATING) {
+                String uuid = player.getUuidAsString();
+                deferred.add(() -> dropNegotiator(open, uuid));
+            }
             return;
         }
         DuelSession session = sessions.get(sessionId);
@@ -963,16 +972,29 @@ public final class SessionManager {
             fail(proposer, "pvpocket.msg.duel.self_busy");
             return;
         }
-        if (findOpenSession(proposer.getUuid()) != null) {
-            fail(proposer, "pvpocket.msg.duel.own_pending");
-            return;
-        }
         if (proposer.interactionManager.getGameMode() == GameMode.SPECTATOR) {
             fail(proposer, "pvpocket.msg.duel.spectator");
             return;
         }
         if (!ArenaManager.isReady(server)) {
             fail(proposer, "pvpocket.msg.duel.arena_not_ready");
+            return;
+        }
+        DuelSession open = findOpenSession(proposer.getUuid());
+        if (open != null) {
+            if (open.stage != SessionStage.DRAFT) {
+                // Somebody else is waiting on an answer here, so the old invite is not the
+                // proposer's to throw away — they have to answer it or refuse it first.
+                fail(proposer, "pvpocket.msg.duel.own_pending");
+                return;
+            }
+            // A draft has no other party, and it is the only place the sides the proposer drew
+            // exist. Voiding it to make room for a new one would throw that work away for no gain;
+            // reopening is what "start a duel" means when a draft is already in progress, and it is
+            // also how a client that crashed mid-draft gets its panel — and its roster — back.
+            // Refusing here instead is what turned a crash into "this player can never start a duel
+            // again", which is the lock this branch exists to remove.
+            openPanel(proposer, open, RulesOpenPayload.ROLE_DRAFT);
             return;
         }
 
@@ -1430,10 +1452,19 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.rules.none_pending");
             return;
         }
-        int role = player.getUuidAsString().equals(session.awaitingUuid)
-                ? (session.stage == SessionStage.DRAFT
-                    ? RulesOpenPayload.ROLE_PROPOSER
-                    : RulesOpenPayload.ROLE_REVIEWER)
+        // A draft belongs to exactly one player and is always theirs to edit: there is no reviewer
+        // in it. Getting this wrong is what made a crashed draft unrecoverable — the proposer was
+        // handed a reviewer panel whose only options are accept / reject / re-propose, and none of
+        // those can touch a roster that was never sent. Rejecting marked the proposer rejected
+        // inside their own draft, and nothing in the draft stage ever settles that mark.
+        //
+        // Past the draft the "proposer" is whoever authored the revision on the table, not whoever
+        // is being waited on: the pen passes when somebody edits and re-sends, and the panel has to
+        // follow the pen.
+        int role = session.stage == SessionStage.DRAFT
+                ? RulesOpenPayload.ROLE_DRAFT
+                : player.getUuidAsString().equals(session.rulesAuthor)
+                ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
         openPanel(player, session, role);
         player.sendMessage(PvLang.t("pvpocket.msg.rules.version",
@@ -1464,6 +1495,29 @@ public final class SessionManager {
                 session.voidReason = "PROPOSER_DISMISSED";
                 transition(session, SessionStage.VOIDED);
                 closePanels(session);
+                return;
+            }
+            // Past the draft, closing the panel is not "nothing happened". A reviewer who walks
+            // away leaves everybody else waiting for an answer that will never come, and
+            // allResponded never turns true — the match simply stops existing without saying so.
+            // Their silence is recorded as a refusal so the session can settle. The author of the
+            // revision on the table is left alone: their yes is already on the record, and all
+            // they have to do to get the panel back is /pvpocket review.
+            if (session.stage == SessionStage.NEGOTIATING && !uuid.equals(session.rulesAuthor)) {
+                Participant me = session.participant(uuid);
+                if (me != null && !me.rejected) {
+                    me.rejected = true;
+                    me.acceptedRevision = -1;
+                    journal(session).append("PLAYER_WALKED_AWAY", "player", me.name,
+                            "revision", session.rulesRevision,
+                            "playingTeams", session.playingTeams().size());
+                    persist(session);
+                    player.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
+                            .formatted(Formatting.GRAY), false);
+                    broadcastNegotiation(session, uuid,
+                            PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
+                    settleNegotiation(session, player);
+                }
             }
             return;
         }
@@ -1476,6 +1530,16 @@ public final class SessionManager {
             Participant me = session.participant(uuid);
             if (me == null) {
                 fail(player, "pvpocket.msg.rules.none_pending");
+                return;
+            }
+            if (session.stage == SessionStage.DRAFT) {
+                // In a draft there is nobody to refuse: the only person in it is the proposer, so
+                // this is a cancel wearing the wrong label. Marking them rejected instead left a
+                // draft that could never be sent and never be answered — a permanent lock.
+                journal(session).append("SESSION_DROPPED", "stage", "DRAFT", "reason", "REJECTED");
+                session.voidReason = "PROPOSER_REJECTED";
+                transition(session, SessionStage.VOIDED);
+                closePanels(session);
                 return;
             }
             me.rejected = true;
@@ -1499,7 +1563,10 @@ public final class SessionManager {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
-            if (me.rejected) {
+            if (me.rejected && session.stage != SessionStage.DRAFT) {
+                // A draft rebuilds the participant list from the roster on every send, so a refusal
+                // recorded against the old list cannot outlive it. Refusing here instead would let
+                // one bad click lock a draft that nobody else can see or release.
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
@@ -1702,6 +1769,37 @@ public final class SessionManager {
         startAccepted(session, actor);
     }
 
+    /**
+     * A player left while the invite was still being negotiated.
+     *
+     * <p>Recorded as a refusal rather than as a cancellation, for the same reason a refusal is: the
+     * rest of the roster may still be able to field two sides. The alternative is that everybody
+     * else sits in front of a panel waiting for an answer from somebody who has already closed the
+     * game, which is a hang with no visible cause on any screen.</p>
+     *
+     * <p>Unlike a deliberate refusal this one is not announced as "X declined" — nobody chose
+     * anything, they lost their connection — so the line says so.</p>
+     */
+    private void dropNegotiator(DuelSession session, String uuid) {
+        if (session.stage != SessionStage.NEGOTIATING) {
+            return;
+        }
+        Participant p = session.participant(uuid);
+        if (p == null || p.rejected) {
+            return;
+        }
+        p.rejected = true;
+        p.acceptedRevision = -1;
+        journal(session).append("PLAYER_LEFT", "player", p.name,
+                "revision", session.rulesRevision,
+                "remaining", session.participants.size() - rejectedCount(session),
+                "playingTeams", session.playingTeams().size());
+        persist(session);
+        broadcastNegotiation(session, uuid,
+                PvLang.t("pvpocket.msg.rules.left_match", p.name));
+        settleNegotiation(session, null);
+    }
+
     /** One line to everybody still in the match, except {@code exceptUuid}. */
     private void broadcastNegotiation(DuelSession session, String exceptUuid, MutableText line) {
         for (Participant p : session.participants) {
@@ -1776,7 +1874,9 @@ public final class SessionManager {
         journal(session).append("RULES_ACCEPTED",
                 "revision", session.rulesRevision,
                 "author", session.rulesAuthor,
-                "acceptedBy", accepter.getName().getString(),
+                // Null when the start was triggered by somebody leaving rather than by a click —
+                // the last answer was already on the record in that case.
+                "acceptedBy", accepter == null ? "(auto)" : accepter.getName().getString(),
                 "digest", session.rulesDigest,
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
@@ -3122,6 +3222,14 @@ public final class SessionManager {
      * draws the chat line.</p>
      */
     private static void fail(ServerPlayerEntity player, String key, Object... args) {
+        if (player == null) {
+            // There is no addressee when the refusal is triggered by somebody leaving rather than
+            // by somebody clicking. Logged instead of thrown: the session is already in the right
+            // state, and losing the sentence is not worth losing the session over.
+            PvPocket.LOGGER.info("Refusal with no player to tell: {} {}",
+                    key, java.util.Arrays.toString(args));
+            return;
+        }
         player.sendMessage(PvLang.t(key, args).formatted(Formatting.RED), false);
     }
 

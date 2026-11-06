@@ -130,6 +130,29 @@
   `pvpocket.msg.roster.*`（7 条）、`pvpocket.msg.series.draw`、`pvpocket.msg.series.because.draw`，
   删除 `a.series.*`（10 条）与 `b.teamCount.*`（3 条）。
 
+### 稳定性
+
+- **修掉点「+ 添加队伍」导致客户端崩溃。** `PvButton` 的动作在 `mouseReleased` 里执行，而
+  「添加队伍」「移除整队」「删人」「还原」这些回调都会 `roots.remove/add`；`PvScreen` 四个鼠标
+  处理器原先直接遍历 `roots`，于是回调改了正在遍历的列表（`ConcurrentModificationException`）。
+  改为先 `snapshot()` 再遍历。`PvScrollPane` 一直这么做，顶层漏了——子控件做快照不等于父控件
+  不用做。
+- **修掉「草案把人锁死」的死循环。** 崩溃在草案阶段留下的会话，会让这个玩家永久无法再发起
+  决斗：`/pvpocket duel` 被 `own_pending` 挡下，`review` 给的是「接受方」面板（草案里其实只有
+  一个人），点拒绝就把自己标成 `rejected`——而草案阶段没有任何代码结算这个标记。四条路一起改：
+  - `review()` 在草案阶段返回新的 `ROLE_DRAFT`，草案永远是发起人自己的、可编辑的；协商阶段
+    「发起人」改为按 `rulesAuthor` 判定而不是按 `awaitingUuid`（笔会随重新发送易手）。
+  - `openRoster()` 遇到自己的草案不再拒绝，而是**重开面板**——客户端崩溃后正是靠这条把名册
+    拿回来。
+  - `onRulesSubmit()` 三个动作各加一道逃生门：草案阶段「拒绝」等价于取消（作废会话，不落
+    `rejected`）；草案阶段「发送」无视 `rejected`（名册每次发送都重建参与者列表，旧标记不该
+    活过它）；协商阶段「关闭面板」对非作者记为拒绝并结算，不再让所有人等一个不会来的答复。
+  - 掉线处理补上协商阶段：协商不在 `sessionByPlayer` 里，原先完全无感，现在记为拒绝、广播
+    「%s 掉线了，已从名单里移除」并结算。`fail()` 与 `startAccepted()` 相应接受 `null` 收件人。
+- 名册页页脚改为报「还差什么」（还差一队 / 还差一人 / 可以发送了），不再复述按钮标签——那句
+  「排好队后发送」在页脚宽度里活不下来，被截成省略号就不算提示了。左侧标签「玩家」改「分队」
+  与规则组 B「玩家」区分开，副标题英文改 `Sides %s · Players %s` 修掉单复数。
+
 ---
 
 ## 2026-11-05
