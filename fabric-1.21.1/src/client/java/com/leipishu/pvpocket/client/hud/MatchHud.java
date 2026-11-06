@@ -43,18 +43,27 @@ import java.util.UUID;
  * <p>It is a HUD overlay rather than a boss bar or a sidebar because both of those are vanilla
  * furniture the player can already be using for something else. A mod that hijacks the boss bar for
  * its own scoreboard breaks every boss fight on the server.</p>
+ *
+ * <p><b>Size.</b> The bar is deliberately small — 14px heads on a 16px row. It sits over the middle
+ * of the screen, which is exactly where a player is looking while fighting, so every pixel it takes
+ * is a pixel of the fight that is hidden. A four-side match stacks four rows, and the first version
+ * of this bar covered a third of the view at 2× GUI scale; at this size four rows cost about as much
+ * as the old two-side bar did. The numbers and the round counter survive the shrink because they are
+ * 8px text either way — what was removed is padding, not information.</p>
  */
 @Environment(EnvType.CLIENT)
 public final class MatchHud implements HudRenderCallback {
 
-    private static final int ROW_H = 20;
-    private static final int HEAD = 16;
-    private static final int PAD_X = 10;
-    private static final int PAD_Y = 5;
-    private static final int NAME_GAP = 5;
-    private static final int BLOCK_GAP = 12;
-    private static final int MIN_H = 30;
-    private static final int TOP = 4;
+    private static final int ROW_H = 16;
+    private static final int HEAD = 14;
+    private static final int PAD_X = 8;
+    private static final int PAD_Y = 4;
+    private static final int NAME_GAP = 4;
+    private static final int BLOCK_GAP = 9;
+    private static final int MIN_H = 24;
+    private static final int TOP = 3;
+    /** Wool strip on the outer edge of a side — the same colour the team cards and the blocks use. */
+    private static final int STRIP_W = 2;
     private static final float FLASH_TIME = 0.32F;
 
     /** Null means "no match on screen". Replaced wholesale by every payload. */
@@ -162,6 +171,15 @@ public final class MatchHud implements HudRenderCallback {
                 PvTheme.alpha(PvTheme.BORDER, appearT),
                 PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
+        // Wool strips on the outer edges: the same colour the cards in the rule panel and the blocks
+        // in the arena use, so "which side is red" is one fact rather than three. A strip rather than
+        // a tinted panel because a tint over a 94%-opaque surface is invisible, while 2px of raw wool
+        // still reads at a glance — and it costs nothing on a bar whose whole problem is area.
+        int stripH = layout.height() - 2;
+        PvDraw.rect(ctx, barX + 1, barY + 1, STRIP_W, stripH, PvTheme.team(0));
+        PvDraw.rect(ctx, barX + layout.width() - 1 - STRIP_W, barY + 1, STRIP_W, stripH,
+                PvTheme.team(1));
+
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
                 leftScore, payload.winsNeeded());
         drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
@@ -192,10 +210,10 @@ public final class MatchHud implements HudRenderCallback {
                              MatchHudPayload payload, List<List<Row>> teams, int[] scores,
                              int screenW) {
         int rows = teams.size();
-        int headerH = 13;
+        int headerH = 11;
         int headsW = 4 * (HEAD + 2);
         int scoreW = tr.getWidth("00") + 6;
-        int width = PAD_X * 2 + headsW + BLOCK_GAP + scoreW;
+        int width = PAD_X * 2 + STRIP_W + 4 + headsW + BLOCK_GAP + scoreW;
         int height = PAD_Y * 2 + headerH + rows * ROW_H;
         int barX = (screenW - width) / 2;
         int barY = TOP;
@@ -204,7 +222,7 @@ public final class MatchHud implements HudRenderCallback {
         PvDraw.roundPanel(ctx, barX, barY, width, height, PvTheme.RADIUS,
                 PvTheme.alpha(PvTheme.BORDER, appearT),
                 PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
-        PvDraw.textCenter(ctx, tr, roundLabel(payload), barX + width / 2, barY + 4,
+        PvDraw.textCenter(ctx, tr, roundLabel(payload), barX + width / 2, barY + 3,
                 PvTheme.TEXT_DIM);
 
         int y = barY + PAD_Y + headerH;
@@ -212,7 +230,10 @@ public final class MatchHud implements HudRenderCallback {
             List<Row> members = teams.get(team);
             int score = scoreOf(scores, team);
             int tint = score + 1 >= payload.winsNeeded() ? PvTheme.LIVE : PvTheme.TEXT;
-            int x = barX + PAD_X;
+            // A row without a colour is a row you have to count rows to identify. Two pixels of wool
+            // per row is the cheapest possible answer to "which one am I".
+            PvDraw.rect(ctx, barX + PAD_X, y, STRIP_W, HEAD, PvTheme.team(team));
+            int x = barX + PAD_X + STRIP_W + 4;
             for (int i = 0; i < members.size() && i < 4; i++) {
                 Row row = members.get(i);
                 PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
@@ -284,9 +305,9 @@ public final class MatchHud implements HudRenderCallback {
     private static void drawCentre(DrawContext ctx, TextRenderer tr, MatchHudPayload payload,
                                    String score, int x, int barY, int width) {
         int centreX = x + width / 2;
-        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 5, PvTheme.TEXT_DIM);
+        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 4, PvTheme.TEXT_DIM);
         int color = PvTheme.mix(PvTheme.ACCENT, 0xFFFFFFFF, flashT * 0.85F);
-        PvDraw.textCenter(ctx, tr, score, centreX, barY + 16, color);
+        PvDraw.textCenter(ctx, tr, score, centreX, barY + 13, color);
     }
 
     private static void drawSide(DrawContext ctx, TextRenderer tr, MinecraftClient client,
@@ -320,10 +341,10 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     private static String roundLabel(MatchHudPayload payload) {
-        if (payload.bestOf() <= 1) {
+        if (payload.maxRounds() <= 1) {
             return PvLang.str("pvpocket.gui.hud.single_round");
         }
-        return PvLang.str("pvpocket.gui.hud.round", payload.round(), payload.bestOf());
+        return PvLang.str("pvpocket.gui.hud.round", payload.round(), payload.maxRounds());
     }
 
     /**

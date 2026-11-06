@@ -13,14 +13,20 @@ import net.minecraft.util.Identifier;
  * The server re-derives who is allowed to do what from the session record before acting on it: a
  * proposal from someone who is not a participant, or from the side that is currently supposed to
  * be reviewing, is dropped.</p>
+ *
+ * <p>{@code roster} is the team cards, {@code "uuid,uuid;uuid"}. It only means anything on the
+ * first send — the one that turns a draft into an invite — and is empty on every later message,
+ * because the roster is fixed once the invite is out. It travels with the rules rather than in a
+ * payload of its own so that "these are the sides and these are the terms" arrives as one decision
+ * the server can accept or refuse as a whole.</p>
  */
-public record RulesSubmitPayload(int action, String rules) implements CustomPayload {
+public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPayload {
 
-    /** Send the edited rules to the other side and ask for consent. */
+    /** Send the roster (in draft) or the edited rules (in negotiation) and ask for consent. */
     public static final int ACTION_PROPOSE = 0;
     /** Accept the rule set exactly as it was received. */
     public static final int ACTION_ACCEPT = 1;
-    /** Decline the duel. */
+    /** Decline the invite. With an explicit roster this drops the player, not the match. */
     public static final int ACTION_REJECT = 2;
     /** Close the panel without deciding anything; the session stays where it is. */
     public static final int ACTION_DISMISS = 3;
@@ -31,6 +37,7 @@ public record RulesSubmitPayload(int action, String rules) implements CustomPayl
     public static final PacketCodec<RegistryByteBuf, RulesSubmitPayload> CODEC = PacketCodec.tuple(
             PacketCodecs.VAR_INT, RulesSubmitPayload::action,
             PacketCodecs.STRING, RulesSubmitPayload::rules,
+            PacketCodecs.STRING, RulesSubmitPayload::roster,
             RulesSubmitPayload::new);
 
     @Override

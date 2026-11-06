@@ -144,10 +144,15 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 ## 9. 已知取舍
 
 - **快照不跨重启**（见 §4）。代价是重启后玩家回到进入前的位置但物品按当前存档算。
-- **队伍模型是「按队」而不是「按人」的，且只有四张出生台。** 一方最多 4 人、最多 4 方，这是
-  `ArenaRegion.PAD_COUNT` 与 `b.teamCount` 上限共同决定的硬形状；超过就只能在面板上被夹回去。
-  队伍是派生量（按邀请顺序 `i % teams` 轮流分），不写在邀请里——好处是改队数能就地重排，
-  代价是**没有任何办法手动指定谁和谁一队**，只能靠调整邀请顺序间接影响。
+- **队伍是显式名册，但形状仍然是硬的。** 一方最多 5 人、最多 4 方、总共 20 人，这是
+  `ArenaRegion.PAD_COUNT`、`SessionManager.MAX_TEAMS` / `MAX_PARTICIPANTS` 与 `b.teamSize` /
+  `b.maxPlayers` 共同决定的；超过就在 `submitRoster` 里被拒。
+  分队由发起方在名册页上直接画卡片决定，`RosterBoard.encode()` 编码成 `"uuid,uuid;uuid"` 随
+  `rules_submit` 一起上来，`submitRoster` 压实掉空卡片后把 `team` / `member` 写进
+  `Participant`——**队伍不再是派生量**，因此不需要 round-robin，也不存在「改队数就地重排」。
+  代价是分队只存在于名册里：`b.teamCount` 这条规则已经删掉，场上有几方等于几张非空卡片。
+- **拒绝是终局标记，不是取消对局。** `Participant.rejected` 一旦置位就不再参与结算、出生与 HUD，
+  但会话继续；`settleNegotiation` 只在「所有人都回应过」且「剩余非空队 < 2」时才作废整场。
 - **观战者看不到队伍关系。** 观战列表只显示谁在场，不显示谁和谁一边；想知道分组只能看 HUD。
 - **没有回合计时器。** `a.roundLimit` / `a.timeoutVerdict` 未接，两边都不动手时一局不会自己结束。
 - **天气是维度级属性**：多场决斗同时进行时，最后一局设置的天气对所有人生效。

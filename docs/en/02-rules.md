@@ -28,7 +28,9 @@ what the panel shows.
 
 **Match** — Rounds, victory, timing
 
-- **Series** — `a.series` · choice · default 1 round · 1 round / Best of 3 / Best of 5 / Best of 7 / Best of 9 / Best of 11 / Best of 13 / Best of 15. The first side to win (rounds ÷ 2 + 1) takes the series. Items and terrain are restored after every round.
+- **Round cap** — `a.maxRounds` · int 1–15 · default 3 rounds. The most rounds a match can run; reaching it ends the match.
+- **Rounds to win** — `a.winsNeeded` · int 1–15 · default 2 rounds. The first side to win this many rounds takes the match. The panel keeps it at or below the round cap, so "4 wins out of 3" is not a state the panel can sit in.
+  Two numbers rather than one "best of N" choice because they answer two different questions — "how long until we stop" and "how much is enough". Collapsed into one, an even round count cannot be expressed and **a draw is structurally impossible**: wins are derived from the round count, so somebody always gets there first. Split, a match that runs out of rounds with nobody at the line goes to the highest score, and a tie is a draw.
 - **Round time limit** — `a.roundLimit` · choice · default No limit · No limit / 1 minute / 3 minutes / 5 minutes / 10 minutes / 15 minutes. After this the round is settled by the timeout rule. Unlimited when off.
 - **Timeout verdict** — `a.timeoutVerdict` · choice · default Higher health wins · Higher health wins / Draw / Both lose. How a round is decided when the clock runs out.
 - **Preparation time** — `a.countdown` · int 0–30 · default 5 s. Time between being teleported in and the first blow, counted down in chat one second at a time. Nobody can deal or take damage during it, and a solid white wall stands around the plot until the round goes live.
@@ -37,14 +39,18 @@ what the panel shows.
 
 **Players** — Teams, sizes, friendly fire
 
-- **Teams** — `b.teamCount` · int 1–4 · default 2 teams. How many sides fight. 2 is the classic
-  1v1 / 2v2. The roster is dealt round-robin in invite order, so changing this re-deals it in place.
-- **Players per team** — `b.teamSize` · int 1–4 · default 1 players. The **cap** on each side; above
-  it the match refuses to start. A roster that does not divide evenly becomes `2+1` rather than an
-  empty side.
-- **Player cap** — `b.maxPlayers` · int 2–16 · default 4 players. The duel cannot start above this many players.
+- **Players per team** — `b.teamSize` · int 1–5 · default 5 players. The **cap** on each side, and
+  the number of empty slots a team card shows. Above it the match refuses to start.
+- **Player cap** — `b.maxPlayers` · int 2–20 · default 20 players. The duel cannot start above this many players. The hard ceiling of 20 is enforced by `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
 - **Friendly fire** — `b.friendlyFire` · toggle · default Off. When on, teammates can damage each other.
 - **Allow spectating** — `b.spectator` · toggle · default On. When on, anyone not in the duel can see it in /pvpocket list and press Watch to enter. Spectating uses spectator mode with the camera bound to a participant, V cycles the view, and leaving puts you back where you were.
+
+> **How many sides is no longer a rule.** It is however many non-empty cards the proposer drew on the
+> roster page — two to four; an empty card simply does not play. The old `b.teamCount` could only say
+> "split into N sides" and then had the server deal people round-robin in invite order; that could
+> not express "these two together, those two together", and changing the number re-dealt a roster
+> that had already been invited. The sides are drawn explicitly now, so the rules do not need the
+> number. Sides do not have to be the same size.
 
 **Combat** — Combat mode and survival stats
 
@@ -102,22 +108,26 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 
 | Group | Rules |
 | --- | --- |
-| A | `a.series`, `a.countdown`, `a.intermission` |
-| B | `b.teamCount`, `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
+| A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission` |
+| B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather` |
 | F | `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-The four in group B were wired up together with NvN. Where each one is read:
+The two in group A arrived with the series split; the four in group B were wired up together with
+NvN. Where each one is read:
 
-- **`b.teamCount`** — decides `DuelSession.teamCount`, i.e. how many sides are on the field. The
-  roster is dealt round-robin in invite order (`i % teams`), so changing this **re-deals a roster
-  that is already invited** in place; nobody has to be re-invited. 1–4 sides; anything above 4 is
-  clamped by `assignTeams`.
-- **`b.teamSize`** — the per-side cap, checked side by side in `validateRoster` before the match
-  starts; exceeding it refuses with the offending side named. A roster that does not divide evenly
-  becomes `2+1`, not an empty side.
+- **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
+  target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
+  takes the highest score and a tie sets `seriesEndReason = "DRAW"`. The pair is clamped against
+  each other in `applyRulesToSession` (`winsNeeded = min(winsNeeded, maxRounds)`), and the panel does
+  the same clamp, so an unreachable target never reaches the session.
+- **`b.teamSize`** — the per-side cap, checked side by side in `submitRoster` before the invite goes
+  out and again in `validateRoster` before the match starts; exceeding it refuses with the offending
+  side named. It is also the slot count on the roster cards, so changing it changes the card height.
+- **`b.maxPlayers`** — the player cap, again in `submitRoster` / `validateRoster`. The hard ceiling of
+  20 is enforced by `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
 - **`b.maxPlayers`** — the total cap, also in `validateRoster`. The hard ceiling of 16 lives in
   `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
 - **`b.friendlyFire`** — when off, damage between team-mates is vetoed by
@@ -155,32 +165,45 @@ about features must follow this section, not the panel.**
 
 ## 4. Series arithmetic
 
-`a.series` holds the **number of rounds** (1 / 3 / 5 / … / 15); wins needed is derived:
+A series is two independent numbers, no longer one "best of N" choice:
 
-```
-wins = rounds ÷ 2 + 1
-```
+| Setting | `a.maxRounds` | `a.winsNeeded` | Outcome |
+| --- | --- | --- | --- |
+| Single round | 1 | 1 | over after one round |
+| Best of three | 3 | 2 | first to 2 takes it; at 1-1 the third round decides |
+| Best of seven | 7 | 4 | the classic BO7 |
+| Three wins out of three | 3 | 3 | must sweep; at 2-1 the cap decides on score |
+| Two rounds, one win | 2 | 1 | win once and go; may only run one round |
 
-| Rounds | Wins | Common name |
-| --- | --- | --- |
-| 1 | 1 | BO1 |
-| 3 | 2 | BO3 |
-| 5 | 3 | BO5 |
-| 7 | 4 | BO7 |
-| 15 | 8 | BO15 |
+**Reaching the cap ends the match.** Once `a.maxRounds` rounds have been played it stops regardless
+of the score: somebody at the line wins, nobody at the line and the highest score wins, a tie is a
+draw (journaled as `SERIES_DRAWN`, announced as "a draw").
 
-The ceiling is 15 rounds / 8 wins: beyond that a duel runs over an hour, and this mod is "a match
-you can have any time on a survival server", not a league.
+The ceiling is 15 rounds: beyond that a duel runs over an hour, and this mod is "a match you can have
+any time on a survival server", not a league.
 
 ## 5. Negotiation and freeze
 
-1. The challenger creates a session (`DRAFT`); rules take defaults, and `c.mode` is pre-selected by
-   `/pvpocket duel … legacy`.
-2. "Send proposal" delivers the current rules, bumps the revision, and moves to `NEGOTIATING`.
-3. "Accept and start" means agreeing to the rules **and to both loadouts**. The combined loadout
-   fingerprint is recorded; if either side changes their loadout afterwards the agreement lapses and
-   the panel reopens.
-4. On acceptance the rules freeze (`FROZEN`) and the teleport/snapshot phase begins.
+1. The challenger runs `/pvpocket duel`, which creates a session (`DRAFT`) with default rules and
+   opens the panel on the **roster page** (tab 0).
+2. The challenger draws the cards: two by default, four at most, each with `b.teamSize` slots, and a
+   `+` in the corner opens the player picker. An empty card means that side does not play; at least
+   two non-empty cards are needed to send.
+3. "Send invite" sends the roster and the current rules together. The server checks the side count
+   (2–4), the per-side cap, the player cap, duplicates, that everyone is online and idle, and that
+   the sender is on the roster — **against the rules that were just sent**, not the defaults the
+   draft opened with. Empty cards are compacted away, and the session moves to `NEGOTIATING`.
+4. Everybody invited gets the panel at once, also opening on the roster page, where they can see
+   which side they are on and who has not answered yet (grey = waiting, green = accepted, red =
+   declined). The roster is read-only for reviewers.
+5. "Accept and start" means agreeing to the rules **and to everybody's loadout**. The combined
+   loadout fingerprint is recorded; if anyone changes their loadout afterwards the agreement lapses
+   and the panel reopens.
+6. **The match starts when everybody has answered and at least two non-empty sides remain.** A
+   refusal is not a cancellation — it takes that player off the roster: invite four, one declines,
+   and the remaining three still play as a 2v1. Only when fewer than two non-empty sides are left is
+   the whole invite voided.
+7. The rules freeze (`FROZEN`) and the teleport/snapshot phase begins.
 
 Every snapshot carries `rulesRevision`, shown in the panel's top right. Each "send proposal" bumps
 it and invalidates earlier agreement — the only defence against "I agreed to the previous version".

@@ -68,6 +68,42 @@ public final class PvTheme {
     // from the amber accent at a glance, without adding a second brand colour to the panels.
     public static final int LIVE = 0xFF4E9E6A;
 
+    /**
+     * The four side colours, as wool.
+     *
+     * <p>Red, blue, green and yellow, and the values are the wool colours rather than the chat
+     * colours: a player who is told "the red team" has to be able to point at a red block on the
+     * ground and have it match what the panel showed them. They are dark, so anything that has to be
+     * read as text uses {@link #teamText} instead — see {@link #teamInk}.</p>
+     */
+    public static final int[] TEAM_WOOL = {
+            0xFFA12722, // red
+            0xFF35399D, // blue
+            0xFF546D1B, // green
+            0xFFF8C627, // yellow
+    };
+
+    public static int team(int index) {
+        return TEAM_WOOL[Math.floorMod(index, TEAM_WOOL.length)];
+    }
+
+    /**
+     * The wool colour lifted until it can carry text on a near-black panel.
+     *
+     * <p>Wool red is {@code #A12722} — 4.6:1 on {@link #PANEL}, which is not enough for a 9px label.
+     * Blending half-way to white keeps the hue recognisable as the same wool and lands around 9:1.
+     * The card's colour bar uses the raw wool value, so the two never disagree about which side a
+     * card is; only the legibility differs.</p>
+     */
+    public static int teamInk(int index) {
+        return mix(team(index), 0xFFFFFFFF, 0.52F);
+    }
+
+    /** The wool colour washed onto a surface, for a card that should read as "this side's". */
+    public static int teamWash(int index, int surface, float amount) {
+        return mix(surface, team(index), amount);
+    }
+
     // Metrics
     public static final int PAD = 8;
     public static final int PAD_L = 16;

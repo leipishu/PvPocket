@@ -56,7 +56,8 @@ public final class PvPocketNetworking {
             context.server().execute(() -> {
                 SessionManager sessions = SessionManager.get();
                 if (sessions != null) {
-                    sessions.onRulesSubmit(player, payload.action(), payload.rules());
+                    sessions.onRulesSubmit(player, payload.action(), payload.rules(),
+                            payload.roster());
                 }
             });
         });

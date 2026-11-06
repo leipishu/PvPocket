@@ -18,7 +18,7 @@ import net.minecraft.util.Identifier;
  *
  * <p>Field layout, one row per line:</p>
  * <pre>
- *   sessionId | mapLabel | stageLabel | round | bestOf | leftScore:rightScore | flags | spectators | players
+ *   sessionId | mapLabel | stageLabel | round | maxRounds | leftScore:rightScore | flags | spectators | players
  *   players   = name:uuid,name:uuid
  * </pre>
  *

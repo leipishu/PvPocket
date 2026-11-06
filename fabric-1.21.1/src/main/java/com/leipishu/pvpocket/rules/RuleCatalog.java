@@ -36,9 +36,12 @@ public final class RuleCatalog {
 
     static {
         // A. 对局结构
-        // 赛制按"局数"选择，胜场由局数推导（局数 ÷ 2 + 1）。上限 15 局 8 胜：再多的话一场决斗
-        // 会超过一小时，而模组的定位是"生存服里随时能打的一场"，不是联赛。
-        add(RuleDefinition.enumOf("a.series", RuleGroup.A, 1, choices("a.series", 8)));
+        // 赛制拆成两个数字：最多打几局、先赢几局获胜。原先是一个"1/3/5…15 局"的选项，胜场由
+        // 局数推导（局数 ÷ 2 + 1），只能表达"奇数局、必须有人先到线"。拆开之后 7 局 4 胜仍然
+        // 是 7 和 4，但"打满仍然没人到线"这种情况也能表达了——按最高分定胜负，并列即平局。
+        // 上限 15 局：再多一场决斗会超过一小时，而模组的定位是"生存服里随时能打的一场"。
+        add(RuleDefinition.intRange("a.maxRounds", RuleGroup.A, 1, 15, 1, 3));
+        add(RuleDefinition.intRange("a.winsNeeded", RuleGroup.A, 1, 15, 1, 2));
         add(RuleDefinition.enumOf("a.roundLimit", RuleGroup.A, 5, choices("a.roundLimit", 6)));
         add(RuleDefinition.enumOf("a.timeoutVerdict", RuleGroup.A, 0, choices("a.timeoutVerdict", 3)));
         add(RuleDefinition.intRange("a.countdown", RuleGroup.A, 0, 30, 1, 5));
@@ -46,9 +49,11 @@ public final class RuleCatalog {
         add(RuleDefinition.multi("a.winConditions", RuleGroup.A, 0b1111, choices("a.winConditions", 4)));
 
         // B. 参与者
-        add(RuleDefinition.intRange("b.teamCount", RuleGroup.B, 1, 4, 1, 2));
-        add(RuleDefinition.intRange("b.teamSize", RuleGroup.B, 1, 4, 1, 1));
-        add(RuleDefinition.intRange("b.maxPlayers", RuleGroup.B, 2, 16, 1, 4));
+        // 队伍数量不再是一条规则：谁和谁一队由发起方在面板的「玩家」页里点出来，队伍数就是非空
+        // 卡片的数量，2–4 之间由界面自己夹住。b.teamSize 因此换了含义——它现在是每张卡片画几个
+        // 槽位，也就是每队的人数上限；4 队 × 5 人 = 20，这就是 MAX_PARTICIPANTS 的由来。
+        add(RuleDefinition.intRange("b.teamSize", RuleGroup.B, 1, 5, 1, 5));
+        add(RuleDefinition.intRange("b.maxPlayers", RuleGroup.B, 2, 20, 1, 20));
         add(RuleDefinition.toggle("b.friendlyFire", RuleGroup.B, false));
         // 默认开启。规格里写的是关闭，那是在观战还只是一个开关、没有实现的时候定的；现在它有完整
         // 的进出流程（旁观模式 + 相机绑定 + 退出复位），关掉它反而让功能发现不了。旁观者不影响对局：

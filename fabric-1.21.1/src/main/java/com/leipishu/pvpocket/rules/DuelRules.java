@@ -128,7 +128,7 @@ public final class DuelRules {
     }
 
     /**
-     * One-line summary for chat: only the rules that shape the match, not all thirty-six.
+     * One-line summary for chat: only the rules that shape the match, not all thirty-nine.
      *
      * <p>Assembled out of translatable pieces rather than formatted into a string. Every caller is
      * either the server (which has no language and must hand the client a {@link Text}) or a client
@@ -136,17 +136,20 @@ public final class DuelRules {
      * somebody speaking the other.</p>
      */
     public MutableText summaryText() {
-        RuleDefinition series = RuleCatalog.byId("a.series");
         RuleDefinition mode = RuleCatalog.byId("c.mode");
         RuleDefinition sizeX = RuleCatalog.byId("e.sizeX");
         RuleDefinition sizeZ = RuleCatalog.byId("e.sizeZ");
+        // Clamped here as well as in the panel: "win 4 of at most 3" is a state the sliders can be
+        // left in for a frame, and a summary line that promises an unreachable target is worse than
+        // no summary at all.
+        int maxRounds = get("a.maxRounds");
+        int winsNeeded = Math.min(get("a.winsNeeded"), maxRounds);
         return Text.empty()
-                .append(series.formatText(get("a.series")))
+                .append(PvLang.t("pvpocket.rule.series.short", maxRounds, winsNeeded))
                 .append(Text.literal(" · "))
                 .append(mode.formatText(get("c.mode")))
                 .append(Text.literal(" · "))
-                .append(PvLang.t("pvpocket.rule.b.teamShape",
-                        get("b.teamCount"), get("b.teamSize")))
+                .append(PvLang.t("pvpocket.rule.b.teamSlot", get("b.teamSize")))
                 .append(Text.literal(" · "))
                 .append(PvLang.t("pvpocket.rule.e.size", sizeX.formatText(get("e.sizeX")),
                         sizeZ.formatText(get("e.sizeZ"))))

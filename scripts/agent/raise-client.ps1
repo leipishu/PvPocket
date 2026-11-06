@@ -5,7 +5,13 @@ param(
     # ended up behind a maximised editor, still reports a plausible GetWindowRect — so a capture
     # "succeeds" and writes a picture of the desktop wallpaper. Nothing in that failure names the
     # window, which is why this prints visibility and iconic state instead of just restoring.
-    [string]$Username = "Dev1"
+    [string]$Username = "Dev1",
+
+    # Optional cascade position. Several dev clients all open at the same default spot, so without
+    # this only the last one raised is actually readable. Pass -X/-Y to spread them out; the size is
+    # never touched (a geometry change on a live GLFW client has taken the client down before).
+    [int]$X = -1,
+    [int]$Y = -1
 )
 
 Add-Type @"
@@ -42,6 +48,13 @@ if ([RaiseWin]::IsIconic($hwnd)) {
 }
 [void][RaiseWin]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0013)
 Start-Sleep -Milliseconds 300
+
+# SWP_NOSIZE (0x0001) | SWP_NOZORDER (0x0004) | SWP_NOACTIVATE (0x0010) — move only.
+if ($X -ge 0 -and $Y -ge 0) {
+    [void][RaiseWin]::SetWindowPos($hwnd, [IntPtr]::Zero, $X, $Y, 0, 0, 0x0015)
+    Start-Sleep -Milliseconds 200
+}
+
 [void][RaiseWin]::SetForegroundWindow($hwnd)
 Start-Sleep -Milliseconds 600
 

@@ -165,7 +165,7 @@ final class Spectators {
                     .append(mapId(session)).append('|')
                     .append(session.stage.name()).append('|')
                     .append(session.round).append('|')
-                    .append(session.bestOf).append('|')
+                    .append(session.maxRounds).append('|')
                     .append(leftScore(session)).append(':').append(rightScore(session)).append('|')
                     .append(flags).append('|')
                     .append(watchersOf(session.id).size()).append('|')

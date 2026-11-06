@@ -9,6 +9,7 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvScrollPane;
 import com.leipishu.pvpocket.client.gui.PvSlider;
+import com.leipishu.pvpocket.client.gui.PvStepper;
 import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
@@ -57,6 +58,8 @@ public class RuleScreen extends PvScreen {
     private DuelRules edited;
     private PvTabs tabs;
     private PvScrollPane pane;
+    private RosterBoard board;
+    private PvButton addTeamButton;
     private int footerTextRight;
     private boolean submitted;
 
@@ -67,10 +70,20 @@ public class RuleScreen extends PvScreen {
         this.edited = incoming.copy();
     }
 
+    /** True while the roster can still be edited, i.e. before the invite has been sent. */
+    private boolean rosterEditable() {
+        return payload.role() == RulesOpenPayload.ROLE_DRAFT;
+    }
+
     // ------------------------------------------------------------------ layout
 
     @Override
     protected void init() {
+        // init() also runs on resize, so everything that survives a resize has to be carried over
+        // rather than rebuilt: the open tab and the roster the player has been assembling. Losing
+        // the cards because the window changed size is the kind of bug that only shows up on a
+        // second monitor, which is exactly when nobody is looking for it.
+        int keepTab = tabs == null ? 0 : tabs.selected();
         roots.clear();
         layoutPanel(MAX_W, MAX_H);
 
@@ -79,7 +92,9 @@ public class RuleScreen extends PvScreen {
         int paneX = panelX + 12 + TABS_W + 10;
         int paneW = panelW - (paneX - panelX) - 12;
 
-        tabs = PvTabs.ofRules(groups, 0);
+        // The roster is tab 0 and the opening tab: the first question of an invite is who is in it,
+        // and the rules only mean anything once there is a match to apply them to.
+        tabs = PvTabs.ofPanel(groups, PvLang.str("pvpocket.gui.roster.tab"), keepTab);
         tabs.x = panelX + 12;
         tabs.y = contentTop;
         tabs.width = TABS_W;
@@ -95,6 +110,37 @@ public class RuleScreen extends PvScreen {
         pane.gap = 2;
         roots.add(pane);
 
+        if (board == null) {
+            board = new RosterBoard(rosterEditable(), edited.get("b.teamSize"));
+            board.listener(new RosterBoard.Listener() {
+                @Override
+                public void onAddPlayer(int team) {
+                    openPicker(team);
+                }
+
+                @Override
+                public void onRemovePlayer(int team, int index) {
+                    board.removePlayer(team, index);
+                }
+
+                @Override
+                public void onAddTeam() {
+                    board.addTeam();
+                    buildRows();
+                }
+
+                @Override
+                public void onRemoveTeam(int team) {
+                    board.removeTeam(team);
+                    buildRows();
+                }
+            });
+        }
+        board.x = paneX;
+        board.y = contentTop;
+        board.width = paneW;
+        board.height = contentH;
+
         buildRows();
         buildFooter();
         setFocus(null);
@@ -104,7 +150,17 @@ public class RuleScreen extends PvScreen {
         if (pane == null || tabs == null) {
             return;
         }
+        roots.remove(board);
+        if (addTeamButton != null) {
+            roots.remove(addTeamButton);
+        }
         pane.clear();
+
+        if (tabs.group() == null) {
+            buildRosterPage();
+            validateFocus();
+            return;
+        }
         for (RuleDefinition def : RuleCatalog.of(tabs.group())) {
             pane.add(new RuleRow(def, createControl(def), incoming.get(def.id), true));
         }
@@ -112,11 +168,112 @@ public class RuleScreen extends PvScreen {
         validateFocus();
     }
 
+    /**
+     * The roster page: the cards, plus an "add team" button under them.
+     *
+     * <p>The add-team control is a real button rather than a hotspot inside the board so it is a
+     * Tab stop like everything else in the panel — the board's per-card controls are pointer-only,
+     * and a page where nothing is reachable from the keyboard would be a regression against the rest
+     * of the interface.</p>
+     */
+    private void buildRosterPage() {
+        // The slot count is a rule (b.teamSize), so the cards follow the slider on page B.
+        board.setSlots(edited.get("b.teamSize"));
+        // Seeded exactly once, and "once" is read off the board itself rather than kept in a flag:
+        // init() runs again on resize and a flag would have to be reset in the right places, while
+        // an empty board can only mean "never seeded" (the board refuses to drop below two cards).
+        if (board.teamCount() == 0) {
+            seedBoard();
+        }
+        board.visible = true;
+        roots.add(board);
+
+        if (rosterEditable()) {
+            int cardsBottom = board.y + board.preferredHeight() + 8;
+            addTeamButton = new PvButton(PvLang.str("pvpocket.gui.roster.add_team"),
+                    PvButton.Style.NORMAL, () -> {
+                board.addTeam();
+                buildRows();
+            }).size(84, PvTheme.BTN_H);
+            addTeamButton.x = board.x;
+            addTeamButton.y = Math.min(cardsBottom, board.y + board.height - PvTheme.BTN_H);
+            addTeamButton.enabled = board.teamCount() < 4;
+            roots.add(addTeamButton);
+        }
+    }
+
+    /** Rebuilds the cards from what the server sent: one card per side, players in team order. */
+    private void seedBoard() {
+        board.clear();
+        java.util.TreeMap<Integer, java.util.List<Slot>> byTeam = new java.util.TreeMap<>();
+        int teams = 0;
+        for (Slot slot : slots()) {
+            byTeam.computeIfAbsent(slot.team(), k -> new java.util.ArrayList<>()).add(slot);
+            teams = Math.max(teams, slot.team() + 1);
+        }
+        // Two cards is the floor even with one player in the list: the draft opens with two empty
+        // cards, and a proposal that arrived with a side nobody is on still has to draw that side.
+        board.addTeam();
+        board.addTeam();
+        for (int team = 0; team < Math.max(teams, 2); team++) {
+            if (team >= board.teamCount()) {
+                board.addTeam();
+            }
+            java.util.List<Slot> members = byTeam.get(team);
+            if (members != null) {
+                for (Slot member : members) {
+                    board.addPlayer(team, member.name(), member.uuid(), member.state());
+                }
+            }
+        }
+    }
+
+    private void openPicker(int team) {
+        java.util.List<String[]> candidates = new java.util.ArrayList<>();
+        if (!payload.candidates().isEmpty()) {
+            for (String pair : payload.candidates().split(",")) {
+                String[] id = pair.split("\\|", 2);
+                if (id.length == 2) {
+                    candidates.add(id);
+                }
+            }
+        }
+        // Drop anybody already on a card: the server would refuse them, and a list that offers a
+        // name it is about to reject is a list the player stops trusting.
+        java.util.Set<String> taken = new java.util.HashSet<>();
+        for (java.util.List<RosterBoard.Member> side : board.teams()) {
+            for (RosterBoard.Member member : side) {
+                taken.add(member.uuid);
+            }
+        }
+        candidates.removeIf(entry -> taken.contains(entry[1]));
+
+        PlayerPicker picker = new PlayerPicker(candidates, team + 1);
+        picker.x = 0;
+        picker.y = 0;
+        picker.width = width;
+        picker.height = height;
+        picker.listener(new PlayerPicker.Listener() {
+            @Override
+            public void onPick(String name, String uuid) {
+                board.addPlayer(team, name, uuid);
+                setOverlay(null);
+                buildRows();
+            }
+
+            @Override
+            public void onCancel() {
+                setOverlay(null);
+            }
+        });
+        setOverlay(picker);
+    }
+
     private PvValueControl createControl(RuleDefinition def) {
         int value = edited.get(def.id);
         PvValueControl control = switch (def.kind) {
             case TOGGLE -> new PvToggle(value != 0);
-            case INT -> new PvSlider(def, value);
+            case INT -> isStepped(def.id) ? new PvStepper(def, value) : new PvSlider(def, value);
             case ENUM -> {
                 PvCycle cycle = new PvCycle(def, value);
                 if ("e.template".equals(def.id)) {
@@ -128,12 +285,47 @@ public class RuleScreen extends PvScreen {
             case FIXED -> null;
         };
         if (control != null) {
-            control.onChange(v -> edited.set(def.id, v));
+            // One listener, not two: onChange replaces rather than chains, so the "write the value
+            // back" step and the "keep the two series numbers consistent" step have to be the same
+            // callback or the second silently drops the first.
+            control.onChange(v -> {
+                edited.set(def.id, v);
+                if ("a.maxRounds".equals(def.id)) {
+                    clampWinsNeeded();
+                }
+            });
             if ("e.template".equals(def.id)) {
                 control.onChange(this::pickTemplate);
             }
         }
         return control;
+    }
+
+    /**
+     * The two series numbers are steppers, not sliders.
+     *
+     * <p>They are exact counts a player thinks in — "7 rounds, first to 4" — and the range is 1..15,
+     * so a slider makes landing on exactly 4 a matter of pixel aim. Everything else in the panel
+     * stays a slider because everything else is a quantity you feel your way to.</p>
+     */
+    private static boolean isStepped(String ruleId) {
+        return "a.maxRounds".equals(ruleId) || "a.winsNeeded".equals(ruleId);
+    }
+
+    /**
+     * Keeps "win 4 of at most 3" from being a state the panel can sit in.
+     *
+     * <p>Lowering the round cap below the win target is a legal thing to do on the way to a new
+     * setting, so the win target follows the cap down instead of the cap being refused. The server
+     * clamps the same pair on arrival — this is what stops the panel from showing a target that
+     * cannot be reached.</p>
+     */
+    private void clampWinsNeeded() {
+        int maxRounds = edited.get("a.maxRounds");
+        if (edited.get("a.winsNeeded") > maxRounds) {
+            edited.set("a.winsNeeded", maxRounds);
+            MinecraftClient.getInstance().execute(this::buildRows);
+        }
     }
 
     /**
@@ -174,7 +366,17 @@ public class RuleScreen extends PvScreen {
         int right = panelX + panelW - 12;
 
         PvButton primary;
-        if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
+        if (payload.role() == RulesOpenPayload.ROLE_DRAFT) {
+            // Draft: nothing has been sent yet, so the only decisions are "send it" and "drop it".
+            // No reject and no revert — there is no earlier revision to go back to.
+            primary = new PvButton(PvLang.str("pvpocket.gui.roster.button.send"),
+                    PvButton.Style.PRIMARY,
+                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(88, PvTheme.BTN_H);
+            right = place(primary, right, buttonY);
+            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
+                    PvButton.Style.DANGER,
+                    this::close).size(56, PvTheme.BTN_H), right, buttonY);
+        } else if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(80, PvTheme.BTN_H);
@@ -244,15 +446,25 @@ public class RuleScreen extends PvScreen {
         int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
         // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
         // "who am I fighting", but in a 2v2 the question that actually needs answering before
-        // agreeing is "who is on my side" — and the round-robin deal makes that unguessable from the
-        // invite order once b.teamCount has been touched. It gets its own sentence rather than
-        // reusing the "Duel with %s" one, which would read "Duel with 1队 Dev1+Dev3 · 2队 ...".
-        String teams = teamsSummary();
-        String subtitle = !teams.isEmpty()
-                ? PvLang.str("pvpocket.gui.rule.subtitle.teams", teams)
-                : reviewer
-                ? PvLang.str("pvpocket.gui.rule.subtitle.reviewer", otherLabel())
-                : PvLang.str("pvpocket.gui.rule.subtitle.proposer", otherLabel());
+        // agreeing is "who is on my side" — and the sides are drawn by hand now, so the invite order
+        // says nothing about them. It gets its own sentence rather than reusing the "Duel with %s"
+        // one, which would read "Duel with 1队 Dev1+Dev3 · 2队 ...".
+        String subtitle;
+        if (rosterEditable()) {
+            // Nothing has been sent yet, so there is no counterpart to name. The subtitle carries the
+            // shape of the roster being built instead — the one fact that changes as names land on
+            // cards, and the one that decides whether "发送" can go ahead at all.
+            subtitle = PvLang.str("pvpocket.gui.roster.subtitle",
+                    board == null ? 0 : board.playingTeams(),
+                    board == null ? 0 : board.playerCount());
+        } else {
+            String teams = teamsSummary();
+            subtitle = !teams.isEmpty()
+                    ? PvLang.str("pvpocket.gui.rule.subtitle.teams", teams)
+                    : reviewer
+                    ? PvLang.str("pvpocket.gui.rule.subtitle.reviewer", otherLabel())
+                    : PvLang.str("pvpocket.gui.rule.subtitle.proposer", otherLabel());
+        }
 
         // The revision is a chip rather than loose accent text: at 12px of amber, a bare "v0" read as
         // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
@@ -296,7 +508,6 @@ public class RuleScreen extends PvScreen {
         }
         PvDraw.text(ctx, tr, PvDraw.fit(tr, groupHint(tabs.group()), Math.max(0, hintMax)),
                 pane.x, panelY + 40, PvTheme.TEXT_MUTED);
-
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
         drawFooterText(ctx, tr, reviewer);
     }
@@ -306,7 +517,11 @@ public class RuleScreen extends PvScreen {
         int maxW = footerTextRight - panelX - 16;
         int changes = changeCount();
 
-        String left = reviewer
+        // The draft footer talks about the roster, not about the other side: there is no other side
+        // yet, and "you are proposing to nobody" would be a sentence the player has to decode.
+        String left = rosterEditable()
+                ? PvLang.str("pvpocket.gui.roster.footer")
+                : reviewer
                 ? PvLang.str("pvpocket.gui.rule.footer.reviewer")
                 : PvLang.str("pvpocket.gui.rule.footer.proposer");
         int color = PvTheme.TEXT_MUTED;
@@ -318,11 +533,46 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
+     * One player as the server describes them.
+     *
+     * <p>The wire form is {@code name|uuid:count:team:state}. The uuid rides inside the name field
+     * because the payload's participant list was already at the codec's field budget and a fourth
+     * field would have cost a new payload; the split is done here once so that nothing downstream
+     * has to remember which colon is which.</p>
+     */
+    private record Slot(String name, String uuid, int count, int team, int state) {
+    }
+
+    /** The participant list, parsed. Malformed records are skipped rather than fatal. */
+    private java.util.List<Slot> slots() {
+        java.util.List<Slot> out = new java.util.ArrayList<>();
+        for (String record : payload.loadoutCounts().split(",")) {
+            String[] parts = record.split(":");
+            if (parts.length < 4) {
+                continue;
+            }
+            String[] id = parts[0].split("\\|", 2);
+            if (id.length < 2) {
+                continue;
+            }
+            try {
+                out.add(new Slot(id[0], id[1], Integer.parseInt(parts[1]),
+                        Integer.parseInt(parts[2]), Integer.parseInt(parts[3])));
+            } catch (NumberFormatException e) {
+                // A record the server did not write in this format is one this panel cannot show;
+                // dropping it is better than drawing a row whose numbers came from nothing.
+            }
+        }
+        return out;
+    }
+
+    /**
      * The loadout tag, built from the numbers the server sent.
      *
      * <p>{@code Dev1 8 · Dev2 9 · agreed 1/2}, with the participant list encoded as
-     * {@code name:count:team} triples. Assembled on the client so the separator and the words match
-     * the reader's language, and so the panel does not have to parse a sentence it did not write.</p>
+     * {@code name|uuid:count:team:state}. Assembled on the client so the separator and the words
+     * match the reader's language, and so the panel does not have to parse a sentence it did not
+     * write.</p>
      *
      * <p>Only the counts appear here. The side each player landed on is a separate question with a
      * separate answer — see {@link #teamsSummary()} — because putting both on one line makes it too
@@ -331,15 +581,11 @@ public class RuleScreen extends PvScreen {
      */
     private String loadoutSummary() {
         StringBuilder counts = new StringBuilder();
-        for (String pair : payload.loadoutCounts().split(",")) {
-            String[] parts = pair.split(":");
-            if (parts.length < 2) {
-                continue;
-            }
+        for (Slot slot : slots()) {
             if (counts.length() > 0) {
                 counts.append(" · ");
             }
-            counts.append(parts[0]).append(' ').append(parts[1]);
+            counts.append(slot.name()).append(' ').append(slot.count());
         }
         if (counts.length() == 0) {
             return "";
@@ -348,18 +594,6 @@ public class RuleScreen extends PvScreen {
                 counts.toString(), payload.agreed(), payload.total());
     }
 
-    /**
-     * Who is on which side, {@code "1队 Dev1+Dev3 · 2队 Dev2+Dev4"}.
-     *
-     * <p>Read out of the same {@code name:count:team} triples the loadout tag uses, so it costs no
-     * extra payload field and can never disagree with it. This is the line that makes changing
-     * {@code b.teamCount} verifiable: the deal is round-robin over the invite order, so "3 sides"
-     * silently re-shuffles everybody, and without a preview the proposer is agreeing to a roster
-     * they have never seen.</p>
-     *
-     * <p>Empty for a one-on-one, where the opponent's name already says everything and a "1队 Dev1 ·
-     * 2队 Dev2" prefix would be noise.</p>
-     */
     /** The opponent's name, or the reader's word for "opponent" when there is nobody to name. */
     private String otherLabel() {
         return payload.otherName().isEmpty()
@@ -367,29 +601,30 @@ public class RuleScreen extends PvScreen {
                 : payload.otherName();
     }
 
+    /**
+     * Who is on which side, {@code "1队 Dev1+Dev3 · 2队 Dev2+Dev4"}.
+     *
+     * <p>Read out of the same records the loadout tag uses, so it costs no extra payload field and
+     * can never disagree with it. This is the line that makes the roster verifiable: the sides are
+     * drawn by hand now, so without a preview the reviewer is agreeing to a match-up they have never
+     * seen.</p>
+     *
+     * <p>Empty for a one-on-one, where the opponent's name already says everything and a "1队 Dev1 ·
+     * 2队 Dev2" prefix would be noise.</p>
+     */
     private String teamsSummary() {
         if (payload.total() <= 2) {
             return "";
         }
-        // Team index -> members, in the order the server listed them (which is the join order, so
+        // Team index -> members, in the order the server listed them (which is the roster order, so
         // the first name on a side is the one whose loadout that side fights with under "每队统一").
         java.util.Map<Integer, StringBuilder> byTeam = new java.util.TreeMap<>();
-        for (String pair : payload.loadoutCounts().split(",")) {
-            String[] parts = pair.split(":");
-            if (parts.length < 3) {
-                continue;
-            }
-            int team;
-            try {
-                team = Integer.parseInt(parts[2]);
-            } catch (NumberFormatException e) {
-                continue;
-            }
-            StringBuilder names = byTeam.computeIfAbsent(team, k -> new StringBuilder());
+        for (Slot slot : slots()) {
+            StringBuilder names = byTeam.computeIfAbsent(slot.team(), k -> new StringBuilder());
             if (names.length() > 0) {
                 names.append('+');
             }
-            names.append(parts[0]);
+            names.append(slot.name());
         }
         StringBuilder out = new StringBuilder();
         for (java.util.Map.Entry<Integer, StringBuilder> e : byTeam.entrySet()) {
@@ -410,7 +645,10 @@ public class RuleScreen extends PvScreen {
      * is <em>inside</em> it.</p>
      */
     private static String groupHint(RuleGroup group) {
-        return PvLang.str(group.hintKey);
+        // The roster tab has no rule group: it is the page that decides who the rules apply to.
+        return group == null
+                ? PvLang.str("pvpocket.gui.roster.hint")
+                : PvLang.str(group.hintKey);
     }
 
     // ------------------------------------------------------------------ actions
@@ -427,16 +665,28 @@ public class RuleScreen extends PvScreen {
 
     private void revert() {
         edited = incoming.copy();
-        int tab = tabs == null ? 0 : tabs.selected();
+        // A draft's roster is part of what was "received", so reverting has to take the cards back
+        // too — otherwise the button would undo the rules and leave the sides as they were drawn,
+        // which is neither the incoming state nor the current one.
+        if (rosterEditable() && board != null) {
+            board.clear();
+        }
         roots.clear();
         init();
-        if (tab > 0) {
-            tabs.select(tab);
-        }
     }
 
     private void submit(int action) {
         if (submitted) {
+            return;
+        }
+        if (rosterEditable()) {
+            // A draft stays open after sending. The server validates the roster against who is
+            // actually online and against the rules that were just sent, and a refusal has to leave
+            // the cards exactly where they are so the player can fix the one thing that is wrong —
+            // closing the panel here would throw away an invite that took five clicks to assemble
+            // and give the error message nowhere to land. A successful send replaces this screen
+            // with the proposal panel a tick later, so nothing is left hanging.
+            send(action);
             return;
         }
         submitted = true;
@@ -448,7 +698,11 @@ public class RuleScreen extends PvScreen {
         if (!ClientPlayNetworking.canSend(RulesSubmitPayload.ID)) {
             return;
         }
-        ClientPlayNetworking.send(new RulesSubmitPayload(action, edited.encode()));
+        // The roster rides on every submit and is empty once the invite is out: the server ignores
+        // it outside the draft, and sending it again from a reviewer would be a second way to
+        // rearrange sides that the reviewer has no business having.
+        String roster = rosterEditable() ? board.encode() : "";
+        ClientPlayNetworking.send(new RulesSubmitPayload(action, edited.encode(), roster));
     }
 
     /**

@@ -20,8 +20,17 @@ public final class DuelSession {
 
     /** "modern" or "legacy", derived from c.mode. */
     public String mode = "modern";
-    /** Rounds in the series. Odd, 1..15; 15 means "first to 8". Derived from a.series. */
-    public int bestOf = 1;
+    /**
+     * How many rounds the whole series may run, 1..15. Derived from {@code a.maxRounds}.
+     *
+     * <p>Was {@code bestOf}, a number that could only ever be odd because the win count was derived
+     * from it ({@code bestOf / 2 + 1}). The two are separate rules now, so this is just a cap: the
+     * series ends early when somebody reaches {@link #winsNeeded}, and ends on the cap when nobody
+     * does.</p>
+     */
+    public int maxRounds = 1;
+    /** Round wins needed to take the series, 1..{@link #maxRounds}. Derived from {@code a.winsNeeded}. */
+    public int winsNeeded = 1;
     /** 1-based index of the round currently being played or just played. */
     public int round;
 
@@ -42,12 +51,15 @@ public final class DuelSession {
     public List<Participant> participants = new ArrayList<>();
 
     /**
-     * How many sides this series has, derived from {@code b.teamCount} when the match starts.
+     * How many sides this series has, derived from the roster when the match starts.
      *
      * <p>Stored rather than recomputed because the rule set is frozen at start but the session record
      * outlives it: the journal, the restore path and the result announcement all need to know how
-     * many sides there were, and a rule that was edited mid-negotiation must not be able to
+     * many sides there were, and a roster that was edited mid-negotiation must not be able to
      * retroactively change the shape of a match that already ran.</p>
+     *
+     * <p>This is the number of <em>cards</em> the proposer put on the table, including any left
+     * empty. A side with nobody on it does not play — see {@link #playingTeams()}.</p>
      */
     public int teamCount = 2;
 
@@ -109,7 +121,8 @@ public final class DuelSession {
         Participant me = participant(uuid);
         List<Participant> out = new ArrayList<>();
         for (Participant p : participants) {
-            if (!p.uuid.equals(uuid) && (me == null || p.teamIndex() != me.teamIndex())) {
+            if (!p.uuid.equals(uuid) && !p.rejected
+                    && (me == null || p.teamIndex() != me.teamIndex())) {
                 out.add(p);
             }
         }
@@ -121,6 +134,41 @@ public final class DuelSession {
         for (Participant p : participants) {
             if (p.teamIndex() == team) {
                 out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Members of a side who are actually in the match — declined invites excluded.
+     *
+     * <p>Two lists rather than one because a rejection is not a removal. The declined player stays
+     * on the record so the journal can say who said no and the panel can grey them out, but every
+     * question that means "who is playing" has to ask this one instead.</p>
+     */
+    public List<Participant> activeMembers(int team) {
+        List<Participant> out = new ArrayList<>();
+        for (Participant p : participants) {
+            if (p.teamIndex() == team && !p.rejected) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Sides with at least one player left, in card order.
+     *
+     * <p>An empty card is not an error and not a side: the proposer is allowed to put four cards on
+     * the table and only fill two, and the two that were filled are the match. This is the list that
+     * decides whether a roster can start at all — fewer than two entries and there is nobody to
+     * fight.</p>
+     */
+    public List<Integer> playingTeams() {
+        List<Integer> out = new ArrayList<>();
+        for (int team = 0; team < Math.max(1, teamCount); team++) {
+            if (!activeMembers(team).isEmpty()) {
+                out.add(team);
             }
         }
         return out;
@@ -143,9 +191,9 @@ public final class DuelSession {
      */
     public List<Integer> survivingTeams() {
         List<Integer> out = new ArrayList<>();
-        for (int team = 0; team < Math.max(1, teamCount); team++) {
-            for (Participant p : participants) {
-                if (p.teamIndex() == team && !p.eliminated) {
+        for (int team : playingTeams()) {
+            for (Participant p : activeMembers(team)) {
+                if (!p.eliminated) {
                     out.add(team);
                     break;
                 }

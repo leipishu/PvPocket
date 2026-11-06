@@ -21,6 +21,9 @@ import net.minecraft.util.Identifier;
  *       {@code name|uuid}: {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"}.</li>
  * </ul>
  *
+ * <p>{@code maxRounds} is the cap the series runs to, not a best-of: the win count is its own
+ * field, so "3 rounds, first to 2" and "3 rounds, first to 3" are both expressible.
+ *
  * <p>Player names cannot contain {@code ,}, {@code |} or {@code ;} and uuids cannot contain any of
  * them either, so the format is unambiguous without escaping, and the payload stays four scalars
  * instead of dragging a generic collection codec through {@link PacketCodec#tuple}.</p>
@@ -30,7 +33,7 @@ import net.minecraft.util.Identifier;
  * void, and whenever a player leaves the arena.</p>
  */
 public record MatchHudPayload(boolean active,
-                              int round, int bestOf, int winsNeeded,
+                              int round, int maxRounds, int winsNeeded,
                               String scores, String teams)
         implements CustomPayload {
 
@@ -42,7 +45,7 @@ public record MatchHudPayload(boolean active,
             (value, buf) -> {
                 buf.writeBoolean(value.active);
                 buf.writeVarInt(value.round);
-                buf.writeVarInt(value.bestOf);
+                buf.writeVarInt(value.maxRounds);
                 buf.writeVarInt(value.winsNeeded);
                 buf.writeString(value.scores);
                 buf.writeString(value.teams);

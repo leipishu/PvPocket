@@ -23,8 +23,17 @@ import net.minecraft.util.Identifier;
 public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details)
         implements CustomPayload {
 
+    /**
+     * The three panels one screen can be.
+     *
+     * <p>{@link #ROLE_DRAFT} is the odd one: nothing has been sent yet, so the roster is still the
+     * proposer's to draw and there is no counterpart to name or to agree with. It exists as a role
+     * rather than as a separate screen because "who is playing" and "under what rules" are one
+     * decision, made once and sent once.</p>
+     */
     public static final int ROLE_PROPOSER = 0;
     public static final int ROLE_REVIEWER = 1;
+    public static final int ROLE_DRAFT = 2;
 
     /**
      * Everything the panel shows that is not a rule value.
@@ -34,16 +43,21 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
      * the sentence from these numbers instead, in the reader's language.</p>
      *
      * @param otherName     the opponent, for the subtitle
-     * @param loadoutCounts {@code name:items} pairs joined by commas, one per participant. The panel
-     *                      never edits a loadout, and sending the whole thing twice per open would be
-     *                      a lot of bytes to render eight characters
+     * @param loadoutCounts {@code name|uuid:items:team:state} quads joined by commas, one per
+     *                      participant. The uuid rides inside the name field because this record is
+     *                      already at the codec's six-component ceiling; the panel never edits a
+     *                      loadout, and sending the whole thing twice per open would be a lot of
+     *                      bytes to render eight characters
      * @param agreed        how many participants have agreed to the loadout set as it stands
-     * @param total         how many participants there are
+     * @param total         how many participants are still in the match (declined invites excluded)
      * @param busyMaps      bitmask over {@code ArenaMaps.ALL} of maps another duel is standing on,
      *                      so the picker can refuse to select them instead of letting the player
      *                      find out at "accept and start" time
+     * @param candidates    {@code name|uuid} pairs of players the proposer may still add, joined by
+     *                      commas. Empty for reviewers, who cannot edit the roster
      */
-    public record Details(String otherName, String loadoutCounts, int agreed, int total, int busyMaps) {
+    public record Details(String otherName, String loadoutCounts, int agreed, int total, int busyMaps,
+                          String candidates) {
 
         public static final PacketCodec<RegistryByteBuf, Details> CODEC = PacketCodec.tuple(
                 PacketCodecs.STRING, Details::otherName,
@@ -51,6 +65,7 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
                 PacketCodecs.VAR_INT, Details::agreed,
                 PacketCodecs.VAR_INT, Details::total,
                 PacketCodecs.VAR_INT, Details::busyMaps,
+                PacketCodecs.STRING, Details::candidates,
                 Details::new);
     }
 
@@ -83,6 +98,10 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
 
     public int busyMaps() {
         return details.busyMaps();
+    }
+
+    public String candidates() {
+        return details.candidates();
     }
 
     @Override

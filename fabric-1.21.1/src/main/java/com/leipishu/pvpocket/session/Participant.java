@@ -18,6 +18,11 @@ public final class Participant {
      * field, and Gson leaves the initialiser in place, so {@link #teamIndex()} falls back to the
      * spawn index. That keeps an old save readable instead of silently putting both players on the
      * same side of the scoreboard.
+     *
+     * <p>Assigned by the roster the proposer builds in the panel, not dealt by the server. The
+     * round-robin deal that used to live in {@code SessionManager.assignTeams} is gone with it: a
+     * proposer who wants Dev1 and Dev3 on one side can now say so, and the price is that the shape
+     * of the match is a property of the roster rather than of a rule.</p>
      */
     public int team = -1;
 
@@ -25,9 +30,20 @@ public final class Participant {
      * Index within the team, 0-based.
      *
      * <p>Used for one thing: spreading team-mates around their side's spawn pad instead of stacking
-     * them on the same block. Derived from join order, not stored on the wire.</p>
+     * them on the same block. Derived from the order the proposer filled the card in, not stored on
+     * the wire.</p>
      */
     public int member;
+
+    /**
+     * True once this player has declined the invite.
+     *
+     * <p>Terminal, and separate from "has not answered yet": a rejection removes the player from
+     * the match without voiding it, so a four-way invite with one refusal can still start as a 2v1.
+     * A later revision bump must not put a rejected player back into the asking queue, which is why
+     * this is a flag rather than a negative {@code acceptedRevision}.</p>
+     */
+    public boolean rejected;
 
     /**
      * The rule revision this player has accepted, or {@code -1}.
@@ -78,6 +94,26 @@ public final class Participant {
         this.name = name;
         this.spawnIndex = spawnIndex;
         this.team = spawnIndex;
+    }
+
+    /**
+     * A participant placed on a specific side by the roster.
+     *
+     * <p>{@code spawnIndex} is the side as well: the arena has one spawn pad per side, and a player
+     * who is on side 2 stands on pad 2. Keeping them equal here means a session written by this
+     * constructor is readable by every path that predates explicit teams.</p>
+     */
+    public Participant(String uuid, String name, int team, int member) {
+        this.uuid = uuid;
+        this.name = name;
+        this.team = team;
+        this.member = member;
+        this.spawnIndex = team;
+    }
+
+    /** Answered the current revision one way or the other — accepted it, or declined the invite. */
+    public boolean responded(int revision) {
+        return rejected || acceptedRevision == revision;
     }
 
     /** Side index for the scoreboard and for spawn placement. */

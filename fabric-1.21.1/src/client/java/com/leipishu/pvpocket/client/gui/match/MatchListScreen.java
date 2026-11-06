@@ -48,7 +48,7 @@ public class MatchListScreen extends PvScreen {
      * {@link #stageLabel()} are the reader's-language versions, resolved on the client at draw
      * time.</p>
      */
-    public record Entry(String id, String map, String stage, int round, int bestOf,
+    public record Entry(String id, String map, String stage, int round, int maxRounds,
                         String score, int flags, int spectators, List<String> players) {
 
         public boolean spectatable() {
@@ -289,9 +289,9 @@ public class MatchListScreen extends PvScreen {
                     PvTheme.TEXT_MUTED);
         }
         // Round number after the stage chip, where it reads as "which round of that state".
-        if (entry.bestOf() > 1) {
+        if (entry.maxRounds() > 1) {
             PvDraw.text(ctx, tr,
-                    PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.bestOf()),
+                    PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.maxRounds()),
                     chipX + chipW + 6, line1, PvTheme.TEXT_MUTED);
         }
     }

@@ -45,6 +45,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -107,12 +108,15 @@ public final class SessionManager {
     /**
      * Hard ceiling on one session's roster.
      *
-     * <p>Four sides of four is the largest shape the rules allow, so anything above sixteen is a
-     * command that asked for something the panel cannot express. Enforced at invite time so a
-     * {@code @a} selector on a busy server is refused rather than creating a session that could
-     * never start.</p>
+     * <p>Four sides of five is the largest shape the roster panel can draw, so anything above
+     * twenty is a request the interface cannot express. Enforced when the roster is submitted so a
+     * malformed client packet is refused rather than creating a session that could never start.</p>
      */
-    private static final int MAX_PARTICIPANTS = 16;
+    private static final int MAX_PARTICIPANTS = 20;
+
+    /** Sides the roster panel can draw. Below two there is nobody to fight. */
+    private static final int MIN_TEAMS = 2;
+    private static final int MAX_TEAMS = 4;
 
     /** session id + "/" + uuid -> when they crossed out, and the last whole second announced. */
     private record BoundaryExit(long since, int announced) {
@@ -941,54 +945,34 @@ public final class SessionManager {
      * which is what lets the proposer change {@code b.teamCount} in the panel and watch the roster
      * re-deal itself without anybody being re-invited.</p>
      */
-    public void requestDuel(ServerPlayerEntity challenger, List<ServerPlayerEntity> targets,
-                            CombatMode mode) {
-        List<ServerPlayerEntity> roster = new ArrayList<>();
-        roster.add(challenger);
-        for (ServerPlayerEntity target : targets) {
-            if (target != null && !roster.contains(target)) {
-                roster.add(target);
-            }
-        }
-        if (roster.size() < 2) {
-            fail(challenger, "pvpocket.msg.duel.self");
+    /**
+     * Opens the roster panel: a draft session whose only member is the proposer.
+     *
+     * <p>The invite is no longer a command argument. {@code /pvpocket duel} used to take a player
+     * selector, which could say "everyone here" but could not say "these two on one side and those
+     * two on the other" — Brigadier has no grammar for a two-dimensional list, so the sides were
+     * dealt round-robin from the invite order instead. Building the roster in the panel makes the
+     * sides explicit, and it costs nothing: the same panel has to open anyway to agree on rules.</p>
+     *
+     * <p>The session exists from the moment the panel opens, in {@link SessionStage#DRAFT}. One
+     * record per negotiation rather than a client-side draft plus a server-side session, and it is
+     * what lets the proposer close the panel and come back with {@code /pvpocket review}.</p>
+     */
+    public void openRoster(ServerPlayerEntity proposer) {
+        if (sessionByPlayer.containsKey(proposer.getUuid())) {
+            fail(proposer, "pvpocket.msg.duel.self_busy");
             return;
         }
-        if (roster.size() > MAX_PARTICIPANTS) {
-            fail(challenger, "pvpocket.msg.duel.too_many", MAX_PARTICIPANTS);
+        if (findOpenSession(proposer.getUuid()) != null) {
+            fail(proposer, "pvpocket.msg.duel.own_pending");
             return;
         }
-        if (sessionByPlayer.containsKey(challenger.getUuid())) {
-            fail(challenger, "pvpocket.msg.duel.self_busy");
-            return;
-        }
-        for (ServerPlayerEntity target : roster) {
-            if (target == challenger) {
-                continue;
-            }
-            if (sessionByPlayer.containsKey(target.getUuid())) {
-                fail(challenger, "pvpocket.msg.duel.target_busy", target.getName().getString());
-                return;
-            }
-            if (findOpenSession(target.getUuid()) != null) {
-                fail(challenger, "pvpocket.msg.duel.target_pending", target.getName().getString());
-                return;
-            }
-            if (target.interactionManager.getGameMode() == GameMode.SPECTATOR) {
-                fail(challenger, "pvpocket.msg.duel.spectator");
-                return;
-            }
-        }
-        if (findOpenSession(challenger.getUuid()) != null) {
-            fail(challenger, "pvpocket.msg.duel.own_pending");
-            return;
-        }
-        if (challenger.interactionManager.getGameMode() == GameMode.SPECTATOR) {
-            fail(challenger, "pvpocket.msg.duel.spectator");
+        if (proposer.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+            fail(proposer, "pvpocket.msg.duel.spectator");
             return;
         }
         if (!ArenaManager.isReady(server)) {
-            fail(challenger, "pvpocket.msg.duel.arena_not_ready");
+            fail(proposer, "pvpocket.msg.duel.arena_not_ready");
             return;
         }
 
@@ -996,129 +980,208 @@ public final class SessionManager {
         session.id = UUID.randomUUID().toString();
         session.createdAt = System.currentTimeMillis();
         session.updatedAt = session.createdAt;
-        for (int i = 0; i < roster.size(); i++) {
-            ServerPlayerEntity player = roster.get(i);
-            session.participants.add(new Participant(
-                    player.getUuidAsString(), player.getName().getString(), i));
-        }
+        Participant me = new Participant(proposer.getUuidAsString(),
+                proposer.getName().getString(), 0, 0);
+        seedLoadout(me);
+        session.participants.add(me);
+        session.teamCount = MIN_TEAMS;
 
-        // Every participant starts from their own saved loadout, not from a shared preset. A player
-        // who spent time on a sword should not have to re-enter it every time they challenge
-        // someone, and the other side should be what *they* configured, not what the challenger
-        // happens to carry. "每队统一" is applied later, when the sides are dealt.
-        for (Participant p : session.participants) {
-            Loadout seed = loadouts.get(UUID.fromString(p.uuid));
-            seed.autoAssignSlots();
-            p.loadout = seed.encode();
-            p.loadoutDigest = seed.digest();
-        }
-
-        // The `legacy` literal on the command is a seed for c.mode, not a separate code path: it
-        // pre-selects the rule so the panel opens on the mode the player asked for, and the other
-        // side still has to consent to it in the panel.
         DuelRules rules = DuelRules.defaults();
-        rules.set("c.mode", mode == CombatMode.LEGACY_1_8 ? 1 : 0);
-        // Sides and sizes are pre-fitted to the roster that was actually invited. Without this an
-        // invite of three people opens on the default "2 sides × 1 player" and the first start
-        // attempt fails on a size check nobody could see coming — the numbers are visible in the
-        // panel afterwards, so the proposer can still change them, but the opening state is one that
-        // can actually run.
-        fitTeamsToRoster(rules, roster.size());
         applyRulesToSession(session, rules);
         session.rulesRevision = 0;
-        session.rulesAuthor = challenger.getUuidAsString();
-        session.awaitingUuid = challenger.getUuidAsString();
-        assignTeams(session, rules);
+        session.rulesAuthor = proposer.getUuidAsString();
 
         sessions.put(session.id, session);
-        journal(session).append("SESSION_CREATED",
-                "challenger", challenger.getName().getString(),
-                "targets", roster.stream().skip(1)
-                        .map(p -> p.getName().getString()).reduce((a, b) -> a + "," + b).orElse(""),
-                "size", roster.size(),
-                "teams", rules.get("b.teamCount"),
-                "teamSize", rules.get("b.teamSize"),
-                "seedMode", mode.id());
-        journal(session).append("RULES_DRAFTED", "revision", 0, "digest", session.rulesDigest);
+        journal(session).append("SESSION_DRAFTED", "proposer", me.name);
         persist(session);
-
-        challenger.sendMessage(PvLang.t(roster.size() == 2
-                        ? "pvpocket.msg.duel.panel_opened"
-                        : "pvpocket.msg.duel.panel_opened_many",
-                        roster.size() - 1).formatted(Formatting.GRAY), false);
-        openPanel(challenger, session, RulesOpenPayload.ROLE_PROPOSER);
+        openPanel(proposer, session, RulesOpenPayload.ROLE_DRAFT);
     }
 
     /**
-     * Raises {@code b.teamSize} / {@code b.maxPlayers} so the invited roster fits.
+     * Turns the roster the proposer assembled into the participant list, then invites everybody.
      *
-     * <p>Only ever raises. A proposer who deliberately set a small cap keeps it if the roster already
-     * fits inside it; the point is to avoid opening on a configuration that cannot start, not to
-     * override a choice.</p>
+     * <p>Encoding is {@code "uuid,uuid;uuid"}: {@code ,} between team-mates, {@code ;} between
+     * sides. An empty side is a side the proposer did not use and is dropped here, so team indices
+     * stay contiguous. Uuids rather than names because a name can be changed and a uuid cannot.</p>
+     *
+     * <p>Validated before it is applied, not after. An invalid roster that had already been written
+     * onto the session would put strangers into {@code findOpenSession} — they would be told they
+     * have a pending invite to a match nobody ever offered them.</p>
+     *
+     * @return true when the roster was accepted and the session moved to negotiation
      */
-    private static void fitTeamsToRoster(DuelRules rules, int roster) {
-        int teams = Math.max(2, Math.min(4, rules.get("b.teamCount")));
-        int needed = (roster + teams - 1) / teams;
-        if (rules.get("b.teamSize") < needed) {
-            rules.set("b.teamSize", Math.min(4, needed));
+    private boolean submitRoster(DuelSession session, ServerPlayerEntity proposer, String encoded,
+                                 DuelRules rules) {
+        List<List<UUID>> sides = new ArrayList<>();
+        for (String sideText : encoded.split(";", -1)) {
+            List<UUID> side = new ArrayList<>();
+            for (String token : sideText.split(",")) {
+                if (token.isBlank()) {
+                    continue;
+                }
+                try {
+                    UUID uuid = UUID.fromString(token.trim());
+                    if (!side.contains(uuid)) {
+                        side.add(uuid);
+                    }
+                } catch (IllegalArgumentException e) {
+                    fail(proposer, "pvpocket.msg.roster.bad_packet");
+                    return false;
+                }
+            }
+            sides.add(side);
         }
-        if (rules.get("b.maxPlayers") < roster) {
-            rules.set("b.maxPlayers", Math.min(16, roster));
+
+        if (sides.size() < MIN_TEAMS || sides.size() > MAX_TEAMS) {
+            fail(proposer, "pvpocket.msg.roster.bad_team_count", MIN_TEAMS, MAX_TEAMS);
+            return false;
         }
+        int teamSize = rules.get("b.teamSize");
+        int total = 0;
+        Set<UUID> seen = new LinkedHashSet<>();
+        for (List<UUID> side : sides) {
+            if (side.size() > teamSize) {
+                fail(proposer, "pvpocket.msg.rules.team_too_big", side.size(), teamSize);
+                return false;
+            }
+            for (UUID uuid : side) {
+                if (!seen.add(uuid)) {
+                    fail(proposer, "pvpocket.msg.roster.duplicate",
+                            nameOf(uuid));
+                    return false;
+                }
+            }
+            total += side.size();
+        }
+        int cap = Math.min(MAX_PARTICIPANTS, rules.get("b.maxPlayers"));
+        if (total > cap) {
+            fail(proposer, "pvpocket.msg.rules.too_many_players", total, cap);
+            return false;
+        }
+        if (total < 2 || sides.stream().filter(s -> !s.isEmpty()).count() < 2) {
+            fail(proposer, "pvpocket.msg.roster.not_enough", total);
+            return false;
+        }
+        if (!seen.contains(proposer.getUuid())) {
+            fail(proposer, "pvpocket.msg.roster.self_missing");
+            return false;
+        }
+
+        // An empty card is a card the proposer did not use, and it stops being meaningful the moment
+        // the invite goes out: the panel that arrives at the other end is rebuilt from the roster, so
+        // a gap in the middle would come back as a third side with nobody on it — a side the HUD
+        // would draw a row for, with a wool colour no block in the arena matches. Compacting here
+        // keeps "team index" and "playing side" the same number everywhere downstream.
+        List<List<UUID>> playing = new ArrayList<>();
+        for (List<UUID> side : sides) {
+            if (!side.isEmpty()) {
+                playing.add(side);
+            }
+        }
+
+        // Presence is checked last because it is the only part that depends on other players, and a
+        // name is more useful in the refusal than a rule id.
+        List<Participant> built = new ArrayList<>();
+        for (int team = 0; team < playing.size(); team++) {
+            List<UUID> side = playing.get(team);
+            for (int member = 0; member < side.size(); member++) {
+                UUID uuid = side.get(member);
+                ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+                if (player == null) {
+                    fail(proposer, "pvpocket.msg.roster.offline", nameOf(uuid));
+                    return false;
+                }
+                if (!uuid.equals(proposer.getUuid())) {
+                    if (sessionByPlayer.containsKey(uuid)) {
+                        fail(proposer, "pvpocket.msg.duel.target_busy",
+                                player.getName().getString());
+                        return false;
+                    }
+                    if (findOpenSession(uuid) != null) {
+                        fail(proposer, "pvpocket.msg.duel.target_pending",
+                                player.getName().getString());
+                        return false;
+                    }
+                    if (player.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+                        fail(proposer, "pvpocket.msg.duel.spectator");
+                        return false;
+                    }
+                }
+                Participant p = new Participant(uuid.toString(), player.getName().getString(),
+                        team, member);
+                seedLoadout(p);
+                built.add(p);
+            }
+        }
+
+        session.participants.clear();
+        session.participants.addAll(built);
+        session.teamCount = playing.size();
+        journal(session).append("ROSTER_SUBMITTED",
+                "size", built.size(),
+                "teams", playing.size(),
+                "shape", shapeOf(session));
+        persist(session);
+        return true;
     }
 
     /**
-     * Deals the roster into sides, round-robin.
+     * Every participant starts from their own saved loadout, not from a shared preset.
      *
-     * <p>Round-robin rather than "first half vs second half" because it keeps the sides within one
-     * player of each other for every roster size, and because it is the assignment a player can
-     * predict from the invite order: the first two invitees end up on opposite sides, which is what
-     * people expect from a game that asks "who is on my team".</p>
-     *
-     * <p>Derived, never stored on the invite: changing {@code b.teamCount} re-deals the same roster
-     * without anybody being re-invited, and the panel's roster line follows automatically.</p>
+     * <p>A player who spent time on a sword should not have to re-enter it every time they are
+     * invited, and the other side should see what <em>they</em> configured rather than what the
+     * proposer happens to carry. {@code d.loadoutScope} "每队统一" is applied later, at freeze
+     * time, so this is always the personal set.</p>
      */
-    private static void assignTeams(DuelSession session, DuelRules rules) {
-        int teams = Math.max(2, Math.min(4, rules.get("b.teamCount")));
-        session.teamCount = teams;
-        for (int i = 0; i < session.participants.size(); i++) {
-            Participant p = session.participants.get(i);
-            p.team = i % teams;
-            p.member = i / teams;
+    private void seedLoadout(Participant p) {
+        Loadout seed = loadouts.get(UUID.fromString(p.uuid));
+        seed.autoAssignSlots();
+        p.loadout = seed.encode();
+        p.loadoutDigest = seed.digest();
+    }
+
+    /** A display name for a uuid that may not be online, for refusal messages. */
+    private String nameOf(UUID uuid) {
+        ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+        if (player != null) {
+            return player.getName().getString();
         }
+        for (DuelSession session : sessions.values()) {
+            Participant p = session.participant(uuid.toString());
+            if (p != null) {
+                return p.name;
+            }
+        }
+        return uuid.toString().substring(0, 8);
     }
 
     /**
      * Refuses a roster the rules cannot hold, before anything is frozen.
      *
-     * <p>Every check names the rule that failed and the number that broke it. "Cannot start" with no
-     * reason is the worst possible answer here: the proposer is looking at a panel full of numbers
-     * and has no way to know which one to change.</p>
+     * <p>Empty cards are not an error here — they are how the roster says "this side does not
+     * play". What is refused is a side that is over the size cap, and a roster that leaves fewer
+     * than two sides with anybody on them, because that is a match with nobody to fight.</p>
      */
     private boolean validateRoster(DuelSession session, DuelRules rules, ServerPlayerEntity player) {
-        int size = session.participants.size();
-        if (size < 2) {
-            fail(player, "pvpocket.msg.duel.self");
-            return false;
-        }
-        int maxPlayers = rules.get("b.maxPlayers");
-        if (size > maxPlayers) {
-            fail(player, "pvpocket.msg.rules.too_many_players", size, maxPlayers);
-            return false;
-        }
         int teamSize = rules.get("b.teamSize");
+        int total = 0;
         for (int team = 0; team < session.teamCount; team++) {
-            int members = session.teamMembers(team).size();
-            if (members == 0) {
-                // Round-robin can leave a side empty when there are fewer players than sides, and an
-                // empty side is a side that is "eliminated" the moment the round starts.
-                fail(player, "pvpocket.msg.rules.empty_team", session.teamCount, size);
-                return false;
-            }
+            int members = session.activeMembers(team).size();
             if (members > teamSize) {
                 fail(player, "pvpocket.msg.rules.team_too_big", members, teamSize);
                 return false;
             }
+            total += members;
+        }
+        int playing = session.playingTeams().size();
+        if (total < 2 || playing < 2) {
+            fail(player, "pvpocket.msg.roster.not_enough", total);
+            return false;
+        }
+        int maxPlayers = rules.get("b.maxPlayers");
+        if (total > maxPlayers) {
+            fail(player, "pvpocket.msg.rules.too_many_players", total, maxPlayers);
+            return false;
         }
         return true;
     }
@@ -1130,7 +1193,7 @@ public final class SessionManager {
             if (sb.length() > 0) {
                 sb.append('+');
             }
-            sb.append(session.teamMembers(team).size());
+            sb.append(session.activeMembers(team).size());
         }
         return sb.toString();
     }
@@ -1150,7 +1213,7 @@ public final class SessionManager {
                 sb.append('+');
             }
             int alive = 0;
-            for (Participant p : session.teamMembers(team)) {
+            for (Participant p : session.activeMembers(team)) {
                 if (!p.eliminated) {
                     alive++;
                 }
@@ -1188,15 +1251,49 @@ public final class SessionManager {
                         otherName(session, player.getUuidAsString()),
                         loadoutCounts(session),
                         agreed,
-                        session.participants.size(),
+                        liveCount(session),
                         // Recomputed on every open, not cached: a map frees up the moment the other
                         // duel ends, and a stale "in use" is a map nobody can pick until they
                         // reopen the panel.
-                        ArenaManager.busyMapMask(session.id))));
+                        ArenaManager.busyMapMask(session.id),
+                        // Only the draft can edit the roster, so only the draft needs the candidate
+                        // list. Sending it to a reviewer — or to a proposer who has already sent the
+                        // invite — would be four hundred bytes of names they cannot act on.
+                        role == RulesOpenPayload.ROLE_DRAFT
+                                ? candidates(player)
+                                : "")));
     }
 
     /**
-     * {@code Dev1:8:0,Dev2:9:1} — the item count each participant is bringing, and their side.
+     * Players this proposer could add to a card right now, as {@code "name|uuid"} pairs.
+     *
+     * <p>Filtered server-side because only the server knows who is already in a duel, already has an
+     * invite waiting, or is watching rather than playing. A picker that offers a name and then
+     * refuses it is worse than a picker that never offered it.</p>
+     *
+     * <p>Ordered by name so the list does not reshuffle between two opens, and capped by the caller
+     * through {@code b.maxPlayers} rather than here: this is the pool, not the roster.</p>
+     */
+    private String candidates(ServerPlayerEntity reader) {
+        List<String> out = new ArrayList<>();
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            if (player.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+                continue;
+            }
+            UUID uuid = player.getUuid();
+            if (!uuid.equals(reader.getUuid())) {
+                if (sessionByPlayer.containsKey(uuid) || findOpenSession(uuid) != null) {
+                    continue;
+                }
+            }
+            out.add(player.getName().getString() + "|" + uuid);
+        }
+        out.sort(String.CASE_INSENSITIVE_ORDER);
+        return String.join(",", out);
+    }
+
+    /**
+     * {@code Dev1|uuid:8:0:1} — item count, side and answer state, one record per participant.
      *
      * <p>Every participant's count is shown, not just the reader's: the loadout is part of what is
      * being agreed to, so "what am I agreeing to" has to include what the other side is bringing.
@@ -1204,14 +1301,19 @@ public final class SessionManager {
      * visible one — a player who changed their loadout and broke everyone else's consent can see the
      * count drop back to 0/2.</p>
      *
-     * <p>The side index is the third field because the panel is the only place a proposer can check
-     * the deal. Changing {@code b.teamCount} re-deals the roster round-robin, and without this field
-     * the re-deal is invisible until the match starts — "3 sides" would be a number whose effect
-     * nobody can verify before agreeing to it. The client prints it only when there are more than
-     * two players, so a 1v1 looks exactly as it did.</p>
+     * <p>The side index is the third field because the panel is the only place a roster can be
+     * checked. It used to be re-dealt round-robin from a rule; it is now whatever the proposer drew,
+     * and without this field the cards on the review panel would have nothing to draw from.</p>
+     *
+     * <p>The fourth field is the answer state — {@code 0} has not answered, {@code 1} accepted the
+     * current revision, {@code 2} declined. It rides here rather than in a field of its own because
+     * the panel already walks this list to draw the cards, and a second list would be a second thing
+     * that can disagree with the first.</p>
      *
      * <p>Encoded rather than formatted because the reader's language is not known here. Player names
-     * cannot contain {@code :} or {@code ,}, so the format is unambiguous without escaping.</p>
+     * cannot contain {@code :}, {@code ,} or {@code |}, so the format is unambiguous without
+     * escaping. The uuid rides along because the proposer has to send the roster back: the cards are
+     * rebuilt from this list, and a name is not something the server can resolve to an account.</p>
      */
     private static String loadoutCounts(DuelSession session) {
         StringBuilder sb = new StringBuilder();
@@ -1219,9 +1321,11 @@ public final class SessionManager {
             if (sb.length() > 0) {
                 sb.append(',');
             }
-            sb.append(p.name).append(':')
+            sb.append(p.name).append('|').append(p.uuid).append(':')
                     .append(p.loadout == null ? 0 : Loadout.decode(p.loadout).size())
-                    .append(':').append(p.teamIndex());
+                    .append(':').append(p.teamIndex())
+                    .append(':').append(p.rejected ? 2
+                            : p.acceptedRevision == session.rulesRevision ? 1 : 0);
         }
         return sb.toString();
     }
@@ -1236,6 +1340,7 @@ public final class SessionManager {
     private static String combinedLoadoutDigest(DuelSession session) {
         StringBuilder sb = new StringBuilder();
         session.participants.stream()
+                .filter(p -> !p.rejected)
                 .sorted(Comparator.comparing(p -> p.uuid))
                 .forEach(p -> sb.append(p.uuid).append(':')
                         .append(p.loadoutDigest == null ? "-" : p.loadoutDigest).append(';'));
@@ -1245,7 +1350,7 @@ public final class SessionManager {
     /**
      * True when every participant who has answered also accepted the loadout as it stands.
      *
-     * <p>Silent about players who have not answered yet — that is {@link #allAccepted}'s job, and
+     * <p>Silent about players who have not answered yet — that is {@link #allResponded}'s job, and
      * keeping the two questions apart is what lets the panel say "you agreed, waiting for the other
      * two" instead of blaming the loadout for a consent that simply has not arrived.</p>
      */
@@ -1343,7 +1448,8 @@ public final class SessionManager {
      * wants to do, never whether it is allowed to: only the player the session is waiting on may
      * act, and only the author of the current revision may replace it.</p>
      */
-    public void onRulesSubmit(ServerPlayerEntity player, int action, String encoded) {
+    public void onRulesSubmit(ServerPlayerEntity player, int action, String encoded,
+                              String encodedRoster) {
         String uuid = player.getUuidAsString();
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
@@ -1363,33 +1469,27 @@ public final class SessionManager {
         }
 
         if (action == RulesSubmitPayload.ACTION_REJECT) {
-            // Any participant may refuse, not just whoever the session is "waiting on": with three
-            // or more sides there is no such person, and a veto that only one player can cast is a
-            // veto the others cannot use to get out of a match they do not want.
-            if (session.participant(uuid) == null) {
+            // Refusing is not the same as cancelling any more. With an explicit roster a refusal
+            // takes that player out and the rest of the invite carries on: four invited, one
+            // declines, and the remaining three can still play as a 2v1. The match is only voided
+            // when what is left cannot field two sides.
+            Participant me = session.participant(uuid);
+            if (me == null) {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
-            journal(session).append("SESSION_DENIED", "player", player.getName().getString(),
-                    "revision", session.rulesRevision);
-            session.voidReason = "DENIED";
-            transition(session, SessionStage.VOIDED);
-            inviteByTarget.values().removeIf(session.id::equals);
-            closePanels(session);
-            for (Participant p : session.participants) {
-                ServerPlayerEntity other = online(p);
-                if (other == null) {
-                    continue;
-                }
-                if (p.uuid.equals(uuid)) {
-                    other.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
-                            .formatted(Formatting.GRAY), false);
-                } else {
-                    other.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_by",
-                                    player.getName().getString())
-                            .formatted(Formatting.GRAY), false);
-                }
-            }
+            me.rejected = true;
+            me.acceptedRevision = -1;
+            journal(session).append("PLAYER_REJECTED", "player", me.name,
+                    "revision", session.rulesRevision,
+                    "remaining", session.participants.size() - rejectedCount(session),
+                    "playingTeams", session.playingTeams().size());
+            persist(session);
+            player.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
+                    .formatted(Formatting.GRAY), false);
+            broadcastNegotiation(session, uuid,
+                    PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
+            settleNegotiation(session, player);
             return;
         }
 
@@ -1399,13 +1499,30 @@ public final class SessionManager {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
+            if (me.rejected) {
+                fail(player, "pvpocket.msg.rules.none_pending");
+                return;
+            }
             DuelRules proposed = DuelRules.decode(encoded);
             List<String> changed = DuelRules.decode(session.rules).differences(proposed);
+            // Two different meanings, told apart by the stage. In DRAFT the proposer is still
+            // building the invite and this is "send it"; in NEGOTIATING the roster is frozen and
+            // this is "I changed the terms, ask again".
+            if (session.stage == SessionStage.DRAFT) {
+                // Validated against the rules that were just sent, not against the defaults the
+                // draft opened with: a player who drops "每队人数" to 2 while three names sit on a
+                // card has to be told so here, instead of being let into a match its own rules say
+                // cannot exist.
+                if (!submitRoster(session, player, encodedRoster, proposed)) {
+                    // Deliberately no reopen: the client keeps its draft panel up after sending, so
+                    // the cards are still on screen and the refusal is a chat line next to them.
+                    // Re-sending a panel here would rebuild the cards from the session — which was
+                    // not touched — and wipe the roster the player was halfway through fixing.
+                    return;
+                }
+                me = session.participant(uuid);
+            }
             applyRulesToSession(session, proposed);
-            // Sides are re-dealt here rather than only at start: the proposer changes b.teamCount in
-            // the panel and needs the roster line to follow immediately, otherwise "3 sides" is a
-            // number with no visible consequence until the match begins.
-            assignTeams(session, proposed);
             session.rulesRevision++;
             session.rulesAuthor = uuid;
             session.awaitingUuid = null;
@@ -1426,7 +1543,7 @@ public final class SessionManager {
 
             List<String> others = new ArrayList<>();
             for (Participant p : session.participants) {
-                if (!p.uuid.equals(uuid)) {
+                if (!p.uuid.equals(uuid) && !p.rejected) {
                     others.add(p.name);
                 }
             }
@@ -1434,7 +1551,7 @@ public final class SessionManager {
                             session.rulesRevision, String.join(", ", others))
                     .formatted(Formatting.GRAY), false);
             for (Participant p : session.participants) {
-                if (p.uuid.equals(uuid)) {
+                if (p.uuid.equals(uuid) || p.rejected) {
                     continue;
                 }
                 inviteByTarget.put(UUID.fromString(p.uuid), session.id);
@@ -1450,6 +1567,10 @@ public final class SessionManager {
                         .formatted(Formatting.DARK_GRAY), false);
                 openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
             }
+            // A re-proposal invalidates every earlier yes, so the proposer's own panel has to come
+            // back with the new revision on it — otherwise the number in the corner keeps claiming
+            // a version nobody is looking at.
+            openPanel(player, session, RulesOpenPayload.ROLE_PROPOSER);
             return;
         }
 
@@ -1472,7 +1593,7 @@ public final class SessionManager {
             me.agreedLoadoutDigest = combinedLoadoutDigest(session);
             journal(session).append("RULES_AGREED", "player", me.name,
                     "revision", session.rulesRevision,
-                    "agreed", acceptedCount(session), "of", session.participants.size());
+                    "agreed", acceptedCount(session), "of", liveCount(session));
             journal(session).append("LOADOUT_AGREED", "player", me.name,
                     "combined", me.agreedLoadoutDigest);
             persist(session);
@@ -1482,21 +1603,15 @@ public final class SessionManager {
             // absence as "还有 N 人没同意当前配装" to somebody whose only real problem was that the
             // other players had not clicked yet. That sentence sends them to the loadout editor,
             // which is the one place the problem is not.
-            if (!allAccepted(session)) {
+            if (!allResponded(session)) {
                 int agreed = acceptedCount(session);
                 player.sendMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
-                                agreed, session.participants.size())
+                                agreed, liveCount(session))
                         .formatted(Formatting.GRAY), false);
                 openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
-                for (Participant p : session.participants) {
-                    ServerPlayerEntity other = online(p);
-                    if (other != null && !other.getUuidAsString().equals(uuid)) {
-                        other.sendMessage(PvLang.t("pvpocket.msg.rules.other_accepted",
-                                        player.getName().getString(), agreed,
-                                        session.participants.size())
-                                .formatted(Formatting.DARK_GRAY), false);
-                    }
-                }
+                broadcastNegotiation(session, uuid,
+                        PvLang.t("pvpocket.msg.rules.other_accepted",
+                                player.getName().getString(), agreed, liveCount(session)));
                 return;
             }
             if (!allLoadoutsAgreed(session)) {
@@ -1506,7 +1621,7 @@ public final class SessionManager {
                 openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
                 return;
             }
-            startAccepted(session, player);
+            settleNegotiation(session, player);
         }
     }
 
@@ -1514,20 +1629,90 @@ public final class SessionManager {
     private static int acceptedCount(DuelSession session) {
         int count = 0;
         for (Participant p : session.participants) {
-            if (p.acceptedRevision == session.rulesRevision) {
+            if (!p.rejected && p.acceptedRevision == session.rulesRevision) {
                 count++;
             }
         }
         return count;
     }
 
-    private static boolean allAccepted(DuelSession session) {
+    /**
+     * Everybody has answered — accepted the current revision, or declined.
+     *
+     * <p>Not "everybody accepted": a decline is an answer, and a negotiation that waits forever for
+     * a player who has already said no is a negotiation nobody can get out of.</p>
+     */
+    private static boolean allResponded(DuelSession session) {
         for (Participant p : session.participants) {
-            if (p.acceptedRevision != session.rulesRevision) {
+            if (!p.responded(session.rulesRevision)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /** Participants still in the match — declined invites excluded. */
+    private static int liveCount(DuelSession session) {
+        int count = 0;
+        for (Participant p : session.participants) {
+            if (!p.rejected) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int rejectedCount(DuelSession session) {
+        return session.participants.size() - liveCount(session);
+    }
+
+    /**
+     * Starts the match, or ends the invite because what is left cannot field two sides.
+     *
+     * <p>The rule this encodes: everybody must have answered, and what remains must still be at
+     * least two sides with somebody on them. Sides need not be the same size — a 2v1 after one
+     * refusal out of four is a match, not an error. Two acceptances that both landed on the same
+     * side are not.</p>
+     */
+    private void settleNegotiation(DuelSession session, ServerPlayerEntity actor) {
+        if (session.stage != SessionStage.NEGOTIATING) {
+            return;
+        }
+        if (!allResponded(session)) {
+            return;
+        }
+        if (session.playingTeams().size() < 2) {
+            journal(session).append("SESSION_DROPPED", "reason", "NOT_ENOUGH_TEAMS",
+                    "remaining", liveCount(session),
+                    "playingTeams", session.playingTeams().size());
+            session.voidReason = "NOT_ENOUGH_TEAMS";
+            transition(session, SessionStage.VOIDED);
+            inviteByTarget.values().removeIf(session.id::equals);
+            closePanels(session);
+            for (Participant p : session.participants) {
+                ServerPlayerEntity other = online(p);
+                if (other != null) {
+                    other.sendMessage(PvLang.t("pvpocket.msg.roster.cancelled",
+                                    liveCount(session), session.playingTeams().size())
+                            .formatted(Formatting.RED), false);
+                }
+            }
+            return;
+        }
+        startAccepted(session, actor);
+    }
+
+    /** One line to everybody still in the match, except {@code exceptUuid}. */
+    private void broadcastNegotiation(DuelSession session, String exceptUuid, MutableText line) {
+        for (Participant p : session.participants) {
+            if (p.rejected || p.uuid.equals(exceptUuid)) {
+                continue;
+            }
+            ServerPlayerEntity other = online(p);
+            if (other != null) {
+                other.sendMessage(line.copy().formatted(Formatting.DARK_GRAY), false);
+            }
+        }
     }
 
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
@@ -1554,7 +1739,6 @@ public final class SessionManager {
         // still in NEGOTIATING — after the snapshot the only honest outcome would be a rollback of
         // two inventories for a reason that had nothing to do with the players.
         DuelRules rules = DuelRules.decode(session.rules);
-        assignTeams(session, rules);
         if (!validateRoster(session, rules, accepter)) {
             return;
         }
@@ -1686,17 +1870,27 @@ public final class SessionManager {
     /** Copies a rule set onto the session and refreshes the derived fields plus the fingerprint. */
     private static void applyRulesToSession(DuelSession session, DuelRules rules) {
         session.mode = rules.get("c.mode") == 1 ? CombatMode.LEGACY_1_8.id() : CombatMode.MODERN.id();
-        // a.series is an index into the panel's list of odd round counts: 0 -> 1, 1 -> 3, ... 7 -> 15.
-        // Deriving it here rather than storing it keeps one source of truth, and a hand-edited or
-        // out-of-range value clamps to the longest series instead of producing a negative bestOf.
-        session.bestOf = 2 * Math.max(0, Math.min(7, rules.get("a.series"))) + 1;
+        // The two series numbers are clamped against each other here rather than in the panel,
+        // because this is the one place every path goes through: "win 4 of at most 3" is a state the
+        // sliders can sit in, and a session that stores it can never end on the win count and never
+        // ends on the cap either.
+        session.maxRounds = Math.max(1, rules.get("a.maxRounds"));
+        session.winsNeeded = Math.max(1, Math.min(session.maxRounds, rules.get("a.winsNeeded")));
         session.rules = rules.encode();
         session.rulesDigest = rules.digest();
     }
 
-    /** Wins required to take the series: 3 rounds -> 2 wins, 15 rounds -> 8 wins. */
-    private static int winsNeeded(DuelSession session) {
-        return session.bestOf / 2 + 1;
+    /** True once the series can no longer be extended: somebody reached the target, or the cap is hit. */
+    private static boolean seriesDecided(DuelSession session) {
+        if (session.round >= Math.max(1, session.maxRounds)) {
+            return true;
+        }
+        for (int t = 0; t < Math.max(1, session.teamCount); t++) {
+            if (session.wins(t) >= Math.max(1, session.winsNeeded)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private DuelSession findOpenSession(UUID uuid) {
@@ -1959,7 +2153,7 @@ public final class SessionManager {
         player.sendMessage(PvLang.t("pvpocket.msg.status.line",
                         shortId(session.id),
                         PvLang.t(session.stage.labelKey()),
-                        session.round, session.bestOf,
+                        session.round, session.maxRounds,
                         scoreLine(session),
                         others.isEmpty() ? PvLang.t("pvpocket.value.none") : others)
                 .formatted(Formatting.AQUA), false);
@@ -2229,10 +2423,10 @@ public final class SessionManager {
                 // untranslated, so it is appended as its own translatable with the command as a
                 // literal argument.
                 MutableText line = PvLang.t("pvpocket.msg.round.started",
-                        session.round, session.bestOf,
+                        session.round, session.maxRounds,
                         modeLabel(mode), rules.summaryText());
-                if (session.bestOf > 1) {
-                    line.append(PvLang.t("pvpocket.msg.round.first_to_win", winsNeeded(session)));
+                if (session.maxRounds > 1) {
+                    line.append(PvLang.t("pvpocket.msg.round.first_to_win", session.winsNeeded));
                 }
                 line.append(PvLang.t("pvpocket.msg.round.surrender_hint"));
                 player.sendMessage(line.formatted(Formatting.GREEN), false);
@@ -2380,7 +2574,9 @@ public final class SessionManager {
         var arenaWorld = ArenaManager.world(server);
 
         int seriesWinner = seriesWinnerTeam(session);
-        if (seriesWinner < 0 && session.participants.stream().anyMatch(p -> online(p) == null)) {
+        boolean decided = seriesDecided(session);
+        if (!decided && session.participants.stream()
+                .anyMatch(p -> !p.rejected && online(p) == null)) {
             // Somebody left. Starting a round they cannot join would only reach the intermission and
             // fail there, so the series is cut now. Recorded as its own event so "why did this
             // series end" has an answer in the journal.
@@ -2393,9 +2589,17 @@ public final class SessionManager {
             finishSeries(session, leaderTeam(session));
             return;
         }
-        if (seriesWinner < 0) {
+        if (!decided) {
             beginIntermission(session, region, arenaWorld, winnerTeam);
             return;
+        }
+        if (seriesWinner < 0) {
+            // The cap is reached and the lead is shared. Named rather than left blank: "no winner"
+            // and "drawn" are the same score and different outcomes, and only one of them is
+            // something a player can be told the rules produced.
+            session.seriesEndReason = "DRAW";
+            journal(session).append("SERIES_DRAWN", "rounds", session.round,
+                    "score", scoreLine(session));
         }
         finishSeries(session, seriesWinner);
     }
@@ -2426,7 +2630,9 @@ public final class SessionManager {
                 "winnerTeam", winnerTeam,
                 "winner", winnerTeam < 0 ? "-" : teamName(session, winnerTeam),
                 "score", scoreLine(session),
-                "rounds", session.round, "bestOf", session.bestOf);
+                "rounds", session.round,
+                "maxRounds", session.maxRounds,
+                "winsNeeded", session.winsNeeded);
 
         transition(session, SessionStage.RESTORING);
 
@@ -2455,21 +2661,22 @@ public final class SessionManager {
     }
 
     /**
-     * The winner of the series as a side index, or {@code -1} while it is still live.
+     * The winner of the series as a side index, or {@code -1} when there is none.
      *
-     * <p>With an odd {@code bestOf} and a first-to-{@code bestOf/2+1} rule, a full series cannot be
-     * drawn — one side must have reached the target before the last round is played. The
-     * {@code round >= bestOf} branch is therefore unreachable by construction, and exists only so a
-     * hand-edited session file cannot hang a match forever.</p>
+     * <p>{@code -1} covers two different situations and the caller has to tell them apart with
+     * {@link #seriesDecided}: a series that is still live, and a series that ran out of rounds with
+     * the lead shared. The old derivation — odd {@code bestOf}, first to {@code bestOf/2+1} — could
+     * not produce a draw by construction; two independent numbers can, and "3 rounds, win 2" ending
+     * 1:1:1 is exactly the case the old shape could not express.</p>
      */
     private static int seriesWinnerTeam(DuelSession session) {
-        int need = winsNeeded(session);
+        int need = Math.max(1, session.winsNeeded);
         for (int t = 0; t < Math.max(1, session.teamCount); t++) {
             if (session.wins(t) >= need) {
                 return t;
             }
         }
-        if (session.round >= session.bestOf) {
+        if (session.round >= Math.max(1, session.maxRounds)) {
             return leaderTeam(session);
         }
         return -1;
@@ -2516,7 +2723,7 @@ public final class SessionManager {
      */
     private static String teamName(DuelSession session, int team) {
         StringBuilder sb = new StringBuilder();
-        for (Participant p : session.teamMembers(team)) {
+        for (Participant p : session.activeMembers(team)) {
             if (sb.length() > 0) {
                 sb.append(" + ");
             }
@@ -2571,12 +2778,15 @@ public final class SessionManager {
         String becauseKey = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
             case "SURRENDER" -> "pvpocket.msg.series.because.surrender";
             case "CUT" -> "pvpocket.msg.series.because.cut";
+            case "DRAW" -> "pvpocket.msg.series.because.draw";
             default -> null;
         };
         MutableText because = becauseKey == null ? Text.empty() : PvLang.t(becauseKey);
-        MutableText result = winnerTeam < 0
-                ? PvLang.t("pvpocket.msg.series.no_winner")
-                : PvLang.t("pvpocket.msg.series.winner", teamName(session, winnerTeam));
+        MutableText result = winnerTeam >= 0
+                ? PvLang.t("pvpocket.msg.series.winner", teamName(session, winnerTeam))
+                : "DRAW".equals(session.seriesEndReason)
+                ? PvLang.t("pvpocket.msg.series.draw")
+                : PvLang.t("pvpocket.msg.series.no_winner");
         MutableText line = PvLang.t("pvpocket.msg.series.ended",
                 result, because, scoreLine(session));
         for (Participant p : session.participants) {
@@ -2679,17 +2889,23 @@ public final class SessionManager {
         int teams = Math.max(1, session.teamCount);
         StringBuilder scores = new StringBuilder();
         StringBuilder roster = new StringBuilder();
+        int written = 0;
         for (int team = 0; team < teams; team++) {
-            if (team > 0) {
+            List<Participant> members = session.activeMembers(team);
+            // A side with nobody left on it is not a side. It is skipped in both lists at once so
+            // the two stay index-aligned, and so the HUD never draws a row that is a wool colour,
+            // a zero and no heads — which is what a three-side match looks like after one side has
+            // been emptied by refusals.
+            if (members.isEmpty()) {
+                continue;
+            }
+            if (written++ > 0) {
                 scores.append(',');
                 roster.append(';');
             }
             scores.append(session.wins(team));
             boolean first = true;
-            for (Participant p : session.participants) {
-                if (p.teamIndex() != team) {
-                    continue;
-                }
+            for (Participant p : members) {
                 if (!first) {
                     roster.append(',');
                 }
@@ -2697,7 +2913,7 @@ public final class SessionManager {
                 first = false;
             }
         }
-        return new MatchHudPayload(true, session.round, session.bestOf, winsNeeded(session),
+        return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
                 scores.toString(), roster.toString());
     }
 

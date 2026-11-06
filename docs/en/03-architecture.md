@@ -155,12 +155,18 @@ once too often than once too rarely.
 
 - **Snapshots do not survive a restart** (§4). After a restart a player returns to their pre-entry
   position but with whatever the save says they carry.
-- **The team model is team-scoped, not player-scoped, and there are only four spawn pads.** A side
-  holds at most four players and a match at most four sides — a hard shape set jointly by
-  `ArenaRegion.PAD_COUNT` and the `b.teamCount` ceiling; anything larger is clamped in the panel.
-  Sides are derived (round-robin `i % teams` over the invite order) rather than stored on the
-  invite, which is what lets a team count change re-deal the roster in place. The cost is that
-  **there is no way to pick teams by hand** — only the invite order influences them.
+- **Teams are an explicit roster, but the shape is still hard.** A side holds at most five players,
+  a match at most four sides and twenty players — set jointly by `ArenaRegion.PAD_COUNT`,
+  `SessionManager.MAX_TEAMS` / `MAX_PARTICIPANTS` and `b.teamSize` / `b.maxPlayers`; anything larger
+  is refused by `submitRoster`. The sides are drawn by hand on the roster page and arrive as
+  `RosterBoard.encode()` → `"uuid,uuid;uuid"` on `rules_submit`; `submitRoster` compacts the empty
+  cards away and writes `team` / `member` onto `Participant` — **teams are no longer derived**, so
+  there is no round-robin and no "changing the team count re-deals the roster in place". The cost is
+  that the roster is the only place the sides exist: `b.teamCount` has been deleted, and the number
+  of sides in a match is the number of non-empty cards.
+- **A refusal is a terminal mark, not a cancellation.** Once `Participant.rejected` is set that
+  player is out of scoring, spawning and the HUD, but the session carries on; `settleNegotiation`
+  only voids the match when everybody has answered *and* fewer than two non-empty sides remain.
 - **Spectators cannot see the teams.** The spectator list names who is in the match but not who is
   on whose side; the grouping is only visible on the HUD.
 - **There is no round timer.** `a.roundLimit` / `a.timeoutVerdict` are unconnected, so a round in

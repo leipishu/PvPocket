@@ -50,6 +50,17 @@ public abstract class PvScreen extends Screen {
     protected int cursorX;
     protected int cursorY;
 
+    /**
+     * Modal layer. Drawn after every root, and given the mouse before any of them.
+     *
+     * <p>Separate from {@link #roots} rather than appended to it because both halves of "on top"
+     * have to be enforced, and the list order only gives one of them. Drawing last puts it above;
+     * hit-testing first is what stops a click that lands on the modal's backdrop from also pressing
+     * the button underneath it. A dialog that is merely drawn last is a dialog that fires the thing
+     * behind it.</p>
+     */
+    protected PvWidget overlay;
+
     private boolean started;
     private float openT;
     private String tipKey;
@@ -118,8 +129,26 @@ public abstract class PvScreen extends Screen {
             widget.updateHover(mouseX, mouseY);
             widget.render(ctx, mouseX, mouseY, delta);
         }
+        if (overlay != null) {
+            // Roots keep their hover state frozen while a modal is up: a button glowing underneath a
+            // dialog is a button the player thinks they can press.
+            overlay.updateHover(mouseX, mouseY);
+            overlay.render(ctx, mouseX, mouseY, delta);
+        }
         drawEntrance(ctx);
         drawTooltip(ctx, d);
+    }
+
+    /** Puts a widget on the modal layer, or clears it with {@code null}. */
+    protected void setOverlay(PvWidget widget) {
+        overlay = widget;
+        if (widget != null) {
+            setFocus(null);
+        }
+    }
+
+    protected boolean hasOverlay() {
+        return overlay != null && overlay.visible;
     }
 
     /**
@@ -152,11 +181,14 @@ public abstract class PvScreen extends Screen {
      */
     private void drawTooltip(DrawContext ctx, float d) {
         String tip = null;
+        if (hasOverlay()) {
+            tip = overlay.tooltipAt(cursorX, cursorY);
+        }
         for (PvWidget widget : roots) {
-            tip = widget.tooltipAt(cursorX, cursorY);
             if (tip != null) {
                 break;
             }
+            tip = widget.tooltipAt(cursorX, cursorY);
         }
         if (tip == null) {
             tipKey = null;
@@ -199,6 +231,12 @@ public abstract class PvScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        // The modal gets the click first and consumes it whether or not it handled anything: a click
+        // on the scrim is "dismiss", not "dismiss and also press whatever was behind the scrim".
+        if (hasOverlay()) {
+            overlay.mouseClicked(mx, my, button);
+            return true;
+        }
         for (PvWidget widget : roots) {
             if (widget.visible && widget.mouseClicked(mx, my, button)) {
                 return true;
@@ -209,6 +247,10 @@ public abstract class PvScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
+        if (hasOverlay()) {
+            overlay.mouseReleased(mx, my, button);
+            return true;
+        }
         boolean handled = false;
         for (PvWidget widget : roots) {
             handled |= widget.mouseReleased(mx, my, button);
@@ -218,6 +260,10 @@ public abstract class PvScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        if (hasOverlay()) {
+            overlay.mouseDragged(mx, my, button, dx, dy);
+            return true;
+        }
         boolean handled = false;
         for (PvWidget widget : roots) {
             handled |= widget.mouseDragged(mx, my, button, dx, dy);
@@ -227,6 +273,10 @@ public abstract class PvScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double horizontal, double vertical) {
+        if (hasOverlay()) {
+            overlay.mouseScrolled(mx, my, vertical);
+            return true;
+        }
         for (PvWidget widget : roots) {
             if (widget.mouseScrolled(mx, my, vertical)) {
                 return true;
@@ -238,6 +288,12 @@ public abstract class PvScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            // Escape closes the dialog, not the screen. Closing the whole panel because the player
+            // wanted out of a player list would throw away the invite they were building.
+            if (hasOverlay()) {
+                setOverlay(null);
+                return true;
+            }
             close();
             return true;
         }

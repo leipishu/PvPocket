@@ -52,6 +52,33 @@ public class PvTabs extends PvWidget {
                 groups, selected);
     }
 
+    /**
+     * The rule panel's strip: the roster page first, then the rule groups.
+     *
+     * <p>The roster is a tab of this panel rather than a screen of its own because the two halves of
+     * "who is playing" and "under what rules" are one decision — the player builds the sides, sets
+     * the terms, and sends once. A separate screen would need its own footer, its own cancel path
+     * and its own idea of when a draft is abandoned.</p>
+     *
+     * <p>The first slot has no {@link RuleGroup}: {@link #group()} returns null for it, which is how
+     * the screen knows to draw the roster board instead of rule rows. The badge is blank because the
+     * other badges are the group letters, and a letter here would claim it is a rule group.</p>
+     */
+    public static PvTabs ofPanel(List<RuleGroup> groups, String rosterLabel, int selected) {
+        List<String> labels = new java.util.ArrayList<>();
+        List<String> badges = new java.util.ArrayList<>();
+        List<RuleGroup> slots = new java.util.ArrayList<>();
+        labels.add(rosterLabel);
+        badges.add("");
+        slots.add(null);
+        for (RuleGroup group : groups) {
+            labels.add(group.label());
+            badges.add(group.letter);
+            slots.add(group);
+        }
+        return new PvTabs(labels, badges, slots, selected);
+    }
+
     private PvTabs(List<String> labels, List<String> badges, List<RuleGroup> groups, int selected) {
         this.labels = labels;
         this.badges = badges;

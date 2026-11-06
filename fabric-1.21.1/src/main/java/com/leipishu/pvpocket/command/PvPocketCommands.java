@@ -53,11 +53,11 @@ public final class PvPocketCommands {
         LiteralArgumentBuilder<ServerCommandSource> root = CommandManager.literal("pvpocket")
                 .executes(PvPocketCommands::help);
 
-        root.then(CommandManager.literal("duel")
-                .then(CommandManager.argument("targets", EntityArgumentType.players())
-                        .executes(ctx -> duel(ctx, CombatMode.MODERN))
-                        .then(CommandManager.literal("legacy")
-                                .executes(ctx -> duel(ctx, CombatMode.LEGACY_1_8)))));
+        // No arguments. Who fights whom is a two-dimensional list, and Brigadier has no grammar for
+        // one: a selector can say "everyone here" but cannot say "these two on one side and those
+        // two on the other", which is the only thing that matters once a match has more than two
+        // sides. The roster is built in the panel instead, and the sides are then explicit.
+        root.then(CommandManager.literal("duel").executes(PvPocketCommands::duel));
 
         // No accept/propose/deny here. Those three live on the rule panel and only there: the panel
         // is opened by the server at every point where one of them could be pressed, so a command
@@ -110,7 +110,7 @@ public final class PvPocketCommands {
         ServerCommandSource source = ctx.getSource();
         source.sendFeedback(() -> PvLang.t("pvpocket.command.help.header", "/pvpocket help")
                 .formatted(Formatting.AQUA), false);
-        helpLine(source, "/pvpocket duel <players> [legacy]", "pvpocket.command.help.duel");
+        helpLine(source, "/pvpocket duel", "pvpocket.command.help.duel");
         helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
         helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
         helpLine(source, "/pvpocket status", "pvpocket.command.help.status");
@@ -126,18 +126,10 @@ public final class PvPocketCommands {
         return 1;
     }
 
-    private static int duel(CommandContext<ServerCommandSource> ctx, CombatMode mode) {
+    private static int duel(CommandContext<ServerCommandSource> ctx) {
         try {
             ServerPlayerEntity self = ctx.getSource().getPlayerOrThrow();
-            // players(), not player(): a team match has to be one command. A single name still
-            // parses to a one-element collection, so 1v1 is typed exactly as before; a selector
-            // (@a, @a[distance=..8], @a[team=red]) is how several people are named without
-            // spelling each one out, which is what Brigadier can actually express here — a
-            // variadic list of plain names is not something its grammar can do.
-            List<ServerPlayerEntity> targets = new ArrayList<>(
-                    EntityArgumentType.getPlayers(ctx, "targets"));
-            targets.remove(self);
-            SessionManager.get().requestDuel(self, targets, mode);
+            SessionManager.get().openRoster(self);
             return 1;
         } catch (Exception e) {
             return 0;

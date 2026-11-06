@@ -12,8 +12,8 @@ It is not a server's core gameplay and not a matchmaking lobby. The pitch is one
 **two people want a fight, they get one in thirty seconds, and nothing is left behind.**
 
 That sentence is the default: two players, one life, best of three. There is one layer above it —
-a single duel holds up to 4 sides of up to 4 players each, 16 people total. `/pvpocket duel @a`
-pulls everyone present into one match and sides are reshuffled from the panel. Multiplayer is not a
+a single duel holds up to 4 sides of up to 5 players each, 20 people total. `/pvpocket duel` opens
+the panel, and picking the sides is a matter of putting names on team cards. Multiplayer is not a
 separate game mode; it is the same rule set with a different roster.
 
 ## Four decisions

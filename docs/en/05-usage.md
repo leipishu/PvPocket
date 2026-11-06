@@ -28,13 +28,23 @@ scoreboard.
 
 ### Starting a duel
 
-1. A: `/pvpocket duel B` → the rule panel opens; edit the terms, or press "Edit loadout" first.
-2. A: press "Send proposal".
-3. B: the panel opens automatically — "Accept and start", "Edit and re-propose", or "Reject".
-4. On acceptance both are teleported in; the round goes live when the countdown ends.
-5. After the last round both return to where they entered, items and terrain restored.
+1. A: `/pvpocket duel` → the rule panel opens on the **players page** (the first tab). It holds two
+   team cards by default, each with `b.teamSize` slots, and a strip of that side's wool colour on top.
+2. A: press the `+` in a card's corner and pick people out of the dialog; "+ Add team" under the cards
+   takes it up to four. An empty card does not play, and at least two sides need somebody before the
+   invite can go out. Sides do not have to be the same size.
+3. A: switch to the A/B/… pages for the rules, press "Edit loadout" if the items need work, then
+   "Send invite".
+4. Everybody invited gets the panel at once, opening on the players page, showing which side they are
+   on and who has not answered yet.
+5. Each of them picks "Accept and start", "Edit and re-propose" or "Reject". **The match starts once
+   everybody has answered and two sides still have somebody on them.** A refusal only takes that
+   player off the roster: invite four, one declines, and the remaining three still play.
+6. On start every side is teleported in; the round goes live when the countdown ends.
+7. After the last round everyone returns to where they entered, items and terrain restored.
 
 If the panel is dismissed with Esc, `/pvpocket review` reopens it — that is the only way back.
+Closing it while the draft is still open cancels the invite.
 
 ### Spectating
 
@@ -65,7 +75,7 @@ Propose, accept and reject exist only as panel buttons.
 | Command | Purpose |
 | --- | --- |
 | `/pvpocket help` | Show help (same as bare `/pvpocket`) |
-| `/pvpocket duel <player> [legacy]` | Challenge and open the rule panel; `legacy` pre-selects 1.8 |
+| `/pvpocket duel` | Open the rule panel: pick the players, set the sides and the rules there; takes no arguments |
 | `/pvpocket review` | Reopen the rule panel |
 | `/pvpocket surrender` | Forfeit the whole series (not one round) |
 | `/pvpocket status` | Current session's stage, round, score and rule summary |
