@@ -666,6 +666,41 @@ public final class ArenaManager {
         warmUpCursor = -1;
     }
 
+    /**
+     * Erases the cells the gallery fill will <em>not</em> re-stamp, so a hard reset really empties
+     * the dimension.
+     *
+     * <p>The gallery fill skips two kinds of cell by design: the flat plot, which is built at
+     * whatever size the rules ask for and therefore cannot be pre-stamped, and any cell a second
+     * duel overflowed into that has no map of its own. Re-stamping an exhibit clears its cell as a
+     * side effect, so those need nothing here — doing them twice would double the cost of the one
+     * operation that already blocks the server for several seconds.</p>
+     *
+     * <p>Called <em>before</em> {@link #clearAll()}: the regions are what know how tall the debris
+     * in their cell can be.</p>
+     *
+     * @return how many blocks were changed
+     */
+    public static int wipeUnstampedCells(MinecraftServer server) {
+        ServerWorld world = world(server);
+        if (world == null) {
+            return 0;
+        }
+        int cleared = 0;
+        for (int slot = 0; slot < SLOTS; slot++) {
+            ArenaMap home = slot < ArenaMaps.ALL.size() ? ArenaMaps.ALL.get(slot) : null;
+            if (home != null && !home.isFlat()) {
+                continue;
+            }
+            ArenaRegion region = CELLS[slot];
+            if (region == null) {
+                continue;
+            }
+            cleared += suppressRecording(() -> region.reset(world, region.sizeY));
+        }
+        return cleared;
+    }
+
     // ------------------------------------------------------------------ block tracking
 
     /**

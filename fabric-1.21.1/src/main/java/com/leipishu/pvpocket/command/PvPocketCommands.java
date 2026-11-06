@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.command;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -38,7 +39,17 @@ public final class PvPocketCommands {
         root.then(CommandManager.literal("review").executes(PvPocketCommands::review));
         root.then(CommandManager.literal("surrender").executes(PvPocketCommands::surrender));
         root.then(CommandManager.literal("status").executes(PvPocketCommands::status));
-        root.then(CommandManager.literal("arena").executes(PvPocketCommands::arena));
+        root.then(CommandManager.literal("arena")
+                .executes(PvPocketCommands::arena)
+                // Operator-only: this destroys terrain and ends other people's matches.
+                .then(CommandManager.literal("reset")
+                        .requires(source -> source.hasPermissionLevel(3))
+                        .executes(PvPocketCommands::arenaReset)));
+        root.then(CommandManager.literal("guard")
+                // Operator-only, because the flag is the one way to stay in the sandbox on purpose.
+                .requires(source -> source.hasPermissionLevel(2))
+                .then(CommandManager.argument("enabled", BoolArgumentType.bool())
+                        .executes(ctx -> guard(ctx, BoolArgumentType.getBool(ctx, "enabled")))));
         root.then(CommandManager.literal("list").executes(PvPocketCommands::list));
         root.then(CommandManager.literal("spectate")
                 .executes(PvPocketCommands::spectateHelp)
@@ -64,6 +75,8 @@ public final class PvPocketCommands {
         source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket arena        查看场地分区占用").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket arena reset  强制结束所有对局并重建整个场地维度（需要 OP）").formatted(Formatting.GRAY), false);
+        source.sendFeedback(() -> Text.literal("/pvpocket guard <true|false>  开关「滞留决斗维度自动移出」（需要 OP；按玩家记录）").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket list         打开对局面板，可进入开启观战的对局").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket spectate leave   退出观战").formatted(Formatting.GRAY), false);
         source.sendFeedback(() -> Text.literal("/pvpocket loadout [give|edit|reset]  查看配装；edit 打开配装界面（无需决斗）；give 发到手上；reset 清空个人配装").formatted(Formatting.GRAY), false);
@@ -174,6 +187,66 @@ public final class PvPocketCommands {
                     + "  会话 " + entry.getKey().substring(0, 8);
             source.sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
         }
+        return 1;
+    }
+
+    /**
+     * Hard reset of the duel dimension.
+     *
+     * <p>Announced to everyone, not just the operator. The command ends other people's matches
+     * without their consent and then freezes the world for a few seconds while the gallery
+     * re-stamps, and a server that goes quiet for no visible reason reads as a crash.</p>
+     */
+    private static int arenaReset(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource source = ctx.getSource();
+        SessionManager manager = SessionManager.get();
+        if (manager == null) {
+            source.sendError(Text.literal("会话管理器尚未就绪。"));
+            return 0;
+        }
+        int ended = manager.resetArena();
+        if (ended < 0) {
+            source.sendError(Text.literal("场地正在重建中，等这一次完成再执行。"));
+            return 0;
+        }
+        Text line = Text.literal("决斗场地已重置：强制结束 " + ended + " 场对局，正在重建地图。")
+                .formatted(Formatting.AQUA);
+        source.sendFeedback(() -> line, true);
+        for (ServerPlayerEntity player : source.getServer().getPlayerManager().getPlayerList()) {
+            // The operator already got it through sendFeedback; a second copy reads as two events.
+            if (player != source.getEntity()) {
+                player.sendMessage(line, false);
+            }
+        }
+        return ended;
+    }
+
+    /**
+     * Turns the automatic removal of stray players on or off for the calling player.
+     *
+     * <p>Self-targeting on purpose. The flag is an "I am going in there to look" permission, and a
+     * command that could hand it to somebody else would be a way to park a player in the sandbox
+     * indefinitely without them ever seeing the prompt.</p>
+     */
+    private static int guard(CommandContext<ServerCommandSource> ctx, boolean enabled) {
+        ServerCommandSource source = ctx.getSource();
+        ServerPlayerEntity player;
+        try {
+            player = source.getPlayerOrThrow();
+        } catch (Exception e) {
+            source.sendError(Text.literal("该指令按玩家记录，只能在游戏内执行。"));
+            return 0;
+        }
+        SessionManager manager = SessionManager.get();
+        if (manager == null) {
+            source.sendError(Text.literal("会话管理器尚未就绪。"));
+            return 0;
+        }
+        boolean now = manager.setGuardEnabled(player, enabled);
+        player.sendMessage(Text.literal(now
+                        ? "已开启自动移出：不在对局中却待在决斗维度时，5 秒后会被送回进入前的位置。"
+                        : "已关闭自动移出：你可以留在决斗维度里。检查完请用 /pvpocket guard true 恢复。")
+                .formatted(now ? Formatting.GREEN : Formatting.YELLOW), false);
         return 1;
     }
 

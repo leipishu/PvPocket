@@ -151,6 +151,13 @@ public final class SessionManager {
      * still inside.
      */
     private final HomePositions homes;
+    /**
+     * Watches for players standing in the arena with nothing to do there.
+     *
+     * <p>Owned here rather than by {@link Spectators} because the two answer different questions:
+     * spectatorship is a state somebody opted into, and this is the absence of every such state.</p>
+     */
+    private final ArenaGuard guard;
     private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
@@ -159,6 +166,7 @@ public final class SessionManager {
         this.loadouts = new LoadoutBook(storage);
         this.spectators = new Spectators(this);
         this.homes = HomePositions.load(server);
+        this.guard = ArenaGuard.load(this, server);
     }
 
     /** Package-private: {@link Spectators} needs the server for lookups and teleports. */
@@ -174,6 +182,16 @@ public final class SessionManager {
     /** Package-private: the match list iterates every session. */
     List<DuelSession> allSessions() {
         return new ArrayList<>(sessions.values());
+    }
+
+    /** Package-private: the stray-player guard needs the saved home positions. */
+    HomePositions homes() {
+        return homes;
+    }
+
+    /** Package-private: the guard has to distinguish "watching" from "just standing there". */
+    boolean isSpectating(UUID uuid) {
+        return spectators.isWatching(uuid);
     }
 
     /** Package-private: which session this player is a participant of, or null. */
@@ -303,6 +321,101 @@ public final class SessionManager {
         // of the arena, so these are the positions they will be rescued to if the next boot finds
         // anybody still standing on a plot.
         homes.flush();
+    }
+
+    // ------------------------------------------------------------------ guard / reset
+
+    /**
+     * Turns the automatic removal of stray players on or off for one player.
+     *
+     * <p>The flag is per player and persisted, which is what makes it usable as an operator tool:
+     * "I am going in to look at the dimension, do not throw me out" has to survive the restart that
+     * often follows a look at a broken dimension.</p>
+     *
+     * @return the new state, i.e. whether the guard is enabled for this player
+     */
+    public boolean setGuardEnabled(ServerPlayerEntity player, boolean enabled) {
+        boolean now = guard.setEnabled(player.getUuid(), enabled);
+        PvPocket.LOGGER.info("Stray-player guard {} for {} ({} exemptions on record)",
+                enabled ? "enabled" : "disabled", player.getName().getString(), guard.exemptCount());
+        return now;
+    }
+
+    /**
+     * Ends every live session without asking anybody.
+     *
+     * <p>Uses {@link #abort} rather than the settle path on purpose. Settling is a game action: it
+     * awards the round to somebody and can fall through to an intermission, which is the opposite of
+     * what a reset wants. Aborting restores the snapshots, releases the lease and voids the session,
+     * which is the complete list of things that have to happen before the terrain can be erased.</p>
+     *
+     * @return how many sessions were ended
+     */
+    private int forceEndAll(String reason) {
+        int ended = 0;
+        for (DuelSession session : new ArrayList<>(sessions.values())) {
+            if (session.stage.isTerminal()) {
+                continue;
+            }
+            if (session.stage.isPreFreeze()) {
+                // Nothing was frozen and no plot was leased, so there is nothing to undo.
+                session.voidReason = reason;
+                journal(session).append("SESSION_DROPPED", "reason", reason,
+                        "stage", session.stage.name());
+                transition(session, SessionStage.VOIDED);
+                ended++;
+                continue;
+            }
+            journal(session).append("SESSION_FORCED_END", "reason", reason,
+                    "stage", session.stage.name());
+            abort(session, reason);
+            ended++;
+        }
+        return ended;
+    }
+
+    /**
+     * Hard reset of the whole duel dimension: end everything, wipe it, re-stamp the gallery.
+     *
+     * <p>The repair tool for a dimension that has gone wrong — debris left by a crash, a map whose
+     * baseline was captured from a half-edited cell, two duels that somehow shared a plot. Nothing
+     * short of re-stamping fixes those, because the baseline <em>is</em> what was in the world when
+     * the map was pasted.</p>
+     *
+     * <p>Order matters at every step. Spectators go first, because a camera attached to a
+     * participant who is about to be teleported out is a camera watching nothing. Sessions go second,
+     * because aborting them is what restores the players' real inventories and releases the leases.
+     * Stray players go third, so the wipe cannot pull the floor out from under somebody who was not
+     * in a session to begin with. Only then is the dimension cleared.</p>
+     *
+     * <p>The re-stamp is queued rather than done inline: a full gallery is five cells of ~150k
+     * blocks each, about 4.5 s of server thread, and blocking the tick for that long trips the
+     * watchdog and times out every connected client. The queued path is the same one startup uses,
+     * so it is already exercised on every boot.</p>
+     *
+     * @return how many sessions were ended, or -1 if a rebuild was already running
+     */
+    public int resetArena() {
+        if (ArenaManager.warmUpPending()) {
+            return -1;
+        }
+        spectators.ejectEverything("ARENA_RESET");
+        int ended = forceEndAll("ARENA_RESET");
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            // No-op for everybody the sessions already sent home; this is for the player who was in
+            // the dimension for a reason that no longer exists.
+            homes.evict(player);
+        }
+        CombatState.clearAll();
+        // Before clearAll(), because the region objects are what know how tall the debris in a cell
+        // can be. Covers the cells the re-stamp will not touch: the flat plot, which is rebuilt at
+        // whatever size the next duel asks for, and any spare cell.
+        ArenaManager.wipeUnstampedCells(server);
+        ArenaManager.clearAll();
+        ArenaManager.beginWarmUp();
+        PvPocket.LOGGER.warn("Arena reset: {} session(s) ended, dimension wiped, re-stamping gallery",
+                ended);
+        return ended;
     }
 
     // ------------------------------------------------------------------ player events
@@ -515,6 +628,9 @@ public final class SessionManager {
         // Spectators: drops watchers of finished series and repairs cameras pointing at a body that
         // was replaced by a respawn. Empty in the common case, so the cost is one isEmpty check.
         spectators.tick();
+        // After the spectator pass, not before: that pass can end somebody's watch and teleport them
+        // out in this same tick, and a guard running first would see them as a stray and race it.
+        guard.tick();
         tickHomes();
         // Natural spawning is cancelled inside the arena dimension, so this is only a net for the
         // doors that bypass it (spawn eggs, spawner blocks, /summon). Three seconds is frequent
@@ -1047,6 +1163,13 @@ public final class SessionManager {
     private void startAccepted(DuelSession session, ServerPlayerEntity accepter) {
         if (!ArenaManager.isReady(server)) {
             fail(accepter, "决斗维度未加载。");
+            return;
+        }
+        // A reset re-stamps one map per tick. Leasing a cell mid-rebuild would race the stamp: the
+        // warm-up skips cells that are leased, so the duel would work, but it would do so on a
+        // gallery that is still half-empty and against a lease taken before the map was re-pasted.
+        if (ArenaManager.warmUpPending()) {
+            fail(accepter, "场地正在重建，请等这一次完成再开始。");
             return;
         }
         // Checked again here rather than trusting the caller: /pvpocket accept reaches this method

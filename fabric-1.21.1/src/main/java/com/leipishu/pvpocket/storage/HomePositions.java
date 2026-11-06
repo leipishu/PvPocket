@@ -155,6 +155,29 @@ public final class HomePositions {
      * @return true if the player was moved
      */
     public boolean rescue(ServerPlayerEntity player) {
+        return moveOut(player, "你上次在决斗场地里退出", "login");
+    }
+
+    /**
+     * Moves out a player who is in the duel dimension without a match to be in.
+     *
+     * <p>Same destination and the same fallback as {@link #rescue}, different cause: this one is
+     * the live guard, for somebody who walked, teleported or fell in without a session. Only the
+     * sentence changes, because "你上次在决斗场地里退出" would be a lie about what just happened.</p>
+     *
+     * @return true if the player was moved
+     */
+    public boolean evict(ServerPlayerEntity player) {
+        return moveOut(player, "你不在任何对局中", "guard");
+    }
+
+    /**
+     * The shared body of both exits.
+     *
+     * @param prefix what to tell the player about why, before the destination clause
+     * @param reason short tag for the log line
+     */
+    private boolean moveOut(ServerPlayerEntity player, String prefix, String reason) {
         if (!ArenaManager.isArena(player.getWorld())) {
             return false;
         }
@@ -168,18 +191,18 @@ public final class HomePositions {
                     target.getSpawnPos().getY(), target.getSpawnPos().getZ() + 0.5D,
                     player.getYaw(), player.getPitch());
             releaseSpectatorMode(player, null);
-            PvPocket.LOGGER.warn("Rescued {} from the arena with no usable home; sent to spawn",
-                    player.getName().getString());
-            player.sendMessage(Text.literal("你上次在决斗场地里退出，已送回主世界出生点。")
+            PvPocket.LOGGER.warn("Moved {} out of the arena ({}, no usable home); sent to spawn",
+                    player.getName().getString(), reason);
+            player.sendMessage(Text.literal(prefix + "，已送回主世界出生点。")
                     .formatted(Formatting.YELLOW), false);
             return true;
         }
         player.teleport(target, home.x, home.y, home.z, home.yaw, home.pitch);
         player.setVelocity(0.0D, 0.0D, 0.0D);
         releaseSpectatorMode(player, home);
-        PvPocket.LOGGER.info("Rescued {} from the arena to {} {} {} in {}",
-                player.getName().getString(), home.x, home.y, home.z, home.dimension);
-        player.sendMessage(Text.literal("你上次在决斗场地里退出，已送回原来的位置。")
+        PvPocket.LOGGER.info("Moved {} out of the arena ({}) to {} {} {} in {}",
+                player.getName().getString(), reason, home.x, home.y, home.z, home.dimension);
+        player.sendMessage(Text.literal(prefix + "，已送回原来的位置。")
                 .formatted(Formatting.YELLOW), false);
         return true;
     }
