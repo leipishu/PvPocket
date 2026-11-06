@@ -5,22 +5,30 @@
 ## What this is
 
 PvPocket is a Minecraft Fabric 1.21.1 mod that gives a survival server **a duel you can start on the
-spot**: two players agree on terms, drop into a dedicated dimension, fight under faithfully
+spot**: the players agree on terms, drop into a dedicated dimension, fight under faithfully
 reproduced vanilla mechanics, and leave with nothing changed.
 
 It is not a server's core gameplay and not a matchmaking lobby. The pitch is one sentence:
 **two people want a fight, they get one in thirty seconds, and nothing is left behind.**
 
+That sentence is the default: two players, one life, best of three. There is one layer above it —
+a single duel holds up to 4 sides of up to 4 players each, 16 people total. `/pvpocket duel @a`
+pulls everyone present into one match and sides are reshuffled from the panel. Multiplayer is not a
+separate game mode; it is the same rule set with a different roster.
+
 ## Four decisions
 
 ### 1. Terms first, then the fight
 
-The challenger opens a rule panel, sets the terms and sends them over. The other side accepts, edits
-and re-sends, or declines. What both sides agree to is a **versioned snapshot of 39 rules**, not a
-list of toggles. Any edit bumps the revision, and agreement to the old one stops counting.
+The challenger opens a rule panel, sets the terms and sends them to everyone else. Each of them can
+accept, edit and re-send, or decline. What everyone agrees to is a **versioned snapshot of 39
+rules**, not a list of toggles. Any edit bumps the revision, and agreement to the old one stops
+counting.
 
 The cost is one extra exchange before every duel. The benefit is that nobody gets dragged into a
-best-of-five with friendly fire on.
+best-of-five with friendly fire on. In a four-way match this matters more than anywhere else: if
+three players have already accepted and the fourth changes a loadout, all three acceptances are
+void at once — the fourth player does not get outvoted into a fight on someone else's terms.
 
 ### 2. Server authoritative, client expresses intent only
 

@@ -22,6 +22,33 @@ public final class Participant {
     public int team = -1;
 
     /**
+     * Index within the team, 0-based.
+     *
+     * <p>Used for one thing: spreading team-mates around their side's spawn pad instead of stacking
+     * them on the same block. Derived from join order, not stored on the wire.</p>
+     */
+    public int member;
+
+    /**
+     * The rule revision this player has accepted, or {@code -1}.
+     *
+     * <p>Multi-party consent needs a number, not a turn: with three or more sides there is no single
+     * "the other party" to hand the pen to, so every participant records the revision they said yes
+     * to and the session starts when all of them match the current one. A re-proposal bumps the
+     * revision, which invalidates every earlier yes by construction.</p>
+     */
+    public int acceptedRevision = -1;
+
+    /**
+     * True once this player is out of the current round — killed, out of bounds, or surrendered.
+     *
+     * <p>Per-round, cleared at every round start. The round ends when only one team still has
+     * somebody standing, which is the same rule for a 1v1 (one death ends it) and a 3v3 (the last
+     * member of a side dies).</p>
+     */
+    public boolean eliminated;
+
+    /**
      * This player's loadout, encoded by {@code Loadout.encode()}.
      *
      * <p>Stored per participant rather than per session because the default rule is "每人独立". It is

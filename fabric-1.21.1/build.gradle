@@ -90,6 +90,19 @@ if (quickJoin) {
     }
 }
 
+// -PclientHeap=900M caps the heap of every dev client. Testing a 2v2 means four clients and a
+// server at once, and Loom's default client heap turns that into eight gigabytes of JVM — which is
+// more than a laptop will spare, so the test that matters most becomes the one that cannot be run.
+// Left unset by default so a bare runClient behaves exactly as before.
+if (project.hasProperty("clientHeap")) {
+    def heap = project.property("clientHeap").toString()
+    loom.runs.configureEach { run ->
+        if (run.environment == "client") {
+            run.vmArg "-Xmx${heap}".toString()
+        }
+    }
+}
+
 // -PmixinDebug exports every transformed class to <runDir>/.mixin.out/class/ and makes Mixin log
 // each applied injection. This mod rewrites hot paths inside PlayerEntity#attack, where "no exception
 // at startup" only proves a target matched, not that the right one did — javap the exported class to

@@ -37,8 +37,11 @@ what the panel shows.
 
 **Players** — Teams, sizes, friendly fire
 
-- **Teams** — `b.teamCount` · int 1–4 · default 2 teams. How many sides fight. 2 is the classic 1v1 / 2v2.
-- **Players per team** — `b.teamSize` · int 1–4 · default 1 players. Players on each side. Total = teams × players per team.
+- **Teams** — `b.teamCount` · int 1–4 · default 2 teams. How many sides fight. 2 is the classic
+  1v1 / 2v2. The roster is dealt round-robin in invite order, so changing this re-deals it in place.
+- **Players per team** — `b.teamSize` · int 1–4 · default 1 players. The **cap** on each side; above
+  it the match refuses to start. A roster that does not divide evenly becomes `2+1` rather than an
+  empty side.
 - **Player cap** — `b.maxPlayers` · int 2–16 · default 4 players. The duel cannot start above this many players.
 - **Friendly fire** — `b.friendlyFire` · toggle · default Off. When on, teammates can damage each other.
 - **Allow spectating** — `b.spectator` · toggle · default On. When on, anyone not in the duel can see it in /pvpocket list and press Watch to enter. Spectating uses spectator mode with the camera bound to a participant, V cycles the view, and leaving puts you back where you were.
@@ -89,37 +92,48 @@ what the panel shows.
 
 ## 3. Enforcement status (important)
 
-**All 39 rules are configurable, all are written into the session, all reach the journal — but only
-16 of them currently affect a duel.** This is the section that matters. Do not look at the panel and
+**All 39 rules are configurable, all are written into the session, all reach the journal — and 20 of
+them currently affect a duel.** This is the section that matters. Do not look at the panel and
 assume the whole set is in effect.
 
-Method: whether the rule id has a reader outside `RuleCatalog`. As of this revision (`2ed3f3f`):
+Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (16)
+### In effect (20)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.series`, `a.countdown`, `a.intermission` |
-| B | `b.spectator` |
+| B | `b.teamCount`, `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather` |
 | F | `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-### Summary text only (2)
+The four in group B were wired up together with NvN. Where each one is read:
 
-`b.teamCount`, `b.teamSize` — their only reader is `DuelRules.summaryText()`, i.e. the "2 players"
-part of the chat line. **Every duel is 1v1**: session creation always inserts exactly two
-participants (challenger and target), and no team model exists. Choosing "2 teams × 2 players" pulls
-nobody into the arena; it only makes the summary claim four players.
+- **`b.teamCount`** — decides `DuelSession.teamCount`, i.e. how many sides are on the field. The
+  roster is dealt round-robin in invite order (`i % teams`), so changing this **re-deals a roster
+  that is already invited** in place; nobody has to be re-invited. 1–4 sides; anything above 4 is
+  clamped by `assignTeams`.
+- **`b.teamSize`** — the per-side cap, checked side by side in `validateRoster` before the match
+  starts; exceeding it refuses with the offending side named. A roster that does not divide evenly
+  becomes `2+1`, not an empty side.
+- **`b.maxPlayers`** — the total cap, also in `validateRoster`. The hard ceiling of 16 lives in
+  `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
+- **`b.friendlyFire`** — when off, damage between team-mates is vetoed by
+  `ServerLivingEntityEvents.ALLOW_DAMAGE` and leaves a `FRIENDLY_FIRE_BLOCKED` journal line. Only a
+  direct attacker is blocked (melee, arrows, tridents, TNT), not the fire a team-mate set — the same
+  line vanilla draws for its own team checks.
 
-### Recorded only (23)
+### Recorded only (19)
 
-`a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `b.friendlyFire`, `b.maxPlayers`,
-`c.modeConflict`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance`,
-`d.loadoutScope`, `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`,
-`d.allowConsumables`, `e.hazard`, `f.allowPlace`, `f.allowExplosives`, `f.blockFilter`,
-`g.enderPearl`, `g.chatScope`, `g.showOpponentHealth`
+`a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `c.naturalRegen`, `c.hunger`,
+`c.fallDamage`, `c.knockbackResistance`, `d.loadoutScope`, `d.allowSwapBetweenRounds`,
+`d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`, `e.hazard`, `f.allowPlace`,
+`f.allowExplosives`, `f.blockFilter`, `g.enderPearl`, `g.chatScope`, `g.showOpponentHealth`
+
+One more entry is not a setting at all: `c.modeConflict` is a `fixed` rule that only prints the
+"1.8 mode conflicts with some rules" note in the panel, and has no value to read.
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
@@ -135,7 +149,7 @@ Three of them mislead more than the rest and are worth calling out:
   so the next duel is unaffected — the switch itself just does not hold.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (team model, block change set, timers, chat filtering). Keeping
+work is spread across several slices (timers, block change set, chat filtering). Keeping
 a declared-but-unenforced state converges faster than removing and re-adding. **Any public claim
 about features must follow this section, not the panel.**
 

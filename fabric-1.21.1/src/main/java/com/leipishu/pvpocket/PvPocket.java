@@ -72,6 +72,15 @@ public final class PvPocket implements ModInitializer {
             }
         });
 
+        // Friendly fire is a veto rather than a reduction, so it has to run before the hit lands.
+        // Everything that reaches this event has an attacker and a victim, which is exactly the
+        // question "are these two on the same side" — a rule the session can answer and the damage
+        // pipeline cannot.
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
+                !(entity instanceof ServerPlayerEntity victim)
+                        || SessionManager.get() == null
+                        || SessionManager.get().allowDamage(victim, source));
+
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
             if (entity instanceof ServerPlayerEntity player) {
                 SessionManager manager = SessionManager.get();

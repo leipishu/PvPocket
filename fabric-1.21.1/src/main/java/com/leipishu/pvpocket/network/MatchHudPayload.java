@@ -12,11 +12,18 @@ import net.minecraft.util.Identifier;
  * is a scoreboard that can drift out of sync with the server; a scoreboard that is pushed on change
  * can only ever show something the server actually decided.</p>
  *
- * <p>The two sides are sent as flat strings — {@code "Dev1|uuid1,Dev2|uuid2"} — rather than as a
- * list codec. Player names cannot contain {@code ,} or {@code |} and uuids cannot contain either, so
- * the format is unambiguous, and it keeps the payload to six scalars instead of dragging a generic
- * collection codec through {@link PacketCodec#tuple}. The client parses it into rows; a malformed
- * row is dropped rather than crashing the HUD.</p>
+ * <p>Sides are sent as two flat strings rather than a list codec, because a match can have one to
+ * four of them and the number is not known to the client until it arrives:</p>
+ *
+ * <ul>
+ *   <li>{@code scores} — one integer per side, comma separated: {@code "2,1"}.</li>
+ *   <li>{@code teams} — sides separated by {@code ;}, members by {@code ,}, each member
+ *       {@code name|uuid}: {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"}.</li>
+ * </ul>
+ *
+ * <p>Player names cannot contain {@code ,}, {@code |} or {@code ;} and uuids cannot contain any of
+ * them either, so the format is unambiguous without escaping, and the payload stays four scalars
+ * instead of dragging a generic collection codec through {@link PacketCodec#tuple}.</p>
  *
  * <p>{@code active=false} means "hide". It carries no other meaning, and the client treats every
  * other field as garbage in that case — the server sends it on the final round, on surrender, on
@@ -24,35 +31,24 @@ import net.minecraft.util.Identifier;
  */
 public record MatchHudPayload(boolean active,
                               int round, int bestOf, int winsNeeded,
-                              int leftScore, int rightScore,
-                              String leftPlayers, String rightPlayers)
+                              String scores, String teams)
         implements CustomPayload {
 
     public static final Id<MatchHudPayload> ID =
             new Id<>(Identifier.of("pvpocket", "match_hud"));
 
-    /**
-     * Hand-written rather than {@code PacketCodec.tuple}.
-     *
-     * <p>{@code tuple} only goes up to six fields and this payload has eight. Splitting it into two
-     * tuples would mean an intermediate record whose only job is to satisfy an arity limit; writing
-     * the eight lines out is shorter and says exactly what crosses the wire, in order.</p>
-     */
+    /** Hand-written rather than {@code PacketCodec.tuple}: six fields, two of them strings. */
     public static final PacketCodec<RegistryByteBuf, MatchHudPayload> CODEC = PacketCodec.of(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
                 buf.writeVarInt(value.round);
                 buf.writeVarInt(value.bestOf);
                 buf.writeVarInt(value.winsNeeded);
-                buf.writeVarInt(value.leftScore);
-                buf.writeVarInt(value.rightScore);
-                buf.writeString(value.leftPlayers);
-                buf.writeString(value.rightPlayers);
+                buf.writeString(value.scores);
+                buf.writeString(value.teams);
             },
             buf -> new MatchHudPayload(
                     buf.readBoolean(),
-                    buf.readVarInt(),
-                    buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
@@ -61,7 +57,7 @@ public record MatchHudPayload(boolean active,
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
     public static MatchHudPayload hidden() {
-        return new MatchHudPayload(false, 0, 0, 0, 0, 0, "", "");
+        return new MatchHudPayload(false, 0, 0, 0, "", "");
     }
 
     @Override

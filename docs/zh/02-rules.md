@@ -35,7 +35,9 @@
 **参与者** — 人数、队伍与误伤
 
 - **队伍数量** — `b.teamCount` · 整数 1–4 · 默认 2 队。分成几方对抗。2 为经典 1v1 / 2v2。
-- **每队人数** — `b.teamSize` · 整数 1–4 · 默认 1 人。每支队伍的人数。总人数 = 队伍数量 × 每队人数。
+  花名册按邀请顺序轮流分配，改这个数字会就地重排，不需要重新邀请。
+- **每队人数** — `b.teamSize` · 整数 1–4 · 默认 1 人。每方的人数**上限**，超过则无法开始。
+  人数不是队数的整数倍时会分成 `2+1` 这样的不均队形，而不是留空一队。
 - **总人数上限** — `b.maxPlayers` · 整数 2–16 · 默认 4 人。超过这个人数无法开始。
 - **友伤** — `b.friendlyFire` · 开关 · 默认 关。开启后队友之间可以互相造成伤害。
 - **允许观战** — `b.spectator` · 开关 · 默认 开。开启后非参与者可以用 /pvpocket list 看到这一局并点「观战」进入。观战是旁观模式，相机绑定在参与者身上，按 V 切换视角；退出后回到原来的位置。
@@ -86,39 +88,47 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，但只有 16 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 20 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
-判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。截至本次整理（`2ed3f3f`），实测结果如下。
+判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
-### 已生效（16 条）
+### 已生效（20 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.series`、`a.countdown`、`a.intermission` |
-| B | `b.spectator` |
+| B | `b.teamCount`、`b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather` |
 | F | `f.protectTerrain`、`f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-### 只影响摘要文字（2 条）
+B 组的四条是随 NvN 一起接上的，各自的读取点：
 
-`b.teamCount`、`b.teamSize` —— 唯一的读取点是 `DuelRules.summaryText()`，也就是聊天里那行
-「2 人 · 3 局 2 胜 · 现代 …」的「2 人」两个字。**对局永远是 1v1**：会话创建时固定只放两个
-参与者（发起方 + 应战方），队伍模型没有实现。选「2 队 × 2 人」不会让任何人被拉进场地，只会
-让摘要显示成 4 人。详见 [`03-architecture.md`](03-architecture.md)。
+- **`b.teamCount`** — 决定 `DuelSession.teamCount`，也就是场上有几方。花名册按邀请顺序
+  round-robin 分配（`i % teams`），所以改这个数字会**就地重排**已经邀请好的名单，不需要重新
+  邀请。1–4 方，超过 4 会被 `assignTeams` 夹回 4。
+- **`b.teamSize`** — 每方人数上限，`validateRoster` 在开始前逐个队检查；超过就拒绝并说明是哪
+  一队超了。人数不是队数的整数倍时会出现 `2+1` 这样的不均队形。
+- **`b.maxPlayers`** — 总人数上限，同样在 `validateRoster` 里。硬上限 16 由
+  `SessionManager.MAX_PARTICIPANTS` 兜底，两者取小。
+- **`b.friendlyFire`** — 关闭时同队互相伤害被 `ServerLivingEntityEvents.ALLOW_DAMAGE` 否决，
+  并在日志里留一条 `FRIENDLY_FIRE_BLOCKED`。只拦直接攻击者（近战、箭、三叉戟、TNT），不拦
+  队友放的火的后续燃烧，这条界线与原生队伍的判定一致。
 
-### 仅记录（23 条）
+### 仅记录（19 条）
 
-`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`b.friendlyFire`、`b.maxPlayers`、
-`c.modeConflict`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance`、
-`d.loadoutScope`、`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、
-`e.hazard`、`f.allowPlace`、`f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、
-`g.showOpponentHealth`
+`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`c.naturalRegen`、`c.hunger`、
+`c.fallDamage`、`c.knockbackResistance`、`d.loadoutScope`、`d.allowSwapBetweenRounds`、
+`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、`e.hazard`、`f.allowPlace`、
+`f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、`g.showOpponentHealth`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
+
+另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，只用来在面板上说明「1.8 模式与某些
+规则冲突」，没有取值可言。
 
 其中三条的落差最容易误导人，单独说明：
 
@@ -130,8 +140,8 @@
   污染下一局，只是这条开关本身不成立。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（队伍模型、方块变更集、计时器、聊天过滤）。保留「已声明但未执行」的状态比删掉再重新加回来
-更容易收敛，但**在对外宣传功能时必须以本节为准**。
+（计时器、方块变更集、聊天过滤）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
+但**在对外宣传功能时必须以本节为准**。
 
 ## 4. 赛制换算
 

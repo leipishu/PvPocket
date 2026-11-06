@@ -21,6 +21,9 @@ import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Command surface for S1. The rule GUI replaces most of this later; the commands stay as the
  * scriptable, testable path.
@@ -51,7 +54,7 @@ public final class PvPocketCommands {
                 .executes(PvPocketCommands::help);
 
         root.then(CommandManager.literal("duel")
-                .then(CommandManager.argument("target", EntityArgumentType.player())
+                .then(CommandManager.argument("targets", EntityArgumentType.players())
                         .executes(ctx -> duel(ctx, CombatMode.MODERN))
                         .then(CommandManager.literal("legacy")
                                 .executes(ctx -> duel(ctx, CombatMode.LEGACY_1_8)))));
@@ -107,7 +110,7 @@ public final class PvPocketCommands {
         ServerCommandSource source = ctx.getSource();
         source.sendFeedback(() -> PvLang.t("pvpocket.command.help.header", "/pvpocket help")
                 .formatted(Formatting.AQUA), false);
-        helpLine(source, "/pvpocket duel <player> [legacy]", "pvpocket.command.help.duel");
+        helpLine(source, "/pvpocket duel <players> [legacy]", "pvpocket.command.help.duel");
         helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
         helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
         helpLine(source, "/pvpocket status", "pvpocket.command.help.status");
@@ -126,8 +129,15 @@ public final class PvPocketCommands {
     private static int duel(CommandContext<ServerCommandSource> ctx, CombatMode mode) {
         try {
             ServerPlayerEntity self = ctx.getSource().getPlayerOrThrow();
-            ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "target");
-            SessionManager.get().requestDuel(self, target, mode);
+            // players(), not player(): a team match has to be one command. A single name still
+            // parses to a one-element collection, so 1v1 is typed exactly as before; a selector
+            // (@a, @a[distance=..8], @a[team=red]) is how several people are named without
+            // spelling each one out, which is what Brigadier can actually express here — a
+            // variadic list of plain names is not something its grammar can do.
+            List<ServerPlayerEntity> targets = new ArrayList<>(
+                    EntityArgumentType.getPlayers(ctx, "targets"));
+            targets.remove(self);
+            SessionManager.get().requestDuel(self, targets, mode);
             return 1;
         } catch (Exception e) {
             return 0;

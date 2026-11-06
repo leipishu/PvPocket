@@ -763,6 +763,21 @@ public final class ArenaManager {
     // ------------------------------------------------------------------ teleport / bounds
 
     public static boolean teleportToSpawn(ServerPlayerEntity player, ArenaRegion region, int spawnIndex) {
+        return teleportToSpawn(player, region, spawnIndex, 0, 1);
+    }
+
+    /**
+     * Teleports one player to their side's pad, fanned out by team-mate index.
+     *
+     * <p>Team-mates would otherwise be teleported to the same block and pushed apart by the collision
+     * solver, which on a narrow map means somebody lands in the wall or off the edge. The fan is
+     * perpendicular to the way the side is facing, two blocks apart, centred on the pad — so a
+     * four-player side is a line of four rather than a stack of one.</p>
+     *
+     * <p>{@code memberCount == 1} keeps the exact old coordinate, which is every 1v1.</p>
+     */
+    public static boolean teleportToSpawn(ServerPlayerEntity player, ArenaRegion region, int spawnIndex,
+                                          int member, int memberCount) {
         ServerWorld world = world(player.getServer());
         if (world == null || region == null) {
             return false;
@@ -772,8 +787,33 @@ public final class ArenaManager {
         // Not SURFACE_Y: a map's pit floor sits wherever the build put it, and spawning at the flat
         // surface would bury the player inside the map's ground layer.
         double y = region.spawnY(spawnIndex);
+        float yaw = region.spawnYaw(spawnIndex);
+        if (memberCount > 1) {
+            // Rows of two, so a 4-player side is a 2x2 block rather than a 4-wide line that would
+            // not fit across a narrow arena.
+            int col = member % 2;
+            int row = member / 2;
+            int cols = Math.min(2, memberCount);
+            double side = (col - (cols - 1) / 2.0D) * 2.0D;
+            double depth = row * 2.0D;
+            double rad = Math.toRadians(yaw);
+            // Right-hand vector of the facing direction, and "backwards" is toward the player's own
+            // end of the arena so rows do not walk into the middle of the map.
+            //
+            // Minecraft's forward vector for a yaw is (-sin, cos), so backwards is (sin, -cos) — the
+            // signs here are the whole point. Getting them the wrong way round still produces a
+            // legal 2x2, which is why it is worth writing down: the formation ends up two blocks
+            // further into the arena instead of two blocks further back, and nobody notices until
+            // somebody measures the spawn against the plot edge.
+            double rightX = Math.cos(rad);
+            double rightZ = Math.sin(rad);
+            x += rightX * side;
+            z += rightZ * side;
+            x += Math.sin(rad) * depth;
+            z -= Math.cos(rad) * depth;
+        }
         player.stopRiding();
-        player.teleport(world, x, y, z, region.spawnYaw(spawnIndex), 0.0F);
+        player.teleport(world, x, y, z, yaw, 0.0F);
         player.setVelocity(0.0D, 0.0D, 0.0D);
         return true;
     }

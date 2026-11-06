@@ -194,22 +194,25 @@ final class Spectators {
         return map.id;
     }
 
+    /**
+     * Rounds won by the sides the spectator list puts on the left.
+     *
+     * <p>Summed over even team indices because the list groups sides into two columns regardless of
+     * how many there are — in a four-way match columns 0+2 face columns 1+3, which is a display
+     * grouping, not a real alliance. It only ever feeds the "3:1" text in the list.</p>
+     */
     private static int leftScore(DuelSession session) {
         int sum = 0;
-        for (Participant p : session.participants) {
-            if (p.teamIndex() % 2 == 0) {
-                sum += session.score.getOrDefault(p.uuid, 0);
-            }
+        for (int team = 0; team < Math.max(1, session.teamCount); team += 2) {
+            sum += session.wins(team);
         }
         return sum;
     }
 
     private static int rightScore(DuelSession session) {
         int sum = 0;
-        for (Participant p : session.participants) {
-            if (p.teamIndex() % 2 != 0) {
-                sum += session.score.getOrDefault(p.uuid, 0);
-            }
+        for (int team = 1; team < Math.max(1, session.teamCount); team += 2) {
+            sum += session.wins(team);
         }
         return sum;
     }

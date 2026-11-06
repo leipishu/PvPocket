@@ -40,8 +40,25 @@ public final class DuelSession {
     public String awaitingUuid;
 
     public List<Participant> participants = new ArrayList<>();
-    /** Wins keyed by participant uuid (teams arrive in S5). */
-    public Map<String, Integer> score = new LinkedHashMap<>();
+
+    /**
+     * How many sides this series has, derived from {@code b.teamCount} when the match starts.
+     *
+     * <p>Stored rather than recomputed because the rule set is frozen at start but the session record
+     * outlives it: the journal, the restore path and the result announcement all need to know how
+     * many sides there were, and a rule that was edited mid-negotiation must not be able to
+     * retroactively change the shape of a match that already ran.</p>
+     */
+    public int teamCount = 2;
+
+    /**
+     * Rounds won, keyed by team index as a string ("0".."3").
+     *
+     * <p>Team-scoped rather than player-scoped: a 2v2 is won by a side, and giving each member a
+     * personal win count would let the scoreboard show 3:2 in a three-round series. The map is keyed
+     * by string because that is what Gson round-trips without a custom adapter.</p>
+     */
+    public Map<String, Integer> teamScore = new LinkedHashMap<>();
 
     public String arenaId = "arena-0";
 
@@ -52,6 +69,16 @@ public final class DuelSession {
      */
     public String pendingWinner;
     public String pendingReason;
+
+    /**
+     * The side that won the decided-but-not-applied round, or {@code -1}.
+     *
+     * <p>Separate from {@link #pendingWinner} because the winner is a side now: a 2v2 is won by two
+     * players, and storing one of their uuids would make the result depend on which of them happened
+     * to land the last hit. {@code pendingWinner} is kept as "the participant whose respawn this
+     * settle is waiting for", which is a different question.</p>
+     */
+    public int pendingWinnerTeam = -1;
 
     /**
      * Why the series ended, when that reason is not "somebody reached the win count".
@@ -71,13 +98,60 @@ public final class DuelSession {
         return null;
     }
 
-    public Participant opponentOf(String uuid) {
+    /**
+     * Everybody on a different side than {@code uuid}, in join order.
+     *
+     * <p>There is no {@code opponentOf} returning one player. That method existed while a match had
+     * exactly two sides; with three or four there is no such person, and every caller that wanted
+     * "the other side" wants the whole of it — a chat line, a panel subtitle, a HUD column.</p>
+     */
+    public List<Participant> opponentsOf(String uuid) {
+        Participant me = participant(uuid);
+        List<Participant> out = new ArrayList<>();
         for (Participant p : participants) {
-            if (!p.uuid.equals(uuid)) {
-                return p;
+            if (!p.uuid.equals(uuid) && (me == null || p.teamIndex() != me.teamIndex())) {
+                out.add(p);
             }
         }
-        return null;
+        return out;
+    }
+
+    public List<Participant> teamMembers(int team) {
+        List<Participant> out = new ArrayList<>();
+        for (Participant p : participants) {
+            if (p.teamIndex() == team) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    public int wins(int team) {
+        return teamScore.getOrDefault(Integer.toString(team), 0);
+    }
+
+    public void addWin(int team) {
+        teamScore.merge(Integer.toString(team), 1, Integer::sum);
+    }
+
+    /**
+     * Teams that still have somebody standing this round.
+     *
+     * <p>Read from {@link Participant#eliminated} rather than from online-ness: a disconnected player
+     * is not necessarily out (they may reconnect during the grace period), whereas an eliminated one
+     * is out for the round by decision.</p>
+     */
+    public List<Integer> survivingTeams() {
+        List<Integer> out = new ArrayList<>();
+        for (int team = 0; team < Math.max(1, teamCount); team++) {
+            for (Participant p : participants) {
+                if (p.teamIndex() == team && !p.eliminated) {
+                    out.add(team);
+                    break;
+                }
+            }
+        }
+        return out;
     }
 
     public boolean isParticipant(String uuid) {

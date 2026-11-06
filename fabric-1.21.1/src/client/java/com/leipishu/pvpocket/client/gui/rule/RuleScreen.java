@@ -242,12 +242,17 @@ public class RuleScreen extends PvScreen {
         PvDraw.title(ctx, tr, title, panelX + 16, panelY + 13, PvTheme.TEXT);
 
         int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
-        String other = payload.otherName().isEmpty()
-                ? PvLang.str("pvpocket.gui.rule.opponent")
-                : payload.otherName();
-        String subtitle = reviewer
-                ? PvLang.str("pvpocket.gui.rule.subtitle.reviewer", other)
-                : PvLang.str("pvpocket.gui.rule.subtitle.proposer", other);
+        // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
+        // "who am I fighting", but in a 2v2 the question that actually needs answering before
+        // agreeing is "who is on my side" — and the round-robin deal makes that unguessable from the
+        // invite order once b.teamCount has been touched. It gets its own sentence rather than
+        // reusing the "Duel with %s" one, which would read "Duel with 1队 Dev1+Dev3 · 2队 ...".
+        String teams = teamsSummary();
+        String subtitle = !teams.isEmpty()
+                ? PvLang.str("pvpocket.gui.rule.subtitle.teams", teams)
+                : reviewer
+                ? PvLang.str("pvpocket.gui.rule.subtitle.reviewer", otherLabel())
+                : PvLang.str("pvpocket.gui.rule.subtitle.proposer", otherLabel());
 
         // The revision is a chip rather than loose accent text: at 12px of amber, a bare "v0" read as
         // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
@@ -316,26 +321,85 @@ public class RuleScreen extends PvScreen {
      * The loadout tag, built from the numbers the server sent.
      *
      * <p>{@code Dev1 8 · Dev2 9 · agreed 1/2}, with the participant list encoded as
-     * {@code name:count} pairs. Assembled on the client so the separator and the words match the
-     * reader's language, and so the panel does not have to parse a sentence it did not write.</p>
+     * {@code name:count:team} triples. Assembled on the client so the separator and the words match
+     * the reader's language, and so the panel does not have to parse a sentence it did not write.</p>
+     *
+     * <p>Only the counts appear here. The side each player landed on is a separate question with a
+     * separate answer — see {@link #teamsSummary()} — because putting both on one line makes it too
+     * wide for four players, and the fallback then drops <em>everything</em> and leaves the panel
+     * showing "Agreed 0/4" with no roster at all.</p>
      */
     private String loadoutSummary() {
         StringBuilder counts = new StringBuilder();
         for (String pair : payload.loadoutCounts().split(",")) {
-            int colon = pair.indexOf(':');
-            if (colon <= 0) {
+            String[] parts = pair.split(":");
+            if (parts.length < 2) {
                 continue;
             }
             if (counts.length() > 0) {
                 counts.append(" · ");
             }
-            counts.append(pair, 0, colon).append(' ').append(pair.substring(colon + 1));
+            counts.append(parts[0]).append(' ').append(parts[1]);
         }
         if (counts.length() == 0) {
             return "";
         }
         return PvLang.str("pvpocket.gui.rule.loadout_summary",
                 counts.toString(), payload.agreed(), payload.total());
+    }
+
+    /**
+     * Who is on which side, {@code "1队 Dev1+Dev3 · 2队 Dev2+Dev4"}.
+     *
+     * <p>Read out of the same {@code name:count:team} triples the loadout tag uses, so it costs no
+     * extra payload field and can never disagree with it. This is the line that makes changing
+     * {@code b.teamCount} verifiable: the deal is round-robin over the invite order, so "3 sides"
+     * silently re-shuffles everybody, and without a preview the proposer is agreeing to a roster
+     * they have never seen.</p>
+     *
+     * <p>Empty for a one-on-one, where the opponent's name already says everything and a "1队 Dev1 ·
+     * 2队 Dev2" prefix would be noise.</p>
+     */
+    /** The opponent's name, or the reader's word for "opponent" when there is nobody to name. */
+    private String otherLabel() {
+        return payload.otherName().isEmpty()
+                ? PvLang.str("pvpocket.gui.rule.opponent")
+                : payload.otherName();
+    }
+
+    private String teamsSummary() {
+        if (payload.total() <= 2) {
+            return "";
+        }
+        // Team index -> members, in the order the server listed them (which is the join order, so
+        // the first name on a side is the one whose loadout that side fights with under "每队统一").
+        java.util.Map<Integer, StringBuilder> byTeam = new java.util.TreeMap<>();
+        for (String pair : payload.loadoutCounts().split(",")) {
+            String[] parts = pair.split(":");
+            if (parts.length < 3) {
+                continue;
+            }
+            int team;
+            try {
+                team = Integer.parseInt(parts[2]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            StringBuilder names = byTeam.computeIfAbsent(team, k -> new StringBuilder());
+            if (names.length() > 0) {
+                names.append('+');
+            }
+            names.append(parts[0]);
+        }
+        StringBuilder out = new StringBuilder();
+        for (java.util.Map.Entry<Integer, StringBuilder> e : byTeam.entrySet()) {
+            if (out.length() > 0) {
+                out.append(" · ");
+            }
+            out.append(PvLang.str("pvpocket.gui.rule.team_tag", e.getKey() + 1))
+                    .append(' ').append(e.getValue());
+        }
+        return out.toString();
     }
 
     /**

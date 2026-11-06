@@ -508,7 +508,7 @@ out.append(value & mask)
 1.16+ 的调色板位打包，不用 anvil-parser2 的逐格接口（那个跑整个维度太慢）：
 
 ```
-python scripts/arena-map.py fabric-1.21.1/run/world arena-map.png
+python scripts/arena-map.py fabric-1.21.1/runs/server/world arena-map.png
 ```
 
 一次**重贴**的日志（分区里已经有上一轮的地图）：

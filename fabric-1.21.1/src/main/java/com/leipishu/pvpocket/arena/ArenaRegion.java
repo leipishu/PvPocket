@@ -60,6 +60,9 @@ public final class ArenaRegion {
      */
     public static final int BUFFER = 8;
 
+    /** Spawn pads per plot: one per side, and a match has at most four sides. */
+    public static final int PAD_COUNT = 4;
+
     /**
      * Upper bound on tracked deviations. A 128x128 plot stacked to the ceiling is 1M blocks, which is
      * far beyond anything a duel needs; the cap exists so a griefing client cannot exhaust memory by
@@ -116,10 +119,13 @@ public final class ArenaRegion {
     /**
      * Resolved spawn pads, filled by {@link #capture}. Until then the nominal guess is used, which
      * is all a flat plot needs.
+     *
+     * <p>Four pads, not two: a match can have up to four sides, and sides 2 and 3 sit on the axis the
+     * first two do not use. Two sides are the common case and keep the old positions exactly.</p>
      */
-    private final int[] padX = new int[2];
-    private final int[] padY = {SURFACE_Y, SURFACE_Y};
-    private final int[] padZ = new int[2];
+    private final int[] padX = new int[PAD_COUNT];
+    private final int[] padY = {SURFACE_Y, SURFACE_Y, SURFACE_Y, SURFACE_Y};
+    private final int[] padZ = new int[PAD_COUNT];
     private boolean padsResolved;
 
     private final BlockPos.Mutable cursor = new BlockPos.Mutable();
@@ -234,7 +240,7 @@ public final class ArenaRegion {
      * origin of the dimension.</p>
      */
     private void resolvePads(ServerWorld world) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < PAD_COUNT; i++) {
             int[] found = findStand(world, nominalSpawnX(i), nominalSpawnZ(i));
             padX[i] = found[0];
             padY[i] = found[1];
@@ -322,7 +328,7 @@ public final class ArenaRegion {
     }
 
     private static int clampIndex(int index) {
-        return Math.max(0, Math.min(1, index));
+        return Math.max(0, Math.min(PAD_COUNT - 1, index));
     }
 
     public int templateBlockCount() {
@@ -390,33 +396,77 @@ public final class ArenaRegion {
      * something that is not the floor of the fight. For a map the pads are placed a quarter of the
      * span either side of the centre instead, along whichever axis the build separates its sides
      * on — see {@link ArenaMap#alongZ}.</p>
+     *
+     * <p>Sides 2 and 3 sit on the <em>other</em> axis, halfway between the ends: a four-way match
+     * spreads around the pit rather than stacking two sides on top of each other. With two sides —
+     * every match that does not opt into teams — pads 0 and 1 are byte-identical to what they were
+     * before four pads existed.</p>
      */
     private int nominalSpawnX(int spawnIndex) {
+        int reachX = Math.max(6, sizeX / 4);
         if (!map.isFlat()) {
             if (map.alongZ) {
-                return centerX();
+                return switch (spawnIndex) {
+                    case 2 -> centerX() - reachX;
+                    case 3 -> centerX() + reachX;
+                    default -> centerX();
+                };
             }
-            int reach = Math.max(6, sizeX / 4);
-            return spawnIndex == 0 ? centerX() - reach : centerX() + reach;
+            return switch (spawnIndex) {
+                case 0 -> centerX() - reachX;
+                case 1 -> centerX() + reachX;
+                default -> centerX();
+            };
         }
-        return spawnIndex == 0 ? minX + 4 : minX + sizeX - 5;
+        return switch (spawnIndex) {
+            case 0 -> minX + 4;
+            case 1 -> minX + sizeX - 5;
+            default -> centerX();
+        };
     }
 
     private int nominalSpawnZ(int spawnIndex) {
+        int reachZ = Math.max(6, sizeZ / 4);
         if (!map.isFlat() && map.alongZ) {
-            int reach = Math.max(6, sizeZ / 4);
-            return spawnIndex == 0 ? centerZ() - reach : centerZ() + reach;
+            return switch (spawnIndex) {
+                case 0 -> centerZ() - reachZ;
+                case 1 -> centerZ() + reachZ;
+                default -> centerZ();
+            };
+        }
+        if (!map.isFlat()) {
+            return switch (spawnIndex) {
+                case 2 -> centerZ() - reachZ;
+                case 3 -> centerZ() + reachZ;
+                default -> centerZ();
+            };
+        }
+        if (spawnIndex == 2) {
+            return centerZ() - reachZ;
+        }
+        if (spawnIndex == 3) {
+            return centerZ() + reachZ;
         }
         return centerZ();
     }
 
-    /** Faces the opponent: along X for a flat plot, along whichever axis the map is built on. */
+    /**
+     * Faces the opponent: along whichever axis <em>this pad</em> sits on.
+     *
+     * <p>Per pad, not per map. Sides 0 and 1 sit on the map's own axis and sides 2 and 3 on the
+     * perpendicular one — so reusing the map's axis for all four points two of them at the wall
+     * behind them instead of at the enemy. Facing the wrong way is not cosmetic: it costs the first
+     * second of every round, which in a four-way match is the second that decides who gets hit
+     * first.</p>
+     */
     public float spawnYaw(int spawnIndex) {
-        if (!map.isFlat() && map.alongZ) {
+        boolean mapAlongZ = !map.isFlat() && map.alongZ;
+        boolean padAlongZ = spawnIndex >= 2 ? !mapAlongZ : mapAlongZ;
+        if (padAlongZ) {
             // yaw 0 is +Z (south), 180 is -Z (north).
-            return spawnIndex == 0 ? 0.0F : 180.0F;
+            return spawnIndex % 2 == 0 ? 0.0F : 180.0F;
         }
-        return spawnIndex == 0 ? -90.0F : 90.0F;
+        return spawnIndex % 2 == 0 ? -90.0F : 90.0F;
     }
 
     /** Horizontal containment. Vertical is only checked downwards — see {@link #contains(BlockPos)}. */

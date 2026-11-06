@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon  # noqa: E402
 
 JOURNAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
-                           "fabric-1.21.1", "run", "world", "pvpocket", "journal")
+                           "fabric-1.21.1", "runs", "server", "world", "pvpocket", "journal")
 
 
 def newest_journal(after_mtime=0):

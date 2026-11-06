@@ -24,9 +24,16 @@ import java.util.UUID;
 /**
  * The scoreboard drawn across the top of the screen during a match.
  *
- * <p>One bar, three blocks: the left side's players, the round and score, the right side's players.
- * The side lists are built from whatever rows the payload carries, so a 1v1 draws one head per side
- * and a 2v2 draws two — the renderer has no concept of "two players", only of "a list".</p>
+ * <p>Two layouts, chosen by how many sides the payload carries:</p>
+ *
+ * <ul>
+ *   <li><b>Two sides</b> — one bar, three blocks: left side's heads, round and score, right side's
+ *       heads. This is every ordinary duel and it is unchanged.</li>
+ *   <li><b>Three or four sides</b> — a stacked list: one row per side with its heads on the left and
+ *       its round wins on the right, under the round counter. A left/right split has no third place
+ *       to put a third team, and squeezing four columns into the middle of the screen at 2× GUI
+ *       scale leaves no room for names.</li>
+ * </ul>
  *
  * <p>The bar is centred rather than pinned to the screen corners. Corners are not free real estate in
  * Minecraft: the top-right is where vanilla draws status-effect icons, and a scoreboard that sits
@@ -95,9 +102,9 @@ public final class MatchHud implements HudRenderCallback {
             return;
         }
 
-        List<Row> left = parse(payload.leftPlayers());
-        List<Row> right = parse(payload.rightPlayers());
-        if (left.isEmpty() && right.isEmpty()) {
+        List<List<Row>> teams = parseTeams(payload.teams());
+        int[] scores = parseScores(payload.scores());
+        if (teams.isEmpty()) {
             return;
         }
 
@@ -106,26 +113,46 @@ public final class MatchHud implements HudRenderCallback {
 
         // A score change is the one event on this bar worth a flash: the number is 9px tall and sits
         // between two heads, so without it a round win is easy to miss while fighting.
-        String score = payload.leftScore() + " : " + payload.rightScore();
-        if (!score.equals(lastScore)) {
+        String scoreKey = payload.scores();
+        if (!scoreKey.equals(lastScore)) {
             if (!lastScore.isEmpty()) {
                 flashT = 1F;
             }
-            lastScore = score;
+            lastScore = scoreKey;
         }
         flashT = Math.max(0F, flashT - d / FLASH_TIME);
 
         TextRenderer tr = client.textRenderer;
         int screenW = client.getWindow().getScaledWidth();
 
+        if (teams.size() == 2) {
+            drawHeadToHead(ctx, client, tr, payload, teams, scores, screenW);
+        } else {
+            drawStacked(ctx, client, tr, payload, teams, scores, screenW);
+        }
+    }
+
+    // ------------------------------------------------------------------ two sides
+
+    private void drawHeadToHead(DrawContext ctx, MinecraftClient client, TextRenderer tr,
+                                MatchHudPayload payload, List<List<Row>> teams, int[] scores,
+                                int screenW) {
+        List<Row> left = teams.get(0);
+        List<Row> right = teams.get(1);
+        if (left.isEmpty() && right.isEmpty()) {
+            return;
+        }
+        int leftScore = scoreOf(scores, 0);
+        int rightScore = scoreOf(scores, 1);
+
         // Two passes over the same measurement: with names first, and — only if that does not fit —
         // heads alone. Shrinking the type instead would make the score unreadable on a 2× GUI scale,
         // and dropping a whole side would be worse than dropping the labels.
         boolean names = true;
-        Layout layout = measure(tr, left, right, payload, names);
+        Layout layout = measure(tr, left, right, payload, leftScore, rightScore, names);
         if (layout.width() > screenW - 8) {
             names = false;
-            layout = measure(tr, left, right, payload, names);
+            layout = measure(tr, left, right, payload, leftScore, rightScore, names);
         }
 
         int barX = (screenW - layout.width()) / 2;
@@ -136,9 +163,10 @@ public final class MatchHud implements HudRenderCallback {
                 PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
-                payload.leftScore(), payload.winsNeeded());
+                leftScore, payload.winsNeeded());
         drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
-                names, payload.rightScore(), payload.winsNeeded());
+                names, rightScore, payload.winsNeeded());
+        String score = leftScore + " : " + rightScore;
         drawCentre(ctx, tr, payload, score, barX + PAD_X + layout.leftW() + BLOCK_GAP,
                 barY, layout.centreW());
 
@@ -151,17 +179,70 @@ public final class MatchHud implements HudRenderCallback {
                 + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
     }
 
+    // ------------------------------------------------------------------ three or four sides
+
+    /**
+     * One row per side: heads, then the round wins right-aligned.
+     *
+     * <p>Heads are capped at four per row. A 4×4 match is sixteen players and sixteen heads is a bar
+     * as wide as the screen; four plus the count is enough to see who is on which side, and the
+     * exact roster is a tab-list question, not a scoreboard one.</p>
+     */
+    private void drawStacked(DrawContext ctx, MinecraftClient client, TextRenderer tr,
+                             MatchHudPayload payload, List<List<Row>> teams, int[] scores,
+                             int screenW) {
+        int rows = teams.size();
+        int headerH = 13;
+        int headsW = 4 * (HEAD + 2);
+        int scoreW = tr.getWidth("00") + 6;
+        int width = PAD_X * 2 + headsW + BLOCK_GAP + scoreW;
+        int height = PAD_Y * 2 + headerH + rows * ROW_H;
+        int barX = (screenW - width) / 2;
+        int barY = TOP;
+
+        PvDraw.shadow(ctx, barX, barY, width, height, PvTheme.RADIUS);
+        PvDraw.roundPanel(ctx, barX, barY, width, height, PvTheme.RADIUS,
+                PvTheme.alpha(PvTheme.BORDER, appearT),
+                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
+        PvDraw.textCenter(ctx, tr, roundLabel(payload), barX + width / 2, barY + 4,
+                PvTheme.TEXT_DIM);
+
+        int y = barY + PAD_Y + headerH;
+        for (int team = 0; team < rows; team++) {
+            List<Row> members = teams.get(team);
+            int score = scoreOf(scores, team);
+            int tint = score + 1 >= payload.winsNeeded() ? PvTheme.LIVE : PvTheme.TEXT;
+            int x = barX + PAD_X;
+            for (int i = 0; i < members.size() && i < 4; i++) {
+                Row row = members.get(i);
+                PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
+                        PvTheme.alpha(0xFF000000, 0.55F));
+                PlayerSkinDrawer.draw(ctx, skinOf(client, row.uuid()), x, y, HEAD);
+                x += HEAD + 2;
+            }
+            int textY = y + (HEAD - 8) / 2 + 1;
+            PvDraw.textRight(ctx, tr, Integer.toString(score),
+                    barX + width - PAD_X, textY, tint);
+            y += ROW_H;
+        }
+    }
+
+    private static int scoreOf(int[] scores, int team) {
+        return team < scores.length ? scores[team] : 0;
+    }
+
     // ------------------------------------------------------------------ measuring
 
     private record Layout(int width, int height, int leftW, int centreW, int rightW) {
     }
 
     private static Layout measure(TextRenderer tr, List<Row> left, List<Row> right,
-                                  MatchHudPayload payload, boolean names) {
+                                  MatchHudPayload payload, int leftScore, int rightScore,
+                                  boolean names) {
         int leftW = blockWidth(tr, left, names);
         int rightW = blockWidth(tr, right, names);
         String round = roundLabel(payload);
-        String score = payload.leftScore() + " : " + payload.rightScore();
+        String score = leftScore + " : " + rightScore;
         int centreW = Math.max(tr.getWidth(round), tr.getWidth(score));
 
         int blocks = 0;
@@ -270,12 +351,23 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     /**
-     * Parses {@code "Dev1|uuid,Dev2|uuid"}.
+     * Parses {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"} into one list per side.
      *
-     * <p>A malformed row is dropped, not thrown: the HUD is decoration, and a crash here would take
-     * the client down mid-duel for a reason the player could neither see nor act on.</p>
+     * <p>A malformed row or side is dropped, not thrown: the HUD is decoration, and a crash here
+     * would take the client down mid-duel for a reason the player could neither see nor act on.</p>
      */
-    private static List<Row> parse(String encoded) {
+    private static List<List<Row>> parseTeams(String encoded) {
+        List<List<Row>> teams = new ArrayList<>();
+        if (encoded == null || encoded.isEmpty()) {
+            return teams;
+        }
+        for (String side : encoded.split(";", -1)) {
+            teams.add(parseSide(side));
+        }
+        return teams;
+    }
+
+    private static List<Row> parseSide(String encoded) {
         List<Row> rows = new ArrayList<>();
         if (encoded == null || encoded.isEmpty()) {
             return rows;
@@ -292,5 +384,21 @@ public final class MatchHud implements HudRenderCallback {
             }
         }
         return rows;
+    }
+
+    private static int[] parseScores(String encoded) {
+        if (encoded == null || encoded.isEmpty()) {
+            return new int[0];
+        }
+        String[] parts = encoded.split(",");
+        int[] out = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try {
+                out[i] = Integer.parseInt(parts[i].trim());
+            } catch (NumberFormatException ignored) {
+                out[i] = 0;
+            }
+        }
+        return out;
     }
 }
