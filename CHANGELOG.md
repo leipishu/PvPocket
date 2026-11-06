@@ -51,7 +51,8 @@
 - 文档重组：规范文档移到 `docs/zh/` 与 `docs/en/`（平行目录、六篇一一对应），过程文档移到
   `docs/archive/{progress,design,research}/` 并标注「非规范」。README 改为入口页，技术细节全部进 docs。
 - 新增 `CHANGELOG.md`（本文件）。
-- 地图素材库裁到 2.2MB：只保留能重建成品图的四个源目录，与上游逐字节一致。
+- 地图素材库裁到 1.3MB：只保留能重建成品图的四个源目录，与上游逐字节一致；四个被否决的候选
+  投影（`.litematic`）删除。
 - 删掉 `client-act.ps1`（`SendKeys` 在本机无效）与 `winpos.ps1`（`ShowWindow` 会让 GLFW 客户端崩溃）；
   其余给 AI Agent 做界面验证的脚本移入 `scripts/agent/`。
 

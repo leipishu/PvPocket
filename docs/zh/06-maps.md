@@ -31,24 +31,24 @@
 
 ```
 arena-src/
-├── _zzuf/                     zzuf-maps 的裁剪副本
-│   ├── README.md              上游说明（署名用）
-│   └── maps/
-│       ├── arcade/bn_dark_nebula/
-│       ├── gs/gs_earthborn/
-│       ├── oitq/deadwood/
-│       └── tdm/fun_house/
-└── *.litematic                四张被否决的候选图
+└── _zzuf/                     zzuf-maps 的裁剪副本
+    ├── README.md              上游说明（署名用）
+    └── maps/
+        ├── arcade/bn_dark_nebula/
+        ├── gs/gs_earthborn/
+        ├── oitq/deadwood/
+        └── tdm/fun_house/
 ```
 
 每个源目录自带 `LICENSE.txt`、`level.dat`、`map.xml`、`map.png`、`region/`。
-其余 43 个目录、上游的 `.git` 与 `includes/` 已删除（46MB → 2.2MB），保留下来的四份
+其余 43 个目录、上游的 `.git` 与 `includes/` 已删除（46MB → 1.3MB），保留下来的四份
 与上游逐字节一致。
 
-四个 `.litematic`（battle-arena、circular-white-quartz-arena、gamarudos-gladiator-arena、
-pvp-castle）是早期评估中被否决的候选，保留原因只有一个：`litematic` 读取器的正确性
-是靠它们的逐块比对结果证明的，而那组数字记录在归档文档里。文档没有记录下载地址，
-删掉就无法重建这组证据。
+早期评估还用过四张候选图（battle-arena、circular-white-quartz-arena、
+gamarudos-gladiator-arena、pvp-castle），全部否决，投影文件已删除。它们唯一的作用是证明
+`litematic` 读取器正确——逐块比对的结果记在
+[`../archive/research/PvPocket-场地模板-调研与工具.md`](../archive/research/PvPocket-场地模板-调研与工具.md)，
+需要复现时按同名重新下载投影即可。
 
 ## 3. 转换流程
 

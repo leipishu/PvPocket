@@ -35,25 +35,25 @@ sources needed to rebuild the shipped maps:
 
 ```
 arena-src/
-├── _zzuf/                     Trimmed copy of zzuf-maps
-│   ├── README.md              Upstream readme (for attribution)
-│   └── maps/
-│       ├── arcade/bn_dark_nebula/
-│       ├── gs/gs_earthborn/
-│       ├── oitq/deadwood/
-│       └── tdm/fun_house/
-└── *.litematic                Four rejected candidate maps
+└── _zzuf/                     Trimmed copy of zzuf-maps
+    ├── README.md              Upstream readme (for attribution)
+    └── maps/
+        ├── arcade/bn_dark_nebula/
+        ├── gs/gs_earthborn/
+        ├── oitq/deadwood/
+        └── tdm/fun_house/
 ```
 
 Each source directory carries its own `LICENSE.txt`, `level.dat`, `map.xml`, `map.png` and
 `region/`. The other 43 directories, the upstream `.git` and `includes/` were deleted
-(46 MB → 2.2 MB); the four that remain are byte-for-byte identical to upstream.
+(46 MB → 1.3 MB); the four that remain are byte-for-byte identical to upstream.
 
-The four `.litematic` files (battle-arena, circular-white-quartz-arena, gamarudos-gladiator-arena,
-pvp-castle) are candidates rejected during early evaluation. They are kept for exactly one reason:
-the correctness of the `litematic` reader is proved by the block-by-block comparison against them,
-and those numbers are recorded in an archived document. The document records no download URL, so
-deleting the files would make that evidence unreproducible.
+Early evaluation also used four candidate maps (battle-arena, circular-white-quartz-arena,
+gamarudos-gladiator-arena, pvp-castle), all of which were rejected; the `.litematic` files have been
+deleted. Their only purpose was proving the `litematic` reader correct — the block-by-block
+comparison results are recorded in
+[`../archive/research/PvPocket-场地模板-调研与工具.md`](../archive/research/PvPocket-场地模板-调研与工具.md),
+and re-downloading a schematic of the same name reproduces them.
 
 ## 3. Conversion pipeline
 
