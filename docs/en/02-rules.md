@@ -90,23 +90,30 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 39 rules are configurable, all are written into the session, all reach the journal — but only
-18 of them currently affect a duel.** This is the section that matters. Do not look at the panel and
+16 of them currently affect a duel.** This is the section that matters. Do not look at the panel and
 assume the whole set is in effect.
 
-Method: whether the rule id has a reader outside `RuleCatalog`. As of this revision (`63c29fd`):
+Method: whether the rule id has a reader outside `RuleCatalog`. As of this revision (`2ed3f3f`):
 
-### In effect (18)
+### In effect (16)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.series`, `a.countdown`, `a.intermission` |
-| B | `b.spectator`, `b.teamCount`, `b.teamSize` |
+| B | `b.spectator` |
 | C | `c.mode`, `c.maxHealth` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather` |
 | F | `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-### Recorded only (21)
+### Summary text only (2)
+
+`b.teamCount`, `b.teamSize` — their only reader is `DuelRules.summaryText()`, i.e. the "2 players"
+part of the chat line. **Every duel is 1v1**: session creation always inserts exactly two
+participants (challenger and target), and no team model exists. Choosing "2 teams × 2 players" pulls
+nobody into the arena; it only makes the summary claim four players.
+
+### Recorded only (23)
 
 `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `b.friendlyFire`, `b.maxPlayers`,
 `c.modeConflict`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance`,
@@ -116,6 +123,16 @@ Method: whether the rule id has a reader outside `RuleCatalog`. As of this revis
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
+
+Three of them mislead more than the rest and are worth calling out:
+
+- **`a.roundLimit` + `a.timeoutVerdict`** — the panel promises "settled by the timeout verdict once
+  exceeded", but there is no timer. If neither player acts, the round runs forever; only surrender
+  or a disconnect ends it.
+- **`a.winConditions`** — you can untick "kill", and a kill still ends the round.
+- **`f.allowPlace`** — off by default, yet **blocks can be placed with it off**: placement is never
+  vetoed, only breaking is (`PlayerBlockBreakEvents.BEFORE`). Every change is rolled back at settle,
+  so the next duel is unaffected — the switch itself just does not hold.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
 work is spread across several slices (team model, block change set, timers, chat filtering). Keeping

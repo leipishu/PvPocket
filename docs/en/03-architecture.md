@@ -155,7 +155,13 @@ once too often than once too rarely.
 
 - **Snapshots do not survive a restart** (§4). After a restart a player returns to their pre-entry
   position but with whatever the save says they carry.
-- **The `b.*` team model stops at headcount**: team count and size feed the player-count checks;
-  friendly fire and team colouring are not implemented.
+- **There is no team model.** `b.teamCount` / `b.teamSize` appear only in the rule summary line;
+  session creation always inserts exactly two participants (challenger and target), and while
+  `Participant.team` exists, no third player can ever join. Choosing "2 teams × 2 players" in the
+  panel pulls nobody into the arena — it just makes the summary claim four players. Friendly fire,
+  team colouring and per-team scoring all hang off the same missing piece. This is the largest
+  "panel has it, code does not" gap in the project.
+- **There is no round timer.** `a.roundLimit` / `a.timeoutVerdict` are unconnected, so a round in
+  which neither side acts never ends by itself.
 - **Weather is dimension-wide**: with several duels running, the last one to start sets it for
   everyone.

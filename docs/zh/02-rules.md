@@ -86,23 +86,30 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，但只有 18 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，但只有 16 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
-判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。截至本次整理（`63c29fd`），实测结果如下。
+判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。截至本次整理（`2ed3f3f`），实测结果如下。
 
-### 已生效（18 条）
+### 已生效（16 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.series`、`a.countdown`、`a.intermission` |
-| B | `b.spectator`、`b.teamCount`、`b.teamSize` |
+| B | `b.spectator` |
 | C | `c.mode`、`c.maxHealth` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather` |
 | F | `f.protectTerrain`、`f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-### 仅记录（21 条）
+### 只影响摘要文字（2 条）
+
+`b.teamCount`、`b.teamSize` —— 唯一的读取点是 `DuelRules.summaryText()`，也就是聊天里那行
+「2 人 · 3 局 2 胜 · 现代 …」的「2 人」两个字。**对局永远是 1v1**：会话创建时固定只放两个
+参与者（发起方 + 应战方），队伍模型没有实现。选「2 队 × 2 人」不会让任何人被拉进场地，只会
+让摘要显示成 4 人。详见 [`03-architecture.md`](03-architecture.md)。
+
+### 仅记录（23 条）
 
 `a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`b.friendlyFire`、`b.maxPlayers`、
 `c.modeConflict`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance`、
@@ -112,6 +119,15 @@
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
+
+其中三条的落差最容易误导人，单独说明：
+
+- **`a.roundLimit` + `a.timeoutVerdict`**：面板承诺「超过后按超时判定结算」，实际没有计时器。
+  两边都不动手时这一局可以无限打下去，只能靠认输或掉线结束。
+- **`a.winConditions`**：可以在这里取消「击杀」，但击杀仍然会结束这一局。
+- **`f.allowPlace`**：默认关闭，但**关闭状态下依然可以放方块**——方块放置没有任何拦截，
+  只有破坏被 `PlayerBlockBreakEvents.BEFORE` 否决。所有方块变化都会在结算时回滚，所以不会
+  污染下一局，只是这条开关本身不成立。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
 （队伍模型、方块变更集、计时器、聊天过滤）。保留「已声明但未执行」的状态比删掉再重新加回来
