@@ -229,6 +229,19 @@ public abstract class PvScreen extends Screen {
 
     // ------------------------------------------------------------------ input
 
+    /**
+     * The widget list as it was when the event arrived.
+     *
+     * <p>Every input handler below walks this instead of {@link #roots}, because a handler is
+     * allowed to change the screen: a button that rebuilds the pane, a card that adds or removes a
+     * side, "还原" which tears the whole layout down and runs {@code init()} again. Iterating the
+     * live list while that happens throws {@code ConcurrentModificationException} and takes the
+     * client down — which is exactly what pressing "+ 添加队伍" used to do.</p>
+     */
+    private List<PvWidget> snapshot() {
+        return new ArrayList<>(roots);
+    }
+
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         // The modal gets the click first and consumes it whether or not it handled anything: a click
@@ -237,7 +250,7 @@ public abstract class PvScreen extends Screen {
             overlay.mouseClicked(mx, my, button);
             return true;
         }
-        for (PvWidget widget : roots) {
+        for (PvWidget widget : snapshot()) {
             if (widget.visible && widget.mouseClicked(mx, my, button)) {
                 return true;
             }
@@ -252,7 +265,7 @@ public abstract class PvScreen extends Screen {
             return true;
         }
         boolean handled = false;
-        for (PvWidget widget : roots) {
+        for (PvWidget widget : snapshot()) {
             handled |= widget.mouseReleased(mx, my, button);
         }
         return handled;
@@ -265,7 +278,7 @@ public abstract class PvScreen extends Screen {
             return true;
         }
         boolean handled = false;
-        for (PvWidget widget : roots) {
+        for (PvWidget widget : snapshot()) {
             handled |= widget.mouseDragged(mx, my, button, dx, dy);
         }
         return handled;
@@ -277,7 +290,7 @@ public abstract class PvScreen extends Screen {
             overlay.mouseScrolled(mx, my, vertical);
             return true;
         }
-        for (PvWidget widget : roots) {
+        for (PvWidget widget : snapshot()) {
             if (widget.mouseScrolled(mx, my, vertical)) {
                 return true;
             }
