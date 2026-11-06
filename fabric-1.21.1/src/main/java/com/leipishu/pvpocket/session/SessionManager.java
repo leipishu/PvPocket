@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.arena.ArenaRegion;
+import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.loadout.Loadout;
@@ -1609,7 +1610,9 @@ public final class SessionManager {
             if (!ArenaManager.teleportToSpawn(player, region, p.teamIndex())) {
                 throw new IllegalStateException("arena world unavailable");
             }
-            player.changeGameMode(GameMode.SURVIVAL);
+            // Authorised change: the round starts in survival, and the sandbox rule forbids players
+            // from switching modes while they are standing in the dimension this just put them in.
+            Sandbox.changeGameMode(player, GameMode.SURVIVAL);
             // The snapshot restores attributes wholesale, so a modified base value here is rolled
             // back by the same mechanism that restores inventory — no separate undo bookkeeping.
             var health = player.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);

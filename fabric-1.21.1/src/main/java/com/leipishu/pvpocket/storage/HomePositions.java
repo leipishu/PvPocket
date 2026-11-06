@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.arena.Sandbox;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.MinecraftServer;
@@ -196,7 +197,9 @@ public final class HomePositions {
             return;
         }
         GameMode fallback = home == null ? GameMode.SURVIVAL : GameMode.byName(home.gameMode, GameMode.SURVIVAL);
-        player.changeGameMode(fallback);
+        // Authorised change: this runs while the player is still standing in the arena dimension,
+        // which is exactly the situation the sandbox rule exists to block for everyone else.
+        Sandbox.changeGameMode(player, fallback);
     }
 
     private static ServerWorld resolve(ServerPlayerEntity player, String dimension) {

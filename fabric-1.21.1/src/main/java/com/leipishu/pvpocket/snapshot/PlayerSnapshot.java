@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.snapshot;
 
+import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
@@ -111,7 +112,9 @@ public final class PlayerSnapshot {
             player.setHealth(maxHealth);
         }
         player.fallDistance = fallDistance;
-        player.changeGameMode(GameMode.byName(gameMode, GameMode.SURVIVAL));
+        // Authorised change: this is the restore path, and it runs while the player may still be
+        // inside the arena dimension, where the sandbox rule refuses mode changes.
+        Sandbox.changeGameMode(player, GameMode.byName(gameMode, GameMode.SURVIVAL));
         player.setVelocity(0.0D, 0.0D, 0.0D);
 
         if (teamName != null) {

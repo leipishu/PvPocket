@@ -1309,3 +1309,88 @@ model view 栈还压着 `viewRotation`（`popMatrix` 在它后面几行），所
 
 - 同一张图被占时**换到另一张图跑完整一局**：只验到"跳过 + 服务端拒绝"，没把第二局真的打完。
 - 斗兽场 pit、五张图各跑一局的冒烟，仍然是 14.8 里那两条没做完的事。
+
+## 十六、沙盒指令规则、游戏模式锁定、观战飞行区
+
+### 16.1 钩子一开始挂错了地方
+
+第一版把指令拦截挂在 `CommandManager.executeWithPrefix` 上，理由是"所有指令都从这里进"。编译
+通过、启动无异常、`/pvpocket` 也照常工作——但玩家在场地里打 `/gamemode creative` 是**能过**的。
+
+反编译 `ServerPlayNetworkHandler.onChatMessage` 才看清：
+
+```java
+ParseResults<ServerCommandSource> parse = dispatcher.parse(command, source);
+this.server.getCommandManager().execute(parse, command);   // 不是 executeWithPrefix
+```
+
+聊天指令由网络层自己 parse，然后直接调 `execute`。走 `executeWithPrefix` 的只有控制台和 RCON——
+也就是**只挡住了运维，放过了玩家**，和需求正好相反。
+
+改挂 `execute` 之后两个入口都覆盖了，而且它还是唯一一个"已经拿到 parse 结果"的公共汇聚点，不需要
+再维护第二个钩子。
+
+白名单只认根字面量 `pvpocket`（`pvpocket:pvpocket` 这种带命名空间的写法也认，剥掉前缀再比）。选
+白名单而不是黑名单的理由写在 README 里：黑名单漏一条就是一个洞，别的模组加指令又是一个洞。
+
+### 16.2 游戏模式：两层，外加一条授权通道
+
+第一层是上面的指令白名单，挡住 `/gamemode` 和 `F3+F4`（后者发的也是 `/gamemode`）。
+
+第二层挂在 `ServerPlayerInteractionManager.changeGameMode`，挡住"谁都没发命令"的路径。先确认了它
+不会被登录流程踩到：`ServerPlayerEntity` 里 `changeGameMode` 只被 `GameModeCommand` 和模组自己调用，
+playerdata 恢复走的是另一个方法 `setGameMode(GameMode, GameMode)`，所以拦这里不会把玩家卡在错误的
+登录状态。
+
+模组自己的切换（开局切生存、观战切旁观、退出还回去、快照恢复、掉线救援，共 5 处）全部改走
+`Sandbox.changeGameMode`，内部是一个 `try/finally` 的授权计数器。**计数器而不是布尔**：`PlayerSnapshot`
+的恢复可能在已经授权的调用栈里再执行一次。
+
+### 16.3 运维那一下被自己拦住了
+
+实测时发现控制台 `gamemode survival Dev1`（Dev1 站在场地里）**什么也没输出，也没生效**。原因是第二层
+只认"目标玩家在不在场地"，不认"谁发起的"，所以把运维也一起拦了；而 `GameModeCommand` 只在模式真的
+变了时才发反馈，于是表现成一条静默的无效指令。
+
+这不能留：一个卡在决斗维度里的玩家，运维除了改存档没有别的办法。补法是让非玩家来源的指令在执行
+期间持有同一份授权——`CommandManagerMixin` 在 `execute` 的 HEAD 抬开、RETURN 收掉，条件都是"来源
+没有玩家实体"。`execute` 内部把所有 `Exception` 都 catch 住了，正常返回一定会走到 RETURN，所以不
+存在授权泄漏；唯一漏得掉的是 `Error`，那已经是整个 tick 都没了。
+
+判定依据从此统一成**发起者**：玩家发起的模式切换一律拒绝，服务端发起的放行。
+
+### 16.4 观战飞行区
+
+自由飞行的旁观视角原来没有任何约束，可以飞出场地、飞到场外、甚至飞到隔壁格子里看另一场决斗——
+而"两场决斗不共享一个格子"正是整个 plot 网格存在的理由。
+
+限制盒子 = **包围盒**（不是战斗区）每边 +12 格，顶 = 场地顶 +10，底 = 平台下 6。选包围盒的理由：
+五张图里四张包围盒等于战斗区，这个限制就是"光幕再往外 12 格"；斗兽场两者不同，战斗区是沙子、包围盒
+是外墙加十排看台——按战斗区限制会把人关在看台内部，只能看到方块内壁。
+
+实现是每 tick 的 `MathHelper.clamp` + 服务端传送（`ArenaManager.pullSpectatorInside`），和参与者
+越界拉回用的是同一套：旁观飞行是客户端权威的，服务端唯一的杠杆就是直接说"你在哪"。只在**未附身**
+时执行——附身时自己的身体根本没在动。
+
+边界提示是边沿触发 + 距离复位：碰到时提示一次，退回 4 格以内才重新武装。用计时器会在贴着墙飞的时候
+反复刷屏。
+
+### 16.5 实测
+
+| 项目 | 结果 |
+| --- | --- |
+| 场地内玩家 `/gamemode survival` | 红字 `决斗场地内只能使用 /pvpocket 指令。`，`playerGameType` 保持 1 |
+| 场地内玩家 `/pvpocket list` | 面板正常打开 |
+| 控制台 `gamemode survival Dev1`（Dev1 在场地内） | `Set Dev1's game mode to Survival Mode`，`playerGameType` 变 0 |
+| 开局（Dev1 原本在场地里是创造） | 传送到出生点后 `playerGameType` = 0，授权通道生效 |
+| 观战入场 | Dev3 `playerGameType` = 3，维度 `pvpocket:arena`，坐标 `128.5, 9, 128.5` |
+| 观战者被 tp 到 `2000, 200, 2000` | 两秒后 `164, 45, 164`，客户端收到 `已到达观战视角的边界…` |
+
+`164, 45, 164` 是手算的期望值：平坦场地 `minX=104, sizeX=48` → `maxX=151`，`151+1+12=164`；
+`SURFACE_Y + sizeY + 10 = 3 + 32 + 10 = 45`。逐位吻合。
+
+### 16.6 本轮没验到的
+
+- 斗兽场（唯一包围盒 ≠ 战斗区的图）上的观战飞行区实际手感：数值上盒子是 `298..469 / 312..455 /
+  y -4..42`，没有实机飞过一圈。
+- 观战者贴着边界持续前推时的观感（每 tick 一次拉回，理论上等于沿墙滑行，没有实测）。

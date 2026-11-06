@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMap;
 import com.leipishu.pvpocket.arena.ArenaRegion;
+import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.PossessPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
@@ -72,6 +73,16 @@ final class Spectators {
          * re-sent when something on it actually moved. Empty forces the next tick to send.
          */
         String lastSignature = "";
+        /**
+         * Whether the "you have reached the edge" line has already been shown.
+         *
+         * <p>The flight box is an invisible wall by nature — it is a rule, not geometry — and the
+         * boundary curtain is drawn twelve blocks further in. Without a word of explanation the
+         * limit reads as the client refusing to move. One line per contact is enough; it is cleared
+         * again once the spectator has flown a few blocks back into the box, so the next attempt
+         * says it again.</p>
+         */
+        boolean limitWarned;
 
         Watching(String sessionId, ServerPlayerEntity player) {
             this.sessionId = sessionId;
@@ -276,7 +287,9 @@ final class Spectators {
         state.target = -1;
         watching.put(player.getUuid(), state);
 
-        player.changeGameMode(GameMode.SPECTATOR);
+        // Authorised change: entering spectator mode is the whole feature, and the sandbox rule
+        // that forbids players from switching modes would otherwise refuse it silently.
+        Sandbox.changeGameMode(player, GameMode.SPECTATOR);
         // Dropped above the middle of the plot rather than onto a spawn pad: this is where the
         // spectator's own body sits until they attach, and where it returns when they detach.
         player.teleport(arena,
@@ -354,7 +367,7 @@ final class Spectators {
                     state.yaw, state.pitch);
         }
         if (player.interactionManager.getGameMode() != state.mode) {
-            player.changeGameMode(state.mode);
+            Sandbox.changeGameMode(player, state.mode);
         }
     }
 
@@ -619,6 +632,12 @@ final class Spectators {
             // it null would be "repaired" straight back into somebody else's eyes -- which is
             // exactly the state the detach key exists to get out of.
             if (entry.getValue().target < 0) {
+                // Free flight is the only state in which the spectator's body actually moves, so
+                // it is the only state the flight box has anything to constrain.
+                ArenaRegion region = ArenaManager.region(entry.getValue().sessionId);
+                if (region != null) {
+                    clampFlight(player, entry.getValue(), region);
+                }
                 continue;
             }
             var camera = player.getCameraEntity();
@@ -633,6 +652,36 @@ final class Spectators {
             if (camera instanceof ServerPlayerEntity body) {
                 pushPossess(player, entry.getValue(), body);
             }
+        }
+    }
+
+    /**
+     * Keeps a detached spectator inside {@link ArenaManager#spectatorBox}.
+     *
+     * <p>Spectating is not a free camera. An unconstrained one can leave the plot entirely, fly
+     * until the arena is a speck, and — worse — wander into the neighbouring cell and watch a
+     * different duel, which is the one thing the plot grid exists to prevent. The box is the plot
+     * plus a margin rather than the plot itself so there is room to back off and see the whole map,
+     * and it is capped vertically so "back off" does not mean "straight up".</p>
+     *
+     * <p>The warning is edge-triggered and re-armed by distance rather than by a timer: a player
+     * pressing against the limit should not be told twenty times a second, but a player who leaves
+     * and comes back should be told again.</p>
+     */
+    private static void clampFlight(ServerPlayerEntity player, Watching state, ArenaRegion region) {
+        if (ArenaManager.pullSpectatorInside(player, region)) {
+            if (!state.limitWarned) {
+                state.limitWarned = true;
+                player.sendMessage(Text.literal("已到达观战视角的边界，返回场地内可继续自由飞行。")
+                        .formatted(Formatting.GRAY), false);
+            }
+            return;
+        }
+        // Re-armed four blocks inside the limit, so a spectator hovering exactly on the edge does
+        // not oscillate between warned and unwarned and get a line every other tick.
+        if (state.limitWarned
+                && ArenaManager.spectatorBox(region).expand(-4.0D).contains(player.getPos())) {
+            state.limitWarned = false;
         }
     }
 

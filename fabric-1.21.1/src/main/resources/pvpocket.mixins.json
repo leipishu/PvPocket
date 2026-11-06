@@ -3,8 +3,10 @@
   "package": "com.leipishu.pvpocket.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "CommandManagerMixin",
     "LivingEntityMixin",
     "PlayerEntityMixin",
+    "ServerPlayerInteractionManagerMixin",
     "SpawnHelperMixin",
     "WorldBlockChangeMixin"
   ],

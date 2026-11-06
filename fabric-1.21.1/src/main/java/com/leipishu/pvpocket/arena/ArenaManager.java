@@ -786,6 +786,74 @@ public final class ArenaManager {
         return true;
     }
 
+    // ------------------------------------------------------------------ spectator flight
+
+    /**
+     * How far outside the plot a spectator may fly, in blocks.
+     *
+     * <p>Measured from the plot box rather than from the boundary curtain. On four of the five
+     * maps the two are the same rectangle and this is simply "the boundary plus twelve". On the
+     * colosseum they are not: the curtain stands on the sand, and the plot box is the outer wall
+     * plus ten rows of seating. Measuring from the curtain there would pen the spectator inside the
+     * stands, where every view is the inside of a block; measuring from the box lets them circle the
+     * building, which is the only way to watch a colosseum fight.</p>
+     *
+     * <p>Twelve is chosen against the grid: neighbouring cells are {@link #GAP} blocks apart, so a
+     * spectator at the limit is still a long way from the next arena and cannot see one duel from
+     * inside another.</p>
+     */
+    public static final double SPECTATOR_MARGIN = 12.0D;
+
+    /** How far above the plot top a spectator may climb. Watching from directly overhead, not orbit. */
+    public static final double SPECTATOR_HEADROOM = 10.0D;
+
+    /** How far below the platform a spectator may dip, to look up at the underside of the map. */
+    public static final double SPECTATOR_DEPTH = 6.0D;
+
+    /**
+     * The box a detached spectator is allowed to fly in.
+     *
+     * <p>Only detached spectators are clamped. While the camera is attached to a participant the
+     * spectator's own body is not moving, so there is nothing to constrain — and teleporting a body
+     * nobody is looking at would be one packet per tick for no visible effect.</p>
+     */
+    public static Box spectatorBox(ArenaRegion region) {
+        return new Box(
+                region.minX - SPECTATOR_MARGIN,
+                ArenaRegion.PLATFORM_Y - SPECTATOR_DEPTH,
+                region.minZ - SPECTATOR_MARGIN,
+                region.maxX() + 1.0D + SPECTATOR_MARGIN,
+                SURFACE_Y + region.sizeY + SPECTATOR_HEADROOM,
+                region.maxZ() + 1.0D + SPECTATOR_MARGIN);
+    }
+
+    /**
+     * Clamps a spectator back into {@link #spectatorBox}.
+     *
+     * <p>Server-side teleport, like {@link #pullInside}: spectator flight is client-authoritative,
+     * so the only lever the server has is to say where the player actually is. The result is a
+     * spectator who slides along the limit instead of crossing it, which is the same behaviour the
+     * world border gives and reads as a wall rather than as a glitch.</p>
+     *
+     * @return true when the player was outside and has been moved back in.
+     */
+    public static boolean pullSpectatorInside(ServerPlayerEntity player, ArenaRegion region) {
+        ServerWorld world = world(player.getServer());
+        if (world == null || region == null) {
+            return false;
+        }
+        Box box = spectatorBox(region);
+        double x = MathHelper.clamp(player.getX(), box.minX, box.maxX);
+        double y = MathHelper.clamp(player.getY(), box.minY, box.maxY);
+        double z = MathHelper.clamp(player.getZ(), box.minZ, box.maxZ);
+        if (x == player.getX() && y == player.getY() && z == player.getZ()) {
+            return false;
+        }
+        player.teleport(world, x, y, z, player.getYaw(), player.getPitch());
+        player.setVelocity(0.0D, 0.0D, 0.0D);
+        return true;
+    }
+
     // ------------------------------------------------------------------ cleanup
 
     /**
