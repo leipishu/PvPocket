@@ -67,4 +67,6 @@ The generator is in the repository so the shape can be changed rather than merel
 ## Adding your own map
 
 If you add a map here, check its licence first. Shipping it in the jar is redistribution. See
-`docs/PvPocket-场地模板-调研与工具.md` for the conversion workflow and what to record.
+`docs/zh/06-maps.md` (English: `docs/en/06-maps.md`) for the conversion workflow and what to record.
+The original licence survey that produced this file is kept at
+`docs/archive/research/PvPocket-场地模板-调研与工具.md`.

@@ -12,9 +12,9 @@ param(
 
 # Crops a region out of a screenshot and optionally scales it up.
 #
-# Separate from client-act.ps1 because that one captures; this one only post-processes. Keeping the
-# capture path free of extra work matters — every line added there is a line that can move a window
-# and take a GLFW client down with it.
+# Separate from the capture scripts because those capture; this one only post-processes. Keeping
+# the capture path free of extra work matters — every line added there is a line that can move a
+# window and take a GLFW client down with it.
 
 Add-Type -AssemblyName System.Drawing
 

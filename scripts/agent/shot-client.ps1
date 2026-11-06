@@ -18,12 +18,12 @@ param(
 
 # Raise one dev client and capture just its window.
 #
-# Split out of client-act.ps1 because that one captures the whole desktop, and a 5120-wide capture
-# has to be cropped afterwards by guessing where the window is -- which breaks the moment a window
-# moves. This reports the rect it used, so a wrong picture is a number to read rather than a mystery.
+# Split out of the old whole-desktop capture: a 5120-wide screenshot has to be cropped afterwards by
+# guessing where the window is, which breaks the moment a window moves. This reports the rect it
+# used, so a wrong picture is a number to read rather than a mystery.
 #
 # The window is raised with NOMOVE|NOSIZE|NOACTIVATE: geometry changes on a GLFW window crash the
-# client (learned the hard way, see client-act.ps1).
+# client (learned the hard way: SW_RESTORE on a minimised dev client took it down).
 
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
@@ -62,7 +62,7 @@ if ($hwnd -eq 0) { Write-Error "no main window handle"; exit 1 }
 
 # A minimised window reports rect -32000,-32000 160x28 and captures as blank. SW_SHOWNOACTIVATE
 # (4) brings it back without activating it; the geometry it restores to is the size it already had,
-# so this is not the resize that crashed the clients before (see client-act.ps1).
+# so this is not the resize that crashed the clients before (SW_RESTORE on a GLFW window does).
 if ([ShotWin]::IsIconic($hwnd)) {
     Write-Output "window is minimised; showing without activating"
     [void][ShotWin]::ShowWindow($hwnd, 4)
@@ -105,7 +105,7 @@ $g.Dispose()
 [void][ShotWin]::SetWindowPos($hwnd, [IntPtr](-2), 0, 0, 0, 0, 0x0013)
 
 if ($Out -eq "") {
-    $dir = Join-Path $PSScriptRoot "..\shots"
+    $dir = Join-Path $PSScriptRoot "..\..\shots"
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     $Out = Join-Path $dir "$Username-$(Get-Date -Format 'HHmmss').png"
 }

@@ -1,0 +1,148 @@
+# 架构规范
+
+> 规范文档 · 中文版。英文版：[`../en/03-architecture.md`](../en/03-architecture.md)
+
+## 1. 分层
+
+工程用 Loom 的 `splitEnvironmentSourceSets()` 分成两套源集：
+
+| 源集 | 内容 | 说明 |
+| --- | --- | --- |
+| `src/main/java` | 会话、规则、场地、战斗、网络注册、指令、存储 | 服务端与客户端共用的部分 |
+| `src/client/java` | 自绘 GUI、HUD、输入、渲染 | 只在客户端加载 |
+
+模组**强制要求客户端同版本**：规则面板、配装编辑器、对局面板、计分板全部是自绘的，
+没有客户端就没有界面。但网络层仍对每个下行包做 `canSend` 检查——「强制」是策略，
+不是协议，一个原版客户端仍可能连进来，此时面板打开应退化为「什么都不发生」，
+而不是服务端抛异常。
+
+## 2. 权威模型
+
+**客户端只表达意图，服务端决定一切。**
+
+| 客户端能说的 | 服务端如何处理 |
+| --- | --- |
+| 「我接受这份规则」（`RulesSubmitPayload`） | 重新核对阶段、是否轮到它、配装指纹是否仍然一致 |
+| 「我要观战这一局」（`SpectateRequestPayload`） | 核对会话存在、观战开关、是否已是参与者 |
+| 「我按住了右键格挡」（`BlockingPayload`） | 核对经典模式、主手是剑、没死、不是旁观者 |
+| 「把配装存成这个」（`LoadoutSubmitPayload`） | 逐项校验，非法项丢弃并回报 |
+
+没有任何包携带「我造成了多少伤害」或「我的生命是多少」。战斗数值、击退、护甲全部在
+`LivingEntityMixin` / `PlayerEntityMixin` 里按 1.8 公式重算，客户端只负责显示。
+
+## 3. 会话状态机
+
+```
+DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
+                        │                      │
+                        │                      ├─> ROUND_READY ─> ROUND_ACTIVE ─> ROUND_SETTLED
+                        │                      │                        │              │
+                        └──拒绝/取消──┐         │                        └──────────────┘
+                                      ↓         ↓                              （还有下一局）
+                                   VOIDED   RESTORING ─> ARCHIVED
+```
+
+| 阶段 | 含义 | 有快照 |
+| --- | --- | --- |
+| `DRAFT` | 发起方在改规则，还没发给对方 | 否 |
+| `NEGOTIATING` | 已发给对方，等回应 | 否 |
+| `FROZEN` | 规则与配装已锁定，正在传送与快照 | 是 |
+| `ROUND_READY` | 回合准备期，硬墙未拆 | 是 |
+| `ROUND_ACTIVE` | 回合进行中 | 是 |
+| `ROUND_SETTLED` | 本回合已结算，等下一局或结束 | 是 |
+| `RESTORING` | 正在逐项还原玩家状态 | 是 |
+| `ARCHIVED` / `VOIDED` | 终态：正常归档 / 未开始就作废 | — |
+
+`isPreFreeze()`（`DRAFT` / `NEGOTIATING`）是分界线：在此之前取消不需要还原任何东西，
+在此之后每个终态都必须走还原路径。**「有快照」等价于「必须还原」**，这条不变量是
+崩溃对账的基础。
+
+## 4. 快照与恢复
+
+进场前对每个参与者做完整快照：位置与朝向、背包（36 格 + 副手 + 盔甲）、生命、饥饿与饱和、
+状态效果、经验等级与进度、游戏模式、属性修饰符。
+
+- 快照落在内存的 `DuelSession` 里，同时把「进入前的位置」写进
+  `<world>/pvpocket/homes.json`。
+- 还原走 `PlayerSnapshot.restore`，逐项写回并重新同步客户端。
+- 崩溃或重启后，`homes.json` 是唯一还能用的东西：玩家上线时若人在决斗维度，
+  直接送回记录的位置。**快照本身不跨重启**，这是有意的取舍——跨重启恢复背包需要
+  处理「期间玩家在别处获得过物品」的合并冲突，代价远大于收益。
+
+游戏模式还原走 `setGameMode(GameMode, GameMode)`（playerdata 恢复路径），
+不是 `changeGameMode`，因此不受沙盒的模式锁定影响。
+
+## 5. 维度与分区
+
+所有地图并排放在 `pvpocket:arena` 维度的不同格子里，`ArenaManager.CELLS` 定义 16 个分区，
+每格 16 格间距。选图 = 传送到固定坐标。
+
+- **租用**：开局时按 `e.template` 申请一格，记录会话 id；同一张地图同一时间只能租一次。
+- **地形保护**：本局内被改动的方块记录在 `ArenaRegion` 的变更集里，结束时分批复原。
+- **重建**：`/pvpocket arena reset` 会先 `abort` 所有对局、送走所有人、清空维度，
+  然后**一 tick 重贴一张图**。5 张图约 15 万方块，一次做完主线程停 4.5 秒，
+  会触发看门狗报警并踢掉客户端。
+
+维度是虚空，地图外圈有屏障缓冲带。边界由客户端光幕绘制，服务端只判定位置。
+
+## 6. 网络协议
+
+全部走 Fabric 的自定义 payload，注册集中在 `PvPocketNetworking`。
+
+| 方向 | 包 | 用途 |
+| --- | --- | --- |
+| C→S | `BlockingPayload` | 格挡按住/松开 |
+| C→S | `RulesSubmitPayload` | 征询 / 接受 / 拒绝 / 关闭面板 |
+| C→S | `LoadoutRequestPayload` | 请求打开配装编辑器 |
+| C→S | `LoadoutSubmitPayload` | 提交配装 |
+| C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
+| S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
+| S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
+| S→C | `MatchListPayload` | 对局列表 |
+| S→C | `MatchHudPayload` | 计分板 |
+| S→C | `ArenaBoundsPayload` | 场地轮廓 |
+| S→C | `SpectateStatePayload` / `PossessPayload` | 观战条 / 附身目标快捷栏 |
+| S→C | `CombatStatePayload` | 战斗模式与格挡状态镜像 |
+
+`PacketCodec.tuple` 最多 6 个分量，超过就得把字段收进嵌套 record（`RulesOpenPayload` 的
+`Details` 就是这么来的）。
+
+上行包一律在服务端 `server.execute(...)` 里处理，确保跑在主线程上。
+
+## 7. 沙盒规则
+
+决斗维度内是一个受限环境：
+
+| 限制 | 实现 |
+| --- | --- |
+| 聊天只能发 `/pvpocket` 指令 | `CommandManagerMixin` 在 `CommandManager.execute` 的 HEAD 拦截 |
+| 任何人不得自行切换游戏模式 | 命令层 + `ServerPlayerInteractionManager.changeGameMode` 两层 |
+
+**钩子必须挂在 `CommandManager.execute`，不是 `executeWithPrefix`。** 玩家聊天指令由
+`ServerPlayNetworkHandler.onChatMessage` 自己解析后直接调 `execute`；`executeWithPrefix`
+只有控制台和 RCON 用。挂错位置的表现是「运维被拦住、玩家畅通无阻」，而且启动、编译、
+`/pvpocket` 都正常，测试时看起来一切没事。
+
+白名单而不是黑名单：只放行根字面量 `pvpocket`（剥掉命名空间前缀）。黑名单要维护
+`/gamemode`、`/tp`、`/give`、`/fill`……漏一个就是一个洞，别的模组加一条指令又是一个洞。
+
+**运维必须留口子**：控制台、RCON、命令方块发起的模式切换一律放行，否则救不了卡在场地里的玩家。
+实现方式是 `Sandbox.authorised` 计数器，`CommandManagerMixin` 在非玩家来源执行期间抬开限制，
+模组自己的切换走 `Sandbox.changeGameMode` 并 `try/finally` 配对。
+
+## 8. 存储
+
+| 文件 | 位置 | 内容 |
+| --- | --- | --- |
+| `journal/<session>.log` | `<world>/pvpocket/` | 会话逐条事件，用于崩溃对账与排障 |
+| `homes.json` | 同上 | 进入决斗维度前的位置，掉线兜底 |
+| `guard.json` | 同上 | 滞留保护的按玩家豁免名单 |
+
+写入走 `PvPocketStorage.writeAtomically`（先写临时文件再改名），避免断电时留下半个 JSON。
+`guard.json` 读失败按「无豁免」处理：宁可多踢一次，不会少踢。
+
+## 9. 已知取舍
+
+- **快照不跨重启**（见 §4）。代价是重启后玩家回到进入前的位置但物品按当前存档算。
+- **`b.*` 队伍模型只到人数**：队伍数量与每队人数参与人数校验，友伤与分色尚未落地。
+- **天气是维度级属性**：多场决斗同时进行时，最后一局设置的天气对所有人生效。

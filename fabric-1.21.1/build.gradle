@@ -29,7 +29,8 @@ loom {
     }
 
     // Two independent dev clients so a duel can actually be played, plus a dedicated server as the
-    // shared room. Three separate run directories are mandatory, not cosmetic:
+    // shared room. Every run directory lives under runs/ so the project root stays readable; each
+    // one is still a separate directory, which is mandatory rather than cosmetic:
     //   - Minecraft writes logs/latest.log with a rolling file appender. Two JVMs in one directory
     //     fight over the same file and the loser silently loses its log, which is the main debug
     //     surface for this project.
@@ -40,7 +41,7 @@ loom {
         client {
             client()
             configName = "Minecraft Client (Dev1)"
-            runDir "run-client1"
+            runDir "runs/client1"
             // 1280x720 is the smallest window that still exercises the panel at a realistic GUI
             // scale; the default dev window lands around 427x240 virtual pixels, where every
             // layout is in its most cramped branch and screenshots are unreadable.
@@ -49,7 +50,7 @@ loom {
         client2 {
             client()
             configName = "Minecraft Client (Dev2)"
-            runDir "run-client2"
+            runDir "runs/client2"
             programArgs "--username", "Dev2", "--width", "1280", "--height", "720"
         }
         // A third client exists for one reason: spectating cannot be tested with two players, because
@@ -58,7 +59,7 @@ loom {
         client3 {
             client()
             configName = "Minecraft Client (Dev3)"
-            runDir "run-client3"
+            runDir "runs/client3"
             programArgs "--username", "Dev3", "--width", "1280", "--height", "720"
         }
         // A fourth exists for the one scenario three cannot express: two duels running at the same
@@ -67,13 +68,13 @@ loom {
         client4 {
             client()
             configName = "Minecraft Client (Dev4)"
-            runDir "run-client4"
+            runDir "runs/client4"
             programArgs "--username", "Dev4", "--width", "1280", "--height", "720"
         }
         server {
             server()
             configName = "Minecraft Server (shared room)"
-            runDir "run"
+            runDir "runs/server"
         }
     }
 }

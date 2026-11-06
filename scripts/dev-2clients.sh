@@ -2,7 +2,7 @@
 #
 # 启动开发客户端并自动加入同一个房间，用于测试双人决斗与观战。
 #
-# 前提：共享服务端已经在另一个终端运行（见 README「双客户端联调」）。
+# 前提：共享服务端已经在另一个终端运行（见 README「开发联调」）。
 # 本脚本只负责客户端，不托管服务端，这样服务端控制台仍然可以输入命令
 # （stop / op / gamemode / pvpocket 等），这对调试比"一个窗口管全部"更有用。
 #
@@ -40,10 +40,11 @@ echo "[dev] 服务端在 $ADDR 已就绪"
 #   - 同一个用户名会被服务端当成同一个玩家，第二个连接直接顶掉第一个。
 #
 # Gradle 任务名：第一个客户端是 runClient（loom 的默认名），之后是 runClient2 / runClient3。
+# 运行目录由 build.gradle 决定，统一在 fabric-1.21.1/runs/client<N>，脚本不参与。
 PIDS=()
 for i in $(seq 1 "$COUNT"); do
     if [ "$i" -eq 1 ]; then TASK="runClient"; else TASK="runClient${i}"; fi
-    echo "[dev] 启动 Dev${i} (run-client${i}) ..."
+    echo "[dev] 启动 Dev${i} (runs/client${i}) ..."
     ./gradlew "$TASK" --console=plain -PquickJoin="$ADDR" > "$LOGS/client${i}.out" 2>&1 &
     PIDS+=($!)
 done

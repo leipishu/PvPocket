@@ -1,6 +1,7 @@
 param()
 # Lists top-level windows belonging to java.exe: title, rect and minimized state.
-# Read-only. Deliberately does not call ShowWindow/SetForegroundWindow - see client-act.ps1.
+# Read-only. Deliberately does not call ShowWindow/SetForegroundWindow - restoring a minimised
+# GLFW window is what crashed dev clients in the past.
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;

@@ -3,12 +3,8 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
-# Loom / run directories
-run/
-run-client1/
-run-client2/
-run-client3/
-run-client4/
+# Loom / run directories (server + four dev clients, see fabric-1.21.1/build.gradle)
+runs/
 remappedSrc/
 .loom/
 
