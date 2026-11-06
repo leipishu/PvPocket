@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.Sandbox;
+import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.MinecraftServer;
@@ -155,7 +156,7 @@ public final class HomePositions {
      * @return true if the player was moved
      */
     public boolean rescue(ServerPlayerEntity player) {
-        return moveOut(player, "你上次在决斗场地里退出", "login");
+        return moveOut(player, "pvpocket.msg.home.reason.rescue", "login");
     }
 
     /**
@@ -168,16 +169,16 @@ public final class HomePositions {
      * @return true if the player was moved
      */
     public boolean evict(ServerPlayerEntity player) {
-        return moveOut(player, "你不在任何对局中", "guard");
+        return moveOut(player, "pvpocket.msg.home.reason.evict", "guard");
     }
 
     /**
      * The shared body of both exits.
      *
-     * @param prefix what to tell the player about why, before the destination clause
+     * @param whyKey translation key for the reason, used as the first half of the sentence
      * @param reason short tag for the log line
      */
-    private boolean moveOut(ServerPlayerEntity player, String prefix, String reason) {
+    private boolean moveOut(ServerPlayerEntity player, String whyKey, String reason) {
         if (!ArenaManager.isArena(player.getWorld())) {
             return false;
         }
@@ -193,7 +194,7 @@ public final class HomePositions {
             releaseSpectatorMode(player, null);
             PvPocket.LOGGER.warn("Moved {} out of the arena ({}, no usable home); sent to spawn",
                     player.getName().getString(), reason);
-            player.sendMessage(Text.literal(prefix + "，已送回主世界出生点。")
+            player.sendMessage(PvLang.t("pvpocket.msg.home.sent_spawn", PvLang.t(whyKey))
                     .formatted(Formatting.YELLOW), false);
             return true;
         }
@@ -202,7 +203,7 @@ public final class HomePositions {
         releaseSpectatorMode(player, home);
         PvPocket.LOGGER.info("Moved {} out of the arena ({}) to {} {} {} in {}",
                 player.getName().getString(), reason, home.x, home.y, home.z, home.dimension);
-        player.sendMessage(Text.literal(prefix + "，已送回原来的位置。")
+        player.sendMessage(PvLang.t("pvpocket.msg.home.sent_home", PvLang.t(whyKey))
                 .formatted(Formatting.YELLOW), false);
         return true;
     }

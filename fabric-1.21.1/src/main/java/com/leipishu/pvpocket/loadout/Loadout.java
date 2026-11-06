@@ -1,5 +1,9 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.i18n.PvLang;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -22,7 +26,15 @@ public final class Loadout {
     private static final String ENTRY_SEPARATOR = ";";
     private static final String NAME_SEPARATOR = "~";
 
-    public String name = "默认配装";
+    /**
+     * A stable identifier, not a display name.
+     *
+     * <p>It is encoded into the loadout string and therefore into its fingerprint, so it must not
+     * change when the client's language does — a loadout saved in Chinese and re-read by an English
+     * client would otherwise fingerprint differently for no reason at all. The presets are named by
+     * id here and translated at the point of display by {@link #displayName()}.</p>
+     */
+    public String name = "default";
     public final List<LoadoutEntry> entries = new ArrayList<>();
 
     public Loadout() {
@@ -45,7 +57,7 @@ public final class Loadout {
      */
     public static Loadout defaultDuel() {
         Loadout loadout = new Loadout();
-        loadout.name = "默认决斗配装";
+        loadout.name = "default_duel";
 
         LoadoutEntry sword = LoadoutEntry.of(ItemKind.SWORD);
         sword.material = Material.IRON;
@@ -96,6 +108,20 @@ public final class Loadout {
 
     public boolean isEmpty() {
         return entries.isEmpty();
+    }
+
+    /**
+     * The name to show a player.
+     *
+     * <p>The two presets are stored as ids and translated here; anything else is a name that came
+     * from disk, which is data rather than a string this mod owns, so it is shown as-is.</p>
+     */
+    public Text displayName() {
+        return switch (name) {
+            case "default" -> PvLang.t("pvpocket.loadout.name.default");
+            case "default_duel" -> PvLang.t("pvpocket.loadout.name.default_duel");
+            default -> Text.literal(name);
+        };
     }
 
     public Loadout copy() {
@@ -157,22 +183,28 @@ public final class Loadout {
      *
      * <p>Empty means "this loadout can be granted". The server runs this again on arrival: the client
      * runs it to keep the save button honest, but a client is not a source of truth.</p>
+     *
+     * <p>Returns {@link Text} rather than strings because the same list is produced on both sides:
+     * the client draws it in the footer, and the server quotes the first entry back in a chat line.
+     * A string built on the server would be in the server's language, which is nobody's.</p>
      */
-    public List<String> validate() {
-        List<String> problems = new ArrayList<>();
+    public List<Text> validate() {
+        List<Text> problems = new ArrayList<>();
         if (entries.isEmpty()) {
-            problems.add("配装不能为空。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.empty"));
         }
         if (entries.size() > LoadoutCatalog.MAX_ENTRIES) {
-            problems.add("配装最多 " + LoadoutCatalog.MAX_ENTRIES + " 项，当前 " + entries.size() + " 项。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.too_many",
+                    LoadoutCatalog.MAX_ENTRIES, entries.size()));
         }
         boolean[] used = new boolean[41];
         for (int i = 0; i < entries.size(); i++) {
             LoadoutEntry entry = entries.get(i);
-            String row = "第 " + (i + 1) + " 行（" + entry.kind.label + "）：";
+            MutableText row = PvLang.t("pvpocket.loadout.problem.row",
+                    i + 1, entry.kind.labelText());
             if (entry.slot >= 0 && entry.slot < used.length) {
                 if (used[entry.slot]) {
-                    problems.add(row + "与前面的物品占用了同一个格子。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.slot_taken", row));
                 }
                 used[entry.slot] = true;
             }
@@ -181,58 +213,62 @@ public final class Loadout {
         return problems;
     }
 
-    private static List<String> validateEntry(LoadoutEntry entry, String row) {
-        List<String> problems = new ArrayList<>();
+    private static List<Text> validateEntry(LoadoutEntry entry, MutableText row) {
+        List<Text> problems = new ArrayList<>();
         // Only materialised kinds are named <material>_<kind>. FOOD and BLOCK resolve through their
         // variant instead, so asking "does iron_food exist" would reject every valid food row — and
         // did, which made the default preset unsaveable until the editor exposed it.
         if (entry.kind.materialised && entry.kind.resolve(entry.material) == null) {
-            problems.add(row + "该材质没有对应的物品。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.no_such_item", row));
         }
         if (entry.count < 1 || entry.count > 64) {
-            problems.add(row + "数量必须在 1 到 64 之间。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.count", row));
         }
         if (entry.damageTenths != 0
                 && (entry.damageTenths < LoadoutCatalog.DAMAGE_MIN_TENTHS
                     || entry.damageTenths > LoadoutCatalog.DAMAGE_MAX_TENTHS)) {
-            problems.add(row + "伤害必须在 " + (LoadoutCatalog.DAMAGE_MIN_TENTHS / 10.0)
-                    + " 到 " + (LoadoutCatalog.DAMAGE_MAX_TENTHS / 10.0) + " 之间。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.damage", row,
+                    LoadoutCatalog.DAMAGE_MIN_TENTHS / 10.0,
+                    LoadoutCatalog.DAMAGE_MAX_TENTHS / 10.0));
         }
         if (entry.armorTenths < 0 || entry.armorTenths > LoadoutCatalog.ARMOR_MAX_TENTHS) {
-            problems.add(row + "护甲值超出范围。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.armor", row));
         }
         if (entry.durability != LoadoutEntry.DURABILITY_UNBREAKABLE
                 && (entry.durability < 0 || entry.durability > LoadoutCatalog.DURABILITY_MAX)) {
-            problems.add(row + "耐久必须在 0 到 " + LoadoutCatalog.DURABILITY_MAX + " 之间（-1 为不可破坏）。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.durability", row,
+                    LoadoutCatalog.DURABILITY_MAX));
         }
         if (entry.knockback < 0 || entry.knockback > LoadoutCatalog.KNOCKBACK_MAX) {
-            problems.add(row + "击退等级必须在 0 到 " + LoadoutCatalog.KNOCKBACK_MAX + " 之间。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.knockback", row,
+                    LoadoutCatalog.KNOCKBACK_MAX));
         }
         if (entry.arrowCount < 0 || entry.arrowCount > LoadoutCatalog.ARROW_MAX) {
-            problems.add(row + "箭矢数量必须在 0 到 " + LoadoutCatalog.ARROW_MAX + " 之间。");
+            problems.add(PvLang.t("pvpocket.loadout.problem.arrows", row,
+                    LoadoutCatalog.ARROW_MAX));
         }
         switch (entry.kind) {
             case POTION -> {
                 if (!LoadoutCatalog.isEffect(entry.variant)) {
-                    problems.add(row + "药水效果不在允许列表内。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.effect_unknown", row));
                 }
                 if (entry.durationSec < LoadoutCatalog.DURATION_MIN_SEC
                         || entry.durationSec > LoadoutCatalog.DURATION_MAX_SEC) {
-                    problems.add(row + "药水时长必须在 " + LoadoutCatalog.DURATION_MIN_SEC
-                            + " 到 " + LoadoutCatalog.DURATION_MAX_SEC + " 秒之间。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.duration", row,
+                            LoadoutCatalog.DURATION_MIN_SEC, LoadoutCatalog.DURATION_MAX_SEC));
                 }
                 if (entry.amplifier < 0 || entry.amplifier > LoadoutCatalog.AMPLIFIER_MAX) {
-                    problems.add(row + "药水等级超出范围。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.amplifier", row));
                 }
             }
             case FOOD -> {
                 if (!LoadoutCatalog.isFood(entry.variant)) {
-                    problems.add(row + "食物不在允许列表内。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.food_unknown", row));
                 }
             }
             case BLOCK -> {
                 if (!LoadoutCatalog.isBlock(entry.variant)) {
-                    problems.add(row + "方块不在允许列表内。");
+                    problems.add(PvLang.t("pvpocket.loadout.problem.block_unknown", row));
                 }
             }
             default -> {
@@ -240,7 +276,8 @@ public final class Loadout {
         }
         for (WeaponFlag flag : WeaponFlag.decode(entry.flags)) {
             if (!flag.appliesTo(entry.kind)) {
-                problems.add(row + "「" + flag.label + "」不适用于" + entry.kind.label + "。");
+                problems.add(PvLang.t("pvpocket.loadout.problem.flag_mismatch", row,
+                        flag.labelText(), entry.kind.labelText()));
             }
         }
         return problems;
@@ -317,6 +354,6 @@ public final class Loadout {
 
     @Override
     public String toString() {
-        return name + "(" + entries.size() + " 项, " + digest() + ")";
+        return name + "(" + entries.size() + " items, " + digest() + ")";
     }
 }

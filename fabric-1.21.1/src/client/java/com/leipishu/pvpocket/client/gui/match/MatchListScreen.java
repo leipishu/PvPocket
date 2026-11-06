@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -39,7 +40,14 @@ public class MatchListScreen extends PvScreen {
     private static final int BTN_W = 58;
     private static final int BTN_H = 22;
 
-    /** One row of the list, parsed from the payload's flat encoding. */
+    /**
+     * One row of the list, parsed from the payload's flat encoding.
+     *
+     * <p>{@code map} is a map id and {@code stage} is a session stage name — both identifiers rather
+     * than text, because the server that produced them has no language. {@link #mapLabel()} and
+     * {@link #stageLabel()} are the reader's-language versions, resolved on the client at draw
+     * time.</p>
+     */
     public record Entry(String id, String map, String stage, int round, int bestOf,
                         String score, int flags, int spectators, List<String> players) {
 
@@ -57,6 +65,25 @@ public class MatchListScreen extends PvScreen {
 
         public String playersLine() {
             return players.isEmpty() ? "—" : String.join(" vs ", players);
+        }
+
+        /** The map's name in the reader's language. An unknown id falls back to the id itself. */
+        public String mapLabel() {
+            String key = "pvpocket.map." + map;
+            String text = PvLang.str(key);
+            return text.equals(key) ? map : text;
+        }
+
+        /**
+         * The stage's name in the reader's language.
+         *
+         * <p>Falls back to the raw stage constant, which is what the server sent: a client built
+         * against a newer session lifecycle shows {@code ROUND_SETTLED} rather than a blank chip.</p>
+         */
+        public String stageLabel() {
+            String key = "pvpocket.stage." + stage.toLowerCase(java.util.Locale.ROOT);
+            String text = PvLang.str(key);
+            return text.equals(key) ? stage : text;
         }
 
         /**
@@ -101,7 +128,7 @@ public class MatchListScreen extends PvScreen {
     private int rowTop;
 
     public MatchListScreen(MatchListPayload payload) {
-        super(Text.literal("对局列表"));
+        super(PvLang.t("pvpocket.gui.match.title"));
         this.entries = Entry.parse(payload.entries());
         this.rowHot = new float[entries.size()];
     }
@@ -127,19 +154,22 @@ public class MatchListScreen extends PvScreen {
     private void addRowButton(Entry entry, int index) {
         PvButton button;
         if (entry.participant()) {
-            button = new PvButton("本局中", PvButton.Style.GHOST, null);
+            button = new PvButton(PvLang.str("pvpocket.gui.match.button.playing"),
+                    PvButton.Style.GHOST, null);
             button.enabled = false;
-            button.tooltip = "你是这一局的参与者。";
+            button.tooltip = PvLang.str("pvpocket.gui.match.tooltip.playing");
         } else if (entry.watching()) {
-            button = new PvButton("退出", PvButton.Style.DANGER, this::leave);
-            button.tooltip = "停止观战并回到原来的位置。";
+            button = new PvButton(PvLang.str("pvpocket.gui.match.button.leave"),
+                    PvButton.Style.DANGER, this::leave);
+            button.tooltip = PvLang.str("pvpocket.gui.match.tooltip.leave");
         } else {
-            button = new PvButton("观战", PvButton.Style.NORMAL, () -> join(entry.id));
+            button = new PvButton(PvLang.str("pvpocket.gui.match.button.watch"),
+                    PvButton.Style.NORMAL, () -> join(entry.id));
             if (!entry.spectatable()) {
                 button.enabled = false;
-                button.tooltip = "本局没有开启观战。";
+                button.tooltip = PvLang.str("pvpocket.gui.match.tooltip.disabled");
             } else {
-                button.tooltip = "以旁观模式进入，按 V 切换视角。";
+                button.tooltip = PvLang.str("pvpocket.gui.match.tooltip.watch");
             }
         }
         button.size(BTN_W, BTN_H);
@@ -154,13 +184,15 @@ public class MatchListScreen extends PvScreen {
     private void buildFooter() {
         int y = panelY + panelH - FOOTER_H + 8;
         int right = panelX + panelW - 12;
-        PvButton close = new PvButton("关闭", PvButton.Style.NORMAL, this::close);
+        PvButton close = new PvButton(PvLang.str("pvpocket.gui.match.button.close"),
+                PvButton.Style.NORMAL, this::close);
         close.size(56, PvTheme.BTN_H);
         close.x = right - close.width;
         close.y = y;
         roots.add(close);
 
-        PvButton refresh = new PvButton("刷新", PvButton.Style.GHOST, this::refresh);
+        PvButton refresh = new PvButton(PvLang.str("pvpocket.gui.match.button.refresh"),
+                PvButton.Style.GHOST, this::refresh);
         refresh.size(52, PvTheme.BTN_H);
         refresh.x = panelX + 12;
         refresh.y = y;
@@ -174,15 +206,16 @@ public class MatchListScreen extends PvScreen {
         TextRenderer tr = font();
         float d = PvAnim.dt(delta);
 
-        PvDraw.title(ctx, tr, "对局列表", panelX + 16, panelY + 13, PvTheme.TEXT);
+        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 13,
+                PvTheme.TEXT);
         PvDraw.text(ctx, tr, entries.isEmpty()
-                        ? "当前没有进行中的对局"
-                        : entries.size() + " 场进行中",
+                        ? PvLang.str("pvpocket.gui.match.count.none")
+                        : PvLang.str("pvpocket.gui.match.count.some", entries.size()),
                 panelX + 16, panelY + 28, PvTheme.TEXT_DIM);
         PvDraw.hLine(ctx, panelX + 12, panelY + 40, panelW - 24, PvTheme.DIVIDER);
 
         if (entries.isEmpty()) {
-            PvDraw.textCenter(ctx, tr, "暂无进行中的对局",
+            PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.match.empty"),
                     panelX + panelW / 2, rowTop + 14, PvTheme.TEXT_MUTED);
         }
 
@@ -192,12 +225,12 @@ public class MatchListScreen extends PvScreen {
         }
         if (entries.size() > MAX_ROWS) {
             PvDraw.textCenter(ctx, tr,
-                    "另有 " + (entries.size() - MAX_ROWS) + " 场 · /pvpocket spectate <id>",
+                    PvLang.str("pvpocket.gui.match.overflow", entries.size() - MAX_ROWS),
                     panelX + panelW / 2, rowTop + shown * ROW_H + 2, PvTheme.TEXT_MUTED);
         }
 
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
-        PvDraw.text(ctx, tr, "V 切换视角 · G 解除附身",
+        PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.match.keys"),
                 panelX + 72, panelY + panelH - FOOTER_H + 16, PvTheme.TEXT_MUTED);
     }
 
@@ -229,14 +262,17 @@ public class MatchListScreen extends PvScreen {
         int textX = x + 10;
         int line1 = y + 7;
         int line2 = y + 20;
-        PvDraw.text(ctx, tr, entry.map(), textX, line1, PvTheme.TEXT);
+        PvDraw.text(ctx, tr, entry.mapLabel(), textX, line1, PvTheme.TEXT);
 
-        // Stage chip, right after the map name so the eye reads "where, then what state".
-        int stageColor = "进行中".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
-        int chipX = textX + tr.getWidth(entry.map()) + 8;
-        int chipW = tr.getWidth(entry.stage()) + 10;
+        // Stage chip, right after the map name so the eye reads "where, then what state". The live
+        // colour is keyed on the stage constant, not on the rendered word: "in progress" is a
+        // different string in every language and comparing against it broke the moment a second one
+        // existed.
+        int stageColor = "ROUND_ACTIVE".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
+        int chipX = textX + tr.getWidth(entry.mapLabel()) + 8;
+        int chipW = tr.getWidth(entry.stageLabel()) + 10;
         PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3, PvTheme.alpha(stageColor, 0.14F));
-        PvDraw.text(ctx, tr, entry.stage(), chipX + 5, line1, stageColor);
+        PvDraw.text(ctx, tr, entry.stageLabel(), chipX + 5, line1, stageColor);
 
         PvDraw.text(ctx, tr, entry.playersLine(), textX, line2, PvTheme.TEXT_DIM);
 
@@ -248,13 +284,14 @@ public class MatchListScreen extends PvScreen {
         String score = entry.score();
         PvDraw.textRight(ctx, tr, score, anchor, scoreY, PvTheme.TEXT);
         if (entry.spectators() > 0) {
-            String watchers = entry.spectators() + " 人观战";
+            String watchers = PvLang.str("pvpocket.gui.match.watchers", entry.spectators());
             PvDraw.textRight(ctx, tr, watchers, anchor - tr.getWidth(score) - 10, scoreY,
                     PvTheme.TEXT_MUTED);
         }
         // Round number after the stage chip, where it reads as "which round of that state".
         if (entry.bestOf() > 1) {
-            PvDraw.text(ctx, tr, "第 " + Math.max(1, entry.round()) + "/" + entry.bestOf() + " 局",
+            PvDraw.text(ctx, tr,
+                    PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.bestOf()),
                     chipX + chipW + 6, line1, PvTheme.TEXT_MUTED);
         }
     }

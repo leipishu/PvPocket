@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -167,7 +168,7 @@ final class ArenaGuard {
                 deadline.shown = second;
                 // Action bar, not chat: five chat lines in five seconds pushes everything else off
                 // the screen, and the countdown is not worth that.
-                player.sendMessage(Text.literal(second + " 秒后移出决斗维度…")
+                player.sendMessage(PvLang.t("pvpocket.msg.guard.countdown", second)
                         .formatted(Formatting.YELLOW), true);
             }
         }
@@ -217,21 +218,21 @@ final class ArenaGuard {
      * nothing they can do about it and nothing they should be doing in there.</p>
      */
     private void announce(ServerPlayerEntity player) {
-        player.sendMessage(Text.literal("你正处在决斗维度，但没有参与任何对局。")
+        player.sendMessage(PvLang.t("pvpocket.msg.guard.stray")
                 .formatted(Formatting.YELLOW)
-                .append(Text.literal(COUNTDOWN_SECONDS + " 秒后将被移出，送回进入该维度之前的位置。")
+                .append(PvLang.t("pvpocket.msg.guard.will_move", COUNTDOWN_SECONDS)
                         .formatted(Formatting.YELLOW)), false);
 
         if (!player.hasPermissionLevel(2)) {
             return;
         }
-        MutableText button = Text.literal("[ 不要移出 ]").setStyle(Style.EMPTY
+        MutableText button = PvLang.t("pvpocket.msg.guard.button").setStyle(Style.EMPTY
                 .withColor(Formatting.AQUA)
                 .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
                         "/pvpocket guard false"))
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                        Text.literal("关闭自动移出，留在该维度检查。之后用 /pvpocket guard true 恢复"))));
-        player.sendMessage(button.append(Text.literal("  点这里，或输入 /pvpocket guard false")
+                        PvLang.t("pvpocket.msg.guard.button_hover"))));
+        player.sendMessage(button.append(PvLang.t("pvpocket.msg.guard.button_hint")
                 .formatted(Formatting.DARK_GRAY)), false);
     }
 

@@ -1,8 +1,10 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.registry.RegistryKey;
+import net.minecraft.text.MutableText;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -15,32 +17,51 @@ import java.util.Set;
  * how the weapon behaves rather than how hard it hits. Each one maps to a vanilla enchantment, so the
  * effect is the real thing rather than a re-implementation — a swept attack really is a sweep.</p>
  *
- * <p>{@link #appliesTo} is not decoration. Offering "无限" on a sword would produce an item with an
+ * <p>{@link #appliesTo} is not decoration. Offering Infinity on a sword would produce an item with an
  * enchantment the game ignores, and a player who set it would believe they had configured something.
  * The editor only shows the flags a kind can actually carry.</p>
+ *
+ * <p>Name and tooltip are {@code pvpocket.flag.<id>} and {@code pvpocket.flag.<id>.hint}. The
+ * tooltip lives beside the name rather than in the editor because the editor is not the only place a
+ * flag is named — the loadout diagnostic command prints them too.</p>
  */
 public enum WeaponFlag {
 
-    SWEEPING("sweeping", "横扫", Enchantments.SWEEPING_EDGE, 3, ItemKind.SWORD),
-    INFINITY("infinity", "无限", Enchantments.INFINITY, 1, ItemKind.BOW),
-    FLAME("flame", "火矢", Enchantments.FLAME, 1, ItemKind.BOW),
-    PUNCH("punch", "冲击", Enchantments.PUNCH, 2, ItemKind.BOW),
-    RIPTIDE("riptide", "激流", Enchantments.RIPTIDE, 3, ItemKind.TRIDENT),
-    PIERCING("piercing", "穿透", Enchantments.PIERCING, 4, ItemKind.CROSSBOW);
+    SWEEPING("sweeping", Enchantments.SWEEPING_EDGE, 3, ItemKind.SWORD),
+    INFINITY("infinity", Enchantments.INFINITY, 1, ItemKind.BOW),
+    FLAME("flame", Enchantments.FLAME, 1, ItemKind.BOW),
+    PUNCH("punch", Enchantments.PUNCH, 2, ItemKind.BOW),
+    RIPTIDE("riptide", Enchantments.RIPTIDE, 3, ItemKind.TRIDENT),
+    PIERCING("piercing", Enchantments.PIERCING, 4, ItemKind.CROSSBOW);
 
     public final String id;
-    public final String label;
+    public final String labelKey;
+    public final String hintKey;
     public final RegistryKey<Enchantment> enchantment;
     /** Highest level the flag will write. Level is fixed at 1 for boolean-style flags. */
     public final int maxLevel;
     private final ItemKind[] kinds;
 
-    WeaponFlag(String id, String label, RegistryKey<Enchantment> enchantment, int maxLevel, ItemKind... kinds) {
+    WeaponFlag(String id, RegistryKey<Enchantment> enchantment, int maxLevel, ItemKind... kinds) {
         this.id = id;
-        this.label = label;
+        this.labelKey = "pvpocket.flag." + id;
+        this.hintKey = "pvpocket.flag." + id + ".hint";
         this.enchantment = enchantment;
         this.maxLevel = maxLevel;
         this.kinds = kinds;
+    }
+
+    public MutableText labelText() {
+        return PvLang.t(labelKey);
+    }
+
+    public MutableText hintText() {
+        return PvLang.t(hintKey);
+    }
+
+    /** Display name for the self-drawn GUI and for chat lines composed as strings. */
+    public String label() {
+        return PvLang.str(labelKey);
     }
 
     public boolean appliesTo(ItemKind kind) {

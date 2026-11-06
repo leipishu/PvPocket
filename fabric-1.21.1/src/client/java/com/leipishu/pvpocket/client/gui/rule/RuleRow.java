@@ -36,7 +36,7 @@ public class RuleRow extends PvWidget {
         this.baseline = baseline;
         this.editable = editable;
         this.height = def.kind == RuleKind.MULTI ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
-        this.tooltip = def.hint;
+        this.tooltip = def.hint();
     }
 
     private boolean changed() {
@@ -87,7 +87,7 @@ public class RuleRow extends PvWidget {
         int labelX = x + 10;
 
         if (def.kind == RuleKind.MULTI) {
-            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - 20), labelX, y + 6, labelColor);
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label(), width - 20), labelX, y + 6, labelColor);
             if (control != null) {
                 syncControlFocus();
                 control.updateHover(mouseX, mouseY);
@@ -96,7 +96,7 @@ public class RuleRow extends PvWidget {
         } else {
             int labelY = y + (height - 8) / 2 + 1;
             int reserved = control == null ? 96 : control.width + 16;
-            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - reserved - 10), labelX, labelY,
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label(), width - reserved - 10), labelX, labelY,
                     labelColor);
             if (control != null) {
                 syncControlFocus();

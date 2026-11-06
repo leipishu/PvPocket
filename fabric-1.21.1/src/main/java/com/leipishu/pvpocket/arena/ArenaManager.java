@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -749,11 +750,11 @@ public final class ArenaManager {
         }
         boolean placedThisRound = region.isChanged(pos);
         if (region.protectTerrain && !placedThisRound) {
-            player.sendMessage(Text.literal("场地方块受保护，无法破坏。").formatted(Formatting.GRAY), true);
+            player.sendMessage(PvLang.t("pvpocket.msg.arena.protected").formatted(Formatting.GRAY), true);
             return false;
         }
         if (!region.allowBreakOwn && placedThisRound) {
-            player.sendMessage(Text.literal("本次决斗不允许拆除方块。").formatted(Formatting.GRAY), true);
+            player.sendMessage(PvLang.t("pvpocket.msg.arena.no_break").formatted(Formatting.GRAY), true);
             return false;
         }
         return true;

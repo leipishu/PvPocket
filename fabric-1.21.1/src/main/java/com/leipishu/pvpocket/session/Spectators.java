@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMap;
 import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.arena.Sandbox;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.PossessPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
@@ -161,8 +162,8 @@ final class Spectators {
                 flags |= MatchListPayload.FLAG_WATCHING;
             }
             sb.append(session.id).append('|')
-                    .append(mapLabel(session)).append('|')
-                    .append(stageLabel(session.stage)).append('|')
+                    .append(mapId(session)).append('|')
+                    .append(session.stage.name()).append('|')
                     .append(session.round).append('|')
                     .append(session.bestOf).append('|')
                     .append(leftScore(session)).append(':').append(rightScore(session)).append('|')
@@ -174,28 +175,23 @@ final class Spectators {
     }
 
     /**
-     * The map's display name.
+     * The map's id, which the client turns into {@code pvpocket.map.<id>}.
      *
      * <p>Read from the leased region rather than from the rule set: the region is what is actually
-     * stamped in the world, so if the two ever disagree the panel shows the arena the players are
+     * stamped in the world, so if the two ever disagree the panel names the arena the players are
      * standing in. Falls back to the rule when no region is leased, which happens between rounds.</p>
+     *
+     * <p>An id rather than a name because the payload is read by a client whose language this class
+     * cannot know — the same reason the stage is sent as an enum name.</p>
      */
-    private static String mapLabel(DuelSession session) {
+    private static String mapId(DuelSession session) {
         ArenaRegion region = ArenaManager.region(session.id);
         if (region != null) {
-            return region.map.label;
+            return region.map.id;
         }
         ArenaMap map = com.leipishu.pvpocket.arena.ArenaMaps.byIndex(
                 DuelRules.decode(session.rules).get("e.template"));
-        return map.label;
-    }
-
-    private static String stageLabel(SessionStage stage) {
-        return switch (stage) {
-            case ROUND_READY -> "准备中";
-            case ROUND_ACTIVE -> "进行中";
-            default -> stage.name();
-        };
+        return map.id;
     }
 
     private static int leftScore(DuelSession session) {
@@ -245,29 +241,29 @@ final class Spectators {
     boolean join(ServerPlayerEntity player, String sessionId) {
         DuelSession session = sessions.byId(sessionId);
         if (session == null) {
-            fail(player, "这场对局已经不存在了。");
+            fail(player, "pvpocket.msg.spectate.gone");
             return false;
         }
         if (session.stage != SessionStage.ROUND_READY && session.stage != SessionStage.ROUND_ACTIVE) {
-            fail(player, "这场对局还没开始或已经结束。");
+            fail(player, "pvpocket.msg.spectate.not_running");
             return false;
         }
         if (!DuelRules.decode(session.rules).flag("b.spectator")) {
-            fail(player, "本局没有开启观战。");
+            fail(player, "pvpocket.msg.spectate.disabled");
             return false;
         }
         if (session.isParticipant(player.getUuidAsString())) {
-            fail(player, "你是本局的参与者，不需要观战。");
+            fail(player, "pvpocket.msg.spectate.is_participant");
             return false;
         }
         if (sessions.sessionOf(player.getUuid()) != null) {
-            fail(player, "你正在决斗中，无法观战。");
+            fail(player, "pvpocket.msg.spectate.in_duel");
             return false;
         }
         ArenaRegion region = ArenaManager.region(session.id);
         ServerWorld arena = ArenaManager.world(server());
         if (region == null || arena == null) {
-            fail(player, "场地尚未就绪。");
+            fail(player, "pvpocket.msg.spectate.arena_not_ready");
             return false;
         }
 
@@ -307,8 +303,7 @@ final class Spectators {
         sessions.pushSpectatorView(player, session);
 
         sessions.journal(session).append("SPECTATOR_JOINED", "player", player.getName().getString());
-        player.sendMessage(Text.literal("正在观战 " + mapLabel(session)
-                + "。按 V 附身到一名参与者，G 解除附身，/pvpocket spectate leave 退出。")
+        player.sendMessage(PvLang.t("pvpocket.msg.spectate.joined", mapId(session))
                 .formatted(Formatting.AQUA), false);
         return true;
     }
@@ -344,7 +339,7 @@ final class Spectators {
                     "player", player.getName().getString(), "reason", reason);
         }
         if (announce) {
-            player.sendMessage(Text.literal("已退出观战。").formatted(Formatting.GRAY), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.spectate.left").formatted(Formatting.GRAY), false);
         }
         return true;
     }
@@ -425,7 +420,7 @@ final class Spectators {
     void cycle(ServerPlayerEntity player) {
         Watching state = watching.get(player.getUuid());
         if (state == null) {
-            fail(player, "你当前不在观战中。");
+            fail(player, "pvpocket.msg.spectate.not_watching");
             return;
         }
         DuelSession session = sessions.byId(state.sessionId);
@@ -451,7 +446,7 @@ final class Spectators {
     void detach(ServerPlayerEntity player) {
         Watching state = watching.get(player.getUuid());
         if (state == null) {
-            fail(player, "你当前不在观战中。");
+            fail(player, "pvpocket.msg.spectate.not_watching");
             return;
         }
         state.target = -1;
@@ -589,7 +584,8 @@ final class Spectators {
         PvPocketNetworking.sendSpectate(player, new SpectateStatePayload(
                 true,
                 state.sessionId,
-                mapLabel(session) + " · 第 " + Math.max(1, session.round) + " 局",
+                mapId(session),
+                Math.max(1, session.round),
                 state.target,
                 targets.toString()));
     }
@@ -623,7 +619,7 @@ final class Spectators {
                 PvPocketNetworking.sendSpectate(player, SpectateStatePayload.hidden());
                 PvPocketNetworking.sendPossess(player, PossessPayload.hidden());
                 sessions.clearSpectatorView(player);
-                player.sendMessage(Text.literal("这场对局已经结束，已退出观战。")
+                player.sendMessage(PvLang.t("pvpocket.msg.spectate.ended")
                         .formatted(Formatting.GRAY), false);
                 continue;
             }
@@ -672,7 +668,7 @@ final class Spectators {
         if (ArenaManager.pullSpectatorInside(player, region)) {
             if (!state.limitWarned) {
                 state.limitWarned = true;
-                player.sendMessage(Text.literal("已到达观战视角的边界，返回场地内可继续自由飞行。")
+                player.sendMessage(PvLang.t("pvpocket.msg.spectate.limit")
                         .formatted(Formatting.GRAY), false);
             }
             return;
@@ -685,8 +681,8 @@ final class Spectators {
         }
     }
 
-    private static void fail(ServerPlayerEntity player, String message) {
-        player.sendMessage(Text.literal(message).formatted(Formatting.RED), false);
+    private static void fail(ServerPlayerEntity player, String key, Object... args) {
+        player.sendMessage(PvLang.t(key, args).formatted(Formatting.RED), false);
     }
 
     /** Read-only view for diagnostics. */
@@ -696,7 +692,7 @@ final class Spectators {
             ServerPlayerEntity player = server().getPlayerManager().getPlayer(entry.getKey());
             out.add((player == null ? entry.getKey().toString() : player.getName().getString())
                     + " -> " + entry.getValue().sessionId.substring(0, 8)
-                    + " 视角 " + entry.getValue().target);
+                    + " -> " + entry.getValue().target);
         }
         return out;
     }

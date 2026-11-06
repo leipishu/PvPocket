@@ -43,12 +43,14 @@ public final class SpectatorInput {
                 "key.pvpocket.cycle_spectator",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_V,
-                "PvPocket"));
+                // A key, not a name: the controls screen translates the category with
+                // Text.translatable, which is how vanilla's own "Movement" heading is produced.
+                "key.categories.pvpocket"));
         detach = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.pvpocket.detach_spectator",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_G,
-                "PvPocket"));
+                "key.categories.pvpocket"));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Drained in a loop rather than checked once: two presses inside one tick are two
@@ -58,7 +60,7 @@ public final class SpectatorInput {
             }
             while (detach.wasPressed()) {
                 // Only meaningful while a body is being ridden. Sending it from the detached state
-                // would be a no-op round trip, and the bar already says "自由视角" there.
+                // would be a no-op round trip, and the bar already says "free camera" there.
                 if (PossessionHud.active()) {
                     send(SpectateRequestPayload.detach());
                 }

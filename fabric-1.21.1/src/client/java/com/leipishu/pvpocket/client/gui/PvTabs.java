@@ -47,7 +47,7 @@ public class PvTabs extends PvWidget {
      */
     public static PvTabs ofRules(List<RuleGroup> groups, int selected) {
         return new PvTabs(
-                groups.stream().map(g -> g.label).toList(),
+                groups.stream().map(RuleGroup::label).toList(),
                 groups.stream().map(g -> g.letter).toList(),
                 groups, selected);
     }

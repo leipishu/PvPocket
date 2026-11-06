@@ -34,7 +34,7 @@ public final class ArenaMaps {
      * Indoor quartz arena. 38k blocks, enclosed on all four sides, so the boundary curtain sits on
      * real walls rather than in mid-air.
      */
-    public static final ArenaMap FUN_HOUSE = new ArenaMap("arena_fun_house", "游乐屋",
+    public static final ArenaMap FUN_HOUSE = new ArenaMap("arena_fun_house",
             PvPocket.id("arena_fun_house"), 82, 28, 57);
 
     /**
@@ -43,7 +43,7 @@ public final class ArenaMaps {
      * of the build is the arena boundary rather than a wall. Source XML spawns at
      * {@code x=+-17, z=1.5}, across the short axis, so the two sides face along X.
      */
-    public static final ArenaMap EARTHBORN = new ArenaMap("arena_earthborn", "浮岛",
+    public static final ArenaMap EARTHBORN = new ArenaMap("arena_earthborn",
             PvPocket.id("arena_earthborn"), 45, 34, 60);
 
     /**
@@ -51,7 +51,7 @@ public final class ArenaMaps {
      * names, the flattest palette of the set, so it reads as clean geometry rather than as terrain.
      * Source spawns at {@code x=0.5, z=+-37}, along Z like the rest of the arcade maps.
      */
-    public static final ArenaMap DARK_NEBULA = new ArenaMap("arena_dark_nebula", "暗星云",
+    public static final ArenaMap DARK_NEBULA = new ArenaMap("arena_dark_nebula",
             PvPocket.id("arena_dark_nebula"), 87, 43, 79, true);
 
     /**
@@ -60,7 +60,7 @@ public final class ArenaMaps {
      * team ends; the street runs along X (mine entrance to sheriff's office), so that is the axis
      * the pads are placed on.
      */
-    public static final ArenaMap DEADWOOD = new ArenaMap("arena_deadwood", "枯木镇",
+    public static final ArenaMap DEADWOOD = new ArenaMap("arena_deadwood",
             PvPocket.id("arena_deadwood"), 88, 36, 87);
 
     /**
@@ -75,7 +75,7 @@ public final class ArenaMaps {
      * 100x80 inside a 147x119 box — insets 23 and 19. Without them the boundary curtain stands
      * behind the top row of seats and a player on the seating is judged to still be fighting.</p>
      */
-    public static final ArenaMap COLOSSEUM = new ArenaMap("arena_colosseum", "斗兽场",
+    public static final ArenaMap COLOSSEUM = new ArenaMap("arena_colosseum",
             PvPocket.id("arena_colosseum"), 147, 29, 119, false, 23, 19);
 
     public static final List<ArenaMap> ALL = List.of(ArenaMap.FLAT, FUN_HOUSE, EARTHBORN,
@@ -92,10 +92,17 @@ public final class ArenaMaps {
         return ALL.get(index);
     }
 
-    public static String[] labels() {
+    /**
+     * Translation keys for the map picker, in index order.
+     *
+     * <p>Keys rather than text because {@code e.template} stores the index and the panel renders the
+     * name: a client running a different language must see the same map under a different word, and
+     * the rule catalog is compiled into the jar on both sides.</p>
+     */
+    public static String[] labelKeys() {
         String[] out = new String[ALL.size()];
         for (int i = 0; i < out.length; i++) {
-            out[i] = ALL.get(i).label;
+            out[i] = ALL.get(i).labelKey;
         }
         return out;
     }

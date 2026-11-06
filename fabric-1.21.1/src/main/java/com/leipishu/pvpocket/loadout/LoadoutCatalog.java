@@ -1,5 +1,8 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.i18n.PvLang;
+import net.minecraft.text.MutableText;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +15,12 @@ import java.util.Map;
  * invitation to hand out command blocks. The lists are deliberately generous where it does not
  * matter (food, blocks) and deliberately short where it does (potion effects that would break a
  * duel, such as levitation or bad omen, are simply absent).</p>
+ *
+ * <p>Display names are {@code pvpocket.option.<list>.<registry path>} — {@code food}, {@code effect}
+ * or {@code block} plus the part of the id after {@code minecraft:}. Deriving the key from the id
+ * rather than storing a label keeps the list and the language file in step by construction: adding
+ * an item without its translation shows a missing key in the editor instead of silently reusing the
+ * previous entry's word.</p>
  */
 public final class LoadoutCatalog {
 
@@ -31,19 +40,28 @@ public final class LoadoutCatalog {
     /** Team colours used when a block entry is marked as team-coloured wool. */
     public static final String[] TEAM_COLORS = {"red", "blue"};
 
-    public record Option(String id, String label) {
+    /** One whitelisted item: the id it grants, and the key that names it. */
+    public record Option(String id, String labelKey) {
+
+        public MutableText labelText() {
+            return PvLang.t(labelKey);
+        }
+
+        public String label() {
+            return PvLang.str(labelKey);
+        }
     }
 
     private static final List<Option> FOODS = List.of(
-            new Option("minecraft:golden_carrot", "金胡萝卜"),
-            new Option("minecraft:cooked_beef", "牛排"),
-            new Option("minecraft:cooked_porkchop", "熟猪排"),
-            new Option("minecraft:cooked_chicken", "熟鸡肉"),
-            new Option("minecraft:bread", "面包"),
-            new Option("minecraft:baked_potato", "烤马铃薯"),
-            new Option("minecraft:golden_apple", "金苹果"),
-            new Option("minecraft:enchanted_golden_apple", "附魔金苹果"),
-            new Option("minecraft:milk_bucket", "牛奶"));
+            food("minecraft:golden_carrot"),
+            food("minecraft:cooked_beef"),
+            food("minecraft:cooked_porkchop"),
+            food("minecraft:cooked_chicken"),
+            food("minecraft:bread"),
+            food("minecraft:baked_potato"),
+            food("minecraft:golden_apple"),
+            food("minecraft:enchanted_golden_apple"),
+            food("minecraft:milk_bucket"));
 
     /**
      * Splash potion effects.
@@ -51,53 +69,90 @@ public final class LoadoutCatalog {
      * <p>{@code durationMatters} is false for the instant effects: a splash potion of healing ignores
      * its duration entirely, so showing a duration slider for it would be a control that does nothing.
      * The editor greys the row out instead.</p>
+     *
+     * <p>Two keys per effect. {@link #labelKey()} is the bare name, used wherever the effect is
+     * already in context (the loadout row, the diagnostic command). {@link #pickKey()} is the name as
+     * it appears in the editor's cycle control, where the reader is choosing blind and needs to know
+     * whether they are picking a buff or a debuff. Both are single keys rather than a composed
+     * prefix, because a choice in a rule definition is one key and nothing else.</p>
      */
-    public record EffectOption(String id, String label, boolean buff, boolean durationMatters) {
+    public record EffectOption(String id, String labelKey, boolean buff, boolean durationMatters) {
+
+        public MutableText labelText() {
+            return PvLang.t(labelKey);
+        }
+
+        public String label() {
+            return PvLang.str(labelKey);
+        }
+
+        /** Key for the picker entry, which names the qualifier as well as the effect. */
+        public String pickKey() {
+            return labelKey + ".pick";
+        }
     }
 
     private static final List<EffectOption> EFFECTS = List.of(
-            new EffectOption("minecraft:speed", "迅捷", true, true),
-            new EffectOption("minecraft:strength", "力量", true, true),
-            new EffectOption("minecraft:regeneration", "生命恢复", true, true),
-            new EffectOption("minecraft:resistance", "抗性提升", true, true),
-            new EffectOption("minecraft:fire_resistance", "抗火", true, true),
-            new EffectOption("minecraft:water_breathing", "水下呼吸", true, true),
-            new EffectOption("minecraft:jump_boost", "跳跃提升", true, true),
-            new EffectOption("minecraft:absorption", "伤害吸收", true, true),
-            new EffectOption("minecraft:slow_falling", "缓降", true, true),
-            new EffectOption("minecraft:invisibility", "隐身", true, true),
-            new EffectOption("minecraft:night_vision", "夜视", true, true),
-            new EffectOption("minecraft:instant_health", "瞬间治疗", true, false),
-            new EffectOption("minecraft:slowness", "缓慢", false, true),
-            new EffectOption("minecraft:weakness", "虚弱", false, true),
-            new EffectOption("minecraft:poison", "中毒", false, true),
-            new EffectOption("minecraft:blindness", "失明", false, true),
-            new EffectOption("minecraft:nausea", "反胃", false, true),
-            new EffectOption("minecraft:mining_fatigue", "挖掘疲劳", false, true),
-            new EffectOption("minecraft:instant_damage", "瞬间伤害", false, false));
+            effect("minecraft:speed", true, true),
+            effect("minecraft:strength", true, true),
+            effect("minecraft:regeneration", true, true),
+            effect("minecraft:resistance", true, true),
+            effect("minecraft:fire_resistance", true, true),
+            effect("minecraft:water_breathing", true, true),
+            effect("minecraft:jump_boost", true, true),
+            effect("minecraft:absorption", true, true),
+            effect("minecraft:slow_falling", true, true),
+            effect("minecraft:invisibility", true, true),
+            effect("minecraft:night_vision", true, true),
+            effect("minecraft:instant_health", true, false),
+            effect("minecraft:slowness", false, true),
+            effect("minecraft:weakness", false, true),
+            effect("minecraft:poison", false, true),
+            effect("minecraft:blindness", false, true),
+            effect("minecraft:nausea", false, true),
+            effect("minecraft:mining_fatigue", false, true),
+            effect("minecraft:instant_damage", false, false));
 
     private static final List<Option> BLOCKS = List.of(
-            new Option("minecraft:white_wool", "羊毛（按队伍染色）"),
-            new Option("minecraft:oak_planks", "橡木木板"),
-            new Option("minecraft:cobblestone", "圆石"),
-            new Option("minecraft:stone", "石头"),
-            new Option("minecraft:dirt", "泥土"),
-            new Option("minecraft:sand", "沙子"),
-            new Option("minecraft:gravel", "沙砾"),
-            new Option("minecraft:glass", "玻璃"),
-            new Option("minecraft:obsidian", "黑曜石"),
-            new Option("minecraft:netherrack", "下界岩"),
-            new Option("minecraft:ladder", "梯子"),
-            new Option("minecraft:scaffolding", "脚手架"),
-            new Option("minecraft:oak_fence", "橡木栅栏"),
-            new Option("minecraft:hay_block", "干草捆"),
-            new Option("minecraft:slime_block", "黏液块"));
+            block("minecraft:white_wool"),
+            block("minecraft:oak_planks"),
+            block("minecraft:cobblestone"),
+            block("minecraft:stone"),
+            block("minecraft:dirt"),
+            block("minecraft:sand"),
+            block("minecraft:gravel"),
+            block("minecraft:glass"),
+            block("minecraft:obsidian"),
+            block("minecraft:netherrack"),
+            block("minecraft:ladder"),
+            block("minecraft:scaffolding"),
+            block("minecraft:oak_fence"),
+            block("minecraft:hay_block"),
+            block("minecraft:slime_block"));
 
     private static final Map<String, Option> FOOD_BY_ID = index(FOODS);
     private static final Map<String, EffectOption> EFFECT_BY_ID = indexEffects(EFFECTS);
     private static final Map<String, Option> BLOCK_BY_ID = index(BLOCKS);
 
     private LoadoutCatalog() {
+    }
+
+    private static Option food(String id) {
+        return new Option(id, "pvpocket.option.food." + pathOf(id));
+    }
+
+    private static EffectOption effect(String id, boolean buff, boolean durationMatters) {
+        return new EffectOption(id, "pvpocket.option.effect." + pathOf(id), buff, durationMatters);
+    }
+
+    private static Option block(String id) {
+        return new Option(id, "pvpocket.option.block." + pathOf(id));
+    }
+
+    /** {@code minecraft:golden_carrot} -> {@code golden_carrot}; the namespace is always vanilla. */
+    private static String pathOf(String id) {
+        int colon = id.indexOf(':');
+        return colon < 0 ? id : id.substring(colon + 1);
     }
 
     private static Map<String, Option> index(List<Option> options) {
@@ -140,17 +195,30 @@ public final class LoadoutCatalog {
         return BLOCK_BY_ID.containsKey(id);
     }
 
-    public static String labelOf(String id) {
+    /** The translation key naming a whitelisted variant, or null when the id is not whitelisted. */
+    public static String labelKeyOf(String id) {
         Option option = FOOD_BY_ID.get(id);
         if (option != null) {
-            return option.label();
+            return option.labelKey();
         }
         EffectOption effect = EFFECT_BY_ID.get(id);
         if (effect != null) {
-            return effect.label();
+            return effect.labelKey();
         }
         option = BLOCK_BY_ID.get(id);
-        return option != null ? option.label() : id;
+        return option != null ? option.labelKey() : null;
+    }
+
+    /**
+     * The name of a whitelisted variant, for the self-drawn GUI.
+     *
+     * <p>An unrecognised id renders as the id itself rather than as a blank: a loadout can carry a
+     * variant this build no longer ships, and "minecraft:foo" tells the player what is wrong where an
+     * empty cell would look like a rendering bug.</p>
+     */
+    public static String labelOf(String id) {
+        String key = labelKeyOf(id);
+        return key == null ? id : PvLang.str(key);
     }
 
     public static String teamColor(int teamIndex) {

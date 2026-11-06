@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.client.hud;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.PossessPayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -180,7 +181,8 @@ public final class PossessionHud implements HudRenderCallback {
             ctx.drawItemInSlot(tr, stack, sx + 2, sy + 2);
         }
 
-        String label = name + " · HP " + Math.round(health) + " · 护甲 " + armor;
+        String label = PvLang.str("pvpocket.gui.hud.vitals",
+                name, Math.round(health), armor);
         PvDraw.textCenter(ctx, tr, label, x + PANEL_W / 2, y - 12,
                 PvTheme.alpha(PvTheme.TEXT_DIM, appearT));
     }

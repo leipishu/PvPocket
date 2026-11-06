@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.client.hud;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -239,9 +240,9 @@ public final class MatchHud implements HudRenderCallback {
 
     private static String roundLabel(MatchHudPayload payload) {
         if (payload.bestOf() <= 1) {
-            return "单局";
+            return PvLang.str("pvpocket.gui.hud.single_round");
         }
-        return "第 " + payload.round() + " / " + payload.bestOf() + " 局";
+        return PvLang.str("pvpocket.gui.hud.round", payload.round(), payload.bestOf());
     }
 
     /**

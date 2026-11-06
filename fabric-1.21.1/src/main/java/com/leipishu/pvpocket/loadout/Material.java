@@ -1,5 +1,8 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.i18n.PvLang;
+import net.minecraft.text.MutableText;
+
 /**
  * The material a materialised item is built from.
  *
@@ -9,27 +12,40 @@ package com.leipishu.pvpocket.loadout;
  * {@link LoadoutBuilder} <em>replaces</em> the {@code attribute_modifiers} component instead of adding
  * to it — appending would leave the vanilla material bonus in place and quietly make the material
  * matter again.</p>
+ *
+ * <p>"Display only" is also why the name is a translation key rather than a literal: the one thing
+ * this enum contributes to the item is the word in front of it, and that word is language-specific
+ * by definition.</p>
  */
 public enum Material {
 
-    WOOD("wood", "木", "wooden", 0),
-    STONE("stone", "石", "stone", 1),
-    IRON("iron", "铁", "iron", 2),
-    GOLD("gold", "金", "golden", 3),
-    DIAMOND("diamond", "钻石", "diamond", 4),
-    NETHERITE("netherite", "下界合金", "netherite", 5);
+    WOOD("wood", "wooden", 0),
+    STONE("stone", "stone", 1),
+    IRON("iron", "iron", 2),
+    GOLD("gold", "golden", 3),
+    DIAMOND("diamond", "diamond", 4),
+    NETHERITE("netherite", "netherite", 5);
 
     public final String id;
-    public final String label;
+    public final String labelKey;
     private final String itemPrefix;
     /** Display order only. It carries no stat meaning — see the class note. */
     public final int tier;
 
-    Material(String id, String label, String itemPrefix, int tier) {
+    Material(String id, String itemPrefix, int tier) {
         this.id = id;
-        this.label = label;
+        this.labelKey = "pvpocket.material." + id;
         this.itemPrefix = itemPrefix;
         this.tier = tier;
+    }
+
+    public MutableText labelText() {
+        return PvLang.t(labelKey);
+    }
+
+    /** Display name for the self-drawn GUI and for chat lines composed as strings. */
+    public String label() {
+        return PvLang.str(labelKey);
     }
 
     /** Vanilla calls the wooden tier {@code wooden_}, not {@code wood_}. */

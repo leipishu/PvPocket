@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.client.hud;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -98,15 +99,21 @@ public final class SpectatorHud implements HudRenderCallback {
         boolean attached = payload.index() >= 0 && !names.isEmpty();
         String who = attached
                 ? names.get(Math.floorMod(payload.index(), names.size()))
-                : "自由视角";
+                : PvLang.str("pvpocket.gui.hud.free_camera");
         String counter = attached
                 ? " " + (Math.floorMod(payload.index(), names.size()) + 1) + "/" + names.size()
                 : "";
 
-        String left = "观战 · " + payload.label();
+        // The map name and the round arrive as an id and a number, not as a sentence: the server
+        // that sends them has no language, and this bar is drawn on a client that does.
+        String where = payload.mapId().isEmpty()
+                ? PvLang.str("pvpocket.gui.hud.unknown_map")
+                : PvLang.str("pvpocket.map." + payload.mapId());
+        String left = PvLang.str("pvpocket.gui.hud.watching",
+                PvLang.str("pvpocket.gui.hud.where", where, Math.max(1, payload.round())));
         String right = attached
-                ? who + counter + " · V 切换 · G 解除"
-                : who + " · V 附身";
+                ? who + counter + PvLang.str("pvpocket.gui.hud.keys_attached")
+                : who + PvLang.str("pvpocket.gui.hud.keys_detached");
 
         int leftW = tr.getWidth(left);
         int rightW = tr.getWidth(right);

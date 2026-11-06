@@ -1,6 +1,12 @@
 package com.leipishu.pvpocket.command;
 
 import com.leipishu.pvpocket.combat.CombatMode;
+import com.leipishu.pvpocket.i18n.PvLang;
+import com.leipishu.pvpocket.loadout.ItemKind;
+import com.leipishu.pvpocket.loadout.Loadout;
+import com.leipishu.pvpocket.loadout.LoadoutCatalog;
+import com.leipishu.pvpocket.loadout.LoadoutEntry;
+import com.leipishu.pvpocket.loadout.WeaponFlag;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
@@ -11,14 +17,31 @@ import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
 /**
  * Command surface for S1. The rule GUI replaces most of this later; the commands stay as the
  * scriptable, testable path.
+ *
+ * <p><b>Command syntax is never translated.</b> {@code /pvpocket}, its literals, and the argument
+ * placeholders in the help text ({@code <player>}, {@code <true|false>}) are tokens the dispatcher
+ * parses; they appear identically in every language file and are passed to the translation as
+ * literal arguments rather than as part of a translated sentence. Only the description beside them
+ * changes with the reader's language.</p>
  */
 public final class PvPocketCommands {
+
+    /**
+     * Column the descriptions start at, in characters.
+     *
+     * <p>The font is proportional, so this lines the help text up approximately rather than exactly —
+     * which is what the full-width spaces it replaces did as well, and what a translated command list
+     * can do at all: the usage column is a fixed ASCII token, so it is the one thing that can be
+     * padded to a stable width.</p>
+     */
+    private static final int USAGE_COLUMN = 34;
 
     private PvPocketCommands() {
     }
@@ -67,21 +90,35 @@ public final class PvPocketCommands {
         dispatcher.register(root);
     }
 
+    /**
+     * One help line: the usage as a literal, the description from the language file.
+     *
+     * <p>Split rather than baked into a single translated sentence so that a translator cannot
+     * accidentally translate {@code /pvpocket spectate leave} into something the dispatcher does not
+     * accept.</p>
+     */
+    private static void helpLine(ServerCommandSource source, String usage, String descriptionKey) {
+        String pad = " ".repeat(Math.max(2, USAGE_COLUMN - usage.length()));
+        source.sendFeedback(() -> Text.literal(usage + pad).formatted(Formatting.GRAY)
+                .append(PvLang.t(descriptionKey)), false);
+    }
+
     private static int help(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
-        source.sendFeedback(() -> Text.literal("PvPocket 指令（/pvpocket help）：").formatted(Formatting.AQUA), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket duel <玩家> [legacy]  发起决斗并打开规则面板").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket review    重新打开规则面板（关掉面板后用这个回去）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket surrender    认输（输掉整场）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket status       查看当前对局").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket arena        查看场地分区占用").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket arena reset  强制结束所有对局并重建整个场地维度（需要 OP）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket guard <true|false>  开关「滞留决斗维度自动移出」（需要 OP；按玩家记录）").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket list         打开对局面板，可进入开启观战的对局").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket spectate <前缀>  不进面板，直接用 session id 前缀进入观战").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket spectate leave   退出观战").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("/pvpocket loadout [give|edit|reset]  查看配装；edit 打开配装界面（无需决斗）；give 发到手上；reset 清空个人配装").formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("规则与配装：征询、接受、拒绝都在面板上完成，指令不再提供这三项。")
+        source.sendFeedback(() -> PvLang.t("pvpocket.command.help.header", "/pvpocket help")
+                .formatted(Formatting.AQUA), false);
+        helpLine(source, "/pvpocket duel <player> [legacy]", "pvpocket.command.help.duel");
+        helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
+        helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
+        helpLine(source, "/pvpocket status", "pvpocket.command.help.status");
+        helpLine(source, "/pvpocket arena", "pvpocket.command.help.arena");
+        helpLine(source, "/pvpocket arena reset", "pvpocket.command.help.arena_reset");
+        helpLine(source, "/pvpocket guard <true|false>", "pvpocket.command.help.guard");
+        helpLine(source, "/pvpocket list", "pvpocket.command.help.list");
+        helpLine(source, "/pvpocket spectate <prefix>", "pvpocket.command.help.spectate");
+        helpLine(source, "/pvpocket spectate leave", "pvpocket.command.help.spectate_leave");
+        helpLine(source, "/pvpocket loadout [give|edit|reset]", "pvpocket.command.help.loadout");
+        source.sendFeedback(() -> PvLang.t("pvpocket.command.help.footer")
                 .formatted(Formatting.DARK_GRAY), false);
         return 1;
     }
@@ -129,39 +166,46 @@ public final class PvPocketCommands {
         var gallery = com.leipishu.pvpocket.arena.ArenaManager.gallery();
         var leased = com.leipishu.pvpocket.arena.ArenaManager.leased();
 
-        source.sendFeedback(() -> Text.literal("场地分区：" + gallery.size() + " / "
-                + com.leipishu.pvpocket.arena.ArenaManager.slotCount() + " 已布置，"
-                + leased.size() + " 场进行中").formatted(Formatting.AQUA), false);
+        source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.header",
+                        gallery.size(), com.leipishu.pvpocket.arena.ArenaManager.slotCount(),
+                        leased.size())
+                .formatted(Formatting.AQUA), false);
 
         // The gallery is the point: every map sits in its own cell of the dimension, so "select the
         // colosseum" is a teleport to fixed coordinates rather than a paste at the origin.
         if (gallery.isEmpty()) {
-            source.sendFeedback(() -> Text.literal("分区尚未布置（服务端预热中或竞技世界未加载）。")
+            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.empty")
                     .formatted(Formatting.GRAY), false);
         } else {
-            source.sendFeedback(() -> Text.literal("分区坐标：").formatted(Formatting.DARK_AQUA), false);
+            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.regions")
+                    .formatted(Formatting.DARK_AQUA), false);
             for (var region : gallery) {
-                String line = "  " + region.id + "  " + region.map.id
-                        + "  " + region.sizeX + "x" + region.sizeY + "x" + region.sizeZ
-                        + "  " + region.minX + "," + region.minZ
-                        + "  中心 " + region.centerX() + "," + region.centerZ();
-                source.sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
+                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.region_line",
+                                region.id, region.map.labelText(),
+                                region.sizeX, region.sizeY, region.sizeZ,
+                                region.minX, region.minZ,
+                                region.centerX(), region.centerZ())
+                        .formatted(Formatting.GRAY), false);
             }
         }
 
         if (leased.isEmpty()) {
-            source.sendFeedback(() -> Text.literal("当前没有进行中的决斗。").formatted(Formatting.GRAY), false);
+            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.none_active")
+                    .formatted(Formatting.GRAY), false);
             return 1;
         }
-        source.sendFeedback(() -> Text.literal("进行中：").formatted(Formatting.DARK_AQUA), false);
+        source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.active")
+                .formatted(Formatting.DARK_AQUA), false);
         for (var entry : leased) {
             var region = entry.getValue();
-            String line = "  " + region.id + "  " + region.map.id
-                    + "  原点 " + region.minX + "," + region.minZ
-                    + "  变更 " + region.changeCount()
-                    + "  保护 " + (region.protectTerrain ? "开" : "关")
-                    + "  会话 " + entry.getKey().substring(0, 8);
-            source.sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
+            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.leased_line",
+                            region.id, region.map.labelText(),
+                            region.minX, region.minZ,
+                            region.changeCount(),
+                            PvLang.t(region.protectTerrain
+                                    ? "pvpocket.value.on" : "pvpocket.value.off"),
+                            entry.getKey().substring(0, 8))
+                    .formatted(Formatting.GRAY), false);
         }
         return 1;
     }
@@ -177,15 +221,15 @@ public final class PvPocketCommands {
         ServerCommandSource source = ctx.getSource();
         SessionManager manager = SessionManager.get();
         if (manager == null) {
-            source.sendError(Text.literal("会话管理器尚未就绪。"));
+            source.sendError(PvLang.t("pvpocket.command.session_not_ready"));
             return 0;
         }
         int ended = manager.resetArena();
         if (ended < 0) {
-            source.sendError(Text.literal("场地正在重建中，等这一次完成再执行。"));
+            source.sendError(PvLang.t("pvpocket.command.arena.rebuilding"));
             return 0;
         }
-        Text line = Text.literal("决斗场地已重置：强制结束 " + ended + " 场对局，正在重建地图。")
+        MutableText line = PvLang.t("pvpocket.command.arena.reset_done", ended)
                 .formatted(Formatting.AQUA);
         source.sendFeedback(() -> line, true);
         for (ServerPlayerEntity player : source.getServer().getPlayerManager().getPlayerList()) {
@@ -210,18 +254,18 @@ public final class PvPocketCommands {
         try {
             player = source.getPlayerOrThrow();
         } catch (Exception e) {
-            source.sendError(Text.literal("该指令按玩家记录，只能在游戏内执行。"));
+            source.sendError(PvLang.t("pvpocket.command.guard.players_only"));
             return 0;
         }
         SessionManager manager = SessionManager.get();
         if (manager == null) {
-            source.sendError(Text.literal("会话管理器尚未就绪。"));
+            source.sendError(PvLang.t("pvpocket.command.session_not_ready"));
             return 0;
         }
         boolean now = manager.setGuardEnabled(player, enabled);
-        player.sendMessage(Text.literal(now
-                        ? "已开启自动移出：不在对局中却待在决斗维度时，5 秒后会被送回进入前的位置。"
-                        : "已关闭自动移出：你可以留在决斗维度里。检查完请用 /pvpocket guard true 恢复。")
+        player.sendMessage(PvLang.t(now
+                        ? "pvpocket.command.guard.on"
+                        : "pvpocket.command.guard.off")
                 .formatted(now ? Formatting.GREEN : Formatting.YELLOW), false);
         return 1;
     }
@@ -244,14 +288,13 @@ public final class PvPocketCommands {
 
     private static int spectateHelp(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource source = ctx.getSource();
-        source.sendFeedback(() -> Text.literal("观战：").formatted(Formatting.AQUA), false);
-        source.sendFeedback(() -> Text.literal("  /pvpocket list                     打开对局面板，点「观战」进入")
+        source.sendFeedback(() -> PvLang.t("pvpocket.command.spectate.header")
+                .formatted(Formatting.AQUA), false);
+        helpLine(source, "  /pvpocket list", "pvpocket.command.spectate.list");
+        helpLine(source, "  /pvpocket spectate <prefix>", "pvpocket.command.spectate.direct");
+        helpLine(source, "  /pvpocket spectate leave", "pvpocket.command.spectate.leave");
+        source.sendFeedback(() -> Text.literal("  ").append(PvLang.t("pvpocket.command.spectate.key_hint"))
                 .formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("  /pvpocket spectate <对局 id 前缀>   直接进入观战")
-                .formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("  /pvpocket spectate leave            退出观战")
-                .formatted(Formatting.GRAY), false);
-        source.sendFeedback(() -> Text.literal("  观战中按 V 切换视角。").formatted(Formatting.GRAY), false);
         return 1;
     }
 
@@ -273,22 +316,26 @@ public final class PvPocketCommands {
         }
     }
 
-    private static int loadout(CommandContext<ServerCommandSource> ctx) {        try {
+    private static int loadout(CommandContext<ServerCommandSource> ctx) {
+        try {
             ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
-            com.leipishu.pvpocket.loadout.Loadout loadout = SessionManager.get().loadoutFor(player);
-            player.sendMessage(Text.literal("配装：" + loadout.name + " · " + loadout.size()
-                    + " 项 · " + loadout.digest()).formatted(Formatting.AQUA), false);
+            Loadout loadout = SessionManager.get().loadoutFor(player);
+            player.sendMessage(PvLang.t("pvpocket.command.loadout.header",
+                            loadout.displayName(), loadout.size(), loadout.digest())
+                    .formatted(Formatting.AQUA), false);
             for (int i = 0; i < loadout.entries.size(); i++) {
-                var entry = loadout.entries.get(i);
-                player.sendMessage(Text.literal("  " + (i + 1) + ". " + describe(entry))
-                        .formatted(Formatting.GRAY), false);
+                LoadoutEntry entry = loadout.entries.get(i);
+                player.sendMessage(Text.literal("  " + (i + 1) + ". ").formatted(Formatting.GRAY)
+                        .append(describe(entry)), false);
             }
             var problems = loadout.validate();
             if (problems.isEmpty()) {
-                player.sendMessage(Text.literal("校验通过。").formatted(Formatting.GREEN), false);
+                player.sendMessage(PvLang.t("pvpocket.command.loadout.valid")
+                        .formatted(Formatting.GREEN), false);
             } else {
-                for (String problem : problems) {
-                    player.sendMessage(Text.literal("  - " + problem).formatted(Formatting.RED), false);
+                for (Text problem : problems) {
+                    player.sendMessage(Text.literal("  - ").formatted(Formatting.RED)
+                            .append(problem.copy().formatted(Formatting.RED)), false);
                 }
             }
             return 1;
@@ -300,9 +347,10 @@ public final class PvPocketCommands {
     private static int loadoutGive(CommandContext<ServerCommandSource> ctx) {
         try {
             ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
-            com.leipishu.pvpocket.loadout.Loadout loadout = SessionManager.get().loadoutFor(player);
+            Loadout loadout = SessionManager.get().loadoutFor(player);
             int given = com.leipishu.pvpocket.loadout.LoadoutBuilder.give(player, loadout, 0);
-            player.sendMessage(Text.literal("已发放 " + given + " 项（配装 " + loadout.digest() + "）")
+            player.sendMessage(PvLang.t("pvpocket.command.loadout.given",
+                            given, loadout.digest())
                     .formatted(Formatting.GREEN), false);
             return 1;
         } catch (Exception e) {
@@ -313,8 +361,8 @@ public final class PvPocketCommands {
     /**
      * Opens the loadout editor without going through the rule panel.
      *
-     * <p>The panel's 配装 button is the normal path; this is the same call for players who closed the
-     * panel by accident, and the only way to drive the editor from the console during testing. It
+     * <p>The panel's loadout button is the normal path; this is the same call for players who closed
+     * the panel by accident, and the only way to drive the editor from the console during testing. It
      * works with no duel open at all — that is the "configure before challenging" case.</p>
      */
     private static int loadoutEdit(CommandContext<ServerCommandSource> ctx) {
@@ -335,43 +383,51 @@ public final class PvPocketCommands {
         }
     }
 
-    /** One-line summary of a loadout row, for the diagnostic command. */
-    private static String describe(com.leipishu.pvpocket.loadout.LoadoutEntry entry) {
-        StringBuilder sb = new StringBuilder(entry.kind.label);
+    /**
+     * One-line summary of a loadout row, for the diagnostic command.
+     *
+     * <p>Built as {@link Text} rather than a string because each part is a translated word —
+     * "damage", "unbreakable", the flag names — and the row has to read correctly in whichever
+     * language the reader's client is running. Separators stay literal: a space and a multiplication
+     * sign mean the same thing everywhere.</p>
+     */
+    private static MutableText describe(LoadoutEntry entry) {
+        MutableText out = entry.kind.labelText().copy();
         if (entry.kind.materialised) {
-            sb.append('（').append(entry.material.label).append('）');
+            out.append(PvLang.t("pvpocket.command.loadout.entry.material", entry.material.labelText()));
         }
         if (!entry.variant.isEmpty()) {
-            sb.append(' ').append(com.leipishu.pvpocket.loadout.LoadoutCatalog.labelOf(entry.variant));
+            String key = LoadoutCatalog.labelKeyOf(entry.variant);
+            out.append(Text.literal(" ")).append(key == null ? Text.literal(entry.variant) : PvLang.t(key));
         }
-        sb.append(" ×").append(entry.count);
-        sb.append(" 槽").append(entry.slot);
+        out.append(Text.literal(" ×" + entry.count));
+        out.append(PvLang.t("pvpocket.command.loadout.entry.slot", entry.slot));
         if (entry.damageTenths > 0) {
-            sb.append(" 伤害").append(entry.damage());
+            out.append(PvLang.t("pvpocket.command.loadout.entry.damage", entry.damage()));
         }
         if (entry.armorTenths > 0) {
-            sb.append(" 护甲").append(entry.armor());
+            out.append(PvLang.t("pvpocket.command.loadout.entry.armor", entry.armor()));
         }
-        if (entry.durability == com.leipishu.pvpocket.loadout.LoadoutEntry.DURABILITY_UNBREAKABLE) {
-            sb.append(" 不可破坏");
+        if (entry.durability == LoadoutEntry.DURABILITY_UNBREAKABLE) {
+            out.append(PvLang.t("pvpocket.command.loadout.entry.unbreakable"));
         } else if (entry.durability > 0) {
-            sb.append(" 耐久").append(entry.durability);
+            out.append(PvLang.t("pvpocket.command.loadout.entry.durability", entry.durability));
         }
         if (entry.knockback > 0) {
-            sb.append(" 击退").append(entry.knockback);
+            out.append(PvLang.t("pvpocket.command.loadout.entry.knockback", entry.knockback));
         }
-        for (var flag : com.leipishu.pvpocket.loadout.WeaponFlag.decode(entry.flags)) {
-            sb.append(' ').append(flag.label);
+        for (WeaponFlag flag : WeaponFlag.decode(entry.flags)) {
+            out.append(Text.literal(" ")).append(flag.labelText());
         }
-        if (entry.kind == com.leipishu.pvpocket.loadout.ItemKind.BOW
-                && !entry.has(com.leipishu.pvpocket.loadout.WeaponFlag.INFINITY)
+        if (entry.kind == ItemKind.BOW
+                && !entry.has(WeaponFlag.INFINITY)
                 && entry.arrowCount > 0) {
-            sb.append(" 箭×").append(entry.arrowCount);
+            out.append(PvLang.t("pvpocket.command.loadout.entry.arrows", entry.arrowCount));
         }
-        if (entry.kind == com.leipishu.pvpocket.loadout.ItemKind.POTION) {
-            sb.append(' ').append(entry.durationSec).append("s");
-            sb.append(" Lv").append(entry.amplifier + 1);
+        if (entry.kind == ItemKind.POTION) {
+            out.append(PvLang.t("pvpocket.command.loadout.entry.potion",
+                    entry.durationSec, entry.amplifier + 1));
         }
-        return sb.toString();
+        return out;
     }
 }

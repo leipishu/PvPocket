@@ -37,4 +37,16 @@ public enum SessionStage {
     public boolean hasSnapshots() {
         return !isPreFreeze();
     }
+
+    /**
+     * Translation key naming the stage, {@code pvpocket.stage.<lowercase name>}.
+     *
+     * <p>Only the two stages a spectator can be looking at are worth translating, but every constant
+     * gets a key so a status line never falls back to a bare {@code ROUND_SETTLED} in one language
+     * and a word in another. A key that a language file does not carry renders as itself, which is
+     * the same thing the enum name would have said.</p>
+     */
+    public String labelKey() {
+        return "pvpocket.stage." + name().toLowerCase(java.util.Locale.ROOT);
+    }
 }

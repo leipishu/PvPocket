@@ -1,5 +1,9 @@
 package com.leipishu.pvpocket.rules;
 
+import com.leipishu.pvpocket.i18n.PvLang;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -123,17 +127,35 @@ public final class DuelRules {
         return out;
     }
 
-    /** One-line summary for chat: only the rules that shape the match, not all thirty-six. */
-    public String summary() {
+    /**
+     * One-line summary for chat: only the rules that shape the match, not all thirty-six.
+     *
+     * <p>Assembled out of translatable pieces rather than formatted into a string. Every caller is
+     * either the server (which has no language and must hand the client a {@link Text}) or a client
+     * chat line, so a pre-formatted string would freeze one language into a message read by
+     * somebody speaking the other.</p>
+     */
+    public MutableText summaryText() {
         RuleDefinition series = RuleCatalog.byId("a.series");
         RuleDefinition mode = RuleCatalog.byId("c.mode");
         RuleDefinition sizeX = RuleCatalog.byId("e.sizeX");
         RuleDefinition sizeZ = RuleCatalog.byId("e.sizeZ");
-        String team = get("b.teamCount") + " 队 × " + get("b.teamSize") + " 人";
-        return series.format(get("a.series"))
-                + " · " + mode.format(get("c.mode"))
-                + " · " + team
-                + " · " + sizeX.format(get("e.sizeX")).trim() + "×" + sizeZ.format(get("e.sizeZ")).trim()
-                + " · 生命 " + get("c.maxHealth");
+        return Text.empty()
+                .append(series.formatText(get("a.series")))
+                .append(Text.literal(" · "))
+                .append(mode.formatText(get("c.mode")))
+                .append(Text.literal(" · "))
+                .append(PvLang.t("pvpocket.rule.b.teamShape",
+                        get("b.teamCount"), get("b.teamSize")))
+                .append(Text.literal(" · "))
+                .append(PvLang.t("pvpocket.rule.e.size", sizeX.formatText(get("e.sizeX")),
+                        sizeZ.formatText(get("e.sizeZ"))))
+                .append(Text.literal(" · "))
+                .append(PvLang.t("pvpocket.rule.c.maxHealthShort", get("c.maxHealth")));
+    }
+
+    /** The same summary as a string, for the self-drawn GUI. */
+    public String summary() {
+        return PvLang.str(summaryText());
     }
 }

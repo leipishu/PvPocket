@@ -33,15 +33,15 @@ public class PvChips extends PvValueControl {
         this.value = def.clamp(value);
         this.height = H;
         this.width = 200;
-        this.selT = new float[def.choices.length];
-        this.hotT = new float[def.choices.length];
+        this.selT = new float[def.choiceCount()];
+        this.hotT = new float[def.choiceCount()];
         for (int i = 0; i < selT.length; i++) {
             selT[i] = (value & (1 << i)) != 0 ? 1F : 0F;
         }
     }
 
     private int chipWidth() {
-        int n = def.choices.length;
+        int n = def.choiceCount();
         return Math.max(1, (width - GAP * (n - 1)) / n);
     }
 
@@ -51,7 +51,7 @@ public class PvChips extends PvValueControl {
             return -1;
         }
         int index = (int) ((mx - x) / (cw + GAP));
-        return index >= 0 && index < def.choices.length ? index : -1;
+        return index >= 0 && index < def.choiceCount() ? index : -1;
     }
 
     @Override
@@ -65,7 +65,7 @@ public class PvChips extends PvValueControl {
         int cw = chipWidth();
         int hoverIndex = hovered && enabled ? chipAt(mouseX) : -1;
 
-        for (int i = 0; i < def.choices.length; i++) {
+        for (int i = 0; i < def.choiceCount(); i++) {
             boolean on = (value & (1 << i)) != 0;
             selT[i] = PvAnim.damp(selT[i], on ? 1F : 0F, d, 0.05F);
             hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i ? 1F : 0F, d, 0.09F);
@@ -89,7 +89,7 @@ public class PvChips extends PvValueControl {
             }
 
             PvDraw.roundRect(ctx, cx, y, cw, H, 3, fill);
-            String label = PvDraw.fit(tr, def.choices[i], cw - 10);
+            String label = PvDraw.fit(tr, def.choiceLabel(i), cw - 10);
             PvDraw.textCenter(ctx, tr, label, cx + cw / 2, y + (H - 8) / 2 + 1, textColor);
         }
 

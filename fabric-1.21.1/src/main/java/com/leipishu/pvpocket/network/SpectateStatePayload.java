@@ -19,8 +19,12 @@ import net.minecraft.util.Identifier;
  *
  * <p>{@code targets} uses the same {@code name:uuid,name:uuid} encoding as
  * {@link MatchListPayload}, for the same reason: neither field can contain the separators.</p>
+ *
+ * <p>{@code mapId} and {@code round} are sent instead of a rendered "Colosseum · round 2" label so
+ * the bar can say it in the reader's language. The client turns the id into
+ * {@code pvpocket.map.<id>}.</p>
  */
-public record SpectateStatePayload(boolean active, String sessionId, String label,
+public record SpectateStatePayload(boolean active, String sessionId, String mapId, int round,
                                    int index, String targets)
         implements CustomPayload {
 
@@ -30,14 +34,15 @@ public record SpectateStatePayload(boolean active, String sessionId, String labe
     public static final PacketCodec<RegistryByteBuf, SpectateStatePayload> CODEC = PacketCodec.tuple(
             PacketCodecs.BOOL, SpectateStatePayload::active,
             PacketCodecs.STRING, SpectateStatePayload::sessionId,
-            PacketCodecs.STRING, SpectateStatePayload::label,
+            PacketCodecs.STRING, SpectateStatePayload::mapId,
+            PacketCodecs.VAR_INT, SpectateStatePayload::round,
             PacketCodecs.VAR_INT, SpectateStatePayload::index,
             PacketCodecs.STRING, SpectateStatePayload::targets,
             SpectateStatePayload::new);
 
     /** The "stop drawing the bar" packet. Immutable, so one instance is enough. */
     public static SpectateStatePayload hidden() {
-        return new SpectateStatePayload(false, "", "", 0, "");
+        return new SpectateStatePayload(false, "", "", 0, 0, "");
     }
 
     @Override

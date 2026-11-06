@@ -16,9 +16,9 @@ import net.minecraft.util.Identifier;
  * <p>{@code role} decides which footer buttons exist: {@link #ROLE_PROPOSER} can only send a
  * proposal, {@link #ROLE_REVIEWER} can accept, reject, or edit and send it back.</p>
  *
- * <p>The three display strings live in a nested {@link Details} record rather than as three more
- * top-level fields because {@code PacketCodec.tuple} stops at six components, and the alternative —
- * a second payload racing the first — would let the panel open before the data it needs arrives.</p>
+ * <p>The display fields live in a nested {@link Details} record rather than as more top-level fields
+ * because {@code PacketCodec.tuple} stops at six components, and the alternative — a second payload
+ * racing the first — would let the panel open before the data it needs arrives.</p>
  */
 public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details)
         implements CustomPayload {
@@ -29,19 +29,27 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
     /**
      * Everything the panel shows that is not a rule value.
      *
-     * @param otherName      the opponent, for the subtitle
-     * @param loadoutSummary "配装 8 项 · 3f9c21 · 同意 1/2", display only — the panel never edits a
-     *                       loadout, and sending the whole thing twice per open would be a lot of
-     *                       bytes to render eight characters
-     * @param busyMaps       bitmask over {@code ArenaMaps.ALL} of maps another duel is standing on,
-     *                       so the picker can refuse to select them instead of letting the player
-     *                       find out at "同意并开始" time
+     * <p>None of it is pre-formatted text. The server has no language, so a summary assembled there
+     * would arrive already spelled in whatever the server's locale happened to be — the panel builds
+     * the sentence from these numbers instead, in the reader's language.</p>
+     *
+     * @param otherName     the opponent, for the subtitle
+     * @param loadoutCounts {@code name:items} pairs joined by commas, one per participant. The panel
+     *                      never edits a loadout, and sending the whole thing twice per open would be
+     *                      a lot of bytes to render eight characters
+     * @param agreed        how many participants have agreed to the loadout set as it stands
+     * @param total         how many participants there are
+     * @param busyMaps      bitmask over {@code ArenaMaps.ALL} of maps another duel is standing on,
+     *                      so the picker can refuse to select them instead of letting the player
+     *                      find out at "accept and start" time
      */
-    public record Details(String otherName, String loadoutSummary, int busyMaps) {
+    public record Details(String otherName, String loadoutCounts, int agreed, int total, int busyMaps) {
 
         public static final PacketCodec<RegistryByteBuf, Details> CODEC = PacketCodec.tuple(
                 PacketCodecs.STRING, Details::otherName,
-                PacketCodecs.STRING, Details::loadoutSummary,
+                PacketCodecs.STRING, Details::loadoutCounts,
+                PacketCodecs.VAR_INT, Details::agreed,
+                PacketCodecs.VAR_INT, Details::total,
                 PacketCodecs.VAR_INT, Details::busyMaps,
                 Details::new);
     }
@@ -61,8 +69,16 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
         return details.otherName();
     }
 
-    public String loadoutSummary() {
-        return details.loadoutSummary();
+    public String loadoutCounts() {
+        return details.loadoutCounts();
+    }
+
+    public int agreed() {
+        return details.agreed();
+    }
+
+    public int total() {
+        return details.total();
     }
 
     public int busyMaps() {

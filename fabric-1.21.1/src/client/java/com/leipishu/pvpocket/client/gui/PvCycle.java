@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -114,7 +115,7 @@ public class PvCycle extends PvValueControl {
             return null;
         }
         if (enabled && blocked(value)) {
-            return "这张场地正被另一场决斗占用，换图后才能再次选择";
+            return PvLang.str("pvpocket.gui.rule.map_busy_tooltip");
         }
         return tooltip;
     }

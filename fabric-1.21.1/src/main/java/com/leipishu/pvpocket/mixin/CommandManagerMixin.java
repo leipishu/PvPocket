@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.arena.Sandbox;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.mojang.brigadier.ParseResults;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -44,7 +45,7 @@ public abstract class CommandManagerMixin {
             return;
         }
         if (source.getEntity() instanceof ServerPlayerEntity player) {
-            player.sendMessage(Text.literal("决斗场地内只能使用 /pvpocket 指令。")
+            player.sendMessage(PvLang.t("pvpocket.msg.sandbox.command_denied")
                     .formatted(Formatting.RED), false);
         }
         ci.cancel();

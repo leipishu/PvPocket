@@ -7,6 +7,7 @@ import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
@@ -28,6 +29,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.network.packet.s2c.play.ClearTitleS2CPacket;
 import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
 import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.world.GameMode;
@@ -532,16 +534,16 @@ public final class SessionManager {
                 continue;
             }
             if (!restoreParticipant(session, p)) {
-                player.sendMessage(Text.literal("生存状态恢复失败，请联系管理员（会话 " + sessionId + "）。")
+                player.sendMessage(PvLang.t("pvpocket.msg.restore.failed", sessionId)
                         .formatted(Formatting.RED), false);
                 continue;
             }
             // A deferred restore has two causes and they read very differently to a player: the
             // session was voided by a crash, or it finished normally and they simply left early.
-            String note = session.voidReason == null
-                    ? "上一场决斗已结束，你的生存状态已恢复。"
-                    : "上一场决斗因服务器中断已作废，你的生存状态已恢复。";
-            player.sendMessage(Text.literal(note).formatted(Formatting.YELLOW), false);
+            MutableText note = PvLang.t(session.voidReason == null
+                    ? "pvpocket.msg.restore.done"
+                    : "pvpocket.msg.restore.done_voided");
+            player.sendMessage(note.formatted(Formatting.YELLOW), false);
         }
     }
 
@@ -664,7 +666,8 @@ public final class SessionManager {
                     // stops leaves the player unsure whether they are still at risk.
                     if (boundaryExits.remove(key) != null) {
                         journal(session).append("BOUNDARY_RETURNED", "player", p.name);
-                        player.sendMessage(Text.literal("已回到场地内。").formatted(Formatting.GREEN), false);
+                        player.sendMessage(PvLang.t("pvpocket.msg.boundary.returned")
+                                .formatted(Formatting.GREEN), false);
                         // Wipes the big number instead of leaving a stale "1" hanging in the middle
                         // of the screen after the player has already saved themselves.
                         player.networkHandler.sendPacket(new ClearTitleS2CPacket(false));
@@ -700,7 +703,8 @@ public final class SessionManager {
                                     player.getX(), player.getY(), player.getZ()),
                             "world", player.getWorld().getRegistryKey().getValue().toString(),
                             "countdownMs", BOUNDARY_COUNTDOWN_MS);
-                    player.sendMessage(Text.literal("你离开了场地边界，5 秒内不返回本局判负。")
+                    player.sendMessage(PvLang.t("pvpocket.msg.boundary.left",
+                                    BOUNDARY_COUNTDOWN_MS / 1000)
                             .formatted(Formatting.RED), false);
                     announceBoundary(player, 5);
                     continue;
@@ -775,9 +779,9 @@ public final class SessionManager {
         boundaryNotices.put(key, now);
         journal(session).append("BOUNDARY_PUSHED_BACK", "player", player.getName().getString(),
                 "settling", settling, "rule", settling ? "pending" : "push_back");
-        player.sendMessage(Text.literal(settling
-                        ? "正在把你放回场地内…"
-                        : "已到场地边界，继续往外会被拉回。")
+        player.sendMessage(PvLang.t(settling
+                        ? "pvpocket.msg.boundary.pushing_back"
+                        : "pvpocket.msg.boundary.at_edge")
                 .formatted(Formatting.YELLOW), true);
     }
 
@@ -822,32 +826,32 @@ public final class SessionManager {
      */
     public void requestDuel(ServerPlayerEntity challenger, ServerPlayerEntity target, CombatMode mode) {
         if (challenger.getUuid().equals(target.getUuid())) {
-            fail(challenger, "不能向自己发起决斗。");
+            fail(challenger, "pvpocket.msg.duel.self");
             return;
         }
         if (sessionByPlayer.containsKey(challenger.getUuid())) {
-            fail(challenger, "你已经在决斗中。");
+            fail(challenger, "pvpocket.msg.duel.self_busy");
             return;
         }
         if (sessionByPlayer.containsKey(target.getUuid())) {
-            fail(challenger, target.getName().getString() + " 已在决斗中。");
+            fail(challenger, "pvpocket.msg.duel.target_busy", target.getName().getString());
             return;
         }
         if (findOpenSession(target.getUuid()) != null) {
-            fail(challenger, target.getName().getString() + " 有待处理的邀请。");
+            fail(challenger, "pvpocket.msg.duel.target_pending", target.getName().getString());
             return;
         }
         if (findOpenSession(challenger.getUuid()) != null) {
-            fail(challenger, "你还有一个未完成的规则提案，先处理它。");
+            fail(challenger, "pvpocket.msg.duel.own_pending");
             return;
         }
         if (challenger.interactionManager.getGameMode() == GameMode.SPECTATOR
                 || target.interactionManager.getGameMode() == GameMode.SPECTATOR) {
-            fail(challenger, "旁观模式无法参与决斗。");
+            fail(challenger, "pvpocket.msg.duel.spectator");
             return;
         }
         if (!ArenaManager.isReady(server)) {
-            fail(challenger, "决斗维度未加载，无法发起。");
+            fail(challenger, "pvpocket.msg.duel.arena_not_ready");
             return;
         }
 
@@ -886,13 +890,14 @@ public final class SessionManager {
         journal(session).append("RULES_DRAFTED", "revision", 0, "digest", session.rulesDigest);
         persist(session);
 
-        challenger.sendMessage(Text.literal("已打开规则面板。设置完成后点击「发送征询」提交给 "
-                + target.getName().getString() + "。").formatted(Formatting.GRAY), false);
+        challenger.sendMessage(PvLang.t("pvpocket.msg.duel.panel_opened", target.getName().getString())
+                .formatted(Formatting.GRAY), false);
         openPanel(challenger, session, RulesOpenPayload.ROLE_PROPOSER);
     }
 
     /** Sends (or re-sends) the panel to a player. Used by the packet path and by /pvpocket review. */
     private void openPanel(ServerPlayerEntity player, DuelSession session, int role) {
+        int agreed = agreedLoadouts(session);
         PvPocketNetworking.openRules(player, new RulesOpenPayload(
                 session.id,
                 session.rules,
@@ -900,36 +905,49 @@ public final class SessionManager {
                 session.rulesRevision,
                 new RulesOpenPayload.Details(
                         otherName(session, player.getUuidAsString()),
-                        loadoutSummary(session),
+                        loadoutCounts(session),
+                        agreed,
+                        session.participants.size(),
                         // Recomputed on every open, not cached: a map frees up the moment the other
-                        // duel ends, and a stale "使用中" is a map nobody can pick until they
+                        // duel ends, and a stale "in use" is a map nobody can pick until they
                         // reopen the panel.
                         ArenaManager.busyMapMask(session.id))));
     }
 
     /**
-     * "Dev1 8 / Dev2 9 · 同意 1/2", for the panel header.
+     * {@code Dev1:8,Dev2:9} — the item count each participant is bringing.
      *
-     * <p>Every participant's item count is shown, not just the reader's: the loadout is part of what
-     * is being agreed to, so "what am I agreeing to" has to include what the other side is bringing.
-     * The agreement counter is what turns a silent veto into a visible one — a player who changed
-     * their loadout and broke everyone else's consent can see the count drop back to 0/2.</p>
+     * <p>Every participant's count is shown, not just the reader's: the loadout is part of what is
+     * being agreed to, so "what am I agreeing to" has to include what the other side is bringing.
+     * The panel pairs this with the agreement counter, which is what turns a silent veto into a
+     * visible one — a player who changed their loadout and broke everyone else's consent can see the
+     * count drop back to 0/2.</p>
+     *
+     * <p>Encoded rather than formatted because the reader's language is not known here. Player names
+     * cannot contain {@code :} or {@code ,}, so the format is unambiguous without escaping.</p>
      */
-    private static String loadoutSummary(DuelSession session) {
+    private static String loadoutCounts(DuelSession session) {
+        StringBuilder sb = new StringBuilder();
+        for (Participant p : session.participants) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(p.name).append(':')
+                    .append(p.loadout == null ? 0 : Loadout.decode(p.loadout).size());
+        }
+        return sb.toString();
+    }
+
+    /** How many participants have agreed to the loadout set as it stands right now. */
+    private static int agreedLoadouts(DuelSession session) {
         String combined = combinedLoadoutDigest(session);
-        StringBuilder sb = new StringBuilder("配装 ");
         int agreed = 0;
         for (Participant p : session.participants) {
-            if (sb.length() > 3) {
-                sb.append(" · ");
-            }
-            sb.append(p.name).append(' ')
-                    .append(p.loadout == null ? "-" : String.valueOf(Loadout.decode(p.loadout).size()));
             if (combined.equals(p.agreedLoadoutDigest)) {
                 agreed++;
             }
         }
-        return sb.append(" · 同意 ").append(agreed).append('/').append(session.participants.size()).toString();
+        return agreed;
     }
 
     /**
@@ -1009,7 +1027,7 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
-                player.sendMessage(Text.literal(name + " 改了配装，规则需要重新征询。")
+                player.sendMessage(PvLang.t("pvpocket.msg.rules.loadout_changed", name)
                         .formatted(Formatting.GOLD), false);
             }
         }
@@ -1019,7 +1037,7 @@ public final class SessionManager {
     public void review(ServerPlayerEntity player) {
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
-            fail(player, "当前没有待处理的规则提案。");
+            fail(player, "pvpocket.msg.rules.none_pending");
             return;
         }
         int role = player.getUuidAsString().equals(session.awaitingUuid)
@@ -1028,8 +1046,9 @@ public final class SessionManager {
                     : RulesOpenPayload.ROLE_REVIEWER)
                 : RulesOpenPayload.ROLE_REVIEWER;
         openPanel(player, session, role);
-        player.sendMessage(Text.literal("规则版本 v" + session.rulesRevision
-                + "（" + shortDigest(session) + "）").formatted(Formatting.DARK_GRAY), false);
+        player.sendMessage(PvLang.t("pvpocket.msg.rules.version",
+                        session.rulesRevision, shortDigest(session))
+                .formatted(Formatting.DARK_GRAY), false);
     }
 
     /**
@@ -1043,7 +1062,7 @@ public final class SessionManager {
         String uuid = player.getUuidAsString();
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
-            fail(player, "当前没有待处理的规则提案。");
+            fail(player, "pvpocket.msg.rules.none_pending");
             return;
         }
 
@@ -1060,7 +1079,7 @@ public final class SessionManager {
 
         if (action == RulesSubmitPayload.ACTION_REJECT) {
             if (!uuid.equals(session.awaitingUuid)) {
-                fail(player, "现在轮到对方决定。");
+                fail(player, "pvpocket.msg.rules.not_your_turn");
                 return;
             }
             journal(session).append("SESSION_DENIED", "player", player.getName().getString(),
@@ -1071,15 +1090,17 @@ public final class SessionManager {
             closePanels(session);
             ServerPlayerEntity other = online(otherParticipant(session, uuid));
             if (other != null) {
-                other.sendMessage(Text.literal("对方拒绝了决斗。").formatted(Formatting.GRAY), false);
+                other.sendMessage(PvLang.t("pvpocket.msg.rules.rejected")
+                        .formatted(Formatting.GRAY), false);
             }
-            player.sendMessage(Text.literal("已拒绝决斗。").formatted(Formatting.GRAY), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
+                    .formatted(Formatting.GRAY), false);
             return;
         }
 
         if (action == RulesSubmitPayload.ACTION_PROPOSE) {
             if (!uuid.equals(session.awaitingUuid)) {
-                fail(player, "现在轮到对方决定。");
+                fail(player, "pvpocket.msg.rules.not_your_turn");
                 return;
             }
             DuelRules proposed = DuelRules.decode(encoded);
@@ -1109,14 +1130,16 @@ public final class SessionManager {
             }
             transition(session, SessionStage.NEGOTIATING);
 
-            player.sendMessage(Text.literal("规则 v" + session.rulesRevision + " 已发送给 "
-                    + other.name + "，等待对方同意。").formatted(Formatting.GRAY), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.rules.sent",
+                            session.rulesRevision, other.name)
+                    .formatted(Formatting.GRAY), false);
             ServerPlayerEntity target = online(other);
             if (target != null) {
-                target.sendMessage(Text.literal(player.getName().getString() + " 向你发起决斗（v"
-                                + session.rulesRevision + "）：" + proposed.summary())
+                target.sendMessage(PvLang.t("pvpocket.msg.rules.incoming",
+                                player.getName().getString(), session.rulesRevision,
+                                proposed.summaryText())
                         .formatted(Formatting.GOLD), false);
-                target.sendMessage(Text.literal("规则面板已打开，点「同意并开始」即可；想改条件就用「修改后征询」。")
+                target.sendMessage(PvLang.t("pvpocket.msg.rules.panel_hint")
                         .formatted(Formatting.DARK_GRAY), false);
                 openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
             }
@@ -1125,11 +1148,11 @@ public final class SessionManager {
 
         if (action == RulesSubmitPayload.ACTION_ACCEPT) {
             if (session.stage != SessionStage.NEGOTIATING) {
-                fail(player, "还没有可接受的规则提案。");
+                fail(player, "pvpocket.msg.rules.nothing_to_accept");
                 return;
             }
             if (!uuid.equals(session.awaitingUuid)) {
-                fail(player, "现在轮到对方决定。");
+                fail(player, "pvpocket.msg.rules.not_your_turn");
                 return;
             }
             // Accepting is agreeing to the rules *and* to everybody's loadout as they stand. The
@@ -1144,14 +1167,9 @@ public final class SessionManager {
                 persist(session);
             }
             if (!allLoadoutsAgreed(session)) {
-                int agreed = 0;
-                for (Participant p : session.participants) {
-                    if (combinedLoadoutDigest(session).equals(p.agreedLoadoutDigest)) {
-                        agreed++;
-                    }
-                }
-                fail(player, "还有 " + (session.participants.size() - agreed)
-                        + " 人没同意当前配装，暂不能开始。");
+                int agreed = agreedLoadouts(session);
+                fail(player, "pvpocket.msg.rules.loadout_pending",
+                        session.participants.size() - agreed);
                 openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
                 return;
             }
@@ -1162,21 +1180,21 @@ public final class SessionManager {
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
     private void startAccepted(DuelSession session, ServerPlayerEntity accepter) {
         if (!ArenaManager.isReady(server)) {
-            fail(accepter, "决斗维度未加载。");
+            fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
         }
         // A reset re-stamps one map per tick. Leasing a cell mid-rebuild would race the stamp: the
         // warm-up skips cells that are leased, so the duel would work, but it would do so on a
         // gallery that is still half-empty and against a lease taken before the map was re-pasted.
         if (ArenaManager.warmUpPending()) {
-            fail(accepter, "场地正在重建，请等这一次完成再开始。");
+            fail(accepter, "pvpocket.msg.rules.arena_rebuilding");
             return;
         }
         // Checked again here rather than trusting the caller: accepting agrees to the rules and to
         // everyone's loadout, but "everyone agreed" is not a property of the caller — the other side
         // may have edited their loadout between the proposal and this click.
         if (!allLoadoutsAgreed(session)) {
-            fail(accepter, "配装还没有全员同意，暂不能开始。");
+            fail(accepter, "pvpocket.msg.rules.loadout_not_all_agreed");
             return;
         }
         // The lease is taken before anything is frozen. A full grid must fail while the session is
@@ -1190,8 +1208,8 @@ public final class SessionManager {
         // cosmetic problem: they would be two copies of the same terrain, and a player told "the
         // colosseum" has no way to know which one they were sent to.
         if (ArenaManager.isMapBusy(mapIndex, session.id)) {
-            fail(accepter, "「" + ArenaMaps.byIndex(mapIndex).label
-                    + "」正在被另一场决斗使用，请换一张地图后再开始。");
+            fail(accepter, "pvpocket.msg.rules.map_busy",
+                    ArenaMaps.byIndex(mapIndex).labelText());
             return;
         }
         ArenaRegion region = ArenaManager.allocate(server, session.id,
@@ -1199,7 +1217,7 @@ public final class SessionManager {
                 ArenaMaps.byIndex(mapIndex),
                 rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
         if (region == null) {
-            fail(accepter, "场地已满，暂时无法开始新的决斗。");
+            fail(accepter, "pvpocket.msg.rules.arena_full");
             return;
         }
         session.arenaId = region.id;
@@ -1240,24 +1258,24 @@ public final class SessionManager {
     public void surrender(ServerPlayerEntity player) {
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
-            fail(player, "你不在决斗中。");
+            fail(player, "pvpocket.msg.duel.not_in");
             return;
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null
                 || (session.stage != SessionStage.ROUND_ACTIVE && session.stage != SessionStage.ROUND_READY)) {
-            fail(player, "当前没有进行中的决斗。");
+            fail(player, "pvpocket.msg.duel.no_active");
             return;
         }
         if (session.pendingWinner != null) {
             // The round is already decided and waiting for the loser to respawn. Settling again here
             // would award a second round for the same death — and, worse, could hand the round to
             // the player who just died.
-            fail(player, "这一局已经分出胜负，等待结算。");
+            fail(player, "pvpocket.msg.duel.round_settled");
             return;
         }
         if (!DuelRules.decode(session.rules).flag("g.allowSurrender")) {
-            fail(player, "本次决斗不允许投降。");
+            fail(player, "pvpocket.msg.duel.surrender_disabled");
             return;
         }
         Participant opponent = session.opponentOf(player.getUuidAsString());
@@ -1290,7 +1308,8 @@ public final class SessionManager {
         }
         roundReadyAt.remove(session.id);
         session.seriesEndReason = "SURRENDER";
-        player.sendMessage(Text.literal("你认输了，整场决斗结束。").formatted(Formatting.RED), false);
+        player.sendMessage(PvLang.t("pvpocket.msg.duel.surrendered")
+                .formatted(Formatting.RED), false);
         finishSeries(session, winner);
     }
 
@@ -1333,9 +1352,16 @@ public final class SessionManager {
         return null;
     }
 
+    /**
+     * The other side's name, or an empty string when there is nobody else.
+     *
+     * <p>Empty rather than a word: the callers are a payload and two panel subtitles, and the word
+     * for "opponent" is language-specific. The client substitutes its own term when the field is
+     * blank, which is the only place the reader's language is known.</p>
+     */
     private static String otherName(DuelSession session, String uuid) {
         Participant other = otherParticipant(session, uuid);
-        return other == null ? "对手" : other.name;
+        return other == null ? "" : other.name;
     }
 
     private static String shortDigest(DuelSession session) {
@@ -1352,8 +1378,9 @@ public final class SessionManager {
         }
     }
 
-    private static String modeLabel(CombatMode mode) {
-        return mode == CombatMode.LEGACY_1_8 ? "1.8 战斗" : "现代战斗";
+    private static MutableText modeLabel(CombatMode mode) {
+        return PvLang.t(mode == CombatMode.LEGACY_1_8
+                ? "pvpocket.mode.legacy" : "pvpocket.mode.modern");
     }
 
     /**
@@ -1415,21 +1442,21 @@ public final class SessionManager {
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage.isTerminal()) {
-            fail(player, "这场决斗已经结束。");
+            fail(player, "pvpocket.msg.loadout.ended");
             return;
         }
         if (!session.isParticipant(player.getUuidAsString())) {
-            fail(player, "你不在这场决斗里。");
+            fail(player, "pvpocket.msg.loadout.not_participant");
             return;
         }
         if (!session.stage.isPreFreeze()) {
-            fail(player, "决斗已经开始，配装不能再改。");
+            fail(player, "pvpocket.msg.loadout.frozen");
             return;
         }
         Loadout loadout = Loadout.decode(encoded);
-        List<String> problems = loadout.validate();
+        List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
-            fail(player, "配装未保存：" + problems.get(0));
+            fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
         }
         Participant p = session.participant(player.getUuidAsString());
@@ -1446,22 +1473,23 @@ public final class SessionManager {
                 "summary", loadout.name);
         persist(session);
         noteLoadoutChanged(session, p, before);
-        player.sendMessage(Text.literal("配装已保存（" + loadout.size() + " 项 · "
-                + p.loadoutDigest + "）。").formatted(Formatting.GREEN), false);
+        player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved",
+                        loadout.size(), p.loadoutDigest)
+                .formatted(Formatting.GREEN), false);
     }
 
     /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
     private void submitPersonal(ServerPlayerEntity player, String encoded) {
         Loadout loadout = Loadout.decode(encoded);
-        List<String> problems = loadout.validate();
+        List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
-            fail(player, "配装未保存：" + problems.get(0));
+            fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
         }
         loadout.autoAssignSlots();
         loadouts.put(player.getUuid(), loadout);
 
-        String mirrored = "仅保存为个人配装";
+        MutableText mirrored = PvLang.t("pvpocket.msg.loadout.personal_only");
         DuelSession session = findOpenSession(player.getUuid());
         if (session != null && session.stage.isPreFreeze()) {
             Participant p = session.participant(player.getUuidAsString());
@@ -1477,11 +1505,12 @@ public final class SessionManager {
                         "scope", "personal");
                 persist(session);
                 noteLoadoutChanged(session, p, before);
-                mirrored = "已同步到当前决斗";
+                mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
         }
-        player.sendMessage(Text.literal("配装已保存（" + loadout.size() + " 项 · "
-                + loadout.digest() + "，" + mirrored + "）。").formatted(Formatting.GREEN), false);
+        player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_personal",
+                        loadout.size(), loadout.digest(), mirrored)
+                .formatted(Formatting.GREEN), false);
     }
 
     /**
@@ -1496,7 +1525,7 @@ public final class SessionManager {
         loadouts.clear(player.getUuid());
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null || !session.stage.isPreFreeze()) {
-            player.sendMessage(Text.literal("个人配装已清空，下次发起决斗将使用默认预设。")
+            player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal")
                     .formatted(Formatting.GREEN), false);
             return;
         }
@@ -1511,7 +1540,8 @@ public final class SessionManager {
         journal(session).append("LOADOUT_RESET", "player", p.name, "digest", p.loadoutDigest);
         persist(session);
         noteLoadoutChanged(session, p, before);
-        player.sendMessage(Text.literal("个人配装已清空并回到默认预设（" + fallback.size() + " 项）。")
+        player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal_preset",
+                        fallback.size())
                 .formatted(Formatting.GREEN), false);
     }
 
@@ -1544,7 +1574,8 @@ public final class SessionManager {
     public void status(ServerPlayerEntity player) {
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
-            player.sendMessage(Text.literal("你不在决斗中。").formatted(Formatting.GRAY), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.duel.not_in")
+                    .formatted(Formatting.GRAY), false);
             return;
         }
         DuelSession session = sessions.get(sessionId);
@@ -1553,14 +1584,16 @@ public final class SessionManager {
         }
         Participant me = session.participant(player.getUuidAsString());
         Participant opponent = session.opponentOf(player.getUuidAsString());
-        player.sendMessage(Text.literal("会话 " + shortId(session.id)
-                + " | 阶段 " + session.stage
-                + " | 回合 " + session.round + "/" + session.bestOf
-                + " | 比分 " + scoreLine(session)
-                + (opponent == null ? "" : " | 对手 " + opponent.name))
+        player.sendMessage(PvLang.t("pvpocket.msg.status.line",
+                        shortId(session.id),
+                        PvLang.t(session.stage.labelKey()),
+                        session.round, session.bestOf,
+                        scoreLine(session),
+                        opponent == null ? PvLang.t("pvpocket.value.none") : opponent.name)
                 .formatted(Formatting.AQUA), false);
-        player.sendMessage(Text.literal("规则 v" + session.rulesRevision + "（" + shortDigest(session)
-                        + "）：" + DuelRules.decode(session.rules).summary())
+        player.sendMessage(PvLang.t("pvpocket.msg.status.rules",
+                        session.rulesRevision, shortDigest(session),
+                        DuelRules.decode(session.rules).summaryText())
                 .formatted(Formatting.DARK_GRAY), false);
         if (me != null) {
             PvPocket.LOGGER.debug("Status requested by {}", me.name);
@@ -1583,7 +1616,8 @@ public final class SessionManager {
             case SpectateRequestPayload.ACTION_JOIN -> spectators.join(player, request.sessionId());
             case SpectateRequestPayload.ACTION_LEAVE -> {
                 if (!spectators.leave(player, "REQUEST", true)) {
-                    player.sendMessage(Text.literal("你当前不在观战中。").formatted(Formatting.GRAY), false);
+                    player.sendMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
+                            .formatted(Formatting.GRAY), false);
                 }
             }
             case SpectateRequestPayload.ACTION_CYCLE -> spectators.cycle(player);
@@ -1601,7 +1635,8 @@ public final class SessionManager {
     /** Command path for {@code /pvpocket spectate leave}. */
     public void stopSpectating(ServerPlayerEntity player) {
         if (!spectators.leave(player, "COMMAND", true)) {
-            player.sendMessage(Text.literal("你当前不在观战中。").formatted(Formatting.GRAY), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
+                    .formatted(Formatting.GRAY), false);
         }
     }
 
@@ -1615,7 +1650,7 @@ public final class SessionManager {
             }
         }
         if (match == null) {
-            player.sendMessage(Text.literal("找不到以 " + sessionPrefix + " 开头的对局。")
+            player.sendMessage(PvLang.t("pvpocket.msg.spectate.no_match", sessionPrefix)
                     .formatted(Formatting.RED), false);
             return;
         }
@@ -1735,7 +1770,7 @@ public final class SessionManager {
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
                 if (player != null) {
-                    player.sendMessage(Text.literal("回合准备：" + prepare + " 秒，倒计时结束开始交火。")
+                    player.sendMessage(PvLang.t("pvpocket.msg.round.prepare", prepare)
                             .formatted(Formatting.YELLOW), false);
                 }
             }
@@ -1796,11 +1831,18 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
-                player.sendMessage(Text.literal("第 " + session.round + " / " + session.bestOf + " 局开始（"
-                                + modeLabel(mode) + "，" + rules.summary() + "）。"
-                                + (session.bestOf > 1 ? "先赢 " + winsNeeded(session) + " 局者胜。" : "")
-                                + "输入 /pvpocket surrender 认输（输掉整场）。")
-                        .formatted(Formatting.GREEN), false);
+                // Three pieces rather than one sentence with optional halves: the "first to N" clause
+                // only exists for a series, and the surrender hint names a command that must stay
+                // untranslated, so it is appended as its own translatable with the command as a
+                // literal argument.
+                MutableText line = PvLang.t("pvpocket.msg.round.started",
+                        session.round, session.bestOf,
+                        modeLabel(mode), rules.summaryText());
+                if (session.bestOf > 1) {
+                    line.append(PvLang.t("pvpocket.msg.round.first_to_win", winsNeeded(session)));
+                }
+                line.append(PvLang.t("pvpocket.msg.round.surrender_hint"));
+                player.sendMessage(line.formatted(Formatting.GREEN), false);
             }
         }
     }
@@ -1837,7 +1879,7 @@ public final class SessionManager {
                 for (Participant p : session.participants) {
                     ServerPlayerEntity player = online(p);
                     if (player != null) {
-                        player.sendMessage(Text.literal("回合准备：" + second + " 秒")
+                        player.sendMessage(PvLang.t("pvpocket.msg.round.prepare_tick", second)
                                 .formatted(Formatting.YELLOW), false);
                     }
                 }
@@ -2052,31 +2094,36 @@ public final class SessionManager {
         roundReadyAt.put(session.id, System.currentTimeMillis() + seconds * 1000L);
         transition(session, SessionStage.ROUND_READY);
         broadcastHud(session, true);
-        String line = "第 " + session.round + " 局结束，比分 " + scoreLine(session)
-                + "。下一局 " + seconds + " 秒后开始。";
+        MutableText line = PvLang.t("pvpocket.msg.round.ended",
+                session.round, scoreLine(session), seconds);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
-                player.sendMessage(Text.literal(line).formatted(Formatting.GOLD), false);
+                player.sendMessage(line.formatted(Formatting.GOLD), false);
             }
         }
     }
 
     private void announceSeriesResult(DuelSession session, String winnerUuid) {
         Participant winner = session.participant(winnerUuid);
-        // Both 认输 and 掉线 can end a series with the winner trailing on rounds. Saying so in the
-        // same sentence is the difference between "the rules worked" and "the score is broken".
-        String because = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
-            case "SURRENDER" -> "对方认输，";
-            case "CUT" -> "对手掉线，";
-            default -> "";
+        // Both a surrender and a disconnect can end a series with the winner trailing on rounds.
+        // Saying so in the same sentence is the difference between "the rules worked" and "the score
+        // is broken".
+        String becauseKey = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
+            case "SURRENDER" -> "pvpocket.msg.series.because.surrender";
+            case "CUT" -> "pvpocket.msg.series.because.cut";
+            default -> null;
         };
-        String line = "决斗结束：" + (winner == null ? "无人获胜" : winner.name + " 获胜")
-                + "（" + because + "比分 " + scoreLine(session) + "）。";
+        MutableText because = becauseKey == null ? Text.empty() : PvLang.t(becauseKey);
+        MutableText result = winner == null
+                ? PvLang.t("pvpocket.msg.series.no_winner")
+                : PvLang.t("pvpocket.msg.series.winner", winner.name);
+        MutableText line = PvLang.t("pvpocket.msg.series.ended",
+                result, because, scoreLine(session));
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
-                player.sendMessage(Text.literal(line)
+                player.sendMessage(line.copy()
                         .formatted(p.uuid.equals(winnerUuid) ? Formatting.GREEN : Formatting.GRAY), false);
             }
         }
@@ -2344,7 +2391,8 @@ public final class SessionManager {
                         "detail", "state digest mismatch after restore");
                 PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}", p.name, session.id);
             }
-            player.sendMessage(Text.literal("决斗结束，生存状态已恢复。").formatted(Formatting.GREEN), false);
+            player.sendMessage(PvLang.t("pvpocket.msg.series.restored")
+                    .formatted(Formatting.GREEN), false);
             return true;
         } catch (Exception e) {
             PvPocket.LOGGER.error("Restore failed for {} in session {}", p.name, session.id, e);
@@ -2382,8 +2430,15 @@ public final class SessionManager {
         return server.getPlayerManager().getPlayer(UUID.fromString(p.uuid));
     }
 
-    private static void fail(ServerPlayerEntity player, String message) {
-        player.sendMessage(Text.literal(message).formatted(Formatting.RED), false);
+    /**
+     * Reports a refusal.
+     *
+     * <p>Takes a translation key and its arguments, not a sentence: the server decides <em>what</em>
+     * went wrong, never how it is spelled. The client resolves the key in its own language when it
+     * draws the chat line.</p>
+     */
+    private static void fail(ServerPlayerEntity player, String key, Object... args) {
+        player.sendMessage(PvLang.t(key, args).formatted(Formatting.RED), false);
     }
 
     private static String shortId(String id) {

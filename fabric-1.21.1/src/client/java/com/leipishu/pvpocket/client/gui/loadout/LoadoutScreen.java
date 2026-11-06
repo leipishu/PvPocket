@@ -13,6 +13,7 @@ import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
 import com.leipishu.pvpocket.client.gui.rule.RuleRow;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
@@ -60,7 +61,7 @@ public class LoadoutScreen extends PvScreen {
     private static final List<ItemKind.Page> PAGES = List.of(
             ItemKind.Page.WEAPON, ItemKind.Page.ARMOR,
             ItemKind.Page.CONSUMABLE, ItemKind.Page.BLOCK);
-    private static final List<String> PAGE_LABELS = PAGES.stream().map(p -> p.label).toList();
+    private static final List<String> PAGE_LABELS = PAGES.stream().map(ItemKind.Page::label).toList();
 
     private final LoadoutOpenPayload payload;
     private final RuleScreen parent;
@@ -78,13 +79,15 @@ public class LoadoutScreen extends PvScreen {
     private int footerTextRight;
 
     public LoadoutScreen(LoadoutOpenPayload payload, RuleScreen parent) {
-        super(Text.literal("配装"));
+        super(PvLang.t("pvpocket.gui.loadout.title"));
         this.payload = payload;
         this.parent = parent;
         this.loadout = Loadout.decode(payload.loadout());
         this.loadout.autoAssignSlots();
         this.baseline = this.loadout.copy();
-        this.note = isPersonal() ? "个人配装" : "选择分类后点 + 添加";
+        this.note = PvLang.str(isPersonal()
+                ? "pvpocket.gui.loadout.note.personal"
+                : "pvpocket.gui.loadout.note.hint");
     }
 
     /**
@@ -152,7 +155,7 @@ public class LoadoutScreen extends PvScreen {
             return;
         }
         listPane.clear();
-        listPane.add(sectionHeader("已添加"));
+        listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.added")));
 
         boolean any = false;
         for (int i = 0; i < loadout.entries.size(); i++) {
@@ -166,17 +169,17 @@ public class LoadoutScreen extends PvScreen {
                     iconOf(entry), selected == i,
                     () -> select(index),
                     () -> remove(index));
-            row.tooltip("点击编辑属性，右侧可移除");
+            row.tooltip(PvLang.str("pvpocket.gui.loadout.tooltip.row"));
             listPane.add(row);
         }
         if (!any) {
-            listPane.add(sectionHeader("空"));
+            listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.empty")));
         }
 
-        listPane.add(sectionHeader("可添加"));
+        listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.available")));
         for (ItemKind kind : ItemKind.of(page)) {
-            listPane.add(new LoadoutRow(LoadoutRow.Type.KIND, kind.label, null, iconOf(kind), false,
-                    () -> add(kind), null));
+            listPane.add(new LoadoutRow(LoadoutRow.Type.KIND, kind.label(), null, iconOf(kind),
+                    false, () -> add(kind), null));
         }
         listPane.layout();
         validateFocus();
@@ -194,13 +197,13 @@ public class LoadoutScreen extends PvScreen {
 
     private void add(ItemKind kind) {
         if (loadout.entries.size() >= LoadoutCatalog.MAX_ENTRIES) {
-            note = "已达上限 " + LoadoutCatalog.MAX_ENTRIES + " 项";
+            note = PvLang.str("pvpocket.gui.loadout.note.limit", LoadoutCatalog.MAX_ENTRIES);
             return;
         }
         LoadoutEntry entry = LoadoutEntry.of(kind);
         loadout.entries.add(entry);
         selected = loadout.entries.size() - 1;
-        note = "已添加「" + kind.label + "」";
+        note = PvLang.str("pvpocket.gui.loadout.note.added", kind.labelText());
         rebuildList();
         rebuildFields();
     }
@@ -215,7 +218,7 @@ public class LoadoutScreen extends PvScreen {
         } else if (selected > index) {
             selected--;
         }
-        note = "已移除";
+        note = PvLang.str("pvpocket.gui.loadout.note.removed");
         rebuildList();
         rebuildFields();
     }
@@ -277,12 +280,15 @@ public class LoadoutScreen extends PvScreen {
         int buttonY = panelY + panelH - FOOTER_H + 8;
         int right = panelX + panelW - 12;
 
-        PvButton save = new PvButton("保存配装", PvButton.Style.PRIMARY, this::submit)
+        PvButton save = new PvButton(PvLang.str("pvpocket.gui.loadout.button.save"),
+                PvButton.Style.PRIMARY, this::submit)
                 .size(80, PvTheme.BTN_H);
         right = place(save, right, buttonY);
-        right = place(new PvButton("恢复默认", PvButton.Style.NORMAL, this::resetToPreset)
+        right = place(new PvButton(PvLang.str("pvpocket.gui.loadout.button.reset"),
+                PvButton.Style.NORMAL, this::resetToPreset)
                 .size(78, PvTheme.BTN_H), right, buttonY);
-        right = place(new PvButton("返回", PvButton.Style.GHOST, this::back)
+        right = place(new PvButton(PvLang.str("pvpocket.gui.loadout.button.back"),
+                PvButton.Style.GHOST, this::back)
                 .size(52, PvTheme.BTN_H), right, buttonY);
         defaultButton = save;
         footerTextRight = right - 8;
@@ -301,10 +307,16 @@ public class LoadoutScreen extends PvScreen {
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
         TextRenderer tr = font();
 
-        PvDraw.title(ctx, tr, "配装", panelX + 16, panelY + 13, PvTheme.TEXT);
-        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, "配装") + 10;
+        String title = PvLang.str("pvpocket.gui.loadout.title");
+        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 13, PvTheme.TEXT);
+        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
 
-        String subtitle = isPersonal() ? "个人配装" : "与 " + payload.otherName() + " 的决斗";
+        String subtitle = isPersonal()
+                ? PvLang.str("pvpocket.gui.loadout.subtitle.personal")
+                : PvLang.str("pvpocket.gui.loadout.subtitle.duel",
+                        payload.otherName().isEmpty()
+                                ? PvLang.str("pvpocket.gui.rule.opponent")
+                                : payload.otherName());
 
         String digest = loadout.digest();
         int digestW = tr.getWidth(digest) + 12;
@@ -337,26 +349,29 @@ public class LoadoutScreen extends PvScreen {
         }
         int cx = fieldPane.x + fieldPane.width / 2;
         int cy = fieldPane.y + fieldPane.height / 2 - 12;
-        PvDraw.textCenter(ctx, tr, "未选中物品", cx, cy, PvTheme.TEXT_DIM);
-        PvDraw.textCenter(ctx, tr, "点左侧物品调整属性", cx, cy + 14, PvTheme.TEXT_MUTED);
+        PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.loadout.empty.title"), cx, cy,
+                PvTheme.TEXT_DIM);
+        PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.loadout.empty.hint"), cx, cy + 14,
+                PvTheme.TEXT_MUTED);
     }
 
     private void drawFooterText(DrawContext ctx, TextRenderer tr) {
         int y = panelY + panelH - FOOTER_H + 16;
         int maxW = footerTextRight - panelX - 16;
 
-        List<String> problems = loadout.validate();
+        List<Text> problems = loadout.validate();
         String text;
         int color;
         if (!problems.isEmpty()) {
             // Only the first problem fits, but silently hiding the rest would make the player fix one
             // row, press save, and be told about the next one — so the count is part of the message.
             text = problems.size() == 1
-                    ? problems.get(0)
-                    : problems.get(0) + " 等 " + problems.size() + " 项";
+                    ? problems.get(0).getString()
+                    : PvLang.str("pvpocket.gui.loadout.footer.more_problems",
+                            problems.get(0), problems.size());
             color = PvTheme.DANGER;
         } else if (isDirty()) {
-            text = note + " · 未保存";
+            text = PvLang.str("pvpocket.gui.loadout.footer.unsaved", note);
             color = PvTheme.ACCENT;
         } else {
             text = note;
@@ -373,12 +388,7 @@ public class LoadoutScreen extends PvScreen {
      * narrower window sizes.</p>
      */
     private String pageHint() {
-        return switch (page) {
-            case WEAPON -> "剑、斧、弓、弩、三叉戟";
-            case ARMOR -> "头盔、胸甲、护腿、靴子";
-            case CONSUMABLE -> "食物与喷溅药水";
-            case BLOCK -> "可放置方块与工具";
-        };
+        return PvLang.str("pvpocket.gui.loadout.page_hint." + page.name().toLowerCase(java.util.Locale.ROOT));
     }
 
     // ------------------------------------------------------------------ items
@@ -414,9 +424,9 @@ public class LoadoutScreen extends PvScreen {
     }
 
     private static String entryLabel(LoadoutEntry entry) {
-        StringBuilder sb = new StringBuilder(entry.kind.label);
+        StringBuilder sb = new StringBuilder(entry.kind.label());
         if (entry.kind.materialised) {
-            sb.append('·').append(entry.material.label);
+            sb.append('·').append(entry.material.label());
         }
         if (!entry.variant.isEmpty()) {
             sb.append(' ').append(LoadoutCatalog.labelOf(entry.variant));
@@ -448,15 +458,15 @@ public class LoadoutScreen extends PvScreen {
         loadout.entries.addAll(preset.entries);
         loadout.name = preset.name;
         selected = -1;
-        note = "已恢复默认";
+        note = PvLang.str("pvpocket.gui.loadout.note.reset");
         rebuildList();
         rebuildFields();
     }
 
     private void submit() {
-        List<String> problems = loadout.validate();
+        List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
-            note = problems.get(0);
+            note = problems.get(0).getString();
             return;
         }
         loadout.autoAssignSlots();

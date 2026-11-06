@@ -1,10 +1,12 @@
 package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.block.Block;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.structure.StructurePlacementData;
 import net.minecraft.structure.StructureTemplate;
+import net.minecraft.text.MutableText;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3i;
@@ -31,11 +33,17 @@ public final class ArenaMap {
      * <p>Not a template, because its size comes from the rules rather than from a file. It is the
      * one arena that has to build its own ground — see {@code ArenaManager#buildPlatform}.</p>
      */
-    public static final ArenaMap FLAT = new ArenaMap("flat", "平坦", null, 0, 0, 0);
+    public static final ArenaMap FLAT = new ArenaMap("flat", null, 0, 0, 0);
 
     public final String id;
-    /** Shown in the rule panel's cycle control, so it has to stay short. */
-    public final String label;
+    /**
+     * Translation key naming the map, {@code pvpocket.map.<id>}.
+     *
+     * <p>Shown in the rule panel's cycle control, so the words have to stay short. The key is derived
+     * from {@link #id} rather than stored as text because the id is what the rule set persists and
+     * what the leased region reports — one identifier, one name.</p>
+     */
+    public final String labelKey;
     public final Identifier templateId;
     public final int sizeX;
     public final int sizeY;
@@ -74,19 +82,19 @@ public final class ArenaMap {
     public final int pitInsetX;
     public final int pitInsetZ;
 
-    public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ) {
-        this(id, label, templateId, sizeX, sizeY, sizeZ, false, 0, 0);
+    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ) {
+        this(id, templateId, sizeX, sizeY, sizeZ, false, 0, 0);
     }
 
-    public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ,
                     boolean alongZ) {
-        this(id, label, templateId, sizeX, sizeY, sizeZ, alongZ, 0, 0);
+        this(id, templateId, sizeX, sizeY, sizeZ, alongZ, 0, 0);
     }
 
-    public ArenaMap(String id, String label, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ,
                     boolean alongZ, int pitInsetX, int pitInsetZ) {
         this.id = id;
-        this.label = label;
+        this.labelKey = "pvpocket.map." + id;
         this.templateId = templateId;
         this.sizeX = sizeX;
         this.sizeY = sizeY;
@@ -96,6 +104,15 @@ public final class ArenaMap {
         // on each axis, which is the same floor the rule panel puts on a flat plot's size.
         this.pitInsetX = Math.max(0, Math.min(pitInsetX, (sizeX - 8) / 2));
         this.pitInsetZ = Math.max(0, Math.min(pitInsetZ, (sizeZ - 8) / 2));
+    }
+
+    public MutableText labelText() {
+        return PvLang.t(labelKey);
+    }
+
+    /** Display name for the self-drawn GUI and for chat lines composed as strings. */
+    public String label() {
+        return PvLang.str(labelKey);
     }
 
     /** True when the fight area is smaller than the plot box, i.e. the boundary is not the wall. */

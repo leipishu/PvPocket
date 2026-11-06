@@ -13,6 +13,7 @@ import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
+import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.LoadoutRequestPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
@@ -60,7 +61,7 @@ public class RuleScreen extends PvScreen {
     private boolean submitted;
 
     public RuleScreen(RulesOpenPayload payload) {
-        super(Text.literal("决斗规则"));
+        super(PvLang.t("pvpocket.gui.rule.title"));
         this.payload = payload;
         this.incoming = DuelRules.decode(payload.rules());
         this.edited = incoming.copy();
@@ -174,18 +175,23 @@ public class RuleScreen extends PvScreen {
 
         PvButton primary;
         if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
-            primary = new PvButton("发送征询", PvButton.Style.PRIMARY,
+            primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
+                    PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(80, PvTheme.BTN_H);
             right = place(primary, right, buttonY);
-            right = place(new PvButton("取消", PvButton.Style.DANGER,
+            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
+                    PvButton.Style.DANGER,
                     this::close).size(56, PvTheme.BTN_H), right, buttonY);
         } else {
-            primary = new PvButton("同意并开始", PvButton.Style.PRIMARY,
+            primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
+                    PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_ACCEPT)).size(92, PvTheme.BTN_H);
             right = place(primary, right, buttonY);
-            right = place(new PvButton("修改后征询", PvButton.Style.NORMAL,
+            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.repropose"),
+                    PvButton.Style.NORMAL,
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(88, PvTheme.BTN_H), right, buttonY);
-            right = place(new PvButton("拒绝", PvButton.Style.DANGER,
+            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.reject"),
+                    PvButton.Style.DANGER,
                     () -> submit(RulesSubmitPayload.ACTION_REJECT)).size(56, PvTheme.BTN_H), right, buttonY);
         }
         defaultButton = primary;
@@ -193,18 +199,20 @@ public class RuleScreen extends PvScreen {
         // Revert lives at the far end of the button row so it never sits where the confirm button
         // is expected, but is still available the moment anything has been touched.
         if (changeCount() > 0) {
-            PvButton revert = new PvButton("还原", PvButton.Style.GHOST, this::revert)
+            PvButton revert = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
+                    PvButton.Style.GHOST, this::revert)
                     .size(50, PvTheme.BTN_H);
             right = place(revert, right, buttonY);
         }
-        // The loadout editor sits leftmost, furthest from 发送征询. Configuring items and committing a
-        // rule set are two different decisions and should not be neighbours.
+        // The loadout editor sits leftmost, furthest from "send proposal". Configuring items and
+        // committing a rule set are two different decisions and should not be neighbours.
         //
-        // Labelled 编辑配装 rather than 配装 because the tab strip already has a 配装 tab (rule group
-        // D, which is about *rules* for what you bring). Two things called 配装 in one panel, one of
-        // which opens the editor and one of which shows a rule page, is a coin flip the player should
-        // not have to make.
-        right = place(new PvButton("编辑配装", PvButton.Style.NORMAL, this::openLoadout)
+        // Labelled "edit loadout" rather than "loadout" because the tab strip already has a loadout
+        // tab (rule group D, which is about *rules* for what you bring). Two things with the same
+        // name in one panel, one of which opens the editor and one of which shows a rule page, is a
+        // coin flip the player should not have to make.
+        right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
+                PvButton.Style.NORMAL, this::openLoadout)
                 .size(68, PvTheme.BTN_H), right, buttonY);
         footerTextRight = right - 8;
     }
@@ -230,12 +238,16 @@ public class RuleScreen extends PvScreen {
         TextRenderer tr = font();
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
-        PvDraw.title(ctx, tr, "决斗规则", panelX + 16, panelY + 13, PvTheme.TEXT);
+        String title = PvLang.str("pvpocket.gui.rule.title");
+        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 13, PvTheme.TEXT);
 
-        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, "决斗规则") + 10;
+        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
+        String other = payload.otherName().isEmpty()
+                ? PvLang.str("pvpocket.gui.rule.opponent")
+                : payload.otherName();
         String subtitle = reviewer
-                ? "来自 " + payload.otherName()
-                : "与 " + payload.otherName() + " 的决斗";
+                ? PvLang.str("pvpocket.gui.rule.subtitle.reviewer", other)
+                : PvLang.str("pvpocket.gui.rule.subtitle.proposer", other);
 
         // The revision is a chip rather than loose accent text: at 12px of amber, a bare "v0" read as
         // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
@@ -252,23 +264,26 @@ public class RuleScreen extends PvScreen {
 
         // The loadout summary sits on the hint line rather than the title: the title row is already
         // carrying the opponent's name and the revision, and this is the line the eye passes on the
-        // way to the tab strip. Seeing "配装 8 项 · 3f9c21" here is what makes the 编辑配装 button in
-        // the footer discoverable instead of merely present.
+        // way to the tab strip. Seeing "loadout 8 items · agreed 1/2" here is what makes the edit
+        // button in the footer discoverable instead of merely present.
+        //
+        // The summary is assembled here rather than sent pre-formatted: the server knows the counts
+        // and the agreement tally, but not the reader's language.
         //
         // The hint starts at pane.x, not at panelX + 12 — the tab strip sits between them. Budgeting
         // the hint against panelW instead of the pane's own width let the two strings overlap.
-        String loadout = payload.loadoutSummary();
+        String loadout = loadoutSummary();
         int hintRight = panelX + panelW - 12;
         int hintMax = hintRight - pane.x;
-        if (loadout != null && !loadout.isEmpty()) {
+        if (!loadout.isEmpty()) {
             int tagW = tr.getWidth(loadout);
             // The summary wins the space, because it is the only place the agreement counter appears
-            // and a negotiation where nobody can see "同意 1/2" is a negotiation nobody can act on.
+            // and a negotiation where nobody can see "agreed 1/2" is a negotiation nobody can act on.
             // The hint gives way instead — but only down to a point; below it the summary drops to
             // its agreement half and the hint gets its space back.
             if (hintRight - tagW - 12 - pane.x < MIN_HINT_W) {
-                int tail = loadout.lastIndexOf('·');
-                loadout = tail < 0 ? loadout : "配装 ·" + loadout.substring(tail + 1);
+                loadout = PvLang.str("pvpocket.gui.rule.loadout_agreed",
+                        payload.agreed(), payload.total());
                 tagW = tr.getWidth(loadout);
             }
             PvDraw.textRight(ctx, tr, loadout, hintRight, panelY + 40, PvTheme.TEXT_DIM);
@@ -286,32 +301,52 @@ public class RuleScreen extends PvScreen {
         int maxW = footerTextRight - panelX - 16;
         int changes = changeCount();
 
-        String left = reviewer ? "同意即按当前规则开始" : "设置完成后发送给对方";
+        String left = reviewer
+                ? PvLang.str("pvpocket.gui.rule.footer.reviewer")
+                : PvLang.str("pvpocket.gui.rule.footer.proposer");
         int color = PvTheme.TEXT_MUTED;
         if (changes > 0) {
-            left = "已改 " + changes + " 项";
+            left = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
             color = PvTheme.ACCENT;
         }
         PvDraw.text(ctx, tr, PvDraw.fit(tr, left, Math.max(0, maxW)), panelX + 16, y, color);
     }
 
     /**
+     * The loadout tag, built from the numbers the server sent.
+     *
+     * <p>{@code Dev1 8 · Dev2 9 · agreed 1/2}, with the participant list encoded as
+     * {@code name:count} pairs. Assembled on the client so the separator and the words match the
+     * reader's language, and so the panel does not have to parse a sentence it did not write.</p>
+     */
+    private String loadoutSummary() {
+        StringBuilder counts = new StringBuilder();
+        for (String pair : payload.loadoutCounts().split(",")) {
+            int colon = pair.indexOf(':');
+            if (colon <= 0) {
+                continue;
+            }
+            if (counts.length() > 0) {
+                counts.append(" · ");
+            }
+            counts.append(pair, 0, colon).append(' ').append(pair.substring(colon + 1));
+        }
+        if (counts.length() == 0) {
+            return "";
+        }
+        return PvLang.str("pvpocket.gui.rule.loadout_summary",
+                counts.toString(), payload.agreed(), payload.total());
+    }
+
+    /**
      * One short line per group, shown under the title so the tabs do not need to explain themselves.
      *
-     * <p>Kept under twelve characters. The line shares its row with the loadout tag, and a hint that
-     * needs truncation has stopped being a hint — the tab label already names the group, so this only
-     * has to say what is <em>inside</em> it.</p>
+     * <p>Kept short. The line shares its row with the loadout tag, and a hint that needs truncation
+     * has stopped being a hint — the tab label already names the group, so this only has to say what
+     * is <em>inside</em> it.</p>
      */
     private static String groupHint(RuleGroup group) {
-        return switch (group) {
-            case A -> "局数、胜负与时间";
-            case B -> "人数、队伍与误伤";
-            case C -> "战斗模式与生存参数";
-            case D -> "进场物品与拾取";
-            case E -> "场地、边界与环境伤害";
-            case F -> "放置、破坏与爆炸";
-            case G -> "珍珠、投降与显示";
-        };
+        return PvLang.str(group.hintKey);
     }
 
     // ------------------------------------------------------------------ actions

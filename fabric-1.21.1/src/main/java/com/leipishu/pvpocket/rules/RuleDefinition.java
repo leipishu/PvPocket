@@ -1,27 +1,43 @@
 package com.leipishu.pvpocket.rules;
 
+import com.leipishu.pvpocket.i18n.PvLang;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
+
 /**
  * One configurable rule.
  *
  * <p>Immutable and shared by both sides: the catalog is compiled into the jar, so the server sends
  * only values and the client always knows how to render them. A rule that exists on the server but
  * not on the client is preserved as an opaque value by {@link DuelRules} rather than dropped.</p>
+ *
+ * <p><b>Text is not stored here.</b> Every human-readable string is a translation key derived from
+ * {@link #id}: {@code pvpocket.rule.<id>.label}, {@code .hint}, {@code .c<N>} for the Nth choice and
+ * {@code .unit} for the suffix a numeric value carries. The id is already the wire format and is
+ * stable by construction, so deriving the key from it means a rule cannot be renamed in one place
+ * and forgotten in the other — the panel would show a missing key immediately.</p>
  */
 public final class RuleDefinition {
 
     public final String id;
     public final RuleGroup group;
-    public final String label;
-    public final String hint;
+    /** {@code pvpocket.rule.<id>.label}. */
+    public final String labelKey;
+    /** {@code pvpocket.rule.<id>.hint}. */
+    public final String hintKey;
     public final RuleKind kind;
 
     public final int min;
     public final int max;
     public final int step;
-    public final String[] choices;
+    /** Translation key per choice; null for kinds that have none. */
+    public final String[] choiceKeys;
     public final int defaultValue;
-    /** Suffix appended to the rendered value, e.g. {@code 秒}. Empty when not needed. */
-    public final String unit;
+    /**
+     * Format template for the value's suffix, e.g. {@code "%s 秒"}. Null when the value stands
+     * alone — a percentage and a bare count have nothing to append.
+     */
+    public final String unitKey;
     /** Renders an INT rule as a percentage of {@code max} (knockback resistance). */
     public final boolean percent;
     /**
@@ -30,64 +46,143 @@ public final class RuleDefinition {
      */
     public final int divisor;
 
-    private RuleDefinition(String id, RuleGroup group, String label, String hint, RuleKind kind,
-                           int min, int max, int step, String[] choices, int defaultValue,
-                           String unit, boolean percent, int divisor) {
+    private RuleDefinition(String id, RuleGroup group, String labelKey, String hintKey,
+                           RuleKind kind, int min, int max, int step, String[] choiceKeys,
+                           int defaultValue, String unitKey, boolean percent, int divisor) {
         this.id = id;
         this.group = group;
-        this.label = label;
-        this.hint = hint;
+        this.labelKey = labelKey;
+        this.hintKey = hintKey;
         this.kind = kind;
         this.min = min;
         this.max = max;
         this.step = step;
-        this.choices = choices;
+        this.choiceKeys = choiceKeys;
         this.defaultValue = defaultValue;
-        this.unit = unit;
+        this.unitKey = unitKey;
         this.percent = percent;
         this.divisor = divisor;
     }
 
-    public static RuleDefinition toggle(String id, RuleGroup g, String label, String hint, boolean def) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.TOGGLE, 0, 1, 1, null, def ? 1 : 0, "", false, 1);
+    // ------------------------------------------------------------------ key layout
+
+    public static String labelKey(String id) {
+        return "pvpocket.rule." + id + ".label";
     }
 
-    public static RuleDefinition intRange(String id, RuleGroup g, String label, String hint,
-                                          int min, int max, int step, int def, String unit) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.INT, min, max, step, null, def, unit, false, 1);
+    public static String hintKey(String id) {
+        return "pvpocket.rule." + id + ".hint";
+    }
+
+    public static String unitKey(String id) {
+        return "pvpocket.rule." + id + ".unit";
+    }
+
+    /** Choice keys {@code .c0 .. .c<n-1>} for a rule whose choices are written out in order. */
+    public static String[] choices(String id, int count) {
+        String[] out = new String[count];
+        for (int i = 0; i < count; i++) {
+            out[i] = "pvpocket.rule." + id + ".c" + i;
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------ factories
+
+    public static RuleDefinition toggle(String id, RuleGroup g, boolean def) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.TOGGLE, 0, 1, 1, null,
+                def ? 1 : 0, null, false, 1);
+    }
+
+    /**
+     * A toggle whose name and tooltip belong to somebody else.
+     *
+     * <p>Used by the loadout editor for enchantments: the row's id is {@code lo.flag.infinity} so it
+     * cannot collide with a rule, but the words come from {@code pvpocket.flag.infinity} — the same
+     * key the diagnostic command prints. One enchantment, one name.</p>
+     */
+    public static RuleDefinition toggleNamed(String id, RuleGroup g, String labelKey, String hintKey,
+                                             boolean def) {
+        return new RuleDefinition(id, g, labelKey, hintKey, RuleKind.TOGGLE, 0, 1, 1, null,
+                def ? 1 : 0, null, false, 1);
+    }
+
+    public static RuleDefinition intRange(String id, RuleGroup g, int min, int max, int step, int def) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.INT, min, max, step, null,
+                def, unitKey(id), false, 1);
     }
 
     /**
      * An INT rule displayed with one decimal place.
      *
      * <p>Stored value is tenths; {@code min}, {@code max}, {@code step} and {@code def} are all in
-     * tenths too. Used only by the loadout editor, where "7.0 伤害" is a different weapon from
-     * "7.5 伤害" and rounding to whole points would make the field a lie.</p>
+     * tenths too. Used only by the loadout editor, where "7.0 damage" is a different weapon from
+     * "7.5 damage" and rounding to whole points would make the field a lie.</p>
      */
-    public static RuleDefinition decimal(String id, RuleGroup g, String label, String hint,
-                                         int min, int max, int step, int def, String unit) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.INT, min, max, step, null, def, unit, false, 10);
+    public static RuleDefinition decimal(String id, RuleGroup g, int min, int max, int step, int def) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.INT, min, max, step, null,
+                def, unitKey(id), false, 10);
     }
 
-    public static RuleDefinition percent(String id, RuleGroup g, String label, String hint, int def) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.INT, 0, 100, 5, null, def, "%", true, 1);
+    public static RuleDefinition percent(String id, RuleGroup g, int def) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.INT, 0, 100, 5, null,
+                def, null, true, 1);
     }
 
-    public static RuleDefinition enumOf(String id, RuleGroup g, String label, String hint,
-                                        int def, String... choices) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.ENUM, 0, choices.length - 1, 1,
-                choices, def, "", false, 1);
+    public static RuleDefinition enumOf(String id, RuleGroup g, int def, String... choiceKeys) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.ENUM, 0,
+                choiceKeys.length - 1, 1, choiceKeys, def, null, false, 1);
     }
 
-    public static RuleDefinition multi(String id, RuleGroup g, String label, String hint,
-                                       int def, String... choices) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.MULTI, 0, (1 << choices.length) - 1, 1,
-                choices, def, "", false, 1);
+    public static RuleDefinition multi(String id, RuleGroup g, int def, String... choiceKeys) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.MULTI, 0,
+                (1 << choiceKeys.length) - 1, 1, choiceKeys, def, null, false, 1);
     }
 
-    public static RuleDefinition fixed(String id, RuleGroup g, String label, String hint, String shown) {
-        return new RuleDefinition(id, g, label, hint, RuleKind.FIXED, 0, 0, 1, new String[]{shown}, 0, "", false, 1);
+    public static RuleDefinition fixed(String id, RuleGroup g, String shownKey) {
+        return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.FIXED, 0, 0, 1,
+                new String[]{shownKey}, 0, null, false, 1);
     }
+
+    // ------------------------------------------------------------------ text
+
+    public MutableText labelText() {
+        return PvLang.t(labelKey);
+    }
+
+    public MutableText hintText() {
+        return PvLang.t(hintKey);
+    }
+
+    /** Label for the self-drawn GUI, which measures strings rather than {@link Text}. */
+    public String label() {
+        return PvLang.str(labelKey);
+    }
+
+    /** Tooltip for the self-drawn GUI. */
+    public String hint() {
+        return PvLang.str(hintKey);
+    }
+
+    public int choiceCount() {
+        return choiceKeys == null ? 0 : choiceKeys.length;
+    }
+
+    /** The Nth choice as {@link Text}, for chat. Out-of-range values clamp to the first choice. */
+    public MutableText choiceText(int value) {
+        if (choiceCount() == 0) {
+            return Text.empty();
+        }
+        int i = Math.max(0, Math.min(choiceKeys.length - 1, value));
+        return PvLang.t(choiceKeys[i]);
+    }
+
+    /** The Nth choice as a string, for the self-drawn GUI. */
+    public String choiceLabel(int value) {
+        return PvLang.str(choiceText(value));
+    }
+
+    // ------------------------------------------------------------------ values
 
     /** Clamps a raw value into the range this definition accepts. */
     public int clamp(int value) {
@@ -123,47 +218,49 @@ public final class RuleDefinition {
         return clamp(value);
     }
 
-    public String choiceLabel(int value) {
-        if (choices == null || choices.length == 0) {
-            return "";
-        }
-        if (kind == RuleKind.ENUM) {
-            int i = Math.max(0, Math.min(choices.length - 1, value));
-            return choices[i];
-        }
-        return choices[0];
-    }
-
-    /** Human-readable value, used by the panel and by the proposal chat message. */
-    public String format(int value) {
+    /**
+     * Human-readable value, used by the panel and by every chat line that quotes a rule.
+     *
+     * <p>Returns {@link Text} rather than a string because the server is one of the callers: it has
+     * no language, so a value it formatted itself would arrive on a client speaking something else
+     * with the wrong words already baked in.</p>
+     */
+    public MutableText formatText(int value) {
         switch (kind) {
             case TOGGLE:
-                return value == 0 ? "关" : "开";
+                return PvLang.t(value == 0 ? "pvpocket.value.off" : "pvpocket.value.on");
             case ENUM:
-                return choiceLabel(value);
+                return choiceText(value);
             case MULTI: {
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < choices.length; i++) {
+                MutableText out = Text.empty();
+                boolean first = true;
+                for (int i = 0; i < choiceCount(); i++) {
                     if ((value & (1 << i)) != 0) {
-                        if (sb.length() > 0) {
-                            sb.append('·');
+                        if (!first) {
+                            out.append(Text.literal("·"));
                         }
-                        sb.append(choices[i]);
+                        out.append(PvLang.t(choiceKeys[i]));
+                        first = false;
                     }
                 }
-                return sb.length() == 0 ? "无" : sb.toString();
+                return first ? PvLang.t("pvpocket.value.none") : out;
             }
             case FIXED:
-                return choices[0];
+                return choiceText(0);
             default:
                 if (percent) {
-                    return value + "%";
+                    return Text.literal(value + "%");
                 }
-                if (divisor > 1) {
-                    return String.format("%.1f%s", value / (double) divisor, unit);
-                }
-                return value + unit;
+                String number = divisor > 1
+                        ? String.format("%.1f", value / (double) divisor)
+                        : Integer.toString(value);
+                return unitKey == null ? Text.literal(number) : PvLang.t(unitKey, number);
         }
+    }
+
+    /** The same value as a string, for the self-drawn GUI. */
+    public String format(int value) {
+        return PvLang.str(formatText(value));
     }
 
     public boolean defaultFlag() {
