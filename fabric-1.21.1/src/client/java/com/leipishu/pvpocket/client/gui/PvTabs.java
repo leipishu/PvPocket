@@ -10,13 +10,19 @@ import net.minecraft.sound.SoundEvents;
 import java.util.List;
 
 /**
- * Vertical tab strip for the rule groups.
+ * Vertical tab strip for the rule groups, drawn as a sidebar.
  *
  * <p>Vertical rather than horizontal because the labels are short and the panel is wider than it is
- * tall: a vertical strip costs 90px of width and saves 26px of the scarce axis, and it leaves room
+ * tall: a vertical strip costs 96px of width and saves 26px of the scarce axis, and it leaves room
  * for all seven groups without a scroll or an overflow menu.</p>
+ *
+ * <p>The strip owns its own surface — one step lighter than the panel, one step darker than a card.
+ * Before this it had no background at all, which made the tabs read as a list of links rather than
+ * as a place; the sidebar is what tells the eye that the panel has two regions.</p>
  */
 public class PvTabs extends PvWidget {
+
+    private static final int INSET = 5;
 
     private final List<String> labels;
     /** Right-aligned short badge per tab; null for strips that do not need one. */
@@ -26,6 +32,8 @@ public class PvTabs extends PvWidget {
     private int selected;
     private Runnable onChange;
     private int tabHeight = PvTheme.TAB_H;
+    private float indicatorY = -1F;
+    private float[] hotT = new float[0];
 
     public PvTabs(List<String> labels, int selected) {
         this(labels, null, null, selected);
@@ -49,8 +57,9 @@ public class PvTabs extends PvWidget {
         this.badges = badges;
         this.groups = groups;
         this.selected = selected;
-        this.width = 88;
-        this.height = labels.size() * PvTheme.TAB_H + (labels.size() - 1);
+        this.width = 96;
+        this.hotT = new float[labels.size()];
+        this.height = INSET * 2 + labels.size() * PvTheme.TAB_H + (labels.size() - 1);
     }
 
     /**
@@ -63,9 +72,9 @@ public class PvTabs extends PvWidget {
      */
     public void fitInto(int availableHeight) {
         int n = Math.max(1, labels.size());
-        int pitch = (availableHeight - (n - 1)) / n;
+        int pitch = (availableHeight - INSET * 2 - (n - 1)) / n;
         tabHeight = Math.max(13, Math.min(PvTheme.TAB_H, pitch));
-        height = labels.size() * tabHeight + (labels.size() - 1);
+        height = INSET * 2 + labels.size() * tabHeight + (labels.size() - 1);
     }
 
     public int tabHeight() {
@@ -94,15 +103,24 @@ public class PvTabs extends PvWidget {
         this.onChange = callback;
     }
 
+    private int tabLeft() {
+        return x + INSET;
+    }
+
+    private int tabWidth() {
+        return width - INSET * 2;
+    }
+
     private int tabY(int index) {
-        return y + index * (tabHeight + 1);
+        return y + INSET + index * (tabHeight + 1);
     }
 
     private int tabAt(double my) {
-        if (my < y || my >= y + height) {
+        int top = y + INSET;
+        if (my < top || my >= top + labels.size() * (tabHeight + 1)) {
             return -1;
         }
-        int index = (int) ((my - y) / (tabHeight + 1));
+        int index = (int) ((my - top) / (tabHeight + 1));
         return index >= 0 && index < labels.size() ? index : -1;
     }
 
@@ -111,31 +129,66 @@ public class PvTabs extends PvWidget {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickFocus(d);
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         int hoverIndex = hovered ? tabAt(mouseY) : -1;
 
+        PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.BORDER, PvTheme.SIDEBAR);
+
+        // The selection marker slides between tabs instead of jumping. It is the one animation in
+        // the panel that crosses widgets, and it is what makes a tab switch read as one movement
+        // rather than as two independent repaints.
+        float targetY = tabY(selected) + (tabHeight - 14) / 2F;
+        indicatorY = indicatorY < 0F
+                ? targetY
+                : PvAnim.damp(indicatorY, targetY, d, 0.055F);
+
         for (int i = 0; i < labels.size(); i++) {
+            if (i >= hotT.length) {
+                break;
+            }
+            hotT[i] = PvAnim.damp(hotT[i], i == hoverIndex ? 1F : 0F, d, 0.09F);
             int ty = tabY(i);
-            if (ty + tabHeight > y + height) {
+            if (ty + tabHeight > y + height - INSET + 1) {
                 break;
             }
             boolean active = i == selected;
-            boolean hot = i == hoverIndex;
-
             if (active) {
-                PvDraw.roundRect(ctx, x, ty, width, tabHeight, PvTheme.RADIUS, PvTheme.SURFACE_ACTIVE);
-                PvDraw.roundRect(ctx, x, ty + 3, 2, tabHeight - 6, 1, PvTheme.ACCENT);
-            } else if (hot) {
-                PvDraw.roundRect(ctx, x, ty, width, tabHeight, PvTheme.RADIUS, PvTheme.SURFACE_HOVER);
+                PvDraw.roundRect(ctx, tabLeft(), ty, tabWidth(), tabHeight, 3, PvTheme.CARD_ACTIVE);
+            } else if (hotT[i] > 0.01F) {
+                PvDraw.roundRect(ctx, tabLeft(), ty, tabWidth(), tabHeight, 3,
+                        PvTheme.alpha(PvTheme.CARD_HOVER, hotT[i]));
             }
 
             int textY = ty + (tabHeight - 8) / 2 + 1;
-            int textColor = active ? PvTheme.TEXT : (hot ? PvTheme.TEXT : PvTheme.TEXT_DIM);
-            PvDraw.text(ctx, tr, labels.get(i), x + 10, textY, textColor);
+            int textColor = active
+                    ? PvTheme.TEXT
+                    : PvTheme.mix(PvTheme.TEXT_DIM, PvTheme.TEXT, hotT[i]);
+            PvDraw.text(ctx, tr, labels.get(i), tabLeft() + 10, textY, textColor);
             if (badges != null) {
-                PvDraw.textRight(ctx, tr, badges.get(i), x + width - 8, textY,
+                PvDraw.textRight(ctx, tr, badges.get(i), tabLeft() + tabWidth() - 8, textY,
                         active ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
             }
+        }
+
+        PvDraw.roundRect(ctx, tabLeft(), Math.round(indicatorY), 2, 14, 1, PvTheme.ACCENT);
+        drawFocusRing(ctx, PvTheme.RADIUS);
+    }
+
+    /**
+     * Arrow keys walk the strip when it has focus.
+     *
+     * <p>Reached through the screen's existing nudge path rather than a private key handler, so the
+     * strip behaves like every other focusable control: Tab to it, arrows to change it.</p>
+     */
+    @Override
+    public void nudge(int direction) {
+        int next = Math.max(0, Math.min(labels.size() - 1, selected + direction));
+        if (next != selected) {
+            MinecraftClient.getInstance().getSoundManager()
+                    .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.1F));
+            select(next);
         }
     }
 

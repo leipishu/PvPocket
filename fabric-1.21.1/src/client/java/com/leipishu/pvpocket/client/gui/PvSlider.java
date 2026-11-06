@@ -12,20 +12,26 @@ import net.minecraft.util.math.MathHelper;
  * <p>The track maps the rule's own range onto pixels, so the step size is honoured exactly: dragging
  * can only ever produce values the rule accepts, and there is no separate validation step that can
  * disagree with the visual position.</p>
+ *
+ * <p>Two different behaviours share one knob. While dragging, the fill follows the cursor with no
+ * smoothing at all — a knob that lags the pointer feels broken. While stepping with the arrow keys,
+ * the fill eases into place, because the only feedback for a keyboard press is the motion itself.</p>
  */
 public class PvSlider extends PvValueControl {
 
-    private static final int READOUT = 38;
+    private static final int READOUT = 44;
     private static final int KNOB = 10;
+    private static final int TRACK_H = 4;
 
     private final RuleDefinition def;
     private boolean dragging;
+    private float display = -1F;
 
     public PvSlider(RuleDefinition def, int value) {
         this.def = def;
         this.value = def.clamp(value);
-        this.width = 132;
-        this.height = 18;
+        this.width = 140;
+        this.height = 20;
     }
 
     private int trackLeft() {
@@ -33,7 +39,7 @@ public class PvSlider extends PvValueControl {
     }
 
     private int trackWidth() {
-        return Math.max(1, width - READOUT - 4);
+        return Math.max(1, width - READOUT - 6);
     }
 
     private float ratio() {
@@ -46,31 +52,47 @@ public class PvSlider extends PvValueControl {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickHover(d);
+        tickFocus(d);
+
+        float target = ratio();
+        if (display < 0F || dragging) {
+            display = target;
+        } else {
+            display = PvAnim.damp(display, target, d, 0.05F);
+        }
+
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         int trackX = trackLeft();
         int trackW = trackWidth();
-        int trackY = y + height / 2 - 2;
+        int trackY = y + height / 2 - TRACK_H / 2;
 
-        PvDraw.roundRect(ctx, trackX, trackY, trackW, 4, 2, PvTheme.SURFACE_SUNKEN);
+        PvDraw.roundRect(ctx, trackX, trackY, trackW, TRACK_H, TRACK_H / 2, PvTheme.SUNKEN);
 
-        int filled = Math.round(trackW * ratio());
-        int fillColor = enabled ? PvTheme.ACCENT : PvTheme.ACCENT_DIM;
+        int filled = Math.round(trackW * PvAnim.clamp01(display));
+        int fillColor = enabled
+                ? PvTheme.mix(PvTheme.ACCENT, PvTheme.ACCENT_HOVER, hoverT * 0.6F)
+                : PvTheme.ACCENT_DIM;
         if (filled > 0) {
-            PvDraw.roundRect(ctx, trackX, trackY, filled, 4, 2, fillColor);
+            PvDraw.roundRect(ctx, trackX, trackY, filled, TRACK_H, TRACK_H / 2, fillColor);
         }
 
-        int kx = trackX + filled - KNOB / 2;
-        kx = MathHelper.clamp(kx, trackX - 2, trackX + trackW - KNOB + 2);
+        int kr = KNOB / 2 + Math.round(hoverT * 1.5F) + (dragging ? 1 : 0);
+        int kx = MathHelper.clamp(trackX + filled, trackX, trackX + trackW);
         int knobColor = !enabled ? PvTheme.TEXT_MUTED
-                : (hovered || dragging) ? 0xFFFFFFFF : PvTheme.TEXT;
-        PvDraw.roundRect(ctx, kx, y + height / 2 - KNOB / 2, KNOB, KNOB, KNOB / 2, knobColor);
+                : PvTheme.mix(PvTheme.TEXT, 0xFFFFFFFF, hoverT);
+        PvDraw.dot(ctx, kx, y + height / 2, kr, knobColor);
 
         String readout = def.format(value);
         int color = enabled ? PvTheme.TEXT : PvTheme.TEXT_MUTED;
         if (focused && enabled) {
             color = PvTheme.ACCENT;
         }
-        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, readout, READOUT), x + width, y + (height - 8) / 2 + 1, color);
+        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, readout, READOUT), x + width,
+                y + (height - 8) / 2 + 1, color);
+
+        drawFocusRing(ctx, PvTheme.RADIUS);
     }
 
     @Override

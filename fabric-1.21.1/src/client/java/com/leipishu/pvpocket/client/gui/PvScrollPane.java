@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * Vertically scrolling container.
  *
- * <p>Two decisions worth keeping:</p>
+ * <p>Three decisions worth keeping:</p>
  * <ul>
  *   <li><b>Children are repositioned, not translated.</b> Each layout pass writes the scrolled
  *       absolute {@code y} back into the child. Hit-testing therefore happens in screen space with
@@ -16,6 +16,9 @@ import java.util.List;
  *   <li><b>Clipping is scissor-based, not visibility-based.</b> A partially visible row is drawn
  *       clipped rather than hidden, so the list does not appear to lose its first row as you
  *       scroll. Rows fully outside the viewport are skipped as an early-out.</li>
+ *   <li><b>The wheel moves a target, not the offset.</b> The offset follows the target with a 110ms
+ *       time constant, so a fast flick decelerates instead of stopping dead, and the rows move with
+ *       the same motion the rest of the interface uses.</li>
  * </ul>
  *
  * <p>The rule panel only ever has a few dozen rows, so this is not virtualised — a viewport check is
@@ -27,9 +30,13 @@ public class PvScrollPane extends PvWidget {
     public final List<PvWidget> children = new ArrayList<>();
     public int gap;
 
-    private int scroll;
+    private float scroll;
+    private int target;
     private int contentHeight;
     private boolean draggingThumb;
+    private float barT;
+    private float fadeTopT;
+    private float fadeBottomT;
 
     public void add(PvWidget widget) {
         children.add(widget);
@@ -37,29 +44,37 @@ public class PvScrollPane extends PvWidget {
 
     public void clear() {
         children.clear();
-        scroll = 0;
+        scroll = 0F;
+        target = 0;
     }
 
     public int scroll() {
-        return scroll;
+        return target;
     }
 
     /**
      * Restores a scroll offset, clamped to the current content.
      *
      * <p>Needed when a caller rebuilds its rows while the player is looking at them: without this the
-     * list would jump back to the top on every edit, which reads as the panel losing its place.</p>
+     * list would jump back to the top on every edit, which reads as the panel losing its place.
+     * Restoring is instant on purpose — an animated restore would look like the list scrolling by
+     * itself in response to an edit somewhere else.</p>
      */
     public void scrollTo(int offset) {
-        scroll = Math.max(0, Math.min(offset, maxScroll()));
+        target = Math.max(0, Math.min(offset, maxScroll()));
+        scroll = target;
     }
 
     public int maxScroll() {
         return Math.max(0, contentHeight - height);
     }
 
-    /** Recomputes content height, clamps the scroll offset and writes child positions. */
+    /** Recomputes content height and clamps the scroll offset. */
     public void layout() {
+        layout(0F);
+    }
+
+    private void layout(float d) {
         int total = 0;
         for (int i = 0; i < children.size(); i++) {
             total += children.get(i).height;
@@ -68,11 +83,15 @@ public class PvScrollPane extends PvWidget {
             }
         }
         contentHeight = total;
-        scroll = Math.max(0, Math.min(scroll, maxScroll()));
+        target = Math.max(0, Math.min(target, maxScroll()));
+        scroll = PvAnim.damp(scroll, target, d, 0.037F);
+        if (Math.abs(target - scroll) < 0.4F) {
+            scroll = target;
+        }
 
         boolean bar = maxScroll() > 0;
-        int childWidth = width - (bar ? PvTheme.SCROLLBAR_W + 6 : 0);
-        int cy = y - scroll;
+        int childWidth = width - (bar ? PvTheme.SCROLLBAR_W + 8 : 0);
+        int cy = y - Math.round(scroll);
         for (PvWidget child : children) {
             child.x = x;
             child.width = childWidth;
@@ -86,7 +105,9 @@ public class PvScrollPane extends PvWidget {
         if (!visible) {
             return;
         }
-        layout();
+        float d = dt(delta);
+        layout(d);
+
         ctx.enableScissor(x, y, x + width, y + height);
         for (PvWidget child : children) {
             if (child.y + child.height < y || child.y > y + height) {
@@ -97,52 +118,59 @@ public class PvScrollPane extends PvWidget {
         }
         ctx.disableScissor();
 
-        // Hard edges at the viewport boundary plus a short fade on whichever side still has
-        // content. Without the fade a half-scrolled row reads as a rendering glitch; with it the
-        // list visibly continues past the edge and the scrollbar stops being the only clue.
-        PvDraw.hLine(ctx, x, y, width, PvTheme.DIVIDER);
-        PvDraw.hLine(ctx, x, y + height - 1, width, PvTheme.DIVIDER);
-        if (scroll > 0) {
-            fade(ctx, y, true);
+        // Fades on whichever side still has content. Without them a half-scrolled row reads as a
+        // rendering glitch; with them the list visibly continues past the edge and the scrollbar
+        // stops being the only clue. Both edges animate, so the cue arrives and leaves with the
+        // scroll position instead of popping.
+        fadeTopT = PvAnim.damp(fadeTopT, scroll > 0.5F ? 1F : 0F, d, 0.08F);
+        fadeBottomT = PvAnim.damp(fadeBottomT, scroll < maxScroll() - 0.5F ? 1F : 0F, d, 0.08F);
+        if (fadeTopT > 0.01F) {
+            fade(ctx, y, true, fadeTopT);
         }
-        if (scroll < maxScroll()) {
-            fade(ctx, y + height - 10, false);
+        if (fadeBottomT > 0.01F) {
+            fade(ctx, y + height - 10, false, fadeBottomT);
         }
 
-        if (maxScroll() > 0) {
-            renderScrollbar(ctx);
+        barT = PvAnim.damp(barT, maxScroll() > 0 ? 1F : 0F, d, 0.1F);
+        if (barT > 0.01F) {
+            renderScrollbar(ctx, mouseX, mouseY);
         }
     }
 
     /** 10px gradient drawn as stacked 1px lines, so no shader or gradient API is involved. */
-    private void fade(DrawContext ctx, int top, boolean downwards) {
-        int bg = PvTheme.PANEL_BG;
+    private void fade(DrawContext ctx, int top, boolean downwards, float strength) {
+        int bg = PvTheme.PANEL;
+        int w = width - (maxScroll() > 0 ? PvTheme.SCROLLBAR_W + 8 : 0);
         for (int i = 0; i < 10; i++) {
             float t = downwards ? (10 - i) / 10F : i / 10F;
-            int alpha = (int) (0xB4 * t * t);
+            int alpha = (int) (0xB4 * t * t * strength);
             if (alpha <= 0) {
                 continue;
             }
             int color = (alpha << 24) | (bg & 0x00FFFFFF);
-            ctx.fill(x, top + i, x + width - (maxScroll() > 0 ? PvTheme.SCROLLBAR_W + 6 : 0),
-                    top + i + 1, color);
+            ctx.fill(x, top + i, x + w, top + i + 1, color);
         }
     }
 
-    private void renderScrollbar(DrawContext ctx) {
+    private void renderScrollbar(DrawContext ctx, int mouseX, int mouseY) {
         int barX = x + width - PvTheme.SCROLLBAR_W;
-        PvDraw.roundRect(ctx, barX, y + 2, PvTheme.SCROLLBAR_W, height - 4, 2, PvTheme.SURFACE_SUNKEN);
+        boolean hot = overBar(mouseX);
+        PvDraw.roundRect(ctx, barX, y + 2, PvTheme.SCROLLBAR_W, height - 4, 3,
+                PvTheme.alpha(PvTheme.CARD_ACTIVE, barT));
 
         int trackH = height - 4;
-        int thumbH = Math.max(16, (int) ((float) height * height / Math.max(1, contentHeight)));
+        int thumbH = Math.max(18, (int) ((float) height * height / Math.max(1, contentHeight)));
         thumbH = Math.min(thumbH, trackH);
-        int thumbY = y + 2 + Math.round((float) (trackH - thumbH) * scroll / maxScroll());
-        PvDraw.roundRect(ctx, barX, thumbY, PvTheme.SCROLLBAR_W, thumbH, 2,
-                draggingThumb ? PvTheme.ACCENT : PvTheme.ACCENT_DIM);
+        int thumbY = y + 2 + Math.round((float) (trackH - thumbH) * scroll / Math.max(1, maxScroll()));
+        int color = draggingThumb ? PvTheme.ACCENT
+                : hot ? PvTheme.ACCENT_DIM
+                : PvTheme.BORDER_STRONG;
+        PvDraw.roundRect(ctx, barX, thumbY, PvTheme.SCROLLBAR_W, thumbH, 3,
+                PvTheme.alpha(color, barT));
     }
 
     private boolean overBar(double mx) {
-        return maxScroll() > 0 && mx >= x + width - PvTheme.SCROLLBAR_W - 2 && mx <= x + width;
+        return maxScroll() > 0 && mx >= x + width - PvTheme.SCROLLBAR_W - 4 && mx <= x + width;
     }
 
     @Override
@@ -204,11 +232,14 @@ public class PvScrollPane extends PvWidget {
 
     private void jumpTo(double my) {
         int trackH = height - 4;
-        int thumbH = Math.max(16, (int) ((float) height * height / Math.max(1, contentHeight)));
+        int thumbH = Math.max(18, (int) ((float) height * height / Math.max(1, contentHeight)));
         thumbH = Math.min(thumbH, trackH);
         float t = (float) ((my - y - 2 - thumbH / 2D) / Math.max(1, trackH - thumbH));
         t = Math.max(0F, Math.min(1F, t));
-        scroll = Math.round(t * maxScroll());
+        target = Math.round(t * maxScroll());
+        // Dragging the thumb is direct manipulation: the content has to stay under the pointer, so
+        // the offset is not smoothed here even though the wheel is.
+        scroll = target;
     }
 
     @Override
@@ -216,7 +247,7 @@ public class PvScrollPane extends PvWidget {
         if (!visible || !contains(mx, my) || maxScroll() <= 0) {
             return false;
         }
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - (int) Math.round(amount * 24)));
+        target = Math.max(0, Math.min(maxScroll(), target - (int) Math.round(amount * 26)));
         return true;
     }
 

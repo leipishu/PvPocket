@@ -8,19 +8,38 @@ import net.minecraft.sound.SoundEvents;
 /**
  * Boolean switch: a pill track with a sliding knob.
  *
- * <p>The knob animates on a fixed time constant rather than a frame count, so the motion looks the
- * same at 30, 60 and 240 fps. Animation is presentation only — the value flips immediately, so a
- * fast click never loses an input to the tween.</p>
+ * <p>The only pill-shaped control in the system. A 4px radius on a 14px-tall track reads as a
+ * slider, and the one thing a switch must never be confused with is the control next to it that
+ * also has a fill and a knob.</p>
+ *
+ * <p>No border. A 1px outline on a 14px pill is 7% of its height and turns the track into a
+ * three-tone object — outline, track, knob — which at this size reads as a heavier control than it
+ * is. The fill alone carries the state.</p>
+ *
+ * <p>The knob is driven by a fixed-duration tween with a slight overshoot rather than by damping:
+ * a switch has exactly two destinations and the motion is the confirmation that the state changed,
+ * so a small amount of weight is worth more here than retargetability. The value itself flips
+ * immediately, so a fast click never loses an input to the animation.</p>
  */
 public class PvToggle extends PvValueControl {
 
+    private static final int TRACK_W = 28;
+    private static final int TRACK_H = 14;
+    private static final int KNOB = 10;
+    private static final float TRAVEL_TIME = 0.14F;
+
     private float anim;
+    private float from;
+    private float to;
+    private float elapsed = 1F;
 
     public PvToggle(boolean on) {
         this.value = on ? 1 : 0;
         this.anim = this.value;
-        this.width = 30;
-        this.height = 14;
+        this.from = this.value;
+        this.to = this.value;
+        this.width = TRACK_W;
+        this.height = TRACK_H;
     }
 
     @Override
@@ -28,32 +47,35 @@ public class PvToggle extends PvValueControl {
         if (!visible) {
             return;
         }
-        float speed = 1F - (float) Math.pow(0.72D, Math.max(0.05F, delta));
-        anim += (value - anim) * speed;
-        if (Math.abs(value - anim) < 0.01F) {
-            anim = value;
+        float d = dt(delta);
+        tickHover(d);
+        tickFocus(d);
+
+        if (to != value) {
+            from = anim;
+            to = value;
+            elapsed = 0F;
         }
+        elapsed = Math.min(1F, elapsed + d / TRAVEL_TIME);
+        anim = from + (to - from) * PvAnim.easeOutBack(elapsed);
 
-        int radius = height / 2;
-        int trackOff = enabled ? PvTheme.SURFACE_SUNKEN : PvTheme.SURFACE_SUNKEN;
-        int trackOn = enabled ? PvTheme.ACCENT : PvTheme.ACCENT_DIM;
-        int track = PvTheme.mix(trackOff, trackOn, anim);
-        int border = !enabled ? PvTheme.DIVIDER
-                : hovered ? PvTheme.mix(PvTheme.PANEL_BORDER, PvTheme.ACCENT, 0.5F)
-                : PvTheme.PANEL_BORDER;
+        float pos = PvAnim.clamp01(anim);
+        int radius = TRACK_H / 2;
 
-        PvDraw.roundPanel(ctx, x, y, width, height, radius, border, track);
+        int trackOff = PvTheme.mix(PvTheme.CARD_ACTIVE, PvTheme.CARD_HOVER, hoverT);
+        int trackOn = PvTheme.mix(PvTheme.ACCENT, PvTheme.ACCENT_HOVER, hoverT);
+        int track = enabled ? PvTheme.mix(trackOff, trackOn, pos) : PvTheme.SUNKEN;
 
-        int knob = height - 4;
-        int travel = width - knob - 4;
-        int kx = x + 2 + Math.round(travel * anim);
-        int knobColor = !enabled ? PvTheme.TEXT_MUTED
-                : anim > 0.5F ? 0xFFFFFFFF : PvTheme.TEXT_DIM;
-        PvDraw.roundRect(ctx, kx, y + 2, knob, knob, knob / 2, knobColor);
+        PvDraw.roundRect(ctx, x, y, width, height, radius, track);
 
-        if (focused && enabled) {
-            PvDraw.roundRect(ctx, x - 1, y - 1, width + 2, height + 2, radius + 1, PvTheme.ACCENT_SOFT);
-        }
+        int travel = width - KNOB - 4;
+        int kx = x + 2 + Math.round(travel * pos);
+        int knob = enabled
+                ? PvTheme.mix(PvTheme.TEXT_MUTED, 0xFFFFFFFF, pos)
+                : PvTheme.TEXT_MUTED;
+        PvDraw.roundRect(ctx, kx, y + 2, KNOB, KNOB, KNOB / 2, knob);
+
+        drawFocusRing(ctx, radius);
     }
 
     @Override

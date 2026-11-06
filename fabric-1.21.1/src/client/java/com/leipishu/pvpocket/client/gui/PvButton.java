@@ -12,17 +12,21 @@ import net.minecraft.sound.SoundEvents;
  * <p>Disabled is a contrast reduction rather than a hide, so a locked option still tells the player
  * that the option exists — the panel is a contract, and a button that vanishes is a contract that
  * appears to change.</p>
+ *
+ * <p>Press is expressed as a one-pixel inset plus a darker fill, not as a colour swap. On a palette
+ * this dark a colour swap between #F5A524 and #D98A12 is nearly invisible; the inset is what the
+ * eye actually reads as "the click landed".</p>
  */
 public class PvButton extends PvWidget {
 
     public enum Style {
         /** Filled accent. At most one per panel; it is the action the panel exists for. */
         PRIMARY,
-        /** Outlined surface. The default for everything else. */
+        /** Outlined card. The default for everything else. */
         NORMAL,
-        /** Outlined in danger red, used for reject/cancel. */
+        /** Outlined in danger red. Used for reject and cancel; never for a primary action. */
         DANGER,
-        /** No surface until hovered. For low-stakes links such as the version chip. */
+        /** No surface until hovered. For low-stakes links such as 还原 and 返回. */
         GHOST
     }
 
@@ -36,7 +40,7 @@ public class PvButton extends PvWidget {
         this.style = style;
         this.action = action;
         this.height = PvTheme.BTN_H;
-        this.width = Math.max(40, MinecraftClient.getInstance().textRenderer.getWidth(label) + 20);
+        this.width = Math.max(44, MinecraftClient.getInstance().textRenderer.getWidth(label) + 22);
     }
 
     public PvButton style(Style s) {
@@ -55,53 +59,73 @@ public class PvButton extends PvWidget {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickHover(d);
+        tickFocus(d);
+        pressT = PvAnim.damp(pressT, pressed ? 1F : 0F, d, pressed ? 0.04F : 0.08F);
+
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-        boolean hot = hovered && enabled;
-        int border;
+        int inset = Math.round(pressT);
+        int bx = x + inset;
+        int by = y + inset;
+        int bw = width - inset * 2;
+        int bh = height - inset * 2;
+
         int fill;
+        int border;
         int textColor;
 
         switch (style) {
             case PRIMARY -> {
-                border = enabled ? PvTheme.ACCENT : PvTheme.ACCENT_DIM;
-                fill = !enabled ? PvTheme.ACCENT_DIM
-                        : pressed ? PvTheme.mix(PvTheme.ACCENT, 0xFF000000, 0.18F)
-                        : hot ? PvTheme.mix(PvTheme.ACCENT, 0xFFFFFFFF, 0.12F)
-                        : PvTheme.ACCENT;
-                textColor = enabled ? PvTheme.ON_ACCENT : PvTheme.TEXT_MUTED;
+                int base = PvTheme.mix(PvTheme.ACCENT, PvTheme.ACCENT_HOVER, hoverT);
+                fill = PvTheme.mix(base, PvTheme.ACCENT_PRESSED, pressT);
+                border = 0;
+                textColor = PvTheme.ON_ACCENT;
+                if (!enabled) {
+                    fill = PvTheme.mix(PvTheme.ACCENT_DIM, PvTheme.PANEL, 0.45F);
+                    textColor = PvTheme.TEXT_MUTED;
+                }
             }
             case DANGER -> {
-                border = enabled ? PvTheme.DANGER : PvTheme.mix(PvTheme.DANGER, PvTheme.SURFACE, 0.7F);
-                fill = !enabled ? PvTheme.SURFACE
-                        : pressed ? PvTheme.mix(PvTheme.SURFACE, PvTheme.DANGER, 0.35F)
-                        : hot ? PvTheme.mix(PvTheme.SURFACE, PvTheme.DANGER, 0.20F)
-                        : PvTheme.SURFACE;
-                textColor = enabled ? (hot ? PvTheme.DANGER : PvTheme.TEXT) : PvTheme.TEXT_MUTED;
+                // Tinted fill, no outline. Same reasoning as the chips: a 1px red outline around a
+                // soft red fill is two dark red bars on a 24px button, not an edge.
+                fill = PvTheme.alpha(PvTheme.DANGER, 0.10F + 0.22F * hoverT + 0.10F * pressT);
+                border = 0;
+                textColor = PvTheme.mix(PvTheme.DANGER, PvTheme.DANGER_HOVER, hoverT);
+                if (!enabled) {
+                    fill = PvTheme.SUNKEN;
+                    border = PvTheme.DIVIDER;
+                    textColor = PvTheme.TEXT_MUTED;
+                }
             }
             case GHOST -> {
-                border = hot ? PvTheme.SURFACE_HOVER : 0;
-                fill = hot ? PvTheme.SURFACE : 0;
-                textColor = enabled ? PvTheme.TEXT_DIM : PvTheme.TEXT_MUTED;
+                fill = PvTheme.alpha(PvTheme.CARD_HOVER, hoverT);
+                border = 0;
+                textColor = PvTheme.mix(PvTheme.TEXT_MUTED, PvTheme.TEXT, hoverT);
+                if (!enabled) {
+                    textColor = PvTheme.TEXT_MUTED;
+                }
             }
             default -> {
-                border = enabled ? (hot ? PvTheme.ACCENT_DIM : PvTheme.PANEL_BORDER) : PvTheme.DIVIDER;
-                fill = !enabled ? PvTheme.SURFACE_SUNKEN
-                        : pressed ? PvTheme.SURFACE_ACTIVE
-                        : hot ? PvTheme.SURFACE_HOVER
-                        : PvTheme.SURFACE;
-                textColor = enabled ? PvTheme.TEXT : PvTheme.TEXT_MUTED;
+                fill = PvTheme.mix(PvTheme.mix(PvTheme.CARD, PvTheme.CARD_HOVER, hoverT),
+                        PvTheme.CARD_ACTIVE, pressT);
+                border = PvTheme.mix(PvTheme.BORDER, PvTheme.BORDER_STRONG, hoverT);
+                textColor = PvTheme.TEXT;
+                if (!enabled) {
+                    fill = PvTheme.SUNKEN;
+                    border = PvTheme.DIVIDER;
+                    textColor = PvTheme.TEXT_MUTED;
+                }
             }
         }
 
-        if (focused && enabled) {
-            border = PvTheme.ACCENT;
-        }
         if (border == 0) {
-            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS, fill);
+            PvDraw.roundRect(ctx, bx, by, bw, bh, PvTheme.RADIUS, fill);
         } else {
-            PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, border, fill);
+            PvDraw.roundPanel(ctx, bx, by, bw, bh, PvTheme.RADIUS, border, fill);
         }
-        PvDraw.textCenter(ctx, tr, label, x + width / 2, y + (height - 8) / 2 + 1, textColor);
+        drawFocusRing(ctx, PvTheme.RADIUS);
+        PvDraw.textCenter(ctx, tr, label, bx + bw / 2, by + (bh - 8) / 2 + 1, textColor);
     }
 
     @Override

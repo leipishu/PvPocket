@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
+import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
@@ -14,7 +15,7 @@ import net.minecraft.client.gui.DrawContext;
  * One rule: label on the left, control on the right.
  *
  * <p>Multi-select rules get a taller row with the chips on their own line. Squeezing five chips into
- * a 130px column would either shrink the labels below legibility or force a nested scroll, and both
+ * a 150px column would either shrink the labels below legibility or force a nested scroll, and both
  * are worse than spending 18 extra vertical pixels.</p>
  *
  * <p>The row tracks its own "differs from the received version" state against the baseline value it
@@ -27,6 +28,7 @@ public class RuleRow extends PvWidget {
     private final PvValueControl control;
     private final int baseline;
     private final boolean editable;
+    private float changedT;
 
     public RuleRow(RuleDefinition def, PvValueControl control, int baseline, boolean editable) {
         this.def = def;
@@ -48,7 +50,7 @@ public class RuleRow extends PvWidget {
         control.enabled = editable;
         if (def.kind == RuleKind.MULTI) {
             control.x = x + 8;
-            control.y = y + height - control.height - 5;
+            control.y = y + height - control.height - 6;
             control.width = width - 16;
         } else {
             control.x = x + width - control.width - 8;
@@ -67,30 +69,37 @@ public class RuleRow extends PvWidget {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickHover(d);
+        changedT = PvAnim.damp(changedT, changed() ? 1F : 0F, d, 0.07F);
         layoutControl();
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
 
-        if (hovered) {
-            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS, 0x10FFFFFF);
+        if (hoverT > 0.01F) {
+            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS,
+                    PvTheme.alpha(PvTheme.CARD_HOVER, hoverT * 0.75F));
         }
-        if (changed()) {
-            PvDraw.roundRect(ctx, x, y + 4, 2, height - 8, 1, PvTheme.ACCENT);
+        if (changedT > 0.01F) {
+            PvDraw.roundRect(ctx, x, y + 6, 2, height - 12, 1, PvTheme.alpha(PvTheme.ACCENT, changedT));
         }
 
         int labelColor = editable ? PvTheme.TEXT : PvTheme.TEXT_DIM;
-        int labelX = x + 8;
+        int labelX = x + 10;
 
         if (def.kind == RuleKind.MULTI) {
-            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - 16), labelX, y + 5, labelColor);
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - 20), labelX, y + 6, labelColor);
             if (control != null) {
+                syncControlFocus();
                 control.updateHover(mouseX, mouseY);
                 control.render(ctx, mouseX, mouseY, delta);
             }
         } else {
             int labelY = y + (height - 8) / 2 + 1;
-            int reserved = control == null ? 96 : control.width + 12;
-            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - reserved - 12), labelX, labelY, labelColor);
+            int reserved = control == null ? 96 : control.width + 16;
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label, width - reserved - 10), labelX, labelY,
+                    labelColor);
             if (control != null) {
+                syncControlFocus();
                 control.updateHover(mouseX, mouseY);
                 control.render(ctx, mouseX, mouseY, delta);
             } else {
@@ -102,11 +111,38 @@ public class RuleRow extends PvWidget {
     /** Read-only value chip for {@link RuleKind#FIXED} rules. Looks like a control, cannot be one. */
     private void renderLockedValue(DrawContext ctx, TextRenderer tr, int labelY) {
         String value = def.format(0);
-        int w = tr.getWidth(value) + 14;
+        int w = tr.getWidth(value) + 16;
         int cx = x + width - w - 8;
-        PvDraw.roundPanel(ctx, cx, y + (height - 16) / 2, w, 16, PvTheme.RADIUS,
-                PvTheme.DIVIDER, PvTheme.SURFACE_SUNKEN);
+        PvDraw.roundPanel(ctx, cx, y + (height - 18) / 2, w, 18, PvTheme.RADIUS,
+                PvTheme.DIVIDER, PvTheme.SUNKEN);
         PvDraw.textCenter(ctx, tr, value, cx + w / 2, y + (height - 8) / 2 + 1, PvTheme.TEXT_MUTED);
+    }
+
+    /**
+     * The row is the tab stop, the control is what the keys act on.
+     *
+     * <p>Focus is forwarded to the control before it renders so the control draws its own ring —
+     * without this, Tab moved through thirty-six rows and lit up none of them, which made the whole
+     * keyboard path unusable even though it was wired.</p>
+     */
+    private void syncControlFocus() {
+        if (control != null) {
+            control.focused = focused;
+        }
+    }
+
+    @Override
+    public void activate() {
+        if (control != null) {
+            control.activate();
+        }
+    }
+
+    @Override
+    public void nudge(int direction) {
+        if (control != null) {
+            control.nudge(direction);
+        }
     }
 
     @Override
@@ -128,10 +164,22 @@ public class RuleRow extends PvWidget {
         return control != null && control.mouseDragged(mx, my, button, dx, dy);
     }
 
+    /**
+     * Asks the control first.
+     *
+     * <p>A control can have something more specific to say than the rule's own hint — the map picker
+     * says why a map is unavailable — and the row is the only thing the screen asks.</p>
+     */
     @Override
     public String tooltipAt(int mouseX, int mouseY) {
         if (!visible || !contains(mouseX, mouseY)) {
             return null;
+        }
+        if (control != null) {
+            String specific = control.tooltipAt(mouseX, mouseY);
+            if (specific != null) {
+                return specific;
+            }
         }
         return tooltip;
     }

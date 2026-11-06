@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.loadout;
 
+import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
@@ -28,7 +29,7 @@ public class LoadoutRow extends PvWidget {
     }
 
     private static final int ICON = 16;
-    private static final int REMOVE_W = 18;
+    private static final int REMOVE_W = 22;
 
     private final Type type;
     private final String label;
@@ -49,7 +50,7 @@ public class LoadoutRow extends PvWidget {
         this.selected = selected;
         this.onClick = onClick;
         this.onRemove = onRemove;
-        this.height = type == Type.HEADER ? 18 : 22;
+        this.height = type == Type.HEADER ? 20 : PvTheme.ROW_H;
         if (type == Type.HEADER) {
             this.enabled = false;
         }
@@ -69,27 +70,32 @@ public class LoadoutRow extends PvWidget {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickHover(d);
+        tickFocus(d);
+        pressT = PvAnim.damp(pressT, pressed ? 1F : 0F, d, 0.05F);
+
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
 
         if (type == Type.HEADER) {
-            PvDraw.text(ctx, tr, label, x + 2, y + 5, PvTheme.TEXT_MUTED);
-            PvDraw.hLine(ctx, x + tr.getWidth(label) + 8, y + 9,
+            PvDraw.text(ctx, tr, label, x + 2, y + 7, PvTheme.TEXT_MUTED);
+            PvDraw.hLine(ctx, x + tr.getWidth(label) + 8, y + 11,
                     Math.max(0, width - tr.getWidth(label) - 10), PvTheme.DIVIDER);
             return;
         }
 
         if (selected) {
-            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.SURFACE_ACTIVE);
-            PvDraw.roundRect(ctx, x, y + 3, 2, height - 6, 1, PvTheme.ACCENT);
-        } else if (hovered) {
-            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.SURFACE_HOVER);
+            PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.BORDER_STRONG,
+                    PvTheme.CARD_ACTIVE);
+            PvDraw.roundRect(ctx, x + 1, y + 7, 2, height - 14, 1, PvTheme.ACCENT);
+        } else if (hoverT > 0.01F) {
+            PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS,
+                    PvTheme.alpha(PvTheme.CARD_HOVER, hoverT));
         }
-        if (focused) {
-            PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.ACCENT, 0);
-        }
+        drawFocusRing(ctx, PvTheme.RADIUS);
 
         if (!icon.isEmpty()) {
-            ctx.drawItem(icon, x + 4, y + 3);
+            ctx.drawItem(icon, x + 6, y + (height - ICON) / 2);
         }
 
         int textY = y + (height - 8) / 2 + 1;
@@ -99,21 +105,26 @@ public class LoadoutRow extends PvWidget {
         }
         if (detail != null && !detail.isEmpty()) {
             int detailW = tr.getWidth(detail);
-            PvDraw.textRight(ctx, tr, detail, x + width - reserved - 6, textY,
+            PvDraw.textRight(ctx, tr, detail, x + width - reserved - 8, textY,
                     selected ? PvTheme.TEXT_DIM : PvTheme.TEXT_MUTED);
-            reserved += detailW + 6;
+            reserved += detailW + 8;
         }
-        int labelMax = width - 26 - reserved - 4;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, Math.max(0, labelMax)), x + 26, textY,
+        int labelMax = width - 28 - reserved - 4;
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, Math.max(0, labelMax)), x + 28, textY,
                 type == Type.KIND ? PvTheme.TEXT_DIM : PvTheme.TEXT);
 
-        if (onRemove != null && hovered) {
-            boolean hot = overRemoveZone(mouseX);
-            PvDraw.textCenter(ctx, tr, "×", x + width - REMOVE_W / 2, textY,
-                    hot ? PvTheme.DANGER : PvTheme.TEXT_MUTED);
+        if (onRemove != null) {
+            // The remove affordance only exists while the row is hovered. It is a destructive action
+            // sitting inside a selectable row, and a permanent red cross on every line would make
+            // the list look like it is asking to be deleted.
+            if (hoverT > 0.35F) {
+                boolean hot = overRemoveZone(mouseX);
+                PvDraw.cross(ctx, x + width - REMOVE_W / 2, y + height / 2, 3,
+                        PvTheme.alpha(hot ? PvTheme.DANGER : PvTheme.TEXT_MUTED, hoverT));
+            }
         } else if (type == Type.KIND) {
-            PvDraw.textRight(ctx, tr, "+", x + width - 8, textY,
-                    hovered ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
+            PvDraw.plus(ctx, x + width - 12, y + height / 2, 3, 1,
+                    PvTheme.mix(PvTheme.TEXT_MUTED, PvTheme.ACCENT, hoverT));
         }
     }
 

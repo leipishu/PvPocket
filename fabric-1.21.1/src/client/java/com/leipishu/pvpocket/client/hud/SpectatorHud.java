@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.hud;
 
+import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
@@ -32,12 +33,15 @@ import java.util.List;
 @Environment(EnvType.CLIENT)
 public final class SpectatorHud implements HudRenderCallback {
 
-    private static final int PAD_X = 10;
-    private static final int PAD_Y = 5;
+    private static final int PAD_X = 11;
+    private static final int PAD_Y = 6;
     private static final int BOTTOM_GAP = 54;
+    private static final float PULSE_PERIOD = 2.0F;
 
     /** Null means "not spectating". Replaced wholesale by every payload. */
     private static SpectateStatePayload state;
+    private static float appearT;
+    private static float phase;
 
     private SpectatorHud() {
     }
@@ -49,10 +53,14 @@ public final class SpectatorHud implements HudRenderCallback {
     /** Called on the client thread when a payload arrives. */
     public static void update(SpectateStatePayload payload) {
         state = payload != null && payload.active() ? payload : null;
+        if (state != null) {
+            appearT = 0F;
+        }
     }
 
     public static void clear() {
         state = null;
+        appearT = 0F;
     }
 
     /** True while the bar is up, which is also "this player is spectating". */
@@ -72,6 +80,9 @@ public final class SpectatorHud implements HudRenderCallback {
             // get rid of while trying to watch a fight cleanly.
             return;
         }
+        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        appearT = PvAnim.damp(appearT, 1F, d, 0.07F);
+        phase += d;
         TextRenderer tr = client.textRenderer;
 
         List<String> names = new ArrayList<>();
@@ -89,26 +100,35 @@ public final class SpectatorHud implements HudRenderCallback {
                 ? names.get(Math.floorMod(payload.index(), names.size()))
                 : "自由视角";
         String counter = attached
-                ? " (" + (Math.floorMod(payload.index(), names.size()) + 1) + "/" + names.size() + ")"
+                ? " " + (Math.floorMod(payload.index(), names.size()) + 1) + "/" + names.size()
                 : "";
 
         String left = "观战 · " + payload.label();
         String right = attached
-                ? "视角 " + who + counter + " · V 切换 · G 解除"
-                : "视角 " + who + " · V 附身";
+                ? who + counter + " · V 切换 · G 解除"
+                : who + " · V 附身";
 
         int leftW = tr.getWidth(left);
         int rightW = tr.getWidth(right);
         int width = PAD_X * 2 + leftW + 14 + rightW;
-        int height = 16;
+        int height = 18;
         int x = (ctx.getScaledWindowWidth() - width) / 2;
         int y = ctx.getScaledWindowHeight() - BOTTOM_GAP;
 
-        PvDraw.shadow(ctx, x, y, width, height, PvTheme.RADIUS, 3);
-        PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.ACCENT_DIM, 0xE0141721);
-        // A live dot: the same accent the primary action uses, because this is a state, not a label.
-        PvDraw.roundRect(ctx, x + 6, y + height / 2 - 2, 4, 4, 2, PvTheme.ACCENT);
-        PvDraw.text(ctx, tr, left, x + PAD_X + 4, y + PAD_Y, PvTheme.TEXT);
-        PvDraw.text(ctx, tr, right, x + PAD_X + 4 + leftW + 14, y + PAD_Y, PvTheme.TEXT_DIM);
+        PvDraw.shadow(ctx, x, y, width, height, PvTheme.RADIUS);
+        PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS,
+                PvTheme.alpha(PvTheme.BORDER, appearT),
+                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
+
+        // A live dot rather than a word: this is a state, not a label. It breathes on a 2s period so
+        // it reads as "running" instead of as a static bullet, at an amplitude small enough that it
+        // never pulls the eye off the fight.
+        float pulse = 0.55F + 0.45F * (0.5F + 0.5F * (float) Math.sin(phase / PULSE_PERIOD * Math.PI * 2D));
+        PvDraw.dot(ctx, x + PAD_X + 3, y + height / 2, 3,
+                PvTheme.alpha(PvTheme.ACCENT, appearT * pulse));
+
+        PvDraw.text(ctx, tr, left, x + PAD_X + 12, y + PAD_Y, PvTheme.alpha(PvTheme.TEXT, appearT));
+        PvDraw.text(ctx, tr, right, x + PAD_X + 12 + leftW + 14, y + PAD_Y,
+                PvTheme.alpha(PvTheme.TEXT_DIM, appearT));
     }
 }

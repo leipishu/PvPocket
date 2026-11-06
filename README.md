@@ -14,6 +14,7 @@ PvPocket/
 │   ├── PvPocket-v0.2-方案确认.md
 │   ├── PvPocket-v0.3-战斗规格与终稿.md
 │   ├── PvPocket-v0.4-技术方案.md
+│   ├── PvPocket-视觉规范-v0.6.md   界面视觉与动效规范（现行）
 │   ├── PvPocket-1.8-数值对照表.md
 │   ├── PvPocket-S1-实现进度.md
 │   ├── PvPocket-S2-实现进度.md

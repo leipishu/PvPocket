@@ -50,12 +50,12 @@ import java.util.List;
  */
 public class LoadoutScreen extends PvScreen {
 
-    private static final int MAX_W = 640;
-    private static final int MAX_H = 360;
+    private static final int MAX_W = 680;
+    private static final int MAX_H = 392;
     private static final int HEADER_H = 52;
-    private static final int FOOTER_H = 36;
-    private static final int TABS_W = 88;
-    private static final int LIST_W = 196;
+    private static final int FOOTER_H = 40;
+    private static final int TABS_W = 96;
+    private static final int LIST_W = 200;
 
     private static final List<ItemKind.Page> PAGES = List.of(
             ItemKind.Page.WEAPON, ItemKind.Page.ARMOR,
@@ -84,9 +84,7 @@ public class LoadoutScreen extends PvScreen {
         this.loadout = Loadout.decode(payload.loadout());
         this.loadout.autoAssignSlots();
         this.baseline = this.loadout.copy();
-        this.note = isPersonal()
-                ? "这是你的个人配装，发起决斗时默认使用"
-                : "在左侧选择分类，中间点「+」添加物品";
+        this.note = isPersonal() ? "个人配装" : "选择分类后点 + 添加";
     }
 
     /**
@@ -168,11 +166,11 @@ public class LoadoutScreen extends PvScreen {
                     iconOf(entry), selected == i,
                     () -> select(index),
                     () -> remove(index));
-            row.tooltip("点击编辑属性，右侧 × 移除");
+            row.tooltip("点击编辑属性，右侧可移除");
             listPane.add(row);
         }
         if (!any) {
-            listPane.add(sectionHeader("（这一页还是空的）"));
+            listPane.add(sectionHeader("空"));
         }
 
         listPane.add(sectionHeader("可添加"));
@@ -196,13 +194,13 @@ public class LoadoutScreen extends PvScreen {
 
     private void add(ItemKind kind) {
         if (loadout.entries.size() >= LoadoutCatalog.MAX_ENTRIES) {
-            note = "配装最多 " + LoadoutCatalog.MAX_ENTRIES + " 项，先删掉一些再加。";
+            note = "已达上限 " + LoadoutCatalog.MAX_ENTRIES + " 项";
             return;
         }
         LoadoutEntry entry = LoadoutEntry.of(kind);
         loadout.entries.add(entry);
         selected = loadout.entries.size() - 1;
-        note = "已添加「" + kind.label + "」，右侧调整属性";
+        note = "已添加「" + kind.label + "」";
         rebuildList();
         rebuildFields();
     }
@@ -280,12 +278,12 @@ public class LoadoutScreen extends PvScreen {
         int right = panelX + panelW - 12;
 
         PvButton save = new PvButton("保存配装", PvButton.Style.PRIMARY, this::submit)
-                .size(76, PvTheme.BTN_H);
+                .size(80, PvTheme.BTN_H);
         right = place(save, right, buttonY);
         right = place(new PvButton("恢复默认", PvButton.Style.NORMAL, this::resetToPreset)
-                .size(72, PvTheme.BTN_H), right, buttonY);
+                .size(78, PvTheme.BTN_H), right, buttonY);
         right = place(new PvButton("返回", PvButton.Style.GHOST, this::back)
-                .size(48, PvTheme.BTN_H), right, buttonY);
+                .size(52, PvTheme.BTN_H), right, buttonY);
         defaultButton = save;
         footerTextRight = right - 8;
     }
@@ -294,7 +292,7 @@ public class LoadoutScreen extends PvScreen {
         button.x = right - button.width;
         button.y = y;
         roots.add(button);
-        return button.x - 6;
+        return button.x - 8;
     }
 
     // ------------------------------------------------------------------ rendering
@@ -303,19 +301,22 @@ public class LoadoutScreen extends PvScreen {
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
         TextRenderer tr = font();
 
-        PvDraw.textScaled(ctx, tr, "配装", panelX + 16, panelY + 11, PvTheme.TITLE_SCALE, PvTheme.TEXT);
-        int titleEnd = panelX + 16 + PvDraw.scaledWidth(tr, "配装", PvTheme.TITLE_SCALE) + 10;
+        PvDraw.title(ctx, tr, "配装", panelX + 16, panelY + 13, PvTheme.TEXT);
+        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, "配装") + 10;
 
-        String subtitle = isPersonal()
-                ? "个人配装 · 发起决斗时默认使用"
-                : "与 " + payload.otherName() + " 的决斗 · 进场时发放";
-        int digestW = 76;
-        int subtitleMax = panelX + panelW - 12 - digestW - titleEnd;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 14, PvTheme.TEXT_DIM);
-        PvDraw.textRight(ctx, tr, loadout.digest(), panelX + panelW - 12, panelY + 14, PvTheme.ACCENT);
+        String subtitle = isPersonal() ? "个人配装" : "与 " + payload.otherName() + " 的决斗";
 
-        PvDraw.hLine(ctx, panelX + 12, panelY + 32, panelW - 24, PvTheme.DIVIDER);
-        PvDraw.text(ctx, tr, pageHint(), panelX + 16, panelY + 38, PvTheme.TEXT_MUTED);
+        String digest = loadout.digest();
+        int digestW = tr.getWidth(digest) + 12;
+        int digestX = panelX + panelW - 12 - digestW;
+        PvDraw.roundRect(ctx, digestX, panelY + 9, digestW, 14, 3, PvTheme.ACCENT_SOFT);
+        PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, panelY + 12, PvTheme.ACCENT);
+
+        int subtitleMax = digestX - 8 - titleEnd;
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 13, PvTheme.TEXT_DIM);
+
+        PvDraw.hLine(ctx, panelX + 12, panelY + 34, panelW - 24, PvTheme.DIVIDER);
+        PvDraw.text(ctx, tr, pageHint(), panelX + 16, panelY + 40, PvTheme.TEXT_MUTED);
 
         drawRightColumn(ctx, tr);
 
@@ -327,21 +328,21 @@ public class LoadoutScreen extends PvScreen {
      * The right column either shows the selected item's fields or explains why it is empty.
      *
      * <p>An empty pane with no words is indistinguishable from a broken one, so the empty state gets
-     * the two sentences that tell the player what to do next.</p>
+     * the two short lines that tell the player what to do next. Kept to two: three lines of grey
+     * prose in the middle of a 340px column reads as an error message.</p>
      */
     private void drawRightColumn(DrawContext ctx, TextRenderer tr) {
         if (selected >= 0 && selected < loadout.entries.size()) {
             return;
         }
         int cx = fieldPane.x + fieldPane.width / 2;
-        int cy = fieldPane.y + fieldPane.height / 2 - 18;
-        PvDraw.textCenter(ctx, tr, "还没有选中物品", cx, cy, PvTheme.TEXT_DIM);
-        PvDraw.textCenter(ctx, tr, "在中间一列点「+」添加，", cx, cy + 14, PvTheme.TEXT_MUTED);
-        PvDraw.textCenter(ctx, tr, "点已有物品来调整它的属性", cx, cy + 26, PvTheme.TEXT_MUTED);
+        int cy = fieldPane.y + fieldPane.height / 2 - 12;
+        PvDraw.textCenter(ctx, tr, "未选中物品", cx, cy, PvTheme.TEXT_DIM);
+        PvDraw.textCenter(ctx, tr, "点左侧物品调整属性", cx, cy + 14, PvTheme.TEXT_MUTED);
     }
 
     private void drawFooterText(DrawContext ctx, TextRenderer tr) {
-        int y = panelY + panelH - FOOTER_H + 14;
+        int y = panelY + panelH - FOOTER_H + 16;
         int maxW = footerTextRight - panelX - 16;
 
         List<String> problems = loadout.validate();
@@ -352,11 +353,11 @@ public class LoadoutScreen extends PvScreen {
             // row, press save, and be told about the next one — so the count is part of the message.
             text = problems.size() == 1
                     ? problems.get(0)
-                    : problems.get(0) + "（共 " + problems.size() + " 项）";
+                    : problems.get(0) + " 等 " + problems.size() + " 项";
             color = PvTheme.DANGER;
         } else if (isDirty()) {
             text = note + " · 未保存";
-            color = PvTheme.WARN;
+            color = PvTheme.ACCENT;
         } else {
             text = note;
             color = PvTheme.TEXT_MUTED;
@@ -364,12 +365,19 @@ public class LoadoutScreen extends PvScreen {
         PvDraw.text(ctx, tr, PvDraw.fit(tr, text, Math.max(0, maxW)), panelX + 16, y, color);
     }
 
+    /**
+     * One short line per page.
+     *
+     * <p>Previously a full sentence naming every item in the category. The category is already the
+     * selected tab; repeating its contents in prose only pushed the line into truncation on the
+     * narrower window sizes.</p>
+     */
     private String pageHint() {
         return switch (page) {
-            case WEAPON -> "武器：剑、斧、弓、弩、三叉戟、重锤、钓鱼竿。材质只影响外观。";
-            case ARMOR -> "装备：头盔、胸甲、护腿、靴子、盾牌。护甲值按 1.8 曲线减伤。";
-            case CONSUMABLE -> "消耗品：食物与喷溅药水。药水的时长和等级可以自定义。";
-            case BLOCK -> "方块：可放置的方块，以及用来处理场地的镐和剪刀。";
+            case WEAPON -> "剑、斧、弓、弩、三叉戟";
+            case ARMOR -> "头盔、胸甲、护腿、靴子";
+            case CONSUMABLE -> "食物与喷溅药水";
+            case BLOCK -> "可放置方块与工具";
         };
     }
 
@@ -440,7 +448,7 @@ public class LoadoutScreen extends PvScreen {
         loadout.entries.addAll(preset.entries);
         loadout.name = preset.name;
         selected = -1;
-        note = "已恢复为默认配装";
+        note = "已恢复默认";
         rebuildList();
         rebuildFields();
     }

@@ -288,7 +288,7 @@ public final class PvPocketCommands {
                 player.sendMessage(Text.literal("校验通过。").formatted(Formatting.GREEN), false);
             } else {
                 for (String problem : problems) {
-                    player.sendMessage(Text.literal("  ✗ " + problem).formatted(Formatting.RED), false);
+                    player.sendMessage(Text.literal("  - " + problem).formatted(Formatting.RED), false);
                 }
             }
             return 1;

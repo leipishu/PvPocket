@@ -14,11 +14,15 @@ import java.util.List;
 /**
  * Base screen for the custom GUI layer.
  *
- * <p>Owns three things that every self-drawn screen needs and that are easy to get wrong once and
+ * <p>Owns four things that every self-drawn screen needs and that are easy to get wrong once and
  * then wrong everywhere:</p>
  * <ol>
  *   <li><b>The backdrop.</b> A single dim layer instead of the vanilla blur + gradient, so the world
  *       behind stays legible and the panel keeps a stable contrast ratio.</li>
+ *   <li><b>The entrance.</b> A short fade from black over the panel rect, not a slide and not a
+ *       per-widget stagger: a moving panel would have its drawn position disagree with its hit box
+ *       for the duration of the animation, and a click that lands 4px off is a bug report, not a
+ *       flourish.</li>
  *   <li><b>Tooltips last.</b> They are drawn after everything else, which is the only way a tooltip
  *       belonging to a row inside a scissor-clipped scroll pane can escape the clip.</li>
  *   <li><b>Keyboard focus.</b> Tab/Shift-Tab traversal, arrows to change a value, Enter to activate,
@@ -27,6 +31,11 @@ import java.util.List;
  * </ol>
  */
 public abstract class PvScreen extends Screen {
+
+    /** Seconds the panel takes to resolve out of black. */
+    private static final float OPEN_TIME = 0.16F;
+    /** Seconds the pointer has to rest on a widget before its tooltip is worth showing. */
+    private static final float TIP_DELAY = 0.15F;
 
     protected final List<PvWidget> roots = new ArrayList<>();
 
@@ -40,6 +49,12 @@ public abstract class PvScreen extends Screen {
     protected PvButton defaultButton;
     protected int cursorX;
     protected int cursorY;
+
+    private boolean started;
+    private float openT;
+    private String tipKey;
+    private float tipDelay;
+    private float tipT;
 
     protected PvScreen(Text title) {
         super(title);
@@ -64,19 +79,36 @@ public abstract class PvScreen extends Screen {
     }
 
     protected void drawBackdrop(DrawContext ctx) {
-        ctx.fill(0, 0, width, height, 0x99000000);
+        ctx.fill(0, 0, width, height, PvTheme.alpha(PvTheme.SCRIM, openProgress()));
     }
 
     protected void drawPanelFrame(DrawContext ctx) {
-        PvDraw.shadow(ctx, panelX, panelY, panelW, panelH, PvTheme.RADIUS, 6);
-        PvDraw.roundPanel(ctx, panelX, panelY, panelW, panelH, PvTheme.RADIUS,
-                PvTheme.PANEL_BORDER, PvTheme.PANEL_BG);
+        PvDraw.roundPanel(ctx, panelX, panelY, panelW, panelH, PvTheme.RADIUS_PANEL,
+                PvTheme.BORDER, PvTheme.PANEL);
+        // The only light source in the system: one hairline along the inside of the top edge. It is
+        // what separates a black panel from a hole in the screen.
+        PvDraw.hLine(ctx, panelX + PvTheme.RADIUS_PANEL + 1, panelY + 1,
+                panelW - PvTheme.RADIUS_PANEL * 2 - 2, PvTheme.HIGHLIGHT);
+    }
+
+    /** 0 at the frame the screen opens, 1 once the entrance has finished. */
+    private float openProgress() {
+        return PvAnim.easeOutCubic(openT / OPEN_TIME);
     }
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
         cursorX = mouseX;
         cursorY = mouseY;
+        float d = PvAnim.dt(delta);
+        // Reset on the first frame rather than in init(): init() also runs on resize, and replaying
+        // the fade every time the window changes size would look like a flicker.
+        if (!started) {
+            started = true;
+            openT = 0F;
+        } else {
+            openT = Math.min(1F, openT + d);
+        }
 
         drawBackdrop(ctx);
         drawPanelFrame(ctx);
@@ -86,14 +118,39 @@ public abstract class PvScreen extends Screen {
             widget.updateHover(mouseX, mouseY);
             widget.render(ctx, mouseX, mouseY, delta);
         }
-        drawTooltip(ctx);
+        drawEntrance(ctx);
+        drawTooltip(ctx, d);
+    }
+
+    /**
+     * Black overlay fading off the panel rect.
+     *
+     * <p>Chosen over animating the alpha of every colour in the panel: a single rounded fill is one
+     * draw call, it cannot desynchronise from the widgets underneath, and on a near-black panel the
+     * result is indistinguishable from a real cross-fade.</p>
+     */
+    private void drawEntrance(DrawContext ctx) {
+        float k = openProgress();
+        if (k >= 1F) {
+            return;
+        }
+        int alpha = Math.round(255F * (1F - k));
+        PvDraw.roundRect(ctx, panelX, panelY, panelW, panelH, PvTheme.RADIUS_PANEL,
+                alpha << 24);
     }
 
     /** Hook for the static parts of the panel: title, dividers, footer labels. */
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
     }
 
-    private void drawTooltip(DrawContext ctx) {
+    /**
+     * Tooltip with a dwell delay and a fade.
+     *
+     * <p>The delay is what stops the tooltip from strobing while the pointer crosses a column of
+     * rows on the way somewhere else; the fade keeps it from appearing as a hard-edged rectangle
+     * over a dark panel.</p>
+     */
+    private void drawTooltip(DrawContext ctx, float d) {
         String tip = null;
         for (PvWidget widget : roots) {
             tip = widget.tooltipAt(cursorX, cursorY);
@@ -102,23 +159,39 @@ public abstract class PvScreen extends Screen {
             }
         }
         if (tip == null) {
+            tipKey = null;
+            tipDelay = 0F;
+            tipT = 0F;
             return;
         }
+        if (!tip.equals(tipKey)) {
+            tipKey = tip;
+            tipDelay = 0F;
+            tipT = 0F;
+        }
+        tipDelay += d;
+        if (tipDelay < TIP_DELAY) {
+            return;
+        }
+        tipT = PvAnim.damp(tipT, 1F, d, 0.05F);
+
         TextRenderer tr = font();
         List<String> lines = PvDraw.wrap(tr, tip, 176);
         int textW = 0;
         for (String line : lines) {
             textW = Math.max(textW, tr.getWidth(line));
         }
-        int boxW = textW + 14;
-        int boxH = lines.size() * 10 + 8;
+        int boxW = textW + 16;
+        int boxH = lines.size() * 10 + 10;
         int tx = Math.max(2, Math.min(cursorX + 10, width - boxW - 2));
         int ty = Math.max(2, Math.min(cursorY + 12, height - boxH - 2));
 
-        PvDraw.shadow(ctx, tx, ty, boxW, boxH, PvTheme.RADIUS, 3);
-        PvDraw.roundPanel(ctx, tx, ty, boxW, boxH, PvTheme.RADIUS, PvTheme.ACCENT_DIM, 0xF2101319);
+        PvDraw.roundPanel(ctx, tx, ty, boxW, boxH, PvTheme.RADIUS,
+                PvTheme.alpha(PvTheme.BORDER_STRONG, tipT),
+                PvTheme.alpha(PvTheme.TOOLTIP, tipT));
         for (int i = 0; i < lines.size(); i++) {
-            PvDraw.text(ctx, tr, lines.get(i), tx + 7, ty + 5 + i * 10, PvTheme.TEXT_DIM);
+            PvDraw.text(ctx, tr, lines.get(i), tx + 8, ty + 6 + i * 10,
+                    PvTheme.alpha(PvTheme.TEXT_DIM, tipT));
         }
     }
 

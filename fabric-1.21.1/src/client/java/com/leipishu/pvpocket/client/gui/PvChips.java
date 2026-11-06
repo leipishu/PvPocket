@@ -12,20 +12,32 @@ import net.minecraft.sound.SoundEvents;
  *
  * <p>Used for the rules whose value is a set rather than a scalar — win conditions, environmental
  * hazards, the block blacklist. Equal widths keep the row on the 8px grid regardless of how long the
- * labels are, and the selected state is carried by both fill and text colour so it survives a
- * colour-blind palette.</p>
+ * labels are.</p>
+ *
+ * <p>Selection is carried by fill, border and text colour at once, and each chip crossfades
+ * independently. That is not decoration: with three chips on screen, a chip that changes state on
+ * the same frame as its neighbour is easy to miss, and a 120ms fade draws the eye to the one that
+ * moved.</p>
  */
 public class PvChips extends PvValueControl {
 
     private static final int GAP = 4;
+    private static final int H = 22;
 
     private final RuleDefinition def;
+    private final float[] selT;
+    private final float[] hotT;
 
     public PvChips(RuleDefinition def, int value) {
         this.def = def;
         this.value = def.clamp(value);
-        this.height = 16;
+        this.height = H;
         this.width = 200;
+        this.selT = new float[def.choices.length];
+        this.hotT = new float[def.choices.length];
+        for (int i = 0; i < selT.length; i++) {
+            selT[i] = (value & (1 << i)) != 0 ? 1F : 0F;
+        }
     }
 
     private int chipWidth() {
@@ -47,35 +59,43 @@ public class PvChips extends PvValueControl {
         if (!visible) {
             return;
         }
+        float d = dt(delta);
+        tickFocus(d);
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         int cw = chipWidth();
-        int hoverIndex = hovered ? chipAt(mouseX) : -1;
+        int hoverIndex = hovered && enabled ? chipAt(mouseX) : -1;
 
         for (int i = 0; i < def.choices.length; i++) {
-            int cx = x + i * (cw + GAP);
             boolean on = (value & (1 << i)) != 0;
-            boolean hot = hoverIndex == i;
+            selT[i] = PvAnim.damp(selT[i], on ? 1F : 0F, d, 0.05F);
+            hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i ? 1F : 0F, d, 0.09F);
 
-            int border;
-            int fill;
-            int textColor;
+            int cx = x + i * (cw + GAP);
+            float sel = selT[i];
+            float hot = hotT[i];
+
+            // No border. A tinted fill with a tinted 1px outline is two amber edges on a 22px tag,
+            // and at that size the outline reads as a darker bar above and below the label rather
+            // than as an edge. The fill and the label colour carry the state on their own.
+            int fill = PvTheme.blend(
+                    PvTheme.mix(PvTheme.CARD_HOVER, PvTheme.CARD_ACTIVE, hot),
+                    PvTheme.mix(PvTheme.ACCENT_SOFT, PvTheme.alpha(PvTheme.ACCENT, 0.30F), hot),
+                    sel);
+            int textColor = PvTheme.mix(PvTheme.mix(PvTheme.TEXT_DIM, PvTheme.TEXT, hot),
+                    PvTheme.ACCENT, sel);
             if (!enabled) {
-                border = PvTheme.DIVIDER;
-                fill = PvTheme.SURFACE_SUNKEN;
+                fill = PvTheme.SUNKEN;
                 textColor = PvTheme.TEXT_MUTED;
-            } else if (on) {
-                border = PvTheme.ACCENT;
-                fill = hot ? PvTheme.mix(PvTheme.ACCENT_SOFT, PvTheme.ACCENT, 0.25F) : PvTheme.ACCENT_SOFT;
-                textColor = PvTheme.TEXT;
-            } else {
-                border = hot ? PvTheme.ACCENT_DIM : PvTheme.PANEL_BORDER;
-                fill = hot ? PvTheme.SURFACE_HOVER : PvTheme.SURFACE;
-                textColor = PvTheme.TEXT_DIM;
             }
-            PvDraw.roundPanel(ctx, cx, y, cw, height, PvTheme.RADIUS, border, fill);
-            String label = PvDraw.fit(tr, def.choices[i], cw - 8);
-            PvDraw.textCenter(ctx, tr, label, cx + cw / 2, y + (height - 8) / 2 + 1, textColor);
+
+            PvDraw.roundRect(ctx, cx, y, cw, H, 3, fill);
+            String label = PvDraw.fit(tr, def.choices[i], cw - 10);
+            PvDraw.textCenter(ctx, tr, label, cx + cw / 2, y + (H - 8) / 2 + 1, textColor);
         }
+
+        // The row is one tab stop, not one per chip: tabbing through five chips to reach the next
+        // rule would make the panel feel like it is fighting the keyboard.
+        drawFocusRing(ctx, 3);
     }
 
     @Override

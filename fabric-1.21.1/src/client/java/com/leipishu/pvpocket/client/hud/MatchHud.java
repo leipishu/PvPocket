@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.hud;
 
+import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.network.MatchHudPayload;
@@ -40,15 +41,19 @@ public final class MatchHud implements HudRenderCallback {
 
     private static final int ROW_H = 20;
     private static final int HEAD = 16;
-    private static final int PAD_X = 8;
-    private static final int PAD_Y = 4;
-    private static final int NAME_GAP = 4;
-    private static final int BLOCK_GAP = 10;
-    private static final int MIN_H = 28;
+    private static final int PAD_X = 10;
+    private static final int PAD_Y = 5;
+    private static final int NAME_GAP = 5;
+    private static final int BLOCK_GAP = 12;
+    private static final int MIN_H = 30;
     private static final int TOP = 4;
+    private static final float FLASH_TIME = 0.32F;
 
     /** Null means "no match on screen". Replaced wholesale by every payload. */
     private static MatchHudPayload state;
+    private static float appearT;
+    private static float flashT;
+    private static String lastScore = "";
 
     private MatchHud() {
     }
@@ -60,11 +65,17 @@ public final class MatchHud implements HudRenderCallback {
     /** Called on the client thread when a payload arrives. */
     public static void update(MatchHudPayload payload) {
         state = payload != null && payload.active() ? payload : null;
+        if (state != null) {
+            appearT = 0F;
+        }
     }
 
     /** Dropped on disconnect so a stale scoreboard cannot survive into the next server. */
     public static void clear() {
         state = null;
+        appearT = 0F;
+        flashT = 0F;
+        lastScore = "";
     }
 
     @Override
@@ -89,6 +100,20 @@ public final class MatchHud implements HudRenderCallback {
             return;
         }
 
+        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        appearT = PvAnim.damp(appearT, 1F, d, 0.06F);
+
+        // A score change is the one event on this bar worth a flash: the number is 9px tall and sits
+        // between two heads, so without it a round win is easy to miss while fighting.
+        String score = payload.leftScore() + " : " + payload.rightScore();
+        if (!score.equals(lastScore)) {
+            if (!lastScore.isEmpty()) {
+                flashT = 1F;
+            }
+            lastScore = score;
+        }
+        flashT = Math.max(0F, flashT - d / FLASH_TIME);
+
         TextRenderer tr = client.textRenderer;
         int screenW = client.getWindow().getScaledWidth();
 
@@ -104,21 +129,22 @@ public final class MatchHud implements HudRenderCallback {
 
         int barX = (screenW - layout.width()) / 2;
         int barY = TOP;
-        PvDraw.shadow(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS, 2);
+        PvDraw.shadow(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS,
-                PvTheme.PANEL_BORDER, PvTheme.PANEL_BG);
+                PvTheme.alpha(PvTheme.BORDER, appearT),
+                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
                 payload.leftScore(), payload.winsNeeded());
         drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
                 names, payload.rightScore(), payload.winsNeeded());
-        drawCentre(ctx, tr, payload, barX + PAD_X + layout.leftW() + BLOCK_GAP,
+        drawCentre(ctx, tr, payload, score, barX + PAD_X + layout.leftW() + BLOCK_GAP,
                 barY, layout.centreW());
 
         // Divider ticks between the side blocks and the centre, so the three parts read as three
         // parts even when a name happens to be the same colour as the score.
-        int divTop = barY + 5;
-        int divH = layout.height() - 10;
+        int divTop = barY + 6;
+        int divH = layout.height() - 12;
         PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
         PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP + layout.centreW()
                 + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
@@ -174,11 +200,11 @@ public final class MatchHud implements HudRenderCallback {
      * them keeps the centre block narrow enough that a 2v2 bar still fits at 2× GUI scale.</p>
      */
     private static void drawCentre(DrawContext ctx, TextRenderer tr, MatchHudPayload payload,
-                                   int x, int barY, int width) {
+                                   String score, int x, int barY, int width) {
         int centreX = x + width / 2;
-        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 4, PvTheme.TEXT_DIM);
-        PvDraw.textCenter(ctx, tr, payload.leftScore() + " : " + payload.rightScore(),
-                centreX, barY + 14, PvTheme.ACCENT);
+        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 5, PvTheme.TEXT_DIM);
+        int color = PvTheme.mix(PvTheme.ACCENT, 0xFFFFFFFF, flashT * 0.85F);
+        PvDraw.textCenter(ctx, tr, score, centreX, barY + 16, color);
     }
 
     private static void drawSide(DrawContext ctx, TextRenderer tr, MinecraftClient client,
@@ -189,13 +215,14 @@ public final class MatchHud implements HudRenderCallback {
         }
         // A side at match point is tinted, so "one more round and this is over" is readable at a
         // glance without reading the numbers.
-        int tint = score + 1 >= winsNeeded ? PvTheme.OK : PvTheme.TEXT;
+        int tint = score + 1 >= winsNeeded ? PvTheme.LIVE : PvTheme.TEXT;
         int blockH = rows.size() * ROW_H;
         int y = barY + (barH - blockH) / 2;
 
         for (Row row : rows) {
             int headX = left ? edgeX : edgeX - HEAD;
-            PvDraw.roundRect(ctx, headX - 1, y - 1, HEAD + 2, HEAD + 2, 2, PvTheme.SHADOW);
+            PvDraw.roundRect(ctx, headX - 1, y - 1, HEAD + 2, HEAD + 2, 2,
+                    PvTheme.alpha(0xFF000000, 0.55F));
             PlayerSkinDrawer.draw(ctx, skinOf(client, row.uuid()), headX, y, HEAD);
 
             if (names) {

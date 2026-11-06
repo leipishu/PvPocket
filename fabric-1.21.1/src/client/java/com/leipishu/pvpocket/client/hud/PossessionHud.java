@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.hud;
 
+import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.network.PossessPayload;
@@ -41,9 +42,6 @@ public final class PossessionHud implements HudRenderCallback {
     /** Same offset vanilla uses for the hotbar, so the two never disagree about where "bottom" is. */
     private static final int BOTTOM = 22;
 
-    private static final int SLOT_IDLE = 0x24FFFFFF;
-    private static final int SLOT_SELECTED = 0x66FFFFFF;
-
     private static PossessPayload state;
     /** Parsed once per payload rather than once per frame: nine registry lookups per frame is silly. */
     private static ItemStack[] slots = new ItemStack[9];
@@ -51,6 +49,7 @@ public final class PossessionHud implements HudRenderCallback {
     private static float health;
     private static int armor;
     private static int selected;
+    private static float appearT;
 
     private PossessionHud() {
     }
@@ -71,11 +70,13 @@ public final class PossessionHud implements HudRenderCallback {
         armor = payload.armor();
         selected = payload.selected();
         slots = parse(payload.slots());
+        appearT = 0F;
     }
 
     public static void clear() {
         state = null;
         slots = new ItemStack[9];
+        appearT = 0F;
     }
 
     /** True while a body is being ridden, which is also "draw the hotbar". */
@@ -142,25 +143,30 @@ public final class PossessionHud implements HudRenderCallback {
         if (client.player == null || client.options.hudHidden) {
             return;
         }
+        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        appearT = PvAnim.damp(appearT, 1F, d, 0.07F);
         TextRenderer tr = client.textRenderer;
 
         int x = (ctx.getScaledWindowWidth() - PANEL_W) / 2;
         int y = ctx.getScaledWindowHeight() - BOTTOM;
 
-        PvDraw.shadow(ctx, x, y, PANEL_W, PANEL_H, PvTheme.RADIUS, 3);
+        PvDraw.shadow(ctx, x, y, PANEL_W, PANEL_H, PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, x, y, PANEL_W, PANEL_H, PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.ACCENT, 0.55F), 0xE0141721);
+                PvTheme.alpha(PvTheme.BORDER, appearT),
+                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
         for (int i = 0; i < 9; i++) {
             int sx = x + 1 + i * SLOT;
             int sy = y + 1;
             boolean chosen = i == selected;
-            PvDraw.roundRect(ctx, sx, sy, SLOT, SLOT, 2, chosen ? SLOT_SELECTED : SLOT_IDLE);
+            PvDraw.roundRect(ctx, sx, sy, SLOT, SLOT, 3,
+                    PvTheme.alpha(chosen ? PvTheme.CARD_ACTIVE : PvTheme.SUNKEN, appearT));
             if (chosen) {
-                // A brighter ring rather than a brighter fill: the fill is already carrying the
-                // selected state and a second channel would fight the item icon on top of it.
-                PvDraw.roundRect(ctx, sx, sy, SLOT, 2, 1, PvTheme.ACCENT);
-                PvDraw.roundRect(ctx, sx, sy + SLOT - 2, SLOT, 2, 1, PvTheme.ACCENT);
+                // A full rounded ring, one pixel thick, inset by one. The previous version drew two
+                // 2px bars on the top and bottom edges, which read as a strikethrough rather than as
+                // a selection: it framed the slot in one axis and left the other open.
+                PvDraw.ring(ctx, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 3, 1,
+                        PvTheme.alpha(PvTheme.ACCENT, appearT));
             }
             ItemStack stack = i < slots.length ? slots[i] : ItemStack.EMPTY;
             if (stack.isEmpty()) {
@@ -174,7 +180,8 @@ public final class PossessionHud implements HudRenderCallback {
             ctx.drawItemInSlot(tr, stack, sx + 2, sy + 2);
         }
 
-        String label = name + "  ·  HP " + Math.round(health) + "  ·  护甲 " + armor;
-        PvDraw.textCenter(ctx, tr, label, x + PANEL_W / 2, y - 12, PvTheme.TEXT_DIM);
+        String label = name + " · HP " + Math.round(health) + " · 护甲 " + armor;
+        PvDraw.textCenter(ctx, tr, label, x + PANEL_W / 2, y - 12,
+                PvTheme.alpha(PvTheme.TEXT_DIM, appearT));
     }
 }
