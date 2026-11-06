@@ -1997,7 +1997,15 @@ public final class SessionManager {
         String id = uuid.toString();
         for (DuelSession session : sessions.values()) {
             if (session.stage == SessionStage.DRAFT || session.stage == SessionStage.NEGOTIATING) {
-                if (session.isParticipant(id)) {
+                // Only a session this player is still *in*. A refusal — deliberate, or a drop
+                // recorded as one — takes them off the roster, and a session they have already
+                // been removed from is not something they can answer, cancel, or re-propose. It
+                // used to count anyway, which left the one player who could not act on it blocked
+                // by it: /pvpocket duel said "you already have a pending invite" and every action
+                // inside said "nothing is pending". The session still resolves on its own for the
+                // people who are left; it just no longer holds the leaver hostage.
+                Participant p = session.participant(id);
+                if (p != null && !p.rejected) {
                     return session;
                 }
             }
