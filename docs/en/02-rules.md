@@ -67,8 +67,11 @@ what the panel shows.
 > reaches an inventory some other way is refused — otherwise raising it would both take the
 > right-click away from the sword block and block damage outright. Blocking is the state "main hand
 > holds a sword and right-click is down", not a shield: damage becomes `(1 + damage) × 0.5`, movement
-> is ×0.2, four warm brackets appear around the crosshair in first person, and other players see the
-> vanilla blocking arm pose. 1.8 blocking does not reduce knockback, and neither does this.
+> is ×0.2, the blade tilts across the screen in first person (1.8's `doBlockTransformations`, copied
+> as-is) with four warm brackets around the crosshair, and other players see the vanilla blocking arm
+> pose. Sprint is dropped while blocking — in 1.8 that fell out of the movement penalty (the scaled
+> `moveForward` no longer clears the sprint threshold); here it is cleared explicitly. 1.8 blocking
+> does not reduce knockback, and neither does this.
 
 **Loadout** — What you bring in and pick up
 

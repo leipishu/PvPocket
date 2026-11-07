@@ -102,6 +102,13 @@ public abstract class LivingEntityMixin {
      * sending full-speed positions and the server would reject them, producing a visible pull-back
      * every tick. The client's view of the flag comes from {@code CombatStatePayload}, so both sides
      * scale by the same factor and agree.</p>
+     *
+     * <p>Sprint is dropped as well, because 1.8 could not block and sprint at once. There it fell out
+     * of the arithmetic: the scaled {@code moveForward} (1.0 × 0.2) is below the 0.8 the sprint check
+     * wants, so the block cancelled the sprint on the tick it started. 1.21's sprint start has no
+     * "using an item" test at all, so without this a blocking player keeps full sprint speed at 20%
+     * input — noticeably faster than the 1.8 shuffle, and it also keeps the sprint knockback bonus
+     * available while defending.</p>
      */
     @Inject(method = "tickMovement", at = @At("HEAD"))
     private void pvpocket$blockingSlowdown(CallbackInfo ci) {
@@ -109,6 +116,9 @@ public abstract class LivingEntityMixin {
         if (self instanceof PlayerEntity player && CombatState.isBlocking(player.getUuid())) {
             player.sidewaysSpeed *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
             player.forwardSpeed *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
+            if (player.isSprinting()) {
+                player.setSprinting(false);
+            }
         }
     }
 }

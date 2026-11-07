@@ -113,6 +113,7 @@ public final class PvPocketClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             CombatState.clearAll();
             BlockingInput.reset();
+            clearPendingState();
             MatchHud.clear();
             ArenaBounds.clear();
             SpectatorHud.clear();
@@ -129,11 +130,23 @@ public final class PvPocketClient implements ClientModInitializer {
         PvPocket.LOGGER.info("PvPocket client bootstrap complete");
     }
 
+    /**
+     * A payload that arrived before there was a player to attribute it to.
+     *
+     * <p>Round start teleports everybody into the arena dimension and then sends the state, so the
+     * two can land in the same batch. Dropping the payload in that window would leave the mirror on
+     * the previous rule set for the whole round — no blocking intent, no predicted slowdown — and
+     * the symptom is not "the mirror is stale" but "right-click does nothing".
+     */
+    private static CombatStatePayload pending;
+
     private static void apply(CombatStatePayload payload) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null) {
+            pending = payload;
             return;
         }
+        pending = null;
         CombatState.setMode(client.player.getUuid(),
                 payload.legacy() ? CombatMode.LEGACY_1_8 : CombatMode.MODERN);
         CombatState.setBlocking(client.player.getUuid(), payload.blocking());
@@ -143,5 +156,18 @@ public final class PvPocketClient implements ClientModInitializer {
         // An explosion destroys blocks on whichever side runs it, so this has to reach the client or
         // it leaves holes the server never confirms.
         CombatState.setClientExplosivesAllowed(payload.explosives());
+    }
+
+    /** Applies a state payload that had to wait for the player to exist. Called from the client tick. */
+    public static void applyPendingState() {
+        CombatStatePayload waiting = pending;
+        if (waiting != null) {
+            apply(waiting);
+        }
+    }
+
+    /** Drops a waiting payload, so the next join cannot inherit a previous world's rule set. */
+    public static void clearPendingState() {
+        pending = null;
     }
 }
