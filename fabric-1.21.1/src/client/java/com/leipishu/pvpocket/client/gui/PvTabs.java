@@ -8,6 +8,7 @@ import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.sound.SoundEvents;
 
 import java.util.List;
+import java.util.function.IntPredicate;
 
 /**
  * Vertical tab strip for the rule groups, drawn as a sidebar.
@@ -23,33 +24,28 @@ import java.util.List;
 public class PvTabs extends PvWidget {
 
     private static final int INSET = 5;
+    /** Radius of the "this page differs from what was received" dot. */
+    private static final int DOT_R = 2;
 
     private final List<String> labels;
-    /** Right-aligned short badge per tab; null for strips that do not need one. */
-    private final List<String> badges;
     /** Non-null only for the rule-group strip, which is the only caller that needs the group back. */
     private final List<RuleGroup> groups;
     private int selected;
     private Runnable onChange;
+    /**
+     * Asked once per tab per frame; true draws a dot on that tab.
+     *
+     * <p>A predicate rather than a precomputed {@code List<Boolean>}: the values change while the
+     * strip is on screen (a slider is dragged on the page beside it), and a stale copy would leave
+     * the dot off until the next rebuild.</p>
+     */
+    private IntPredicate dirtyTest;
     private int tabHeight = PvTheme.TAB_H;
     private float indicatorY = -1F;
     private float[] hotT = new float[0];
 
     public PvTabs(List<String> labels, int selected) {
-        this(labels, null, null, selected);
-    }
-
-    /**
-     * The rule-group strip.
-     *
-     * <p>A static factory rather than an overload: {@code List<RuleGroup>} and {@code List<String>}
-     * erase to the same constructor signature, so the two variants cannot coexist as constructors.</p>
-     */
-    public static PvTabs ofRules(List<RuleGroup> groups, int selected) {
-        return new PvTabs(
-                groups.stream().map(RuleGroup::label).toList(),
-                groups.stream().map(g -> g.letter).toList(),
-                groups, selected);
+        this(labels, null, selected);
     }
 
     /**
@@ -61,32 +57,38 @@ public class PvTabs extends PvWidget {
      * and its own idea of when a draft is abandoned.</p>
      *
      * <p>The first slot has no {@link RuleGroup}: {@link #group()} returns null for it, which is how
-     * the screen knows to draw the roster board instead of rule rows. The badge is blank because the
-     * other badges are the group letters, and a letter here would claim it is a rule group.</p>
+     * the screen knows to draw the roster board instead of rule rows.</p>
      */
     public static PvTabs ofPanel(List<RuleGroup> groups, String rosterLabel, int selected) {
         List<String> labels = new java.util.ArrayList<>();
-        List<String> badges = new java.util.ArrayList<>();
         List<RuleGroup> slots = new java.util.ArrayList<>();
         labels.add(rosterLabel);
-        badges.add("");
         slots.add(null);
         for (RuleGroup group : groups) {
             labels.add(group.label());
-            badges.add(group.letter);
             slots.add(group);
         }
-        return new PvTabs(labels, badges, slots, selected);
+        return new PvTabs(labels, slots, selected);
     }
 
-    private PvTabs(List<String> labels, List<String> badges, List<RuleGroup> groups, int selected) {
+    private PvTabs(List<String> labels, List<RuleGroup> groups, int selected) {
         this.labels = labels;
-        this.badges = badges;
         this.groups = groups;
         this.selected = selected;
         this.width = 96;
         this.hotT = new float[labels.size()];
         this.height = INSET * 2 + labels.size() * PvTheme.TAB_H + (labels.size() - 1);
+    }
+
+    /**
+     * Marks tabs whose content differs from what the server sent.
+     *
+     * <p>The dot replaced the group letter that used to sit there. The letter was a duplicate of the
+     * rule id prefix — it told the reader something they could not act on — while this space is the
+     * one place where "you changed something in here" can be shown without opening the tab.</p>
+     */
+    public void dirtyTest(IntPredicate test) {
+        this.dirtyTest = test;
     }
 
     /**
@@ -194,14 +196,14 @@ public class PvTabs extends PvWidget {
                     : PvTheme.mix(PvTheme.TEXT_DIM, PvTheme.TEXT, hotT[i]);
             // Labels are measured, not trusted: "Consumables" is 64px in the default font and the
             // strip is 96px wide, so a caller that shrinks the strip would otherwise paint the label
-            // straight over its own edge and into the content beside it.
-            int badgeW = badges == null ? 0 : tr.getWidth(badges.get(i)) + 6;
+            // straight over its own edge and into the content beside it. The dot column is reserved
+            // even when the tab is clean, so a label never shifts sideways when it lights up.
             PvDraw.text(ctx, tr,
-                    PvDraw.fit(tr, labels.get(i), tabWidth() - 10 - badgeW - 2),
+                    PvDraw.fit(tr, labels.get(i), tabWidth() - 10 - (DOT_R * 2 + 8)),
                     tabLeft() + 10, textY, textColor);
-            if (badges != null) {
-                PvDraw.textRight(ctx, tr, badges.get(i), tabLeft() + tabWidth() - 8, textY,
-                        active ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
+            if (dirtyTest != null && dirtyTest.test(i)) {
+                PvDraw.dot(ctx, tabLeft() + tabWidth() - DOT_R - 6, ty + tabHeight / 2, DOT_R,
+                        PvTheme.ACCENT);
             }
         }
 

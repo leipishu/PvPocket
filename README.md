@@ -73,6 +73,16 @@ JVM 会抢 `logs/latest.log`（输的一方静默丢日志），`options.txt`、
 用户名也必须不同：开发客户端默认用操作系统用户名登录，两个客户端会变成同一个玩家，后加入的会把先
 加入的顶掉。
 
+五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`fabric-1.21.1 >
+Tasks > fabric > runClient` … `runServer`），不用开终端，也不用维护运行配置。客户端默认已经连到
+`localhost:25565` 且堆上限 1G，点开就是可玩状态：
+
+| 参数 | 默认 | 用途 |
+| --- | --- | --- |
+| `-PquickJoin=<host:port>` | `localhost:25565` | 连别的地址 |
+| `-PquickJoin=off` | — | 停在标题界面（服务端没起、只想看界面时） |
+| `-PclientHeap=<size>` | `1G` | 抬客户端堆上限 |
+
 ```bash
 # 终端 1：共享服务端，保持前台运行（这样控制台还能输入 stop / op / pvpocket）
 cd fabric-1.21.1 && ./gradlew runServer
@@ -83,15 +93,12 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh         # 三个，第三个用来看观�
 PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
 ```
 
-第四个客户端不接进脚本，单独起：
-
-```bash
-cd fabric-1.21.1 && ./gradlew runClient4 -PquickJoin=localhost:25565
-```
+脚本只是 `runClient` / `runClient2` / … 的批量包装，单独起某一个用任务名即可（`./gradlew runClient3`），
+在 IDEA 的 Gradle 面板里则是分别双击。
 
 三个 JVM 对一台开发机来说是重的，第三个客户端有时会在标题界面卡住不自动加入（`quickPlay` 没触发），
-关掉重开即可。不带 `-PquickJoin` 单独运行时客户端停在标题界面，也可以手动「对局域网开放」再让另一个
-客户端直连——但端口每次随机，日常测试优先用上面的专用服务端。
+关掉重开即可。服务端没起时客户端会停在「连接失败」，点「返回标题界面」再手动连——日常测试优先用
+上面的专用服务端。
 
 ## 仓库结构
 

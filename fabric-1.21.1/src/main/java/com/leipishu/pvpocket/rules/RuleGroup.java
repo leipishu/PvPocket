@@ -9,9 +9,10 @@ import net.minecraft.text.MutableText;
  * and makes a partially-known rule set (client built from an older jar) fail loudly instead of
  * silently landing in the wrong tab.
  *
- * <p>The letter doubles as the translation key suffix: the tab strip reads
- * {@code pvpocket.rule.group.<letter>}, and the badge beside it shows the letter itself, which is
- * language-neutral and therefore not translated.</p>
+ * <p>The letter also picks the translation key: the tab strip reads
+ * {@code pvpocket.rule.group.<letter>}. It is not shown anywhere — the tab strip used to print it
+ * beside the label, which repeated a prefix the player never types; that space now holds the
+ * "this page has unsaved changes" dot.</p>
  */
 public enum RuleGroup {
 

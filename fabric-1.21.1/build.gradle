@@ -28,9 +28,12 @@ loom {
         }
     }
 
-    // Two independent dev clients so a duel can actually be played, plus a dedicated server as the
-    // shared room. Every run directory lives under runs/ so the project root stays readable; each
-    // one is still a separate directory, which is mandatory rather than cosmetic:
+    // Four dev clients plus a dedicated server as the shared room. Each one is a Gradle task —
+    // runClient, runClient2..runClient4, runServer — so it can be launched from IDEA's Gradle tool
+    // window (Tasks > fabric) without a terminal and without a run configuration to maintain.
+    //
+    // Every run directory lives under runs/ so the project root stays readable; each one is still a
+    // separate directory, which is mandatory rather than cosmetic:
     //   - Minecraft writes logs/latest.log with a rolling file appender. Two JVMs in one directory
     //     fight over the same file and the loser silently loses its log, which is the main debug
     //     surface for this project.
@@ -55,7 +58,8 @@ loom {
         }
         // A third client exists for one reason: spectating cannot be tested with two players, because
         // both of them are in the duel. Three JVMs is heavy, so it is opt-in — nothing starts it
-        // unless PVP_CLIENTS=3 is passed to scripts/dev-2clients.sh.
+        // unless it is launched on purpose (runClient3 in the Gradle panel, or PVP_CLIENTS=3 on
+        // scripts/dev-2clients.sh).
         client3 {
             client()
             configName = "Minecraft Client (Dev3)"
@@ -79,27 +83,31 @@ loom {
     }
 }
 
-// Passing -PquickJoin=localhost:25565 makes both dev clients skip the title screen and connect
-// straight to the shared room. Left off by default so a bare `runClient` still starts normally.
-def quickJoin = project.findProperty("quickJoin")
-if (quickJoin) {
-    loom.runs.configureEach { run ->
-        if (run.environment == "client") {
-            run.programArgs("--quickPlayMultiplayer", quickJoin.toString())
-        }
-    }
-}
+// Every dev client starts already connected to the shared room and with a capped heap, with no
+// -P flags. Both used to be opt-in properties, which made the tasks in IDEA's Gradle panel
+// half-configured: runClient launched from the panel landed on the title screen and asked the JVM
+// for two gigabytes. A dev client that has to be configured before it is useful is a dev client
+// nobody launches from the panel.
+//
+// Overrides: -PquickJoin=<host:port> points elsewhere, -PquickJoin=off leaves the client at the
+// title screen (for when the room is down), -PclientHeap=<size> raises the cap.
+def quickJoin = project.hasProperty("quickJoin")
+        ? project.property("quickJoin").toString()
+        : "localhost:25565"
+def clientHeap = project.hasProperty("clientHeap")
+        ? project.property("clientHeap").toString()
+        : "1G"
 
-// -PclientHeap=900M caps the heap of every dev client. Testing a 2v2 means four clients and a
-// server at once, and Loom's default client heap turns that into eight gigabytes of JVM — which is
-// more than a laptop will spare, so the test that matters most becomes the one that cannot be run.
-// Left unset by default so a bare runClient behaves exactly as before.
-if (project.hasProperty("clientHeap")) {
-    def heap = project.property("clientHeap").toString()
-    loom.runs.configureEach { run ->
-        if (run.environment == "client") {
-            run.vmArg "-Xmx${heap}".toString()
+// Data generation is a client run as far as Loom is concerned, but it never opens a window and
+// must not be told to connect to a server; it is the one client run that is not a dev client.
+def devClient = { run -> run.environment == "client" && run.name != "datagen" }
+
+loom.runs.configureEach { run ->
+    if (devClient(run)) {
+        if (quickJoin != "off" && !quickJoin.isEmpty()) {
+            run.programArgs("--quickPlayMultiplayer", quickJoin)
         }
+        run.vmArg "-Xmx${clientHeap}".toString()
     }
 }
 
@@ -119,6 +127,12 @@ fabricApi {
         client = true
     }
 }
+
+// Loom's data-generation run is a child of the client run, so it inherits the dev client's username,
+// window size and auto-join. It opens no window and must not try to connect anywhere, so its program
+// arguments are cleared back to nothing — it only needs the -Dfabric-api.datagen system properties
+// that Loom adds itself.
+loom.runs.named("datagen") { it.programArgs.clear() }
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"

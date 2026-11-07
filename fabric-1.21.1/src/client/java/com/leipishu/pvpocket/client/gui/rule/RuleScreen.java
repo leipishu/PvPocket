@@ -29,6 +29,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -72,6 +73,10 @@ public class RuleScreen extends PvScreen {
     private PvScrollPane pane;
     private RosterBoard board;
     private PvButton addTeamButton;
+    /** Footer buttons, kept so the footer can be rebuilt without leaving orphans in {@link #roots}. */
+    private final List<PvButton> footerButtons = new ArrayList<>();
+    /** Whether the current footer contains 还原; the footer is rebuilt when this flips. */
+    private boolean footerHasRevert;
     private int footerTextRight;
     private boolean submitted;
 
@@ -108,6 +113,7 @@ public class RuleScreen extends PvScreen {
         // The roster is tab 0 and the opening tab: the first question of an invite is who is in it,
         // and the rules only mean anything once there is a match to apply them to.
         tabs = PvTabs.ofPanel(groups, PvLang.str("pvpocket.gui.roster.tab"), keepTab);
+        tabs.dirtyTest(this::groupDirty);
         tabs.x = panelX + 12;
         tabs.y = contentTop;
         tabs.width = tabsW;
@@ -391,6 +397,11 @@ public class RuleScreen extends PvScreen {
     }
 
     private void buildFooter() {
+        // Rebuild-safe: the footer is rebuilt when the edit count crosses zero (see syncFooter), and
+        // without this the old buttons would stay in the root list and both sets would be drawn.
+        roots.removeAll(footerButtons);
+        footerButtons.clear();
+
         int buttonY = panelY + panelH - FOOTER_H + 7;
         int right = panelX + panelW - 12;
 
@@ -429,7 +440,12 @@ public class RuleScreen extends PvScreen {
 
         // Revert lives at the far end of the button row so it never sits where the confirm button
         // is expected, but is still available the moment anything has been touched.
-        if (changeCount() > 0) {
+        //
+        // Not in a draft: there 还原 would also clear the sides the player has just placed (a draft's
+        // roster counts as "received"), and a button that wipes five clicks of setup must not sit
+        // next to 发送邀请.
+        footerHasRevert = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
+        if (footerHasRevert) {
             PvButton revert = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
                     PvButton.Style.GHOST, this::revert)
                     .size(50, PvTheme.BTN_H);
@@ -459,13 +475,31 @@ public class RuleScreen extends PvScreen {
         button.x = right - button.width;
         button.y = y;
         roots.add(button);
+        footerButtons.add(button);
         return button.x - 8;
+    }
+
+    /**
+     * Adds or removes 还原 as the edit count crosses zero.
+     *
+     * <p>The footer used to be built only from {@code init()}, so the button appeared after a window
+     * resize and not when the player actually changed a rule — the one moment it means anything.
+     * Rebuilding on the transition instead of every frame keeps the buttons from being torn down and
+     * recreated in the middle of a slider drag.</p>
+     */
+    private void syncFooter() {
+        boolean want = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
+        if (want != footerHasRevert) {
+            buildFooter();
+        }
     }
 
     // ------------------------------------------------------------------ rendering
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        // Before anything is drawn, so a footer button that just appeared is laid out this frame.
+        syncFooter();
         TextRenderer tr = font();
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
@@ -713,6 +747,25 @@ public class RuleScreen extends PvScreen {
             }
         }
         return n;
+    }
+
+    /**
+     * Whether any rule on that tab differs from what the server sent — the tab strip's dot.
+     *
+     * <p>Index 0 is the roster and never gets a dot: the sides are the player's own work, and every
+     * card already shows what was placed, so the dot would be lit from the moment the panel opens
+     * and would mean nothing.</p>
+     */
+    private boolean groupDirty(int index) {
+        if (index <= 0 || index > groups.size()) {
+            return false;
+        }
+        for (RuleDefinition def : RuleCatalog.of(groups.get(index - 1))) {
+            if (edited.get(def.id) != incoming.get(def.id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void revert() {
