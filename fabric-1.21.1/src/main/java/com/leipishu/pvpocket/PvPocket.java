@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket;
 
+import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.command.PvPocketCommands;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.session.SessionManager;
@@ -10,9 +12,12 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.TypedActionResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -110,6 +115,22 @@ public final class PvPocket implements ModInitializer {
         // resulting change is handled separately by the World mixin, which also sees explosions.
         PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) ->
                 com.leipishu.pvpocket.arena.ArenaManager.allowBreak(world, player, pos));
+
+        // The item half of the use gate: ender pearls, consumables and the buckets `f.blockFilter`
+        // bans. Placement is not here — it goes through `ItemStack#useOnBlock` and is vetoed by
+        // `ItemStackMixin`, because `interactItem` only runs once `interactBlock` has declined.
+        UseItemCallback.EVENT.register((player, world, hand) -> {
+            ItemStack stack = player.getStackInHand(hand);
+            UsePolicy.Denial denial = UsePolicy.useDenial(
+                    CombatState.useGate(player.getUuid()),
+                    CombatState.useBans(player.getUuid()),
+                    stack);
+            if (denial == UsePolicy.Denial.NONE) {
+                return TypedActionResult.pass(stack);
+            }
+            SessionManager.reportUseDenial(player, denial, stack);
+            return TypedActionResult.fail(stack);
+        });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 PvPocketCommands.register(dispatcher));

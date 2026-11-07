@@ -230,6 +230,8 @@ public final class PvPocketNetworking {
         }
         ServerPlayNetworking.send(player, new CombatStatePayload(
                 CombatState.isLegacy(player.getUuid()),
-                CombatState.isBlocking(player.getUuid())));
+                CombatState.isBlocking(player.getUuid()),
+                CombatState.useGate(player.getUuid()),
+                CombatState.useBans(player.getUuid())));
     }
 }

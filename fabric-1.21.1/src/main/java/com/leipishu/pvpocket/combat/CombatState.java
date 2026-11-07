@@ -19,6 +19,8 @@ public final class CombatState {
 
     private static final Map<UUID, CombatMode> MODES = new ConcurrentHashMap<>();
     private static final Set<UUID> BLOCKING = ConcurrentHashMap.newKeySet();
+    private static final Map<UUID, Integer> USE_GATES = new ConcurrentHashMap<>();
+    private static final Map<UUID, Integer> USE_BANS = new ConcurrentHashMap<>();
 
     private CombatState() {
     }
@@ -54,14 +56,47 @@ public final class CombatState {
         return BLOCKING.contains(player);
     }
 
+    /**
+     * The item-use gate and the block-filter ban mask for this round.
+     *
+     * <p>Stored rather than derived because the client has to ask the same question and cannot see
+     * a {@code DuelSession}. The session layer writes both when a round starts and
+     * {@link #clear} drops them, which makes "not in a round" and "nothing restricted" the same
+     * state — the maps stay empty and every lookup falls back to {@link UsePolicy#ALL}.</p>
+     */
+    public static void setUseGate(UUID player, int gate, int bans) {
+        if (gate == UsePolicy.ALL) {
+            USE_GATES.remove(player);
+        } else {
+            USE_GATES.put(player, gate);
+        }
+        if (bans == 0) {
+            USE_BANS.remove(player);
+        } else {
+            USE_BANS.put(player, bans);
+        }
+    }
+
+    public static int useGate(UUID player) {
+        return USE_GATES.getOrDefault(player, UsePolicy.ALL);
+    }
+
+    public static int useBans(UUID player) {
+        return USE_BANS.getOrDefault(player, 0);
+    }
+
     /** Drops every trace of a player. Called on settle, disconnect and shutdown. */
     public static void clear(UUID player) {
         MODES.remove(player);
         BLOCKING.remove(player);
+        USE_GATES.remove(player);
+        USE_BANS.remove(player);
     }
 
     public static void clearAll() {
         MODES.clear();
         BLOCKING.clear();
+        USE_GATES.clear();
+        USE_BANS.clear();
     }
 }

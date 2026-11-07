@@ -74,7 +74,7 @@
 
 **方块** — 放置、破坏与爆炸
 
-- **允许放置方块** — `f.allowPlace` · 开关 · 默认 关。开启后可以在场地内放置白名单内的方块。
+- **允许放置方块** — `f.allowPlace` · 开关 · 默认 开。关闭后场地内不能放置任何方块。「方块限制」里勾选的仍然禁止。
 - **地形保护** — `f.protectTerrain` · 开关 · 默认 开。开启后地图本身的方块不可破坏，只有本局放置的方块能拆。关闭后可以挖穿场地，本局结束时地形仍会复原。
 - **允许拆除自己放置的方块** — `f.allowBreakOwn` · 开关 · 默认 开。只对本次对局中放置的方块生效，场地本体是否可破坏由「地形保护」决定。
 - **方块限制** — `f.blockFilter` · 多选 · 床 / 重生锚 / TNT / 流体桶 / 末地水晶。选中的项目会被禁止使用。默认禁掉床、重生锚、TNT 与流体桶。
@@ -89,31 +89,32 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 29 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 33 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 29 条真正影响对局，10 条仅记录。**
+**当前 33 条真正影响对局，6 条仅记录。**
 
-### 已生效（29 条）
+### 已生效（33 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
-| D | `d.loadoutScope` |
+| D | `d.loadoutScope`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
-| F | `f.protectTerrain`、`f.allowBreakOwn` |
-| G | `g.allowSurrender` |
+| F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
+| G | `g.enderPearl`、`g.allowSurrender` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
 调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
-切片接上的，A 组后三条是「计时与胜负」切片接上的，各自的读取点：
+切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
+各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -149,28 +150,37 @@ A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
   **「击杀」不能取消**：一局不可能既「不因团灭结束」又「因团灭结束」，真要那么做只能让被团灭
   的一方复活继续，那是另一种模式。所以这一位在面板上是锁住的（`RuleCatalog.lockedBits`），
   `DuelRules.set` 也会把它强制补回去——手搓封包也改不动。
+- **`f.allowPlace` / `f.blockFilter` / `d.allowConsumables` / `g.enderPearl`** — 四条走同一套
+  「使用门禁」：规则值在开局时压成两个掩码（`gate` 与 `bans`）写进 `CombatState`，判定集中在
+  `combat/UsePolicy`，两个入口各拦一次——放置走 `ItemStackMixin` 注入的 `ItemStack#useOnBlock`，
+  其余走 `UseItemCallback`。
 
-### 仅记录（10 条）
+  分开拦的原因不是洁癖：`useOnBlock` 被拒绝时返回 `PASS` 而不是 `FAIL`，调用方会继续走方块自己
+  的 `onUse`，所以「手里的泥土不让放」不会顺带把箱子的开合也吞掉；反过来在 `interactBlock` 上拦
+  就会。水桶则相反，它是在 `BucketItem#use` 里倒水的，和放置开关无关，只受「流体桶」那条限制。
 
-`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、
-`f.allowPlace`、`f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、
-`g.showOpponentHealth`
+  **两个掩码要发给客户端。** 客户端不自己推导规则，但如果它不知道这次放置会被拒绝，它会照常
+  预测、把方块放进本地世界，而服务端从不下发那块方块——玩家会看见一块只有自己看得见的方块。
+  所以 `gate`/`bans` 随 `CombatStatePayload` 一起下发，两边问 `UsePolicy` 同一个问题、得到同一个
+  答案。服务端仍然是唯一的裁决者，客户端的这份只是让预测别跑偏。
+
+  提示消息只有服务端发，并且限流 20 tick 一次：按住右键不放会每隔几 tick 重试一次放置，一秒五
+  条不是解释，是刷屏。「方块限制」被触发时会点名是哪一项，而不是只说「有东西被禁了」。
+
+### 仅记录（6 条）
+
+`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`f.allowExplosives`、
+`g.chatScope`、`g.showOpponentHealth`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
-
-其中一条的落差最容易误导人，单独说明：
-
-- **`f.allowPlace`**：默认关闭，但**关闭状态下依然可以放方块**——方块放置没有任何拦截，
-  只有破坏被 `PlayerBlockBreakEvents.BEFORE` 否决。所有方块变化都会在结算时回滚，所以不会
-  污染下一局，只是这条开关本身不成立。
 
 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，只用来在面板上说明「1.8 模式与某些
 规则冲突」，没有取值可言。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（方块变更集、聊天过滤、交互拦截）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
-但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
+（交互拦截、爆炸判定、聊天过滤、HUD）。保留「已声明但未执行」的状态比删掉再重新加回来更容易
+收敛，但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
 不要让它和代码各说各话。
 
 ## 4. 赛制换算

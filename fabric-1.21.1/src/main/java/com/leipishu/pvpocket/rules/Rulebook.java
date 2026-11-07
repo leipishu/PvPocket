@@ -133,7 +133,37 @@ public final class Rulebook {
         return rules.get("c.knockbackResistance") / 100.0D;
     }
 
+    // ------------------------------------------------------------------ D. 配装
+
+    /** {@code d.allowConsumables}: potions, food and golden apples. */
+    public boolean allowConsumables() {
+        return rules.flag("d.allowConsumables");
+    }
+
+    // ------------------------------------------------------------------ F. 方块
+
+    /**
+     * {@code f.allowPlace}: whether a player may put a block down inside the arena.
+     *
+     * <p>Placing is not the same question as breaking. {@code f.protectTerrain} guards the map, and
+     * the placement itself is recorded in the plot's deviation set and rolled back at settle — so
+     * this switch is about what a round plays like, not about leaving a mess behind.</p>
+     */
+    public boolean allowPlace() {
+        return rules.flag("f.allowPlace");
+    }
+
+    /** {@code f.blockFilter} as a raw ban mask; {@code UsePolicy} knows what the bits mean. */
+    public int blockBans() {
+        return rules.get("f.blockFilter");
+    }
+
     // ------------------------------------------------------------------ G. 其他
+
+    /** {@code g.enderPearl}: whether pearls can be thrown. */
+    public boolean allowEnderPearl() {
+        return rules.flag("g.enderPearl");
+    }
 
     /** {@code g.allowSurrender}: whether the surrender command is available at all. */
     public boolean allowSurrender() {

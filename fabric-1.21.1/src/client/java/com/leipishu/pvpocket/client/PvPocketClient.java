@@ -137,5 +137,8 @@ public final class PvPocketClient implements ClientModInitializer {
         CombatState.setMode(client.player.getUuid(),
                 payload.legacy() ? CombatMode.LEGACY_1_8 : CombatMode.MODERN);
         CombatState.setBlocking(client.player.getUuid(), payload.blocking());
+        // Without this the client predicts a placement the server refuses and keeps a block only it
+        // can see; the same mask makes both sides reach the same answer.
+        CombatState.setUseGate(client.player.getUuid(), payload.useGate(), payload.bans());
     }
 }

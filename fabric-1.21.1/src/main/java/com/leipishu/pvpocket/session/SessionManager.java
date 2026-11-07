@@ -7,6 +7,7 @@ import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
@@ -26,6 +27,8 @@ import com.leipishu.pvpocket.storage.SessionJournal;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.damage.DamageTypes;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
 import net.minecraft.registry.tag.DamageTypeTags;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -708,6 +711,75 @@ public final class SessionManager {
         }
         DuelSession session = manager.sessions.get(id);
         return session != null && session.stage == SessionStage.ROUND_ACTIVE ? session : null;
+    }
+
+    /** Minimum gap between two "you cannot use that" hints, in ticks. */
+    private static final int USE_WARN_COOLDOWN = 20;
+
+    /**
+     * Last tick each player was told why their click did nothing. Server thread only — the client
+     * copy of the veto returns before it touches this, and a client that never sees the map cannot
+     * race it.
+     */
+    private static final Map<UUID, Integer> useWarnAt = new HashMap<>();
+
+    /**
+     * Tells a player why their click did nothing.
+     *
+     * <p>Only the server speaks. The client runs the same veto so its prediction stays honest, but a
+     * sentence from there would be a local guess at the server's reason. Throttled because holding
+     * right-click with a banned block re-attempts the placement every few ticks, and five lines a
+     * second is not an explanation, it is a wall.</p>
+     */
+    public static void reportUseDenial(PlayerEntity player, UsePolicy.Denial denial, ItemStack stack) {
+        if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayerEntity server)) {
+            return;
+        }
+        MinecraftServer mc = server.getServer();
+        if (mc == null) {
+            return;
+        }
+        int now = mc.getTicks();
+        Integer last = useWarnAt.get(server.getUuid());
+        if (last != null && now - last < USE_WARN_COOLDOWN) {
+            return;
+        }
+        useWarnAt.put(server.getUuid(), now);
+        MutableText message = switch (denial) {
+            case PLACE -> PvLang.t("pvpocket.msg.use.place");
+            // Named, not generic: "方块限制" is five switches, and "something is banned" leaves the
+            // player ticking all five to find out which one they tripped.
+            case BANNED -> PvLang.t("pvpocket.msg.use.banned", PvLang.t(
+                    "pvpocket.rule.f.blockFilter.c" + UsePolicy.banIndex(UsePolicy.banOf(stack))));
+            case CONSUMABLE -> PvLang.t("pvpocket.msg.use.consumable");
+            case PEARL -> PvLang.t("pvpocket.msg.use.pearl");
+            case NONE -> null;
+        };
+        if (message != null) {
+            server.sendMessage(message.formatted(Formatting.GRAY), true);
+        }
+    }
+
+    /**
+     * Publishes this round's item-use gate to both sides.
+     *
+     * <p>Assembled here rather than inside {@code Rulebook} so the rules layer stays free of the
+     * combat layer's bit layout: the rulebook answers "is placing allowed", the gate is how that
+     * answer is shipped.</p>
+     */
+    private static void applyUseGate(DuelSession session, ServerPlayerEntity player) {
+        Rulebook book = session.rulebook();
+        int gate = 0;
+        if (book.allowPlace()) {
+            gate |= UsePolicy.ALLOW_PLACE;
+        }
+        if (book.allowConsumables()) {
+            gate |= UsePolicy.ALLOW_CONSUMABLES;
+        }
+        if (book.allowEnderPearl()) {
+            gate |= UsePolicy.ALLOW_ENDER_PEARL;
+        }
+        CombatState.setUseGate(player.getUuid(), gate, book.blockBans());
     }
 
     /**
@@ -2588,6 +2660,9 @@ public final class SessionManager {
             // but health and effects are not items.
             resetRoundState(player, maxHealth);
             CombatState.setMode(player.getUuid(), mode);
+            // The item-use gate travels the same path as the mode, for the same reason: the client
+            // has to refuse a placement before it predicts one, and only the server knows the rules.
+            applyUseGate(session, player);
             // Loadout is granted here, not at freeze(): the snapshot must contain the survival
             // inventory, so anything written before it would be captured as if the player owned it.
             // Re-granting each round is also what "每一小局结束物品恢复到最初状态" means: grant()

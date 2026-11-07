@@ -83,7 +83,7 @@ what the panel shows.
 
 **Blocks** — Placing, breaking, explosives
 
-- **Allow placing blocks** — `f.allowPlace` · toggle · default Off. When on, whitelisted blocks can be placed inside the arena.
+- **Allow placing blocks** — `f.allowPlace` · toggle · default On. When off, no blocks can be placed inside the arena. Entries ticked under Block restrictions stay banned either way.
 - **Terrain protection** — `f.protectTerrain` · toggle · default On. When on, the map's own blocks cannot be broken and only blocks placed this round can be removed. When off the plot can be dug through, and the terrain is still restored when the round ends.
 - **Allow breaking your own blocks** — `f.allowBreakOwn` · toggle · default On. Applies only to blocks placed during this duel; whether the map itself can be broken is up to Terrain protection.
 - **Block restrictions** — `f.blockFilter` · multi · Beds / Respawn anchors / TNT / Fluid buckets / End crystals. Selected entries are banned. Beds, respawn anchors, TNT and fluid buckets are banned by default.
@@ -99,30 +99,31 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 29 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and 33 of those currently affect a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (29)
+### In effect (33)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
-| D | `d.loadoutScope` |
+| D | `d.loadoutScope`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
-| F | `f.protectTerrain`, `f.allowBreakOwn` |
-| G | `g.allowSurrender` |
+| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
+| G | `g.enderPearl`, `g.allowSurrender` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
 there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
 is not wired up.
 
 The first two in group A arrived with the series split, the four in group B were wired up together
-with NvN, the eight in groups C/E with the damage-and-survival slice, and the last three in group A
-with the timing-and-outcome slice. Where each one is read:
+with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
+the timing-and-outcome slice, and the four in D/F/G with the use-restriction slice. Where each one
+is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -169,29 +170,43 @@ with the timing-and-outcome slice. Where each one is read:
   cannot both not end on a wipe and end on a wipe; making that real would mean respawning the wiped
   side, which is a different mode. So that bit is locked in the panel (`RuleCatalog.lockedBits`) and
   `DuelRules.set` forces it back — a hand-rolled packet cannot change it either.
+- **`f.allowPlace` / `f.blockFilter` / `d.allowConsumables` / `g.enderPearl`** — all four run through
+  one use gate: the rule values are packed into two masks (`gate` and `bans`) at round start, written
+  into `CombatState`, and the decision lives in `combat/UsePolicy`. There are two entry points —
+  placement through `ItemStack#useOnBlock` (the `ItemStackMixin` injection) and everything else
+  through `UseItemCallback`.
 
-### Recorded only (10)
+  Splitting them is not tidiness. A refused `useOnBlock` returns `PASS` rather than `FAIL`, so the
+  caller goes on to the block's own `onUse` — "the dirt in your hand is refused" therefore does not
+  also swallow opening a chest. Vetoing in `interactBlock` instead would. Buckets are the mirror
+  case: `BucketItem#use` is what pours the water, so filling one has nothing to do with the
+  placement switch and only the fluid-bucket restriction touches it.
 
-`d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`,
-`f.allowPlace`, `f.allowExplosives`, `f.blockFilter`, `g.enderPearl`, `g.chatScope`,
-`g.showOpponentHealth`
+  **Both masks are shipped to the client.** The client never derives rules, but if it does not know
+  a placement will be refused it predicts one, puts the block in its own world, and the server never
+  confirms it — a block only the placer can see. So `gate`/`bans` ride along in
+  `CombatStatePayload`, both sides ask `UsePolicy` the same question, and get the same answer. The
+  server remains the only arbiter; the client's copy just keeps the prediction honest.
+
+  The message is server-only and throttled to one per 20 ticks: holding right-click re-attempts the
+  placement every few ticks, and five lines a second is a wall, not an explanation. A
+  `f.blockFilter` refusal names the entry that was tripped rather than saying "something is banned".
+
+### Recorded only (6)
+
+`d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `f.allowExplosives`,
+`g.chatScope`, `g.showOpponentHealth`
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
-
-One of them misleads more than the rest and is worth calling out:
-
-- **`f.allowPlace`** — off by default, yet **blocks can be placed with it off**: placement is never
-  vetoed, only breaking is (`PlayerBlockBreakEvents.BEFORE`). Every change is rolled back at settle,
-  so the next duel is unaffected — the switch itself just does not hold.
 
 There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "1.8 mode conflicts with
 some rules" note; it has no value.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (block change set, chat filtering, interaction gates). Keeping
-a declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
-closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
+work is spread across several slices (interaction gates, explosion checks, chat filtering, the HUD).
+Keeping a declared-but-unenforced state converges faster than removing and re-adding. The backlog is
+being closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
 document and the code cannot drift apart. **Any public claim about features must follow this
 section, not the panel.**
 

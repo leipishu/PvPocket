@@ -93,7 +93,10 @@ public final class RuleCatalog {
         add(RuleDefinition.multi("e.hazard", RuleGroup.E, 0b1110, choices("e.hazard", 4)));
 
         // F. 方块
-        add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, false));
+        // 默认开启：默认配装里就有 32 个羊毛，一条「默认关闭」的放置开关会让这份配装自带一叠
+        // 用不出去的方块。地图本身由 f.protectTerrain 保护，放置又会在结算时整体回滚，所以
+        // 「允许放」不会留下残局；真正需要拦的是 f.blockFilter 里那几种改变格局的东西。
+        add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, true));
         add(RuleDefinition.toggle("f.protectTerrain", RuleGroup.F, true));
         add(RuleDefinition.toggle("f.allowBreakOwn", RuleGroup.F, true));
         add(RuleDefinition.multi("f.blockFilter", RuleGroup.F, 0b1111, choices("f.blockFilter", 5)));
