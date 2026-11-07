@@ -108,6 +108,17 @@ public abstract class PvWidget {
     }
 
     /**
+     * One typed character. Only text fields care; everything else declines.
+     *
+     * <p>Separate from {@link #keyPressed} because vanilla delivers them on separate paths and the
+     * distinction matters: Backspace is a key, "a" is a character, and a keyboard layout that puts
+     * "a" somewhere else still produces "a".</p>
+     */
+    public boolean charTyped(char chr, int modifiers) {
+        return false;
+    }
+
+    /**
      * The tooltip that should be shown for this position, or null.
      *
      * <p>Asked of the tree rather than tracked as "the hovered widget" so that containers can
@@ -119,6 +130,17 @@ public abstract class PvWidget {
 
     /** Keyboard activation (Enter / Space). No-op for widgets that cannot be activated. */
     public void activate() {
+    }
+
+    /**
+     * Called when the screen takes this widget off the modal layer, whichever way it left.
+     *
+     * <p>Esc is handled by {@link PvScreen} itself, so a dialog that only cleaned up inside its own
+     * close button would leak whatever it registered on the way in — a stale listener reacting to the
+     * next dialog's packet is exactly the failure that hides until somebody opens the panel twice.
+     * Widgets that register nothing can leave this empty.</p>
+     */
+    public void dismissed() {
     }
 
     /** Keyboard value change (Left / Right). No-op for widgets without a value. */

@@ -7,6 +7,7 @@ import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvScrollPane;
 import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.client.gui.preset.PresetOverlay;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.ItemKind;
@@ -16,6 +17,7 @@ import com.leipishu.pvpocket.loadout.LoadoutEntry;
 import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
+import com.leipishu.pvpocket.preset.PresetKind;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -75,6 +77,7 @@ public class LoadoutScreen extends PvScreen {
 
     private PvTabs tabs;
     private PvScrollPane listPane;
+    private PvButton presetButton;
     private String note;
     private int footerTextRight;
 
@@ -136,6 +139,13 @@ public class LoadoutScreen extends PvScreen {
 
         rebuildList();
         buildFooter();
+        // In the title row, not the footer: the footer already carries 保存 / 还原 / 返回 and the
+        // three of them plus their gaps are the whole line on a 426px canvas. Presets are also a
+        // panel-level verb rather than a commit, which is exactly what the title row is for.
+        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
+        presetButton.x = panelX + panelW - 12 - presetButton.width;
+        presetButton.y = panelY + 5;
+        roots.add(presetButton);
         setFocus(null);
     }
 
@@ -317,7 +327,9 @@ public class LoadoutScreen extends PvScreen {
 
         String digest = loadout.digest();
         int digestW = tr.getWidth(digest) + 12;
-        int digestX = panelX + panelW - 12 - digestW;
+        // The digest is what the other side has to agree to, so it stays; the preset link is what
+        // gives up its space when the title is long, by being pushed left of the digest.
+        int digestX = presetButton.x - 6 - digestW;
         PvDraw.roundRect(ctx, digestX, panelY + 6, digestW, 14, 3, PvTheme.ACCENT_SOFT);
         PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, panelY + 9, PvTheme.ACCENT);
 
@@ -431,6 +443,33 @@ public class LoadoutScreen extends PvScreen {
 
     private boolean isDirty() {
         return !loadout.encode().equals(baseline.encode());
+    }
+
+    /**
+     * The preset dialog, opened over this screen.
+     *
+     * <p>The snapshot is the live loadout, unsaved changes included — a player who has just moved
+     * three swords around and then decides to keep the arrangement expects to keep the arrangement,
+     * not the last thing they pressed 保存 on. Loading a preset does not submit anything either: it
+     * replaces what is in the editor, and 保存 still decides whether the duel sees it.</p>
+     */
+    private void openPresets() {
+        setOverlay(new PresetOverlay(PresetKind.LOADOUT,
+                () -> loadout.encode(),
+                this::applyPreset,
+                () -> setOverlay(null)));
+    }
+
+    private void applyPreset(String encoded) {
+        Loadout decoded = Loadout.decode(encoded);
+        decoded.autoAssignSlots();
+        loadout.entries.clear();
+        loadout.entries.addAll(decoded.entries);
+        loadout.name = decoded.name;
+        selected = -1;
+        note = PvLang.str("pvpocket.gui.loadout.note.preset_loaded",
+                PvLang.str(decoded.displayName()));
+        rebuildList();
     }
 
     private void resetToPreset() {

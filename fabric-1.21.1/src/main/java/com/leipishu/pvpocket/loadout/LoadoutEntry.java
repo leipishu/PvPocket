@@ -35,8 +35,14 @@ public final class LoadoutEntry {
     /** Bitmask of {@link WeaponFlag}. */
     public int flags = 0;
 
-    /** Arrows granted alongside a bow that does not have Infinity. */
-    public int arrowCount = 0;
+    /**
+     * Size of the second stack this entry also grants.
+     *
+     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT — one field because
+     * it is one concept: "how many of the thing this needs beside it". The wire position is
+     * unchanged from when it was called {@code companionCount}, so old presets still decode.</p>
+     */
+    public int companionCount = 0;
     /** Splash potion duration in seconds. */
     public int durationSec = 0;
     /** Splash potion amplifier, 0 = level I. */
@@ -65,6 +71,11 @@ public final class LoadoutEntry {
                 entry.variant = "minecraft:white_wool";
                 entry.count = 32;
             }
+            // A companion that defaults to zero would make every freshly added row useless the
+            // moment it appears, which reads as "the item is broken" rather than "set the count".
+            case BOW -> entry.companionCount = 32;
+            case END_CRYSTAL -> entry.companionCount = 16;
+            case TNT -> entry.companionCount = 1;
             default -> {
             }
         }
@@ -101,7 +112,7 @@ public final class LoadoutEntry {
         durability = other.durability;
         knockback = other.knockback;
         flags = other.flags;
-        arrowCount = other.arrowCount;
+        companionCount = other.companionCount;
         durationSec = other.durationSec;
         amplifier = other.amplifier;
         tridentStyle = other.tridentStyle;
@@ -147,7 +158,7 @@ public final class LoadoutEntry {
                 Integer.toString(durability),
                 Integer.toString(knockback),
                 Integer.toString(flags),
-                Integer.toString(arrowCount),
+                Integer.toString(companionCount),
                 Integer.toString(durationSec),
                 Integer.toString(amplifier),
                 tridentStyle.id,
@@ -170,7 +181,7 @@ public final class LoadoutEntry {
         entry.durability = num(parts, 7, DURABILITY_DEFAULT);
         entry.knockback = num(parts, 8, 0);
         entry.flags = num(parts, 9, 0);
-        entry.arrowCount = num(parts, 10, 0);
+        entry.companionCount = num(parts, 10, 0);
         entry.durationSec = num(parts, 11, 0);
         entry.amplifier = num(parts, 12, 0);
         entry.tridentStyle = TridentStyle.byId(part(parts, 13, "none"));

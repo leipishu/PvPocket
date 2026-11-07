@@ -144,11 +144,28 @@ public abstract class PvScreen extends Screen {
         drawTooltip(ctx, d);
     }
 
-    /** Puts a widget on the modal layer, or clears it with {@code null}. */
+    /**
+     * Puts a widget on the modal layer, or clears it with {@code null}.
+     *
+     * <p>The layer is always the full viewport — every dialog so far centres itself in it and draws
+     * its own scrim — so the size is assigned here instead of at each of the call sites, where it
+     * would also have to be repeated in {@code init()} to survive a window resize.</p>
+     */
     protected void setOverlay(PvWidget widget) {
         overlay = widget;
         if (widget != null) {
+            widget.width = width;
+            widget.height = height;
             setFocus(null);
+        }
+    }
+
+    /** Takes the modal layer down and lets it clean up, however it is being closed. */
+    protected void dismissOverlay() {
+        PvWidget widget = overlay;
+        overlay = null;
+        if (widget != null) {
+            widget.dismissed();
         }
     }
 
@@ -309,10 +326,16 @@ public abstract class PvScreen extends Screen {
             // Escape closes the dialog, not the screen. Closing the whole panel because the player
             // wanted out of a player list would throw away the invite they were building.
             if (hasOverlay()) {
-                setOverlay(null);
+                dismissOverlay();
                 return true;
             }
             close();
+            return true;
+        }
+        // A modal gets the keyboard before the panel's own bindings: a text field inside a dialog
+        // has to see Backspace and Left/Right, which the screen would otherwise consume as focus
+        // traversal and value nudging.
+        if (hasOverlay() && overlay.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
         // Screenshots are worth keeping while a rule set is on screen — players compare loadouts
@@ -354,6 +377,17 @@ public abstract class PvScreen extends Screen {
                 defaultButton.activate();
                 return true;
             }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (hasOverlay()) {
+            return overlay.charTyped(chr, modifiers);
+        }
+        if (focused != null && focused.visible && focused.enabled) {
+            return focused.charTyped(chr, modifiers);
         }
         return false;
     }

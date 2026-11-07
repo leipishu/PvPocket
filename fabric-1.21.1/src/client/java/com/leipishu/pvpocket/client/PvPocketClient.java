@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.preset.PresetShare;
 import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.client.render.PossessedHandRenderer;
@@ -19,6 +20,7 @@ import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.PossessPayload;
+import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
@@ -115,6 +117,12 @@ public final class PvPocketClient implements ClientModInitializer {
             context.client().execute(() -> PossessionHud.update(payload));
         });
 
+        // Share-code answers. Hopped onto the client thread because the dialog that consumes them
+        // lives on the render thread and mutates its own widgets.
+        ClientPlayNetworking.registerGlobalReceiver(PresetShareResultPayload.ID, (payload, context) -> {
+            context.client().execute(() -> PresetShare.receive(payload));
+        });
+
         // A stale mirror after leaving a world would make the next join start with a phantom block
         // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
@@ -125,6 +133,9 @@ public final class PvPocketClient implements ClientModInitializer {
             ArenaBounds.clear();
             SpectatorHud.clear();
             PossessionHud.clear();
+            // The dialog is gone with the screen, and a listener left behind would take the next
+            // server's answer and write it into a store the player is not looking at.
+            PresetShare.listener(null);
         });
 
         MatchHud.register();

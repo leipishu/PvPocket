@@ -32,7 +32,8 @@ public final class LoadoutCatalog {
     public static final int ARMOR_MAX_TENTHS = 300;
     public static final int DURABILITY_MAX = 10000;
     public static final int KNOCKBACK_MAX = 3;
-    public static final int ARROW_MAX = 64;
+    /** Upper bound on the companion stack: arrows, obsidian or flint and steel, all stack to 64. */
+    public static final int COMPANION_MAX = 64;
     public static final int DURATION_MIN_SEC = 1;
     public static final int DURATION_MAX_SEC = 300;
     public static final int AMPLIFIER_MAX = 4;

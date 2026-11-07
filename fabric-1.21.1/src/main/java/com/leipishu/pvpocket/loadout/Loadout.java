@@ -75,7 +75,7 @@ public final class Loadout {
         bow.damageTenths = 0;
         bow.durability = 500;
         bow.set(WeaponFlag.INFINITY, false);
-        bow.arrowCount = 32;
+        bow.companionCount = 32;
         loadout.entries.add(bow);
 
         LoadoutEntry carrot = LoadoutEntry.of(ItemKind.FOOD);
@@ -276,9 +276,9 @@ public final class Loadout {
             problems.add(PvLang.t("pvpocket.loadout.problem.knockback", row,
                     LoadoutCatalog.KNOCKBACK_MAX));
         }
-        if (entry.arrowCount < 0 || entry.arrowCount > LoadoutCatalog.ARROW_MAX) {
-            problems.add(PvLang.t("pvpocket.loadout.problem.arrows", row,
-                    LoadoutCatalog.ARROW_MAX));
+        if (entry.companionCount < 0 || entry.companionCount > LoadoutCatalog.COMPANION_MAX) {
+            problems.add(PvLang.t("pvpocket.loadout.problem.companion", row,
+                    LoadoutCatalog.COMPANION_MAX));
         }
         switch (entry.kind) {
             case POTION -> {

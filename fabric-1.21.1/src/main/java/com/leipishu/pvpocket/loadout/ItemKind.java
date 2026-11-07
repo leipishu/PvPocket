@@ -47,6 +47,10 @@ public enum ItemKind {
     POTION(Page.CONSUMABLE, "potion", false, 1),
     FIREWORK_ROCKET(Page.CONSUMABLE, "firework_rocket", false, 16),
     WIND_CHARGE(Page.CONSUMABLE, "wind_charge", false, 16),
+    /** Needs obsidian under it, which is granted as its companion stack. */
+    END_CRYSTAL(Page.CONSUMABLE, "end_crystal", false, 16),
+    /** Needs something to light it, which is granted as its companion stack. */
+    TNT(Page.CONSUMABLE, "tnt", false, 16),
 
     /** Pickaxe and shears live on the block page because that is where they are actually needed. */
     PICKAXE(Page.BLOCK, "pickaxe", true, 1),
@@ -142,9 +146,21 @@ public enum ItemKind {
      */
     public boolean hasDurability() {
         return switch (this) {
-            case FOOD, POTION, BLOCK, FIREWORK_ROCKET, WIND_CHARGE -> false;
+            case FOOD, POTION, BLOCK, FIREWORK_ROCKET, WIND_CHARGE, END_CRYSTAL, TNT -> false;
             default -> true;
         };
+    }
+
+    /**
+     * True for kinds that are useless on their own and need a second stack beside them.
+     *
+     * <p>A bow without arrows, an end crystal with nothing to put it on, and TNT with nothing to
+     * light it are the same shape of problem: the entry is one decision ("I am bringing a bow") but
+     * two stacks. The editor shows one extra count for these, and {@code LoadoutBuilder} emits the
+     * second stack — the same path arrows have always taken.</p>
+     */
+    public boolean hasCompanion() {
+        return this == BOW || this == END_CRYSTAL || this == TNT;
     }
 
     public boolean isArmor() {

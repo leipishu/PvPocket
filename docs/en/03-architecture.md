@@ -103,6 +103,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `LoadoutRequestPayload` | Ask for the loadout editor |
 | C→S | `LoadoutSubmitPayload` | Submit a loadout |
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |
+| C→S | `PresetSharePayload` | Publish / fetch a share code |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | Rule panel open / close |
 | S→C | `LoadoutOpenPayload` | Loadout editor open |
 | S→C | `MatchListPayload` | Match list |
@@ -110,11 +111,19 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | S→C | `ArenaBoundsPayload` | Plot outline |
 | S→C | `SpectateStatePayload` / `PossessPayload` | Spectator bar / possessed hotbar |
 | S→C | `CombatStatePayload` | Combat mode and blocking mirror |
+| S→C | `PresetShareResultPayload` | Share-code outcome: a status code plus the preset body |
 
 `PacketCodec.tuple` tops out at six components; beyond that fields move into a nested record (which
 is where `RulesOpenPayload.Details` comes from).
 
 Every inbound payload is handled inside `server.execute(...)` so it runs on the main thread.
+
+**A share code travels as a status code, never as a sentence.** `PresetShareResultPayload.status` is
+one of `PUBLISHED` / `FETCHED` / `UNKNOWN_CODE` / `REJECTED` / `FULL`, and the client assembles the
+wording in its own language — a server has no language, and a Chinese "this code has expired" sent
+to an English client is mojibake. `PresetShareRegistry` is memory-only and main-thread-only: five
+minute TTL, swept every 100 ticks, re-checked on read, no locking and no persistence. The code is a
+courier; the preset file is the library.
 
 ## 7. Sandbox rules
 
@@ -146,6 +155,13 @@ the mod's own switches go through `Sandbox.changeGameMode` with a `try/finally` 
 | `journal/<session>.log` | `<world>/pvpocket/` | Per-session event stream for reconciliation and diagnosis |
 | `homes.json` | same | Pre-entry positions, disconnect recovery |
 | `guard.json` | same | Per-player exemptions from the stray-player guard |
+| `presets.json` | `config/pvpocket/` (**client**) | The player's loadout and rule presets |
+
+`presets.json` is the one file that does not live in the world save, and the only one the client
+reads and writes. A loadout or a rule set is something a player carries between servers; keeping it
+in the save would mean re-creating it on every server they join. The server never reads it — using a
+preset goes through an ordinary `RulesSubmitPayload` / `LoadoutSubmitPayload`, so nothing downstream
+needs to know presets exist.
 
 Writes go through `PvPocketStorage.writeAtomically` (temp file then rename) so a power cut cannot
 leave half a JSON file. A failed read of `guard.json` is treated as "no exemptions": better to eject

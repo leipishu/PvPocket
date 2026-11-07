@@ -2,6 +2,9 @@ package com.leipishu.pvpocket.network;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.preset.Preset;
+import com.leipishu.pvpocket.preset.PresetKind;
+import com.leipishu.pvpocket.preset.PresetShareRegistry;
 import com.leipishu.pvpocket.session.SessionManager;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -26,6 +29,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playC2S().register(LoadoutRequestPayload.ID, LoadoutRequestPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(PresetSharePayload.ID, PresetSharePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
@@ -36,6 +40,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playS2C().register(MatchListPayload.ID, MatchListPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(SpectateStatePayload.ID, SpectateStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(PossessPayload.ID, PossessPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(PresetShareResultPayload.ID, PresetShareResultPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(SpectateRequestPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -82,6 +87,57 @@ public final class PvPocketNetworking {
                 }
             });
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(PresetSharePayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> onPresetShare(player, payload));
+        });
+    }
+
+    /**
+     * Publishes or fetches a preset share code.
+     *
+     * <p>Validation lives here rather than in the registry because this is the boundary where
+     * untrusted input arrives: an unknown kind, a blank name and an oversized string are all
+     * rejected before anything is stored. The registry stays pure storage.</p>
+     */
+    private static void onPresetShare(ServerPlayerEntity player, PresetSharePayload payload) {
+        if (!ServerPlayNetworking.canSend(player, PresetShareResultPayload.ID)) {
+            // A client without the channel would never see the answer, so there is nothing to do
+            // that would not just be a log line. The mod is mandatory in practice; this is the
+            // protocol-level guard, not a policy one.
+            return;
+        }
+        if (payload.action() == PresetSharePayload.ACTION_FETCH) {
+            PresetShareRegistry.Shared shared = PresetShareRegistry.fetch(payload.code());
+            ServerPlayNetworking.send(player, shared == null
+                    ? PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_UNKNOWN_CODE)
+                    : PresetShareResultPayload.fetched(shared.kind().id, shared.name(),
+                            shared.encoded(), PresetShareRegistry.normalise(payload.code())));
+            return;
+        }
+        PresetKind kind = PresetKind.byId(payload.kind());
+        String name = Preset.cleanName(payload.name());
+        if (kind == null
+                || !Preset.isValidName(name)
+                || payload.encoded().isEmpty()
+                || payload.encoded().length() > PresetSharePayload.MAX_ENCODED) {
+            ServerPlayNetworking.send(player,
+                    PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_REJECTED));
+            return;
+        }
+        String code = PresetShareRegistry.publish(player.getUuid(), kind, name, payload.encoded());
+        if (code == null) {
+            ServerPlayNetworking.send(player,
+                    PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_FULL));
+            return;
+        }
+        // Logged because a share code is the one thing here with no server-side record: if a player
+        // says "the code does not work", this line is the only evidence that it ever existed.
+        PvPocket.LOGGER.info("Preset code {} for {} ({} / {})", code,
+                player.getName().getString(), kind.id, name);
+        ServerPlayNetworking.send(player, PresetShareResultPayload.published(kind.id, name,
+                payload.encoded(), code, (int) (PresetShareRegistry.TTL_MS / 1000L)));
     }
 
     /**

@@ -15,10 +15,12 @@ import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
+import com.leipishu.pvpocket.client.gui.preset.PresetOverlay;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.LoadoutRequestPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
+import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
@@ -73,6 +75,8 @@ public class RuleScreen extends PvScreen {
     private PvScrollPane pane;
     private RosterBoard board;
     private PvButton addTeamButton;
+    /** The 预设 link in the title row; rebuilt by {@link #init()} like everything else in {@code roots}. */
+    private PvButton presetButton;
     /** Footer buttons, kept so the footer can be rebuilt without leaving orphans in {@link #roots}. */
     private final List<PvButton> footerButtons = new ArrayList<>();
     /** Whether the current footer contains 还原; the footer is rebuilt when this flips. */
@@ -158,6 +162,13 @@ public class RuleScreen extends PvScreen {
 
         buildRows();
         buildFooter();
+        // Title row, not footer: in the reviewer role the footer is already 386px of buttons on a
+        // 382px line, so a sixth one has nowhere to go. Presets also never commit anything — they
+        // load and save — which is exactly the class of action the title row holds.
+        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
+        presetButton.x = panelX + panelW - 12 - presetButton.width;
+        presetButton.y = panelY + 5;
+        roots.add(presetButton);
         setFocus(null);
     }
 
@@ -533,7 +544,7 @@ public class RuleScreen extends PvScreen {
         // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
         String version = "v" + payload.revision();
         int versionW = tr.getWidth(version) + 12;
-        int versionX = panelX + panelW - 12 - versionW;
+        int versionX = presetButton.x - 6 - versionW;
         PvDraw.roundRect(ctx, versionX, panelY + 6, versionW, 14, 3, PvTheme.ACCENT_SOFT);
         PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, panelY + 9, PvTheme.ACCENT);
 
@@ -766,6 +777,29 @@ public class RuleScreen extends PvScreen {
             }
         }
         return false;
+    }
+
+    /**
+     * The preset dialog for the rule set.
+     *
+     * <p>Only {@code edited} travels: a preset is the settings, and the roster is decided in the
+     * panel every time. That is also why loading one does not seed or clear the cards — a player who
+     * has drawn their sides and then picks a different rule set has not changed their mind about who
+     * is playing.</p>
+     */
+    private void openPresets() {
+        setOverlay(new PresetOverlay(PresetKind.RULES,
+                () -> edited.encode(),
+                this::applyPreset,
+                () -> setOverlay(null)));
+    }
+
+    private void applyPreset(String encoded) {
+        edited = DuelRules.decode(encoded);
+        // Through init() rather than buildRows(): the slot count is a rule (b.teamSize), so a preset
+        // can change how many players a card holds, and the footer's 还原 has to appear with it.
+        roots.clear();
+        init();
     }
 
     private void revert() {

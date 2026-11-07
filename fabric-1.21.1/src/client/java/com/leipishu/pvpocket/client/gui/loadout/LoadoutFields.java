@@ -111,12 +111,17 @@ public final class LoadoutFields {
                     v -> entry.set(flag, v != 0)));
         }
 
-        if (kind == ItemKind.BOW) {
+        if (kind.hasCompanion()) {
+            // One field, three meanings: the label names the item that actually arrives, so the
+            // player reads "obsidian" rather than a generic word they have to translate themselves.
+            // Step 1 for TNT because one flint and steel is all it takes; steps of 8 for stacks you
+            // bring by the handful.
+            int step = kind == ItemKind.TNT ? 1 : 8;
             out.add(new Field(
-                    RuleDefinition.intRange("lo.arrows", RuleGroup.D,
-                            0, LoadoutCatalog.ARROW_MAX, 8, entry.arrowCount),
-                    () -> entry.arrowCount,
-                    v -> entry.arrowCount = v));
+                    RuleDefinition.intRange(companionFieldId(kind), RuleGroup.D,
+                            0, LoadoutCatalog.COMPANION_MAX, step, entry.companionCount),
+                    () -> entry.companionCount,
+                    v -> entry.companionCount = v));
         }
 
         switch (kind) {
@@ -190,6 +195,15 @@ public final class LoadoutFields {
         }
 
         return out;
+    }
+
+    /** The rule id whose label names the companion item for this kind. */
+    private static String companionFieldId(ItemKind kind) {
+        return switch (kind) {
+            case END_CRYSTAL -> "lo.companion.crystal";
+            case TNT -> "lo.companion.tnt";
+            default -> "lo.arrows";
+        };
     }
 
     private static int indexOfOption(List<LoadoutCatalog.Option> options, String id) {

@@ -62,6 +62,9 @@ public final class PvPocket implements ModInitializer {
                 manager.shutdown();
             }
             SessionManager.clear();
+            // Share codes are per-server-start by design; a code that outlived the process it was
+            // issued by would be a code nobody can revoke.
+            com.leipishu.pvpocket.preset.PresetShareRegistry.clear();
         });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -110,6 +113,9 @@ public final class PvPocket implements ModInitializer {
             }
             // One exhibit per tick; a no-op once the gallery is filled.
             com.leipishu.pvpocket.arena.ArenaManager.warmUpTick(server);
+            // Drops expired share codes. Throttled inside, so this is a counter compare on most
+            // ticks — the five-minute promise is enforced even when nobody is publishing.
+            com.leipishu.pvpocket.preset.PresetShareRegistry.tick();
         });
 
         // Terrain protection is a veto, so it has to run before the block is removed. Recording the

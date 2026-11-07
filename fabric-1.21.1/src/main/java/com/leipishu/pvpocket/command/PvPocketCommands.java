@@ -456,10 +456,16 @@ public final class PvPocketCommands {
         if (entry.kind == ItemKind.FIREWORK_ROCKET) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.firework_flight", entry.fireworkFlight));
         }
-        if (entry.kind == ItemKind.BOW
-                && !entry.has(WeaponFlag.INFINITY)
-                && entry.arrowCount > 0) {
-            out.append(PvLang.t("pvpocket.command.loadout.entry.arrows", entry.arrowCount));
+        // The companion stack is named per kind rather than as a generic "companion": a diagnostic
+        // line that says "companion ×16" makes the reader go and look up which item that is.
+        if (entry.kind.hasCompanion() && entry.companionCount > 0
+                && !(entry.kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY))) {
+            String key = switch (entry.kind) {
+                case END_CRYSTAL -> "pvpocket.command.loadout.entry.obsidian";
+                case TNT -> "pvpocket.command.loadout.entry.flint";
+                default -> "pvpocket.command.loadout.entry.arrows";
+            };
+            out.append(PvLang.t(key, entry.companionCount));
         }
         if (entry.kind == ItemKind.POTION) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.potion",

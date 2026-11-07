@@ -96,6 +96,7 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | C→S | `LoadoutRequestPayload` | 请求打开配装编辑器 |
 | C→S | `LoadoutSubmitPayload` | 提交配装 |
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
+| C→S | `PresetSharePayload` | 发布 / 取用分享码 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |
@@ -103,11 +104,18 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | S→C | `ArenaBoundsPayload` | 场地轮廓 |
 | S→C | `SpectateStatePayload` / `PossessPayload` | 观战条 / 附身目标快捷栏 |
 | S→C | `CombatStatePayload` | 战斗模式与格挡状态镜像 |
+| S→C | `PresetShareResultPayload` | 分享码的结果：状态码 + 预设内容 |
 
 `PacketCodec.tuple` 最多 6 个分量，超过就得把字段收进嵌套 record（`RulesOpenPayload` 的
 `Details` 就是这么来的）。
 
 上行包一律在服务端 `server.execute(...)` 里处理，确保跑在主线程上。
+
+**分享码过网只带状态码，不带句子。** `PresetShareResultPayload` 的 `status` 是
+`PUBLISHED` / `FETCHED` / `UNKNOWN_CODE` / `REJECTED` / `FULL` 之一，文案由客户端按自己的
+语言拼——服务端没有语言，一条「分享码已过期」的中文句子发给英文客户端就是乱码。
+`PresetShareRegistry` 是纯内存、纯主线程的：5 分钟 TTL，每 100 tick 扫一次，读取时再查一次
+过期，没有锁也没有持久化。分享码是传输物，预设文件才是库。
 
 ## 7. 沙盒规则
 
@@ -137,6 +145,11 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | `journal/<session>.log` | `<world>/pvpocket/` | 会话逐条事件，用于崩溃对账与排障 |
 | `homes.json` | 同上 | 进入决斗维度前的位置，掉线兜底 |
 | `guard.json` | 同上 | 滞留保护的按玩家豁免名单 |
+| `presets.json` | `config/pvpocket/`（**客户端**） | 玩家的配装与规则预设 |
+
+`presets.json` 是唯一一个不在世界存档里的文件，也**只有客户端读写**。配装和规则是玩家跨服务器
+携带的东西，跟着存档走意味着换一个服务器就要重建一遍；服务端从不读它，用预设时走的是普通的
+`RulesSubmitPayload` / `LoadoutSubmitPayload`，下游不需要知道预设存在。
 
 写入走 `PvPocketStorage.writeAtomically`（先写临时文件再改名），避免断电时留下半个 JSON。
 `guard.json` 读失败按「无豁免」处理：宁可多踢一次，不会少踢。

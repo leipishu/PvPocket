@@ -46,6 +46,29 @@ scoreboard.
 If the panel is dismissed with Esc, `/pvpocket review` reopens it — that is the only way back.
 Closing it while the draft is still open cancels the invite.
 
+### Presets and share codes
+
+The right end of the title row holds a "Presets" link, one on the rule panel and one in the loadout
+editor. It opens the list of presets on this machine. Loadouts and rule sets are stored separately
+and are never interchangeable.
+
+- **Save** names the current state and writes it to `config/pvpocket/presets.json`. A name that is
+  already taken is overwritten.
+- **Load** puts a preset back into the panel. It **does not submit anything** — a rule set still
+  needs "Send invite", a loadout still needs "Save loadout".
+- **Share** asks the server for a six-character code, valid for five minutes, and copies it to the
+  clipboard.
+- **Import** takes somebody else's code. The preset **lands in the local file immediately**; the code
+  is never needed again.
+
+A rule preset **does not contain the roster**. Loading one changes the settings and leaves the team
+cards exactly as they were — who is playing is a decision about this match and these people, and a
+preset that re-seats players is a preset that rearranges somebody else's team.
+
+Presets live on the client, not on the server: change servers and they are still there. A share code
+is a temporary thing held in memory and swept after five minutes; case, spaces and dashes in a typed
+code make no difference.
+
 ### Spectating
 
 `/pvpocket list` opens the match list; press "Watch" to enter as a spectator. While watching:

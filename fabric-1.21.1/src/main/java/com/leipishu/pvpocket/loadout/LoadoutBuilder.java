@@ -58,9 +58,9 @@ public final class LoadoutBuilder {
     /**
      * Builds every stack, in loadout order.
      *
-     * <p>Arrows are emitted here rather than inside {@link #toStack} because a bow without Infinity
-     * needs a second item: the stack list is the only place that can express "this entry produced two
-     * things".</p>
+     * <p>Companions are emitted here rather than inside {@link #toStack} because a bow without
+     * Infinity, an end crystal and TNT each need a second item: the stack list is the only place
+     * that can express "this entry produced two things".</p>
      */
     public static List<ItemStack> build(Loadout loadout, DynamicRegistryManager registries, int teamIndex) {
         List<ItemStack> stacks = new ArrayList<>();
@@ -73,13 +73,36 @@ public final class LoadoutBuilder {
                 continue;
             }
             stacks.add(stack);
-            if (entry.kind == ItemKind.BOW
-                    && !entry.has(WeaponFlag.INFINITY)
-                    && entry.arrowCount > 0) {
-                stacks.add(new ItemStack(Items.ARROW, entry.arrowCount));
+            ItemStack companion = companionStack(entry);
+            if (!companion.isEmpty()) {
+                stacks.add(companion);
             }
         }
         return stacks;
+    }
+
+    /**
+     * The second stack an entry brings, or {@link ItemStack#EMPTY} for the kinds that bring one.
+     *
+     * <p>Arrows for a bow (unless it has Infinity), obsidian for an end crystal, flint and steel for
+     * TNT. One method because the three are one shape: the entry is a single decision, the grant is
+     * two stacks, and the count is the field the editor shows. {@link #grant} needs the same answer
+     * when it has to find a free slot for it, so it must not be written twice.</p>
+     */
+    private static ItemStack companionStack(LoadoutEntry entry) {
+        if (entry.companionCount <= 0 || !entry.kind.hasCompanion()) {
+            return ItemStack.EMPTY;
+        }
+        if (entry.kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY)) {
+            return ItemStack.EMPTY;
+        }
+        Item item = switch (entry.kind) {
+            case BOW -> Items.ARROW;
+            case END_CRYSTAL -> Items.OBSIDIAN;
+            case TNT -> Items.FLINT_AND_STEEL;
+            default -> null;
+        };
+        return item == null ? ItemStack.EMPTY : new ItemStack(item, entry.companionCount);
     }
 
     /** Builds one stack. Returns {@link ItemStack#EMPTY} for anything the item registry cannot resolve. */
@@ -290,15 +313,15 @@ public final class LoadoutBuilder {
             inventory.setStack(entry.slot, stack);
             granted++;
         }
-        // Arrows are a second stack for a non-Infinity bow and have no slot of their own, so they go
-        // to the first free slot rather than overwriting whatever the player put there.
+        // The companion is a second stack for one entry and has no slot of its own, so it goes to
+        // the first free slot rather than overwriting whatever the player put there.
         for (LoadoutEntry entry : loadout.entries) {
-            if (entry.kind != ItemKind.BOW || entry.has(WeaponFlag.INFINITY) || entry.arrowCount <= 0) {
+            ItemStack companion = companionStack(entry);
+            if (companion.isEmpty()) {
                 continue;
             }
-            ItemStack arrows = new ItemStack(Items.ARROW, entry.arrowCount);
-            if (!inventory.insertStack(arrows)) {
-                player.dropItem(arrows, false);
+            if (!inventory.insertStack(companion)) {
+                player.dropItem(companion, false);
             }
         }
         player.currentScreenHandler.sendContentUpdates();

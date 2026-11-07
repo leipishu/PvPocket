@@ -35,12 +35,33 @@ public class PvButton extends PvWidget {
     private Style style;
     private boolean pressed;
 
+    /**
+     * Height of a title-row action, matching the 14px chips it sits beside rather than the 20px
+     * footer buttons. The title row is 21px of usable height before the divider, so a full-size
+     * button there would either cross the rule or push it down on every panel.
+     */
+    public static final int CHIP_H = 16;
+
     public PvButton(String label, Style style, Runnable action) {
         this.label = label;
         this.style = style;
         this.action = action;
         this.height = PvTheme.BTN_H;
         this.width = Math.max(44, MinecraftClient.getInstance().textRenderer.getWidth(label) + 22);
+    }
+
+    /**
+     * A compact action for a title row: text until hovered, sized to its word.
+     *
+     * <p>Used for panel-level verbs that open something rather than commit something — the preset
+     * dialog on both the rule panel and the loadout editor. It is a link, not a button, so it is
+     * deliberately quieter than the chips it sits next to.</p>
+     */
+    public static PvButton chip(String label, Runnable action) {
+        PvButton button = new PvButton(label, Style.GHOST, action);
+        button.width = Math.max(36, MinecraftClient.getInstance().textRenderer.getWidth(label) + 16);
+        button.height = CHIP_H;
+        return button;
     }
 
     public PvButton style(Style s) {
