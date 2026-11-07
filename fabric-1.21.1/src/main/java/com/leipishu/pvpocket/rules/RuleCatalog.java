@@ -87,7 +87,10 @@ public final class RuleCatalog {
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, 1, choices("e.boundary", 2)));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, 1, choices("e.timeOfDay", 5)));
         add(RuleDefinition.enumOf("e.weather", RuleGroup.E, 0, choices("e.weather", 3)));
-        add(RuleDefinition.multi("e.hazard", RuleGroup.E, 0b0010, choices("e.hazard", 4)));
+        // 默认三项全开（掉落 / 岩浆 / 虚空），不是设计稿的"仅掉落伤害"。理由：场地是虚空维度，
+        // 边界判定靠"掉出去"来淘汰人，岩浆与虚空若默认无害，泡在岩浆里不出来就成了无解的一局。
+        // 想要纯净场地的人在面板上取消勾选即可，而"默认对局不该需要先改设置才能打"更要紧。
+        add(RuleDefinition.multi("e.hazard", RuleGroup.E, 0b1110, choices("e.hazard", 4)));
 
         // F. 方块
         add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, false));

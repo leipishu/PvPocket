@@ -18,12 +18,15 @@ import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
+import com.leipishu.pvpocket.rules.Rulebook;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
 import com.leipishu.pvpocket.storage.HomePositions;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.damage.DamageTypes;
+import net.minecraft.registry.tag.DamageTypeTags;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -614,19 +617,22 @@ public final class SessionManager {
      * share a session.</p>
      */
     public boolean allowDamage(ServerPlayerEntity victim, DamageSource source) {
-        if (!(source.getAttacker() instanceof ServerPlayerEntity attacker)
-                || attacker == victim) {
-            return true;
-        }
         String sessionId = sessionByPlayer.get(victim.getUuid());
-        if (sessionId == null || !sessionId.equals(sessionByPlayer.get(attacker.getUuid()))) {
+        if (sessionId == null) {
             return true;
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
             return true;
         }
-        if (DuelRules.decode(session.rules).flag("b.friendlyFire")) {
+        if (!allowEnvironmentDamage(session, source)) {
+            return false;
+        }
+        if (!(source.getAttacker() instanceof ServerPlayerEntity attacker)
+                || attacker == victim) {
+            return true;
+        }
+        if (session.rulebook().friendlyFire()) {
             return true;
         }
         Participant mine = session.participant(victim.getUuidAsString());
@@ -640,6 +646,68 @@ public final class SessionManager {
         journal(session).append("FRIENDLY_FIRE_BLOCKED",
                 "attacker", theirs.name, "victim", mine.name, "team", mine.teamIndex());
         return false;
+    }
+
+    /**
+     * The hazards the rule set can switch off: falling, lava, the void, and starvation.
+     *
+     * <p>Deliberately not journalled. Friendly fire is journalled because a blocked hit is rare and
+     * looks like lag; standing in lava with the hazard off would write a line every ten ticks and
+     * bury everything else. The rules themselves are already in the journal at session start, which
+     * is the question someone debugging this actually asks.</p>
+     *
+     * <p>Starving is folded in here rather than in a second mixin: with {@code c.hunger} off,
+     * exhaustion never accumulates, so the hunger bar cannot reach zero on its own — but a player
+     * who starts a round already empty (a reloaded save) would still take starvation damage, and
+     * "关闭后不会因饥饿掉血" has to be true for them too.</p>
+     */
+    private boolean allowEnvironmentDamage(DuelSession session, DamageSource source) {
+        Rulebook book = session.rulebook();
+        if (source.isIn(DamageTypeTags.IS_FALL)) {
+            return book.fallDamage();
+        }
+        if (source.isOf(DamageTypes.LAVA)) {
+            return book.lavaHazard();
+        }
+        if (source.isOf(DamageTypes.OUT_OF_WORLD)) {
+            return book.voidHazard();
+        }
+        if (source.isOf(DamageTypes.STARVE)) {
+            return book.hunger();
+        }
+        return true;
+    }
+
+    /**
+     * Is this player's hunger allowed to drain? Asked from {@code PlayerEntity#addExhaustion}.
+     *
+     * <p>Static and null-safe because it is called from a mixin that runs on the client too: a
+     * client has no manager, and a player who is not in a duel has no session, and in both cases
+     * the answer is "vanilla".</p>
+     */
+    public static boolean hungerEnabled(UUID uuid) {
+        DuelSession session = activeSessionOf(uuid);
+        return session == null || session.rulebook().hunger();
+    }
+
+    /** Same, for {@code c.naturalRegen}. Asked from {@code PlayerEntity#canFoodHeal}. */
+    public static boolean naturalRegenAllowed(UUID uuid) {
+        DuelSession session = activeSessionOf(uuid);
+        return session == null || session.rulebook().naturalRegen();
+    }
+
+    /** The session whose round this player is currently fighting, or null. */
+    private static DuelSession activeSessionOf(UUID uuid) {
+        SessionManager manager = instance;
+        if (manager == null) {
+            return null;
+        }
+        String id = manager.sessionByPlayer.get(uuid);
+        if (id == null) {
+            return null;
+        }
+        DuelSession session = manager.sessions.get(id);
+        return session != null && session.stage == SessionStage.ROUND_ACTIVE ? session : null;
     }
 
     public void onDeath(ServerPlayerEntity player) {
@@ -2410,6 +2478,12 @@ public final class SessionManager {
             var health = player.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
             if (health != null) {
                 health.setBaseValue(maxHealth);
+            }
+            // Same mechanism, same reason. Applied per round rather than at freeze so a mid-series
+            // rule change (or a reloaded session) cannot leave the previous value in place.
+            var knockback = player.getAttributeInstance(EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE);
+            if (knockback != null) {
+                knockback.setBaseValue(session.rulebook().knockbackResistance());
             }
             // Every round starts from the same state. Without this a player who ended round 1 on two
             // hearts, on fire, and poisoned would begin round 2 that way — the loadout is re-granted

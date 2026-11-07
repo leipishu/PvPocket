@@ -94,18 +94,26 @@
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
-### 已生效（20 条）
+**共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
+**当前 26 条真正影响对局，13 条仅记录。**
+
+### 已生效（26 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
-| C | `c.mode`、`c.maxHealth` |
-| E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather` |
+| C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
+| D | `d.loadoutScope` |
+| E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.protectTerrain`、`f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-A 组的两条是本次拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，各自的读取点：
+**所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
+调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
+
+A 组的两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」切片
+接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -118,16 +126,36 @@ A 组的两条是本次拆开赛制后接上的，B 组的四条是随 NvN 一�
 - **`b.friendlyFire`** — 关闭时同队互相伤害被 `ServerLivingEntityEvents.ALLOW_DAMAGE` 否决，
   并在日志里留一条 `FRIENDLY_FIRE_BLOCKED`。只拦直接攻击者（近战、箭、三叉戟、TNT），不拦
   队友放的火的后续燃烧，这条界线与原生队伍的判定一致。
+- **`d.loadoutScope`** — `每队统一` 时，开局发装备取该队第一名成员的配装，全队照发。
+- **`c.fallDamage` / `e.hazard`** — 都在同一个 `ALLOW_DAMAGE` 里按 `DamageSource` 判。坠落伤害
+  要两条都开着才算开（两个都是关闭开关，任一关闭即视为关闭）；岩浆、虚空各由 `e.hazard` 的
+  一位控制；`e.hazard` 勾了「无」则三项全关。饥饿伤害（`STARVE`）由 `c.hunger` 控制。
+  这一支**故意不写日志**：站在岩浆里会每 10 tick 写一行，把别的都埋掉；规则本身在开局时就进了
+  日志。
+- **`c.naturalRegen`** — 混入 `PlayerEntity#canFoodHeal`，返回 false 即关闭饥饿回血。金苹果与
+  药水走 `heal()`，不受影响。
+- **`c.hunger`** — 混入 `PlayerEntity#addExhaustion`，直接取消，饥饿值不再下降。没有改
+  `HungerManager#update`：那会连回血计时和饿死伤害一起冻住，而它们分属另外两条规则。
+- **`c.knockbackResistance`** — 每局开局按百分比设 `GENERIC_KNOCKBACK_RESISTANCE` 的基础值。
+  不需要单独回滚：玩家快照按属性表整体还原，和最大生命值走同一条路。
 
-### 仅记录（19 条）
+### 仅记录（13 条）
 
-`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`c.naturalRegen`、`c.hunger`、
-`c.fallDamage`、`c.knockbackResistance`、`d.loadoutScope`、`d.allowSwapBetweenRounds`、
-`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、`e.hazard`、`f.allowPlace`、
+`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`d.allowSwapBetweenRounds`、
+`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、`f.allowPlace`、
 `f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、`g.showOpponentHealth`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
+
+其中三条的落差最容易误导人，单独说明：
+
+- **`a.roundLimit` + `a.timeoutVerdict`**：面板承诺「超过后按超时判定结算」，实际没有计时器。
+  两边都不动手时这一局可以无限打下去，只能靠认输或掉线结束。
+- **`a.winConditions`**：可以在这里取消「击杀」，但击杀仍然会结束这一局。
+- **`f.allowPlace`**：默认关闭，但**关闭状态下依然可以放方块**——方块放置没有任何拦截，
+  只有破坏被 `PlayerBlockBreakEvents.BEFORE` 否决。所有方块变化都会在结算时回滚，所以不会
+  污染下一局，只是这条开关本身不成立。
 
 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，只用来在面板上说明「1.8 模式与某些
 规则冲突」，没有取值可言。
@@ -143,7 +171,8 @@ A 组的两条是本次拆开赛制后接上的，B 组的四条是随 NvN 一�
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
 （计时器、方块变更集、聊天过滤）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
-但**在对外宣传功能时必须以本节为准**。
+但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
+不要让它和代码各说各话。
 
 ## 4. 赛制换算
 

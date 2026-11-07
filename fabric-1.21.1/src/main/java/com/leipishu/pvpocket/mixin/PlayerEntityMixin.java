@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.mixin;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.LegacyCombatValues;
 import com.leipishu.pvpocket.combat.LegacyKnockback;
+import com.leipishu.pvpocket.session.SessionManager;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -11,6 +12,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -99,5 +101,35 @@ public abstract class PlayerEntityMixin {
     private boolean pvpocket$allowSprintCrit(boolean original) {
         PlayerEntity self = (PlayerEntity) (Object) this;
         return !CombatState.isLegacy(self.getUuid()) && original;
+    }
+
+    /**
+     * {@code c.naturalRegen} off: hunger no longer heals.
+     *
+     * <p>{@code canFoodHeal} is the single gate the hunger manager asks before regenerating, so
+     * returning false here removes natural regeneration and nothing else — golden apples and potions
+     * heal through {@code heal()}, not through this.</p>
+     */
+    @Inject(method = "canFoodHeal", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$noNaturalRegen(CallbackInfoReturnable<Boolean> cir) {
+        PlayerEntity self = (PlayerEntity) (Object) this;
+        if (!SessionManager.naturalRegenAllowed(self.getUuid())) {
+            cir.setReturnValue(false);
+        }
+    }
+
+    /**
+     * {@code c.hunger} off: nothing adds exhaustion, so the bar never drains.
+     *
+     * <p>Cancelling here rather than in {@code HungerManager#update} keeps the two rules apart —
+     * cancelling {@code update} would also freeze the regeneration timer and the starvation damage,
+     * which belong to {@code c.naturalRegen} and to the damage veto respectively.</p>
+     */
+    @Inject(method = "addExhaustion", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$noHungerDrain(float exhaustion, CallbackInfo ci) {
+        PlayerEntity self = (PlayerEntity) (Object) this;
+        if (!SessionManager.hungerEnabled(self.getUuid())) {
+            ci.cancel();
+        }
     }
 }

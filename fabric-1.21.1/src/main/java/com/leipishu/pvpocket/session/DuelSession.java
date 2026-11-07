@@ -1,5 +1,8 @@
 package com.leipishu.pvpocket.session;
 
+import com.leipishu.pvpocket.rules.DuelRules;
+import com.leipishu.pvpocket.rules.Rulebook;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,6 +44,26 @@ public final class DuelSession {
      */
     public String rules;
     public String rulesDigest;
+
+    /**
+     * Decoded form of {@link #rules}, rebuilt whenever the encoded string changes.
+     *
+     * <p>Not persisted and not a second source of truth: it is keyed on the string itself, so a
+     * caller that assigns {@code rules} directly (which several do) cannot leave a stale decode
+     * behind. The cache exists because the rule questions are asked from hot paths — the hunger
+     * and regeneration checks run once per player per tick.</p>
+     */
+    private transient String rulebookSource;
+    private transient Rulebook rulebook;
+
+    /** The rules of this session, read by name. Never null, even before a draft is submitted. */
+    public Rulebook rulebook() {
+        if (rulebook == null || !java.util.Objects.equals(rulebookSource, rules)) {
+            rulebookSource = rules;
+            rulebook = Rulebook.of(DuelRules.decode(rules));
+        }
+        return rulebook;
+    }
     /** Bumped on every accepted edit, so "you agreed to v1, this is v3" is visible to both sides. */
     public int rulesRevision;
     /** Uuid of the player who authored the current revision. */

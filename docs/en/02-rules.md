@@ -98,25 +98,30 @@ what the panel shows.
 
 ## 3. Enforcement status (important)
 
-**All 39 rules are configurable, all are written into the session, all reach the journal — and 20 of
-them currently affect a duel.** This is the section that matters. Do not look at the panel and
-assume the whole set is in effect.
+**All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
+conflict note), **and 26 of those currently affect a duel.** This is the section that matters. Do
+not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (20)
+### In effect (26)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
-| C | `c.mode`, `c.maxHealth` |
-| E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather` |
+| C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
+| D | `d.loadoutScope` |
+| E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.allowSurrender` |
 
-The two in group A arrived with the series split; the four in group B were wired up together with
-NvN. Where each one is read:
+**Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
+there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
+is not wired up.
+
+The two in group A arrived with the series split, the four in group B were wired up together with
+NvN, and the eight in groups C/E with the damage-and-survival slice. Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -128,22 +133,32 @@ NvN. Where each one is read:
   side named. It is also the slot count on the roster cards, so changing it changes the card height.
 - **`b.maxPlayers`** — the player cap, again in `submitRoster` / `validateRoster`. The hard ceiling of
   20 is enforced by `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
-- **`b.maxPlayers`** — the total cap, also in `validateRoster`. The hard ceiling of 16 lives in
-  `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
 - **`b.friendlyFire`** — when off, damage between team-mates is vetoed by
   `ServerLivingEntityEvents.ALLOW_DAMAGE` and leaves a `FRIENDLY_FIRE_BLOCKED` journal line. Only a
   direct attacker is blocked (melee, arrows, tridents, TNT), not the fire a team-mate set — the same
   line vanilla draws for its own team checks.
+- **`d.loadoutScope`** — with "one set per side", every member is given the loadout of the side's
+  first participant.
+- **`c.fallDamage` / `e.hazard`** — both live in the same `ALLOW_DAMAGE` handler, keyed on the
+  `DamageSource`. Fall damage needs both switches on (they are both off-switches, so either one
+  turns it off); lava and void are one bit each in `e.hazard`, and its "none" chip turns all three
+  off. Starvation damage is gated by `c.hunger`. This branch is **deliberately not journalled**:
+  standing in lava would write a line every ten ticks and bury everything else, and the rules
+  themselves are journalled when the session starts.
+- **`c.naturalRegen`** — injected into `PlayerEntity#canFoodHeal`; returning false removes
+  hunger-driven regeneration. Golden apples and potions go through `heal()` and are unaffected.
+- **`c.hunger`** — injected into `PlayerEntity#addExhaustion` and cancelled, so the bar never drains.
+  `HungerManager#update` is left alone on purpose: cancelling it would also freeze the regeneration
+  timer and starvation damage, which belong to two other rules.
+- **`c.knockbackResistance`** — the base value of `GENERIC_KNOCKBACK_RESISTANCE` is set from the
+  percentage at the start of every round. No separate undo: the player snapshot restores the
+  attribute map wholesale, the same path that restores max health.
 
-### Recorded only (19)
+### Recorded only (13)
 
-`a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `c.naturalRegen`, `c.hunger`,
-`c.fallDamage`, `c.knockbackResistance`, `d.loadoutScope`, `d.allowSwapBetweenRounds`,
-`d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`, `e.hazard`, `f.allowPlace`,
+`a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `d.allowSwapBetweenRounds`,
+`d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`, `f.allowPlace`,
 `f.allowExplosives`, `f.blockFilter`, `g.enderPearl`, `g.chatScope`, `g.showOpponentHealth`
-
-One more entry is not a setting at all: `c.modeConflict` is a `fixed` rule that only prints the
-"1.8 mode conflicts with some rules" note in the panel, and has no value to read.
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
@@ -160,8 +175,10 @@ Three of them mislead more than the rest and are worth calling out:
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
 work is spread across several slices (timers, block change set, chat filtering). Keeping
-a declared-but-unenforced state converges faster than removing and re-adding. **Any public claim
-about features must follow this section, not the panel.**
+a declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
+closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
+document and the code cannot drift apart. **Any public claim about features must follow this
+section, not the panel.**
 
 ## 4. Series arithmetic
 
