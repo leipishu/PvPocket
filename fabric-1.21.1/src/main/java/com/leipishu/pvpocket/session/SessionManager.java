@@ -516,7 +516,7 @@ public final class SessionManager {
                     // logoff as an anomaly the next boot has to reconcile.
                     session.seriesEndReason = "CUT";
                     journal(session).append("SERIES_CUT", "reason", "participant_offline");
-                    finishSeries(session, leaderTeam(session));
+                    finishSeries(session, leaderTeam(session, absentTeam(session)));
                 } else {
                     PvPocket.LOGGER.error("Failed to start round {} of {}", before + 1, session.id, e);
                     abort(session, "ROUND_START_FAILED");
@@ -799,6 +799,7 @@ public final class SessionManager {
                     "pvpocket.rule.f.blockFilter.c" + UsePolicy.banIndex(UsePolicy.banOf(stack))));
             case CONSUMABLE -> PvLang.t("pvpocket.msg.use.consumable");
             case PEARL -> PvLang.t("pvpocket.msg.use.pearl");
+            case SHIELD -> PvLang.t("pvpocket.msg.use.shield");
             case NONE -> null;
         };
         warnThrottled(server, message);
@@ -3044,6 +3045,18 @@ public final class SessionManager {
             } else {
                 loadout = p.loadout == null ? Loadout.defaultDuel() : Loadout.decode(p.loadout);
             }
+            // 1.8 has no shields, and a shield that survives into the round does not merely sit
+            // unused: right-clicking raises it, which both blocks damage outright and takes the
+            // right-click away from the sword block this mode exists for. Dropped here rather than
+            // in the editor so the same saved loadout stays valid for a modern round.
+            if (mode == CombatMode.LEGACY_1_8) {
+                int shields = loadout.shieldCount();
+                if (shields > 0) {
+                    loadout = loadout.withoutShields();
+                    journal(session).append("LOADOUT_SHIELD_DROPPED", "player", p.name,
+                            "count", shields, "round", session.round);
+                }
+            }
             int granted = LoadoutBuilder.grant(player, loadout, p.teamIndex());
             p.loadoutApplied = true;
             journal(session).append("LOADOUT_APPLIED", "player", p.name,
@@ -3107,7 +3120,7 @@ public final class SessionManager {
                 // fought, so there is nothing to judge and no round to award.
                 session.seriesEndReason = "CUT";
                 journal(session).append("SERIES_CUT", "reason", "participant_offline");
-                finishSeries(session, leaderTeam(session));
+                finishSeries(session, leaderTeam(session, absentTeam(session)));
                 return;
             }
             player.setInvulnerable(false);
@@ -3306,7 +3319,7 @@ public final class SessionManager {
             // for a player who is not there.
             session.seriesEndReason = "CUT";
             journal(session).append("SERIES_CUT", "reason", "participant_offline");
-            finishSeries(session, leaderTeam(session));
+            finishSeries(session, leaderTeam(session, absentTeam(session)));
             return;
         }
         if (!decided) {
@@ -3405,6 +3418,39 @@ public final class SessionManager {
     /** The current leader, or {@code -1} when the lead is shared. */
     private static int leaderTeam(DuelSession session) {
         return leaderTeam(session, -1);
+    }
+
+    /**
+     * The side that has nobody left online, or {@code -1} when every side still has a player.
+     *
+     * <p>A cut is a forfeit by whoever walked out, so that side cannot also be the side that wins.
+     * The surrender path already says this out loud — "a side that quits cannot hand the match to
+     * the side it was beating" — and passes its own side as {@code exclude}. The three cut paths
+     * passed no exclusion at all, which is how a 1v1 that stood at 0:1 ended with "Dev1 wins
+     * (opponent disconnected)" announced to the player who stayed: the score was right and the
+     * sentence was nonsense.</p>
+     *
+     * <p>{@code -1} when two sides are gone as well as when none is: with more than one side absent
+     * there is no forfeit to attribute, and the lead decides or nobody does.</p>
+     */
+    private int absentTeam(DuelSession session) {
+        int absent = -1;
+        for (int t = 0; t < Math.max(1, session.teamCount); t++) {
+            boolean anyOnline = false;
+            for (Participant p : session.participants) {
+                if (p.teamIndex() == t && !p.rejected && online(p) != null) {
+                    anyOnline = true;
+                    break;
+                }
+            }
+            if (!anyOnline) {
+                if (absent >= 0) {
+                    return -1;
+                }
+                absent = t;
+            }
+        }
+        return absent;
     }
 
     /**

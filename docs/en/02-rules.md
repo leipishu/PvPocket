@@ -62,6 +62,14 @@ what the panel shows.
 - **Fall damage** — `c.fallDamage` · toggle · default On. When off, landing from a height does no damage.
 - **Knockback resistance** — `c.knockbackResistance` · percent · default 0%. Knockback resistance applied equally to every participant.
 
+> **Shields and blocking in legacy mode.** 1.8 has no shields, so a legacy round strips shield rows
+> out of the loadout when it is granted (journalled as `LOADOUT_SHIELD_DROPPED`), and a shield that
+> reaches an inventory some other way is refused — otherwise raising it would both take the
+> right-click away from the sword block and block damage outright. Blocking is the state "main hand
+> holds a sword and right-click is down", not a shield: damage becomes `(1 + damage) × 0.5`, movement
+> is ×0.2, four warm brackets appear around the crosshair in first person, and other players see the
+> vanilla blocking arm pose. 1.8 blocking does not reduce knockback, and neither does this.
+
 **Loadout** — What you bring in and pick up
 
 - **Loadout scope** — `d.loadoutScope` · choice · default Per player · Per player / Per team. When set to per team, everyone on a side uses the same loadout.

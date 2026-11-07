@@ -578,6 +578,7 @@
   "pvpocket.msg.use.banned": "This duel does not allow %s.",
   "pvpocket.msg.use.consumable": "Consumables are off for this duel.",
   "pvpocket.msg.use.pearl": "Ender pearls are off for this duel.",
+  "pvpocket.msg.use.shield": "1.8 mode has no shields — hold right-click with a sword to block.",
   "pvpocket.msg.use.craft": "Crafting is off for this duel.",
   "pvpocket.msg.chat.muted": "Chat is muted for this duel.",
   "pvpocket.msg.sandbox.command_denied": "Only /pvpocket commands work inside the duel arena.",

@@ -106,6 +106,37 @@ public final class Loadout {
         return entries.size();
     }
 
+    /** How many shield rows this loadout has, for the "legacy dropped it" journal line. */
+    public int shieldCount() {
+        int count = 0;
+        for (LoadoutEntry entry : entries) {
+            if (entry.kind == ItemKind.SHIELD) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * The same loadout with every shield taken out.
+     *
+     * <p>1.8 has no shields, and leaving one in the offhand is not cosmetic: vanilla raises it on
+     * right-click, which both blocks damage outright and eats the right-click that the 1.8 sword
+     * block needs. Stripping happens at grant time rather than at edit time so one saved loadout can
+     * serve a modern round and a legacy one without being rewritten behind the player's back.</p>
+     *
+     * <p>Returns a copy — the caller's loadout still describes what the player agreed to, which is
+     * what the fingerprint in the journal is taken over.</p>
+     */
+    public Loadout withoutShields() {
+        Loadout copy = copy();
+        copy.entries.removeIf(entry -> entry.kind == ItemKind.SHIELD);
+        // A row that arrived without a slot (a hand-edited string) is skipped by grant(), so the
+        // layout is re-derived after the removal rather than assumed complete.
+        copy.autoAssignSlots();
+        return copy;
+    }
+
     public boolean isEmpty() {
         return entries.isEmpty();
     }

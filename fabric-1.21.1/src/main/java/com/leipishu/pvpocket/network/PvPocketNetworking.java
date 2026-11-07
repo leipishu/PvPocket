@@ -215,6 +215,12 @@ public final class PvPocketNetworking {
         boolean changed = CombatState.isBlocking(player.getUuid()) != blocking;
         CombatState.setBlocking(player.getUuid(), blocking);
         if (changed) {
+            // Blocking is the one piece of combat state that exists only because the client said
+            // so, so "the request never arrived" and "the request was refused" have to be
+            // distinguishable without a debugger. One line per transition is cheap; a duel is not
+            // a thousand blocks.
+            PvPocket.LOGGER.info("Blocking {} for {}", blocking ? "on" : "off",
+                    player.getName().getString());
             sendState(player);
         }
     }

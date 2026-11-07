@@ -578,6 +578,7 @@
   "pvpocket.msg.use.banned": "本次决斗禁止使用%s。",
   "pvpocket.msg.use.consumable": "本次决斗不允许使用消耗品。",
   "pvpocket.msg.use.pearl": "本次决斗不允许使用末影珍珠。",
+  "pvpocket.msg.use.shield": "1.8 模式没有盾牌，右键拿剑即格挡。",
   "pvpocket.msg.use.craft": "本次决斗不允许合成。",
   "pvpocket.msg.chat.muted": "本次决斗禁止聊天。",
   "pvpocket.msg.sandbox.command_denied": "决斗场地内只能使用 /pvpocket 指令。",

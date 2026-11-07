@@ -122,10 +122,14 @@ public final class PvPocket implements ModInitializer {
         // `ItemStackMixin`, because `interactItem` only runs once `interactBlock` has declined.
         UseItemCallback.EVENT.register((player, world, hand) -> {
             ItemStack stack = player.getStackInHand(hand);
-            UsePolicy.Denial denial = UsePolicy.useDenial(
-                    CombatState.useGate(player.getUuid()),
-                    CombatState.useBans(player.getUuid()),
-                    stack);
+            UsePolicy.Denial denial = UsePolicy.shieldDenial(
+                    CombatState.isLegacy(player.getUuid()), stack);
+            if (denial == UsePolicy.Denial.NONE) {
+                denial = UsePolicy.useDenial(
+                        CombatState.useGate(player.getUuid()),
+                        CombatState.useBans(player.getUuid()),
+                        stack);
+            }
             if (denial == UsePolicy.Denial.NONE) {
                 return TypedActionResult.pass(stack);
             }

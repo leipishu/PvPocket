@@ -52,7 +52,9 @@ public final class UsePolicy {
         /** {@code d.allowConsumables} is off. */
         CONSUMABLE,
         /** {@code g.enderPearl} is off. */
-        PEARL
+        PEARL,
+        /** Legacy 1.8 has no shields at all — not a rule, a property of the rule set. */
+        SHIELD
     }
 
     private UsePolicy() {
@@ -133,5 +135,17 @@ public final class UsePolicy {
             return Denial.CONSUMABLE;
         }
         return Denial.NONE;
+    }
+
+    /**
+     * The shield veto, which comes from the rule set rather than from a rule.
+     *
+     * <p>Kept apart from {@link #useDenial} because it is not a knob: there is no switch that turns
+     * shields back on in 1.8, and folding it into the gate mask would have meant a bit no panel can
+     * set. Grant already strips shields from the loadout, so this is the second line — it covers the
+     * shield that reaches an inventory some other way.</p>
+     */
+    public static Denial shieldDenial(boolean legacy, ItemStack stack) {
+        return legacy && stack.isOf(Items.SHIELD) ? Denial.SHIELD : Denial.NONE;
     }
 }
