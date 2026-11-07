@@ -35,7 +35,7 @@ what the panel shows.
 - **Timeout verdict** — `a.timeoutVerdict` · choice · default Higher health wins · Higher health wins / Draw / Both lose. How a round is decided when the clock runs out.
 - **Preparation time** — `a.countdown` · int 0–30 · default 5 s. Time between being teleported in and the first blow, counted down in chat one second at a time. Nobody can deal or take damage during it, and a solid white wall stands around the plot until the round goes live.
 - **Intermission** — `a.intermission` · int 1–10 · default 3 s. The break between two rounds of a series.
-- **Win conditions** — `a.winConditions` · multi · Kill / Out of bounds / Surrender / Timeout. Which events can end a round. Keep at least one.
+- **Win conditions** — `a.winConditions` · multi · Kill / Out of bounds / Surrender / Timeout. Which events can end a round. "Kill" is locked on; keep at least one of the other three.
 
 **Players** — Teams, sizes, friendly fire
 
@@ -99,16 +99,16 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 26 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and 29 of those currently affect a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (26)
+### In effect (29)
 
 | Group | Rules |
 | --- | --- |
-| A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission` |
+| A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
 | D | `d.loadoutScope` |
@@ -120,8 +120,9 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
 is not wired up.
 
-The two in group A arrived with the series split, the four in group B were wired up together with
-NvN, and the eight in groups C/E with the damage-and-survival slice. Where each one is read:
+The first two in group A arrived with the series split, the four in group B were wired up together
+with NvN, the eight in groups C/E with the damage-and-survival slice, and the last three in group A
+with the timing-and-outcome slice. Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -153,28 +154,42 @@ NvN, and the eight in groups C/E with the damage-and-survival slice. Where each 
 - **`c.knockbackResistance`** — the base value of `GENERIC_KNOCKBACK_RESISTANCE` is set from the
   percentage at the start of every round. No separate undo: the player snapshot restores the
   attribute map wholesale, the same path that restores max health.
+- **`a.roundLimit`** — the round clock, driven by `roundStartedAt` (the same timestamp the boundary
+  grace period uses). A timeout settles through `settle(..., "TIMEOUT" / "TIMEOUT_DRAW" /
+  "TIMEOUT_DOUBLE")`, and it **broadcasts before settling** — otherwise a round just stops, with
+  nothing to explain it. The clock only runs when `a.winConditions` has "timeout" ticked: a round
+  that may not end on the clock should not have one ticking.
+- **`a.timeoutVerdict`** — "highest health wins" compares the **sum of remaining health per side**
+  (in 2v2 one player at ten hearts and one at one heart is not "the ten-heart side"), and a tie falls
+  back to a draw. A draw and a double loss both award nothing; they differ only in the broadcast and
+  in the journal `reason`.
+- **`a.winConditions`** — the gate sits in four places: out-of-bounds (unticked, players are pulled
+  back instead of eliminated), surrender (an AND with `g.allowSurrender` — both must allow it),
+  timeout (unticked, the clock does not run) and kills. **"Kill" cannot be turned off**: a round
+  cannot both not end on a wipe and end on a wipe; making that real would mean respawning the wiped
+  side, which is a different mode. So that bit is locked in the panel (`RuleCatalog.lockedBits`) and
+  `DuelRules.set` forces it back — a hand-rolled packet cannot change it either.
 
-### Recorded only (13)
+### Recorded only (10)
 
-`a.roundLimit`, `a.timeoutVerdict`, `a.winConditions`, `d.allowSwapBetweenRounds`,
-`d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`, `f.allowPlace`,
-`f.allowExplosives`, `f.blockFilter`, `g.enderPearl`, `g.chatScope`, `g.showOpponentHealth`
+`d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables`,
+`f.allowPlace`, `f.allowExplosives`, `f.blockFilter`, `g.enderPearl`, `g.chatScope`,
+`g.showOpponentHealth`
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
 
-Three of them mislead more than the rest and are worth calling out:
+One of them misleads more than the rest and is worth calling out:
 
-- **`a.roundLimit` + `a.timeoutVerdict`** — the panel promises "settled by the timeout verdict once
-  exceeded", but there is no timer. If neither player acts, the round runs forever; only surrender
-  or a disconnect ends it.
-- **`a.winConditions`** — you can untick "kill", and a kill still ends the round.
 - **`f.allowPlace`** — off by default, yet **blocks can be placed with it off**: placement is never
   vetoed, only breaking is (`PlayerBlockBreakEvents.BEFORE`). Every change is rolled back at settle,
   so the next duel is unaffected — the switch itself just does not hold.
 
+There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "1.8 mode conflicts with
+some rules" note; it has no value.
+
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (timers, block change set, chat filtering). Keeping
+work is spread across several slices (block change set, chat filtering, interaction gates). Keeping
 a declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
 closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
 document and the code cannot drift apart. **Any public claim about features must follow this

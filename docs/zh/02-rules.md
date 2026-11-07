@@ -32,7 +32,7 @@
 - **超时判定** — `a.timeoutVerdict` · 单选 · 默认 血量高者胜 · 血量高者胜 / 平局 / 双败。时间耗尽时如何决定这一局。
 - **回合准备时间** — `a.countdown` · 整数 0–30 · 默认 5 秒。传送进场后、正式开打前的准备时间，倒计时逐秒显示在聊天栏。准备期间双方无法造成或受到伤害，场地四周会立起一圈白色实心屏障，开打瞬间拆除。
 - **局间间隔** — `a.intermission` · 整数 1–10 · 默认 3 秒。多局赛制下两局之间的休整时间。
-- **胜利条件** — `a.winConditions` · 多选 · 击杀 / 出界 / 投降 / 超时。这一局可以因哪些原因结束。至少保留一项。
+- **胜利条件** — `a.winConditions` · 多选 · 击杀 / 出界 / 投降 / 超时。这一局可以因哪些原因结束。「击杀」不可取消（锁住），其余三项至少保留一项。
 
 **参与者** — 人数、队伍与误伤
 
@@ -89,19 +89,19 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 20 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 29 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 26 条真正影响对局，13 条仅记录。**
+**当前 29 条真正影响对局，10 条仅记录。**
 
-### 已生效（26 条）
+### 已生效（29 条）
 
 | 组 | 规则 |
 | --- | --- |
-| A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission` |
+| A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
 | D | `d.loadoutScope` |
@@ -112,8 +112,8 @@
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
 调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
 
-A 组的两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」切片
-接上的，各自的读取点：
+A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
+切片接上的，A 组后三条是「计时与胜负」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -138,21 +138,29 @@ A 组的两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
   `HungerManager#update`：那会连回血计时和饿死伤害一起冻住，而它们分属另外两条规则。
 - **`c.knockbackResistance`** — 每局开局按百分比设 `GENERIC_KNOCKBACK_RESISTANCE` 的基础值。
   不需要单独回滚：玩家快照按属性表整体还原，和最大生命值走同一条路。
+- **`a.roundLimit`** — 回合计时器，用 `roundStartedAt`（和边界宽限同一个时间戳）。超时结算走
+  `settle(..., "TIMEOUT" / "TIMEOUT_DRAW" / "TIMEOUT_DOUBLE")`，并且**先广播再结算**，否则
+  「一局无声结束」没人看得懂。计时器只在 `a.winConditions` 勾了「超时」时运行：一局不允许因
+  超时结束，就不该有计时器在走。
+- **`a.timeoutVerdict`** — 血量高者胜时取**全队剩余血量之和**（2v2 里一个十心一个一心不等于
+  「十心那队」），并列则退回平局。平局与双败都不加分，区别只在播报与日志里的 reason。
+- **`a.winConditions`** — 闸门在四个地方：出界（未勾选则把玩家拉回而不是淘汰）、投降（与
+  `g.allowSurrender` 是「与」的关系，两个都允许才能投）、超时（未勾选则计时器不跑）、击杀。
+  **「击杀」不能取消**：一局不可能既「不因团灭结束」又「因团灭结束」，真要那么做只能让被团灭
+  的一方复活继续，那是另一种模式。所以这一位在面板上是锁住的（`RuleCatalog.lockedBits`），
+  `DuelRules.set` 也会把它强制补回去——手搓封包也改不动。
 
-### 仅记录（13 条）
+### 仅记录（10 条）
 
-`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions`、`d.allowSwapBetweenRounds`、
-`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、`f.allowPlace`、
-`f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、`g.showOpponentHealth`
+`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables`、
+`f.allowPlace`、`f.allowExplosives`、`f.blockFilter`、`g.enderPearl`、`g.chatScope`、
+`g.showOpponentHealth`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
 
-其中三条的落差最容易误导人，单独说明：
+其中一条的落差最容易误导人，单独说明：
 
-- **`a.roundLimit` + `a.timeoutVerdict`**：面板承诺「超过后按超时判定结算」，实际没有计时器。
-  两边都不动手时这一局可以无限打下去，只能靠认输或掉线结束。
-- **`a.winConditions`**：可以在这里取消「击杀」，但击杀仍然会结束这一局。
 - **`f.allowPlace`**：默认关闭，但**关闭状态下依然可以放方块**——方块放置没有任何拦截，
   只有破坏被 `PlayerBlockBreakEvents.BEFORE` 否决。所有方块变化都会在结算时回滚，所以不会
   污染下一局，只是这条开关本身不成立。
@@ -160,17 +168,8 @@ A 组的两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，只用来在面板上说明「1.8 模式与某些
 规则冲突」，没有取值可言。
 
-其中三条的落差最容易误导人，单独说明：
-
-- **`a.roundLimit` + `a.timeoutVerdict`**：面板承诺「超过后按超时判定结算」，实际没有计时器。
-  两边都不动手时这一局可以无限打下去，只能靠认输或掉线结束。
-- **`a.winConditions`**：可以在这里取消「击杀」，但击杀仍然会结束这一局。
-- **`f.allowPlace`**：默认关闭，但**关闭状态下依然可以放方块**——方块放置没有任何拦截，
-  只有破坏被 `PlayerBlockBreakEvents.BEFORE` 否决。所有方块变化都会在结算时回滚，所以不会
-  污染下一局，只是这条开关本身不成立。
-
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（计时器、方块变更集、聊天过滤）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
+（方块变更集、聊天过滤、交互拦截）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
 但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
 不要让它和代码各说各话。
 

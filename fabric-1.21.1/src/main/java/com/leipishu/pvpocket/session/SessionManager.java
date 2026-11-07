@@ -710,6 +710,97 @@ public final class SessionManager {
         return session != null && session.stage == SessionStage.ROUND_ACTIVE ? session : null;
     }
 
+    /**
+     * The round clock: {@code a.roundLimit} was a promise with no timer behind it.
+     *
+     * <p>Two players who both refuse to engage could keep a round open indefinitely — the only exits
+     * were a surrender or a disconnect, and a surrender can be switched off. The clock reuses the
+     * timestamp the settle deadline already keeps, so it starts when the round actually starts
+     * rather than when the preparation countdown does.</p>
+     *
+     * <p>Runs only when the timeout is also an accepted win condition: {@code a.winConditions}
+     * without 超时 means "this round cannot end on a clock", and a timer that fires into a verdict
+     * nobody accepts is worse than no timer.</p>
+     *
+     * @return true when the round ended here, so the caller must not keep judging it
+     */
+    private boolean tickRoundLimit(DuelSession session) {
+        Rulebook book = session.rulebook();
+        int limit = book.roundLimitSeconds();
+        if (limit <= 0 || !book.winsBy(Rulebook.WinCondition.TIMEOUT)) {
+            return false;
+        }
+        Long started = roundStartedAt.get(session.id);
+        if (started == null || System.currentTimeMillis() - started < limit * 1000L) {
+            return false;
+        }
+
+        Rulebook.TimeoutVerdict verdict = book.timeoutVerdict();
+        int winner = verdict == Rulebook.TimeoutVerdict.HIGHEST_HEALTH ? healthLeader(session) : -1;
+        boolean byHealth = verdict == Rulebook.TimeoutVerdict.HIGHEST_HEALTH && winner >= 0;
+        String key = switch (verdict) {
+            case HIGHEST_HEALTH -> byHealth
+                    ? "pvpocket.msg.round.timeout.health"
+                    : "pvpocket.msg.round.timeout.draw";
+            case DRAW -> "pvpocket.msg.round.timeout.draw";
+            case DOUBLE_LOSS -> "pvpocket.msg.round.timeout.double";
+        };
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player == null) {
+                continue;
+            }
+            // Built per player rather than once and reused: a Text that is mutated for one recipient
+            // is the same object the next one would get.
+            MutableText line = byHealth ? PvLang.t(key, teamName(session, winner)) : PvLang.t(key);
+            player.sendMessage(line.formatted(Formatting.YELLOW), false);
+        }
+
+        String reason = switch (verdict) {
+            case HIGHEST_HEALTH -> byHealth ? "TIMEOUT" : "TIMEOUT_DRAW";
+            case DRAW -> "TIMEOUT_DRAW";
+            case DOUBLE_LOSS -> "TIMEOUT_DOUBLE";
+        };
+        // Deferred, like every other settle reached from this loop: settling runs the intermission
+        // and can finish the series, and doing that while the caller is iterating the sessions is
+        // how the boundary path used to take the server down.
+        deferred.add(() -> settle(session, reason, winner));
+        return true;
+    }
+
+    /**
+     * The side with the most health left, or {@code -1} when the lead is shared.
+     *
+     * <p>Health of the whole side, not of one member: in a 2v2 one player on ten hearts and one on
+     * one heart is not "the team with ten hearts". Eliminated players count as zero — they are
+     * already out of the round.</p>
+     */
+    private int healthLeader(DuelSession session) {
+        Map<Integer, Double> totals = new LinkedHashMap<>();
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            ServerPlayerEntity player = online(p);
+            double hp = player != null && player.isAlive() && !p.eliminated ? player.getHealth() : 0D;
+            totals.merge(p.teamIndex(), hp, Double::sum);
+        }
+        int best = -1;
+        double bestHp = -1D;
+        boolean tie = false;
+        for (Map.Entry<Integer, Double> entry : totals.entrySet()) {
+            double hp = entry.getValue();
+            if (hp > bestHp + 1e-6D) {
+                bestHp = hp;
+                best = entry.getKey();
+                tie = false;
+            } else if (Math.abs(hp - bestHp) <= 1e-6D) {
+                tie = true;
+            }
+        }
+        return tie ? -1 : best;
+    }
+
     public void onDeath(ServerPlayerEntity player) {
         String sessionId = sessionByPlayer.get(player.getUuid());
         if (sessionId == null) {
@@ -840,6 +931,11 @@ public final class SessionManager {
             if (session.stage != SessionStage.ROUND_ACTIVE) {
                 continue;
             }
+            // The clock runs before the boundary pass and can end the round; settling and then
+            // walking the participants would judge a round that is already over.
+            if (tickRoundLimit(session)) {
+                continue;
+            }
             ArenaRegion region = ArenaManager.region(session.id);
             if (region == null) {
                 continue;
@@ -878,7 +974,8 @@ public final class SessionManager {
                 // a fixed opening window. A 10-second window made the rule unobservable — every
                 // setting pulled back identically for the first ten seconds, which read as "the
                 // config panel does nothing".
-                if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)) {
+                if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)
+                        || !session.rulebook().winsBy(Rulebook.WinCondition.OUT_OF_BOUNDS)) {
                     boundaryExits.remove(key);
                     ArenaManager.pullInside(player, region);
                     notifyPushBack(session, player, key, awaitingFirstEntry(session, key));
@@ -1991,7 +2088,8 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.duel.round_settled");
             return;
         }
-        if (!DuelRules.decode(session.rules).flag("g.allowSurrender")) {
+        if (!session.rulebook().allowSurrender()
+                || !session.rulebook().winsBy(Rulebook.WinCondition.SURRENDER)) {
             fail(player, "pvpocket.msg.duel.surrender_disabled");
             return;
         }

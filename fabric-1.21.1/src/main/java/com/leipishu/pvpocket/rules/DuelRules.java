@@ -79,7 +79,12 @@ public final class DuelRules {
 
     public void set(String id, int value) {
         RuleDefinition def = RuleCatalog.byId(id);
-        values.put(id, def == null ? value : def.clamp(value));
+        int clamped = def == null ? value : def.clamp(value);
+        // Bits the panel refuses to clear are forced back on here as well. The panel is not the only
+        // writer — a hand-built packet or an older client would otherwise be able to store a rule
+        // set whose meaning is "a round cannot be won by wiping the other side out", which no code
+        // implements.
+        values.put(id, clamped | RuleCatalog.lockedBits(id));
     }
 
     public boolean flag(String id) {

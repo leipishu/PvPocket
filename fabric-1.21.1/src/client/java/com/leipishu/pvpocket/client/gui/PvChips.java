@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -25,12 +26,15 @@ public class PvChips extends PvValueControl {
     private static final int H = 22;
 
     private final RuleDefinition def;
+    /** Chips that stay on no matter what; see {@link RuleCatalog#lockedBits}. */
+    private final int locked;
     private final float[] selT;
     private final float[] hotT;
 
     public PvChips(RuleDefinition def, int value) {
         this.def = def;
         this.value = def.clamp(value);
+        this.locked = RuleCatalog.lockedBits(def.id);
         this.height = H;
         this.width = 200;
         this.selT = new float[def.choiceCount()];
@@ -67,8 +71,11 @@ public class PvChips extends PvValueControl {
 
         for (int i = 0; i < def.choiceCount(); i++) {
             boolean on = (value & (1 << i)) != 0;
+            boolean lockedChip = (locked & (1 << i)) != 0;
             selT[i] = PvAnim.damp(selT[i], on ? 1F : 0F, d, 0.05F);
-            hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i ? 1F : 0F, d, 0.09F);
+            // A locked chip never lights up on hover: it cannot be pressed, and a highlight would
+            // promise otherwise.
+            hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i && !lockedChip ? 1F : 0F, d, 0.09F);
 
             int cx = x + i * (cw + GAP);
             float sel = selT[i];
@@ -106,6 +113,11 @@ public class PvChips extends PvValueControl {
         int index = chipAt(mx);
         if (index < 0) {
             return false;
+        }
+        if ((locked & (1 << index)) != 0) {
+            // Consumed but ignored, so the click cannot fall through to the row behind it and the
+            // chip still feels like a control that simply refuses.
+            return true;
         }
         value ^= (1 << index);
         MinecraftClient.getInstance().getSoundManager()

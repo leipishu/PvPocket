@@ -16,6 +16,31 @@ package com.leipishu.pvpocket.rules;
  */
 public final class Rulebook {
 
+    /** {@code a.winConditions} bits, in choice order — the order is the wire format. */
+    public enum WinCondition {
+        /** A side is wiped out. Always on: see {@link RuleCatalog#lockedBits(String)}. */
+        KILL,
+        OUT_OF_BOUNDS,
+        SURRENDER,
+        TIMEOUT
+    }
+
+    /** {@code a.timeoutVerdict} choices, in choice order. */
+    public enum TimeoutVerdict {
+        HIGHEST_HEALTH,
+        DRAW,
+        DOUBLE_LOSS
+    }
+
+    /**
+     * Minutes per {@code a.roundLimit} choice, in choice order; index 0 is "no limit".
+     *
+     * <p>Positional because that is what the wire format is — {@code c0..c5} are the panel labels and
+     * the stored value is the index. Reordering the labels without reordering this table would
+     * silently change what every existing session meant.</p>
+     */
+    private static final int[] ROUND_LIMIT_MINUTES = {0, 1, 3, 5, 10, 15};
+
     /** {@code e.hazard} bit: "no hazards at all". Wins over the three bits below. */
     private static final int HAZARD_NONE = 1 << 0;
     private static final int HAZARD_FALL = 1 << 1;
@@ -30,6 +55,31 @@ public final class Rulebook {
 
     public static Rulebook of(DuelRules rules) {
         return new Rulebook(rules == null ? DuelRules.defaults() : rules);
+    }
+
+    // ------------------------------------------------------------------ A. 对局结构
+
+    /** Whether a round may end for this reason. */
+    public boolean winsBy(WinCondition condition) {
+        return (rules.get("a.winConditions") & (1 << condition.ordinal())) != 0;
+    }
+
+    /** The round clock, in seconds; 0 means no limit. */
+    public int roundLimitSeconds() {
+        int choice = rules.get("a.roundLimit");
+        int minutes = choice >= 0 && choice < ROUND_LIMIT_MINUTES.length
+                ? ROUND_LIMIT_MINUTES[choice]
+                : 0;
+        return minutes * 60;
+    }
+
+    /** How a round is settled when its clock runs out. */
+    public TimeoutVerdict timeoutVerdict() {
+        return switch (rules.get("a.timeoutVerdict")) {
+            case 1 -> TimeoutVerdict.DRAW;
+            case 2 -> TimeoutVerdict.DOUBLE_LOSS;
+            default -> TimeoutVerdict.HIGHEST_HEALTH;
+        };
     }
 
     // ------------------------------------------------------------------ B. 参与者
@@ -81,6 +131,13 @@ public final class Rulebook {
      */
     public double knockbackResistance() {
         return rules.get("c.knockbackResistance") / 100.0D;
+    }
+
+    // ------------------------------------------------------------------ G. 其他
+
+    /** {@code g.allowSurrender}: whether the surrender command is available at all. */
+    public boolean allowSurrender() {
+        return rules.flag("g.allowSurrender");
     }
 
     private boolean hazard(int bit) {

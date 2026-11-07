@@ -113,6 +113,21 @@ public final class RuleCatalog {
         return RuleDefinition.choices(id, count);
     }
 
+    /**
+     * Bits of a multi-select rule that the panel will not let you clear.
+     *
+     * <p>{@code a.winConditions} keeps 击杀 on. "A round cannot be won by wiping the other side out"
+     * has exactly one honest implementation — respawn the wiped side and keep going — and that is a
+     * game mode, not a switch. The alternative, letting the chip go dark while the round still ends
+     * on a wipe, is the kind of config that lies, which is the whole reason this backlog exists.</p>
+     *
+     * <p>Enforced twice: {@link DuelRules#set} forces the bit back on for anything that writes a
+     * rule set, and the chip widget draws it as locked.</p>
+     */
+    public static int lockedBits(String id) {
+        return "a.winConditions".equals(id) ? 1 : 0;
+    }
+
     private static void add(RuleDefinition def) {
         ORDERED.add(def);
         BY_ID.put(def.id, def);
