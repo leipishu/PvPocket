@@ -34,13 +34,14 @@ import net.minecraft.util.Identifier;
  */
 public record MatchHudPayload(boolean active,
                               int round, int maxRounds, int winsNeeded,
-                              String scores, String teams)
+                              String scores, String teams,
+                              boolean showHealth)
         implements CustomPayload {
 
     public static final Id<MatchHudPayload> ID =
             new Id<>(Identifier.of("pvpocket", "match_hud"));
 
-    /** Hand-written rather than {@code PacketCodec.tuple}: six fields, two of them strings. */
+    /** Hand-written rather than {@code PacketCodec.tuple}: seven fields, two of them strings. */
     public static final PacketCodec<RegistryByteBuf, MatchHudPayload> CODEC = PacketCodec.of(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
@@ -49,6 +50,7 @@ public record MatchHudPayload(boolean active,
                 buf.writeVarInt(value.winsNeeded);
                 buf.writeString(value.scores);
                 buf.writeString(value.teams);
+                buf.writeBoolean(value.showHealth);
             },
             buf -> new MatchHudPayload(
                     buf.readBoolean(),
@@ -56,11 +58,12 @@ public record MatchHudPayload(boolean active,
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readString(),
-                    buf.readString()));
+                    buf.readString(),
+                    buf.readBoolean()));
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
     public static MatchHudPayload hidden() {
-        return new MatchHudPayload(false, 0, 0, 0, "", "");
+        return new MatchHudPayload(false, 0, 0, 0, "", "", false);
     }
 
     @Override

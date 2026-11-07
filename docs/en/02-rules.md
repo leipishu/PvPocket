@@ -99,12 +99,12 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 35 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and 37 of those currently affect a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (35)
+### In effect (37)
 
 | Group | Rules |
 | --- | --- |
@@ -114,7 +114,7 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 | D | `d.loadoutScope`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
-| G | `g.enderPearl`, `g.allowSurrender` |
+| G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
 there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
@@ -122,8 +122,8 @@ is not wired up.
 
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
-the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, and the other two in
-D with the interaction slice. Where each one is read:
+the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
+with the interaction slice, and the last two in G with the display slice. Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -201,10 +201,28 @@ D with the interaction slice. Where each one is read:
   the rule. Every branch of `internalOnSlotClick` asks `canTakeItems` before moving a stack out, and
   the ingredients are only consumed in `onTakeItem` — so a refused take is a refused craft, not
   quietly eaten materials.
+- **`g.showOpponentHealth`** — one boolean rides along in `MatchHudPayload`; **the switch ships, the
+  numbers do not**. Both sides are standing in the same arena, so this client already holds every
+  participant's health, and posting twenty floats per tick to say what the entity already says would
+  be the most expensive thing in the payload. So the client reads `getHealth()` itself, and draws
+  nothing when the player is not in its world rather than inventing full health. The local player's
+  own row is skipped — the vanilla bar is four pixels away. The stacked three-or-four-side layout
+  shows no health: 16px per row cannot hold a number per member, and a per-side total carries no
+  information in a 4v4.
+- **`g.chatScope`** — registered on `ServerMessageEvents.ALLOW_CHAT_MESSAGE` (the head of
+  `PlayerManager#broadcast`); returning false cancels vanilla's fan-out and the line is delivered
+  here instead. "Team only" is not a per-recipient filter, it is a different recipient list, so the
+  broadcast has to be taken over.
+  **Taking the broadcast over means taking the decoration over.** Vanilla prefixes the speaker's name
+  inside `broadcast`; skipping that step leaves every line in a duel unattributed, so the same
+  `applyChatDecoration` is called here.
+  Scoped to `ROUND_ACTIVE` like the damage veto: a rule that outlives the round would silently mute
+  the lobby for anybody who shares a session. A spectator (in the session but on no side) gets their
+  own line echoed back to themselves.
 
-### Recorded only (4)
+### Recorded only (2)
 
-`d.allowSwapBetweenRounds`, `f.allowExplosives`, `g.chatScope`, `g.showOpponentHealth`
+`d.allowSwapBetweenRounds`, `f.allowExplosives`
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
@@ -213,7 +231,7 @@ There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "
 some rules" note; it has no value.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (explosion checks, chat filtering, the HUD). Keeping a
+work is spread across several slices (loadout re-consent, explosion checks). Keeping a
 declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
 closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
 document and the code cannot drift apart. **Any public claim about features must follow this

@@ -13,6 +13,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -131,6 +132,10 @@ public final class PvPocket implements ModInitializer {
             SessionManager.reportUseDenial(player, denial, stack);
             return TypedActionResult.fail(stack);
         });
+
+        // g.chatScope. A veto here cancels vanilla's fan-out, and the handler delivers the line to
+        // the recipients the rule allows instead.
+        ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(SessionManager::allowChat);
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 PvPocketCommands.register(dispatcher));

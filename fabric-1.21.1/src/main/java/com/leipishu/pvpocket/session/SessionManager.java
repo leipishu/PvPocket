@@ -34,6 +34,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.network.packet.s2c.play.ClearTitleS2CPacket;
+import net.minecraft.network.message.MessageType;
+import net.minecraft.network.message.SignedMessage;
 import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
 import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
 import net.minecraft.text.MutableText;
@@ -770,6 +772,60 @@ public final class SessionManager {
         if (player instanceof ServerPlayerEntity server) {
             warnThrottled(server, PvLang.t("pvpocket.msg.use.craft"));
         }
+    }
+
+    /**
+     * {@code g.chatScope}: who gets to read a line of chat sent during a round.
+     *
+     * <p>Registered on {@code ServerMessageEvents.ALLOW_CHAT_MESSAGE}, which fires at the head of
+     * {@code PlayerManager#broadcast} — so returning false cancels vanilla's fan-out and leaves the
+     * delivery to us. That is the point: "仅队友" is not a filter applied to each recipient, it is a
+     * different recipient list.</p>
+     *
+     * <p>Taking the broadcast over means taking the decoration over too. Vanilla prefixes the line
+     * with the speaker's name inside {@code broadcast}; skipping that step would deliver the raw
+     * sentence and leave every line in a duel unattributed, so the same
+     * {@code applyChatDecoration} call is made here.</p>
+     *
+     * <p>Scoped to {@code ROUND_ACTIVE} like the damage veto, and for the same reason: a rule that
+     * outlives the round would silently mute the lobby for anybody who shares a session.</p>
+     */
+    public static boolean allowChat(SignedMessage message, ServerPlayerEntity sender,
+                                    MessageType.Parameters params) {
+        SessionManager manager = instance;
+        if (manager == null) {
+            return true;
+        }
+        DuelSession session = activeSessionOf(sender.getUuid());
+        if (session == null) {
+            return true;
+        }
+        Rulebook.ChatScope scope = session.rulebook().chatScope();
+        if (scope == Rulebook.ChatScope.SERVER) {
+            return true;
+        }
+        Text decorated = params.applyChatDecoration(message.getContent());
+        if (scope == Rulebook.ChatScope.MUTED) {
+            warnThrottled(sender, PvLang.t("pvpocket.msg.chat.muted"));
+            return false;
+        }
+        Participant mine = session.participant(sender.getUuidAsString());
+        if (mine == null) {
+            // In the session but not on a side — a spectator. There is no team to talk to, so the
+            // line goes back to them alone rather than to every side at once.
+            sender.sendMessage(decorated, false);
+            return false;
+        }
+        for (Participant p : session.participants) {
+            if (p.teamIndex() != mine.teamIndex()) {
+                continue;
+            }
+            ServerPlayerEntity target = manager.online(p);
+            if (target != null) {
+                target.sendMessage(decorated, false);
+            }
+        }
+        return false;
     }
 
     /**
@@ -3304,7 +3360,7 @@ public final class SessionManager {
             }
         }
         return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
-                scores.toString(), roster.toString());
+                scores.toString(), roster.toString(), session.rulebook().showOpponentHealth());
     }
 
     /**

@@ -25,6 +25,16 @@ public final class Rulebook {
         TIMEOUT
     }
 
+    /** {@code g.chatScope} values, in choice order. */
+    public enum ChatScope {
+        /** Everyone on the server reads it. */
+        SERVER,
+        /** Only the sender's own side reads it. In a 1v1 that is the sender alone. */
+        TEAM,
+        /** Nobody reads it, including the sender's side. */
+        MUTED
+    }
+
     /** {@code a.timeoutVerdict} choices, in choice order. */
     public enum TimeoutVerdict {
         HIGHEST_HEALTH,
@@ -178,6 +188,27 @@ public final class Rulebook {
     /** {@code g.allowSurrender}: whether the surrender command is available at all. */
     public boolean allowSurrender() {
         return rules.flag("g.allowSurrender");
+    }
+
+    /**
+     * {@code g.showOpponentHealth}: draw the other side's health in the match bar.
+     *
+     * <p>Only the switch travels to the client; the numbers do not. Both sides are standing in the
+     * same arena, so the client already has every participant's health in its own world — shipping
+     * twenty health values per tick to say what the entity already says would be the most expensive
+     * thing in the payload.</p>
+     */
+    public boolean showOpponentHealth() {
+        return rules.flag("g.showOpponentHealth");
+    }
+
+    /** {@code g.chatScope}: 0 server-wide, 1 team only, 2 muted. */
+    public ChatScope chatScope() {
+        return switch (rules.get("g.chatScope")) {
+            case 1 -> ChatScope.TEAM;
+            case 2 -> ChatScope.MUTED;
+            default -> ChatScope.SERVER;
+        };
     }
 
     private boolean hazard(int bit) {

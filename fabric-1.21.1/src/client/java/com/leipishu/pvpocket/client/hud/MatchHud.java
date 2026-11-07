@@ -19,6 +19,7 @@ import net.minecraft.client.util.SkinTextures;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -59,6 +60,8 @@ public final class MatchHud implements HudRenderCallback {
     private static final int PAD_X = 8;
     private static final int PAD_Y = 4;
     private static final int NAME_GAP = 4;
+    /** Gap between a name and its health readout; see {@code g.showOpponentHealth}. */
+    private static final int HEALTH_GAP = 4;
     private static final int BLOCK_GAP = 9;
     private static final int MIN_H = 24;
     private static final int TOP = 3;
@@ -181,9 +184,9 @@ public final class MatchHud implements HudRenderCallback {
                 PvTheme.team(1));
 
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
-                leftScore, payload.winsNeeded());
+                leftScore, payload.winsNeeded(), payload.showHealth());
         drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
-                names, rightScore, payload.winsNeeded());
+                names, rightScore, payload.winsNeeded(), payload.showHealth());
         String score = leftScore + " : " + rightScore;
         drawCentre(ctx, tr, payload, score, barX + PAD_X + layout.leftW() + BLOCK_GAP,
                 barY, layout.centreW());
@@ -260,8 +263,8 @@ public final class MatchHud implements HudRenderCallback {
     private static Layout measure(TextRenderer tr, List<Row> left, List<Row> right,
                                   MatchHudPayload payload, int leftScore, int rightScore,
                                   boolean names) {
-        int leftW = blockWidth(tr, left, names);
-        int rightW = blockWidth(tr, right, names);
+        int leftW = blockWidth(tr, left, names, payload.showHealth());
+        int rightW = blockWidth(tr, right, names, payload.showHealth());
         String round = roundLabel(payload);
         String score = leftScore + " : " + rightScore;
         int centreW = Math.max(tr.getWidth(round), tr.getWidth(score));
@@ -279,16 +282,19 @@ public final class MatchHud implements HudRenderCallback {
         return new Layout(width, height, leftW, centreW, rightW);
     }
 
-    private static int blockWidth(TextRenderer tr, List<Row> rows, boolean names) {
+    private static int blockWidth(TextRenderer tr, List<Row> rows, boolean names, boolean showHealth) {
         if (rows.isEmpty()) {
             return 0;
         }
         if (!names) {
             return HEAD;
         }
+        // Reserved from the widest possible readout rather than from the current value: a block that
+        // resizes when somebody drops to nine hearts would shift the whole bar mid-fight.
+        int healthW = showHealth ? HEALTH_GAP + tr.getWidth("9.5") : 0;
         int max = 0;
         for (Row row : rows) {
-            max = Math.max(max, HEAD + NAME_GAP + tr.getWidth(row.name()));
+            max = Math.max(max, HEAD + NAME_GAP + tr.getWidth(row.name()) + healthW);
         }
         return max;
     }
@@ -312,7 +318,7 @@ public final class MatchHud implements HudRenderCallback {
 
     private static void drawSide(DrawContext ctx, TextRenderer tr, MinecraftClient client,
                                  List<Row> rows, boolean left, int edgeX, int barY, int barH,
-                                 boolean names, int score, int winsNeeded) {
+                                 boolean names, int score, int winsNeeded, boolean showHealth) {
         if (rows.isEmpty()) {
             return;
         }
@@ -330,14 +336,56 @@ public final class MatchHud implements HudRenderCallback {
 
             if (names) {
                 int textY = y + (HEAD - 8) / 2 + 1;
+                int nameW = tr.getWidth(row.name());
                 if (left) {
                     PvDraw.text(ctx, tr, row.name(), headX + HEAD + NAME_GAP, textY, tint);
                 } else {
                     PvDraw.textRight(ctx, tr, row.name(), headX - NAME_GAP, textY, tint);
                 }
+                // g.showOpponentHealth. Read from the entity rather than from the payload: both sides
+                // are standing in the same arena, so this client already knows every participant's
+                // health, and the rule only decides whether to draw it. The sender's own row is
+                // skipped — the vanilla bar is already showing it, four pixels away.
+                if (showHealth && !isSelf(client, row.uuid())) {
+                    float health = healthOf(client, row.uuid());
+                    if (health >= 0) {
+                        String label = heartsLabel(health);
+                        if (left) {
+                            PvDraw.text(ctx, tr, label,
+                                    headX + HEAD + NAME_GAP + nameW + HEALTH_GAP, textY,
+                                    PvTheme.TEXT_DIM);
+                        } else {
+                            PvDraw.textRight(ctx, tr, label,
+                                    headX - NAME_GAP - nameW - HEALTH_GAP, textY,
+                                    PvTheme.TEXT_DIM);
+                        }
+                    }
+                }
             }
             y += ROW_H;
         }
+    }
+
+    /** Health in hearts, one decimal, trimmed — {@code 20} HP is {@code 10}, not {@code 10.0}. */
+    private static String heartsLabel(float health) {
+        String text = String.format(Locale.ROOT, "%.1f", health / 2.0F);
+        return text.endsWith(".0") ? text.substring(0, text.length() - 2) : text;
+    }
+
+    /** The participant's health, or -1 when their entity is not in this client's world. */
+    private static float healthOf(MinecraftClient client, UUID uuid) {
+        if (client.world != null) {
+            for (AbstractClientPlayerEntity player : client.world.getPlayers()) {
+                if (player.getUuid().equals(uuid)) {
+                    return player.getHealth();
+                }
+            }
+        }
+        return -1.0F;
+    }
+
+    private static boolean isSelf(MinecraftClient client, UUID uuid) {
+        return client.player != null && client.player.getUuid().equals(uuid);
     }
 
     private static String roundLabel(MatchHudPayload payload) {

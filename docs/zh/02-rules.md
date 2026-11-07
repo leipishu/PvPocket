@@ -89,15 +89,15 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 35 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 37 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 35 条真正影响对局，4 条仅记录。**
+**当前 37 条真正影响对局，2 条仅记录。**
 
-### 已生效（35 条）
+### 已生效（37 条）
 
 | 组 | 规则 |
 | --- | --- |
@@ -107,14 +107,14 @@
 | D | `d.loadoutScope`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
-| G | `g.enderPearl`、`g.allowSurrender` |
+| G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
 调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，各自的读取点：
+D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -173,10 +173,23 @@ D 组另外两条是「交互限制」切片接上的，各自的读取点：
   回两个结果槽（工作台 3×3 与背包 2×2）。只拦工作台会留下背包那格当绕过路径。
   `internalOnSlotClick` 的每条分支都会先问 `canTakeItems`，而合成材料是在 `onTakeItem` 里扣的，
   拿不出来就扣不到，所以拒绝取出等于拒绝合成，不会白吃材料。
+- **`g.showOpponentHealth`** — 随 `MatchHudPayload` 下发一个布尔，**只下发开关不下发数值**：
+  两边都站在同一个场地里，客户端本来就握着每个参与者的血量，为了说一句实体自己已经说了的话
+  而每 tick 发二十个浮点数，会是这个载荷里最贵的东西。所以数字由客户端读 `getHealth()`，
+  读不到（人不在本客户端的世界里）就不画，而不是画成满血。自己那一行跳过——原版血条就在
+  四像素外。3 方以上的堆叠布局不出血量：一行 16px 放不下逐人数字，而逐队总和在 4v4 里没有
+  信息量。
+- **`g.chatScope`** — 挂在 `ServerMessageEvents.ALLOW_CHAT_MESSAGE`（`PlayerManager#broadcast`
+  的头部），返回 false 就取消了原版的群发，改由我们自己发。「仅队友」不是给每个收件人加过滤，
+  而是换一份收件人名单，所以必须接管群发。
+  **接管群发就得接管装饰**：原版是在 `broadcast` 里拼上说话人名字的，跳过那一步会让一局里
+  每句话都没有署名，所以这里调了同一个 `applyChatDecoration`。
+  范围同样锁在 `ROUND_ACTIVE`：一条比回合活得更久的规则，会把大厅静音给任何一个共用会话的人。
+  观众（在会话里但不在任何一队）发的话只回显给自己。
 
-### 仅记录（4 条）
+### 仅记录（2 条）
 
-`d.allowSwapBetweenRounds`、`f.allowExplosives`、`g.chatScope`、`g.showOpponentHealth`
+`d.allowSwapBetweenRounds`、`f.allowExplosives`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
@@ -185,7 +198,7 @@ D 组另外两条是「交互限制」切片接上的，各自的读取点：
 规则冲突」，没有取值可言。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（爆炸判定、聊天过滤、HUD）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
+（换装征询、爆炸判定）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
 但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
 不要让它和代码各说各话。
 

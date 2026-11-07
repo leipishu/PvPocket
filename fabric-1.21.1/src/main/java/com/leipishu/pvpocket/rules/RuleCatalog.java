@@ -106,7 +106,10 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("g.enderPearl", RuleGroup.G, false));
         add(RuleDefinition.toggle("g.allowSurrender", RuleGroup.G, true));
         add(RuleDefinition.toggle("g.showOpponentHealth", RuleGroup.G, true));
-        add(RuleDefinition.enumOf("g.chatScope", RuleGroup.G, 1, choices("g.chatScope", 3)));
+        // 默认「全服」而不是设计稿的「仅队友」。理由和 f.allowPlace 同一条：默认值必须是系统
+        // 实际假设的那个。1v1 里没有队友，「仅队友」等于把聊天静音，而一局默认需要先改设置才能
+        // 说话，比一条默认不生效的限制更难解释。想安静的人在面板上改一次即可。
+        add(RuleDefinition.enumOf("g.chatScope", RuleGroup.G, 0, choices("g.chatScope", 3)));
     }
 
     private RuleCatalog() {
