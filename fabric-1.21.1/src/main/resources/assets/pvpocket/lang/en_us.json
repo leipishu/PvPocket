@@ -568,6 +568,7 @@
   "pvpocket.msg.use.banned": "This duel does not allow %s.",
   "pvpocket.msg.use.consumable": "Consumables are off for this duel.",
   "pvpocket.msg.use.pearl": "Ender pearls are off for this duel.",
+  "pvpocket.msg.use.craft": "Crafting is off for this duel.",
   "pvpocket.msg.sandbox.command_denied": "Only /pvpocket commands work inside the duel arena.",
   "key.pvpocket.cycle_spectator": "Cycle spectator camera",
   "key.pvpocket.detach_spectator": "Detach spectator camera",

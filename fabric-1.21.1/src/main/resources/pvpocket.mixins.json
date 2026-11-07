@@ -4,10 +4,12 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "CommandManagerMixin",
+    "ItemEntityMixin",
     "ItemStackMixin",
     "LivingEntityMixin",
     "PlayerEntityMixin",
     "ServerPlayerInteractionManagerMixin",
+    "SlotMixin",
     "SpawnHelperMixin",
     "WorldBlockChangeMixin"
   ],

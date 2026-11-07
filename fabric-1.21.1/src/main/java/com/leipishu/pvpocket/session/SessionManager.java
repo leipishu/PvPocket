@@ -699,6 +699,18 @@ public final class SessionManager {
         return session == null || session.rulebook().naturalRegen();
     }
 
+    /** {@code d.allowPickup}, asked from {@code ItemEntity#onPlayerCollision}. */
+    public static boolean pickupAllowed(UUID uuid) {
+        DuelSession session = activeSessionOf(uuid);
+        return session == null || session.rulebook().allowPickup();
+    }
+
+    /** {@code d.allowCrafting}, asked from {@code Slot#canTakeItems} on a result slot. */
+    public static boolean craftingAllowed(UUID uuid) {
+        DuelSession session = activeSessionOf(uuid);
+        return session == null || session.rulebook().allowCrafting();
+    }
+
     /** The session whose round this player is currently fighting, or null. */
     private static DuelSession activeSessionOf(UUID uuid) {
         SessionManager manager = instance;
@@ -735,16 +747,6 @@ public final class SessionManager {
         if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayerEntity server)) {
             return;
         }
-        MinecraftServer mc = server.getServer();
-        if (mc == null) {
-            return;
-        }
-        int now = mc.getTicks();
-        Integer last = useWarnAt.get(server.getUuid());
-        if (last != null && now - last < USE_WARN_COOLDOWN) {
-            return;
-        }
-        useWarnAt.put(server.getUuid(), now);
         MutableText message = switch (denial) {
             case PLACE -> PvLang.t("pvpocket.msg.use.place");
             // Named, not generic: "方块限制" is five switches, and "something is banned" leaves the
@@ -755,9 +757,42 @@ public final class SessionManager {
             case PEARL -> PvLang.t("pvpocket.msg.use.pearl");
             case NONE -> null;
         };
-        if (message != null) {
-            server.sendMessage(message.formatted(Formatting.GRAY), true);
+        warnThrottled(server, message);
+    }
+
+    /**
+     * {@code d.allowCrafting} refused a take from a result slot.
+     *
+     * <p>Worth a sentence, unlike a refused pickup: an item that stays on the ground explains
+     * itself, but a crafting result that simply will not come out looks like a broken slot.</p>
+     */
+    public static void reportCraftingDenial(PlayerEntity player) {
+        if (player instanceof ServerPlayerEntity server) {
+            warnThrottled(server, PvLang.t("pvpocket.msg.use.craft"));
         }
+    }
+
+    /**
+     * One grey action-bar hint per {@link #USE_WARN_COOLDOWN} ticks, per player.
+     *
+     * <p>Throttled because every caller sits on a path the client retries while a button is held:
+     * five lines a second is not an explanation, it is a wall.</p>
+     */
+    private static void warnThrottled(ServerPlayerEntity player, MutableText message) {
+        if (message == null) {
+            return;
+        }
+        MinecraftServer mc = player.getServer();
+        if (mc == null) {
+            return;
+        }
+        int now = mc.getTicks();
+        Integer last = useWarnAt.get(player.getUuid());
+        if (last != null && now - last < USE_WARN_COOLDOWN) {
+            return;
+        }
+        useWarnAt.put(player.getUuid(), now);
+        player.sendMessage(message.formatted(Formatting.GRAY), true);
     }
 
     /**

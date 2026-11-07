@@ -99,19 +99,19 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 33 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and 35 of those currently affect a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (33)
+### In effect (35)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
-| D | `d.loadoutScope`, `d.allowConsumables` |
+| D | `d.loadoutScope`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
 | G | `g.enderPearl`, `g.allowSurrender` |
@@ -122,8 +122,8 @@ is not wired up.
 
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
-the timing-and-outcome slice, and the four in D/F/G with the use-restriction slice. Where each one
-is read:
+the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, and the other two in
+D with the interaction slice. Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -191,11 +191,20 @@ is read:
   The message is server-only and throttled to one per 20 ticks: holding right-click re-attempts the
   placement every few ticks, and five lines a second is a wall, not an explanation. A
   `f.blockFilter` refusal names the entry that was tripped rather than saying "something is banned".
+- **`d.allowPickup`** — injected into `ItemEntity#onPlayerCollision` and cancelled outright. The item
+  **stays where it is** rather than being discarded: "pickup off" should not look like "ground
+  cleared". Silent on purpose — an item that does not move is its own explanation.
+- **`d.allowCrafting`** — injected into `Slot#canTakeItems`, narrowed by an `instanceof` to
+  `CraftingResultSlot`. The injection point is `Slot` because `CraftingResultSlot` does not declare
+  the method, only inherits it; the check covers both result slots (the 3x3 table and the 2x2 in the
+  player's own inventory), and blocking only the table would leave the small grid as a way around
+  the rule. Every branch of `internalOnSlotClick` asks `canTakeItems` before moving a stack out, and
+  the ingredients are only consumed in `onTakeItem` — so a refused take is a refused craft, not
+  quietly eaten materials.
 
-### Recorded only (6)
+### Recorded only (4)
 
-`d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `f.allowExplosives`,
-`g.chatScope`, `g.showOpponentHealth`
+`d.allowSwapBetweenRounds`, `f.allowExplosives`, `g.chatScope`, `g.showOpponentHealth`
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
@@ -204,9 +213,9 @@ There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "
 some rules" note; it has no value.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (interaction gates, explosion checks, chat filtering, the HUD).
-Keeping a declared-but-unenforced state converges faster than removing and re-adding. The backlog is
-being closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
+work is spread across several slices (explosion checks, chat filtering, the HUD). Keeping a
+declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
+closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
 document and the code cannot drift apart. **Any public claim about features must follow this
 section, not the panel.**
 

@@ -140,6 +140,16 @@ public final class Rulebook {
         return rules.flag("d.allowConsumables");
     }
 
+    /** {@code d.allowPickup}: whether dropped items can be collected. */
+    public boolean allowPickup() {
+        return rules.flag("d.allowPickup");
+    }
+
+    /** {@code d.allowCrafting}: whether the crafting result can be taken out of a grid. */
+    public boolean allowCrafting() {
+        return rules.flag("d.allowCrafting");
+    }
+
     // ------------------------------------------------------------------ F. 方块
 
     /**

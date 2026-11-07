@@ -89,22 +89,22 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 33 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 35 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 33 条真正影响对局，6 条仅记录。**
+**当前 35 条真正影响对局，4 条仅记录。**
 
-### 已生效（33 条）
+### 已生效（35 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
-| D | `d.loadoutScope`、`d.allowConsumables` |
+| D | `d.loadoutScope`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
 | G | `g.enderPearl`、`g.allowSurrender` |
@@ -114,7 +114,7 @@
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-各自的读取点：
+D 组另外两条是「交互限制」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -166,11 +166,17 @@ A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
 
   提示消息只有服务端发，并且限流 20 tick 一次：按住右键不放会每隔几 tick 重试一次放置，一秒五
   条不是解释，是刷屏。「方块限制」被触发时会点名是哪一项，而不是只说「有东西被禁了」。
+- **`d.allowPickup`** — 混入 `ItemEntity#onPlayerCollision` 直接取消。物品**留在原地**而不是被
+  清掉：「关闭拾取」不该看起来像「清理地面」。这一支不提示——东西不动本身就是解释。
+- **`d.allowCrafting`** — 混入 `Slot#canTakeItems`，只对 `CraftingResultSlot` 生效。注入点选
+  `Slot` 而不是 `CraftingResultSlot`，因为后者没有声明这个方法、只是继承；`instanceof` 把它收窄
+  回两个结果槽（工作台 3×3 与背包 2×2）。只拦工作台会留下背包那格当绕过路径。
+  `internalOnSlotClick` 的每条分支都会先问 `canTakeItems`，而合成材料是在 `onTakeItem` 里扣的，
+  拿不出来就扣不到，所以拒绝取出等于拒绝合成，不会白吃材料。
 
-### 仅记录（6 条）
+### 仅记录（4 条）
 
-`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`f.allowExplosives`、
-`g.chatScope`、`g.showOpponentHealth`
+`d.allowSwapBetweenRounds`、`f.allowExplosives`、`g.chatScope`、`g.showOpponentHealth`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
@@ -179,8 +185,8 @@ A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
 规则冲突」，没有取值可言。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（交互拦截、爆炸判定、聊天过滤、HUD）。保留「已声明但未执行」的状态比删掉再重新加回来更容易
-收敛，但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
+（爆炸判定、聊天过滤、HUD）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
+但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
 不要让它和代码各说各话。
 
 ## 4. 赛制换算
