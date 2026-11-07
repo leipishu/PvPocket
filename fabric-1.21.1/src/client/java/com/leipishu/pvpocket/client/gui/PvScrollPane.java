@@ -75,6 +75,19 @@ public class PvScrollPane extends PvWidget {
     }
 
     private void layout(float d) {
+        // Width before height: a row's height can depend on how wide it is (label beside the control
+        // when there is room, stacked when there is not), so the widths have to be handed out before
+        // anything is totalled. The scrollbar decision therefore uses the previous frame's content
+        // height, which is stable in practice — a list that grows past the viewport shows its bar one
+        // frame late, and one frame at 60fps is not a state anyone can observe.
+        boolean bar = maxScroll() > 0;
+        int childWidth = Math.max(0, width - (bar ? PvTheme.SCROLLBAR_W + 8 : 0));
+        for (PvWidget child : children) {
+            child.x = x;
+            child.width = childWidth;
+            child.onWidth(childWidth);
+        }
+
         int total = 0;
         for (int i = 0; i < children.size(); i++) {
             total += children.get(i).height;
@@ -89,12 +102,8 @@ public class PvScrollPane extends PvWidget {
             scroll = target;
         }
 
-        boolean bar = maxScroll() > 0;
-        int childWidth = width - (bar ? PvTheme.SCROLLBAR_W + 8 : 0);
         int cy = y - Math.round(scroll);
         for (PvWidget child : children) {
-            child.x = x;
-            child.width = childWidth;
             child.y = cy;
             cy += child.height + gap;
         }
@@ -102,7 +111,10 @@ public class PvScrollPane extends PvWidget {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        if (!visible) {
+        // A pane with no room is not a pane with a small viewport: a negative width produces a
+        // reversed scissor rect, which the renderer does not clamp, so every child would draw
+        // unclipped across whatever is next to it. Bailing out is the only safe reading.
+        if (!visible || width <= 0 || height <= 0) {
             return;
         }
         float d = dt(delta);

@@ -24,19 +24,50 @@ import net.minecraft.client.gui.DrawContext;
  */
 public class RuleRow extends PvWidget {
 
+    /**
+     * Below this row width, label and control stop sharing a line.
+     *
+     * <p>The narrow layout used to be reserved for multi-select rules, whose chips genuinely need a
+     * full-width line. A 170px column is the same situation for every kind: a 104px stepper plus a
+     * 10px label inset plus the label itself does not fit, and right-aligning the control anyway put
+     * its left edge outside the row — the control drew over the column beside it. Stacking costs 16px
+     * of height and cannot overflow, which is the right trade in a scrollable list.</p>
+     */
+    private static final int NARROW_W = 190;
+
     private final RuleDefinition def;
     private final PvValueControl control;
     private final int baseline;
     private final boolean editable;
     private float changedT;
+    private boolean narrow;
 
     public RuleRow(RuleDefinition def, PvValueControl control, int baseline, boolean editable) {
         this.def = def;
         this.control = control;
         this.baseline = baseline;
         this.editable = editable;
-        this.height = def.kind == RuleKind.MULTI ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
+        this.height = stacked() ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
         this.tooltip = def.hint();
+    }
+
+    private boolean stacked() {
+        return def.kind == RuleKind.MULTI || narrow;
+    }
+
+    /**
+     * Picks the layout from the width the container just gave us, and reports the height it costs.
+     *
+     * <p>The container asks before it totals the heights, so this is the only place the row can
+     * change its own height in response to the column being narrow.</p>
+     */
+    @Override
+    public void onWidth(int width) {
+        boolean next = def.kind != RuleKind.MULTI && width < NARROW_W;
+        if (next != narrow) {
+            narrow = next;
+            this.height = stacked() ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
+        }
     }
 
     private boolean changed() {
@@ -48,10 +79,14 @@ public class RuleRow extends PvWidget {
             return;
         }
         control.enabled = editable;
-        if (def.kind == RuleKind.MULTI) {
+        // Never wider than the row: a control that keeps its designed width in a narrow column
+        // starts to the left of the row's own x, which is how a stepper ended up painted over the
+        // list beside it.
+        control.width = Math.min(control.width, Math.max(24, width - 16));
+        if (stacked()) {
             control.x = x + 8;
             control.y = y + height - control.height - 6;
-            control.width = width - 16;
+            control.width = Math.max(24, width - 16);
         } else {
             control.x = x + width - control.width - 8;
             control.y = y + (height - control.height) / 2;
@@ -86,7 +121,7 @@ public class RuleRow extends PvWidget {
         int labelColor = editable ? PvTheme.TEXT : PvTheme.TEXT_DIM;
         int labelX = x + 10;
 
-        if (def.kind == RuleKind.MULTI) {
+        if (stacked()) {
             PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label(), width - 20), labelX, y + 6, labelColor);
             if (control != null) {
                 syncControlFocus();

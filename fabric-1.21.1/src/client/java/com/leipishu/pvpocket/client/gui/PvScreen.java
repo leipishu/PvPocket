@@ -125,10 +125,15 @@ public abstract class PvScreen extends Screen {
         drawPanelFrame(ctx);
         drawContent(ctx, mouseX, mouseY, delta);
 
+        // Item icons live at z = 150 in a depth-tested layer, so a scrim at z = 0 can never cover
+        // them (see PvDraw.itemsVisible). While a modal is up the panel underneath is dimmed, and
+        // dimmed-with-icons-poking-through is worse than dimmed-and-flat.
+        PvDraw.itemsVisible = overlay == null;
         for (PvWidget widget : roots) {
             widget.updateHover(mouseX, mouseY);
             widget.render(ctx, mouseX, mouseY, delta);
         }
+        PvDraw.itemsVisible = true;
         if (overlay != null) {
             // Roots keep their hover state frozen while a modal is up: a button glowing underneath a
             // dialog is a button the player thinks they can press.

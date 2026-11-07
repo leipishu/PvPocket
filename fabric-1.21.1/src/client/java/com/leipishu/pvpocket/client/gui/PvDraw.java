@@ -37,6 +37,22 @@ import java.util.List;
  */
 public final class PvDraw {
 
+    /**
+     * Whether item icons may be drawn this pass. Cleared while a modal is being drawn over the panel.
+     *
+     * <p>Item icons are not GUI pixels: {@code DrawContext.drawItem} translates to <b>z = 150</b> and
+     * renders through a depth-tested item layer, while every panel fill, scrim and glyph goes into
+     * the GUI layer at z = 0 with depth testing off. Depth testing means the icon wins on geometry,
+     * not on draw order, so no scrim drawn afterwards can cover it — the scrim is simply further
+     * away. Flushing the buffer first does not help either: the item layer is emitted after the GUI
+     * layer regardless of when it was submitted.</p>
+     *
+     * <p>So a dialog cannot dim what is behind it while the things behind it are items. The only
+     * reliable answer is to not submit them: {@code PvScreen} clears this for the roots pass when an
+     * overlay is up, and widgets that draw items check it.</p>
+     */
+    public static boolean itemsVisible = true;
+
     private PvDraw() {
     }
 

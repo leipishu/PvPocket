@@ -85,10 +85,21 @@ match point" from accent; panels never use green.
 | Toggle track radius | `h/2` | The only pill shape in the system, so it never reads as a slider |
 | Toggle size | 28 × 14, knob 10 | Reduced from the first v0.6 draft so it does not compete with row text |
 | Grid | 8px | Panel padding 16px |
-| Row height | 28 / 46 for multi-line | |
-| Button height | 24 | |
-| Tab height | 26 | |
+| Row height | 24 / 40 for multi-line | |
+| Button height | 20 | |
+| Tab height | 24 | |
 | Scrollbar width | 6 | |
+
+**Metrics are sized against a 426×240 logical canvas.** That is all a 1280×720 window gives at GUI
+scale 3: the rule panel is really 406×220 with a 128px content area. The v0.6 numbers (row height 28,
+button 24, tab 26, header 52, footer 40) were estimated for a large screen and could not fit — what
+shrank is row height and inset, never the type size.
+
+Column widths always go through `PvLayout.share(total, ratio, lo, hi)` instead of fixed pixels: a fixed
+column gets squeezed to a negative width on a narrow canvas, and `enableScissor` does not validate its
+rectangle — a negative width flips the scissor and the children paint over the column beside them.
+Below 190px of row width `RuleRow` switches to two lines (label, then control) and clamps the control
+width, so nothing can leave its own row at any width.
 
 **Exactly one type size: 1.0×.** Titles gain weight through `Formatting.BOLD`, never through scale.
 MC's bitmap font at a non-integer scale such as 1.3× is resampled by GL and the strokes smear into

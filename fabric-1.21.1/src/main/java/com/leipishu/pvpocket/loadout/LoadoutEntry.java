@@ -70,6 +70,37 @@ public final class LoadoutEntry {
         return flags;
     }
 
+    /**
+     * A detached duplicate, for editors that edit a draft and only commit on confirm.
+     *
+     * <p>The loadout editor is modal: 取消 has to leave the entry exactly as it was, and the field
+     * controls write straight into whatever object they are handed. Handing them a copy and copying
+     * back on 确定 is the only way to get "cancel really cancels" without a second set of
+     * change-tracking for every field.</p>
+     */
+    public LoadoutEntry copy() {
+        LoadoutEntry e = new LoadoutEntry();
+        e.copyFrom(this);
+        return e;
+    }
+
+    /** Overwrites every editable field from {@code other}, keeping this object's identity. */
+    public void copyFrom(LoadoutEntry other) {
+        kind = other.kind;
+        material = other.material;
+        variant = other.variant;
+        count = other.count;
+        slot = other.slot;
+        damageTenths = other.damageTenths;
+        armorTenths = other.armorTenths;
+        durability = other.durability;
+        knockback = other.knockback;
+        flags = other.flags;
+        arrowCount = other.arrowCount;
+        durationSec = other.durationSec;
+        amplifier = other.amplifier;
+    }
+
     public boolean has(WeaponFlag flag) {
         return (flags & flag.bit()) != 0;
     }

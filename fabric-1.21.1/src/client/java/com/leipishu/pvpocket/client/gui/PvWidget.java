@@ -42,6 +42,17 @@ public abstract class PvWidget {
         return mx >= x && mx < x + width && my >= y && my < y + height;
     }
 
+    /**
+     * Called by a container after it assigns {@link #width}, before it totals up the heights.
+     *
+     * <p>Some rows need to know how much room they have before they can say how tall they are: a
+     * rule row keeps label and control on one line when both fit and stacks them when they do not.
+     * Without this hook the container has to total the heights first, which is exactly the number
+     * that depends on the width it has not assigned yet.</p>
+     */
+    public void onWidth(int width) {
+    }
+
     public boolean focusable() {
         return visible && enabled;
     }

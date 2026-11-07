@@ -192,7 +192,13 @@ public class PvTabs extends PvWidget {
             int textColor = active
                     ? PvTheme.TEXT
                     : PvTheme.mix(PvTheme.TEXT_DIM, PvTheme.TEXT, hotT[i]);
-            PvDraw.text(ctx, tr, labels.get(i), tabLeft() + 10, textY, textColor);
+            // Labels are measured, not trusted: "Consumables" is 64px in the default font and the
+            // strip is 96px wide, so a caller that shrinks the strip would otherwise paint the label
+            // straight over its own edge and into the content beside it.
+            int badgeW = badges == null ? 0 : tr.getWidth(badges.get(i)) + 6;
+            PvDraw.text(ctx, tr,
+                    PvDraw.fit(tr, labels.get(i), tabWidth() - 10 - badgeW - 2),
+                    tabLeft() + 10, textY, textColor);
             if (badges != null) {
                 PvDraw.textRight(ctx, tr, badges.get(i), tabLeft() + tabWidth() - 8, textY,
                         active ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);

@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvChips;
 import com.leipishu.pvpocket.client.gui.PvCycle;
 import com.leipishu.pvpocket.client.gui.PvDraw;
+import com.leipishu.pvpocket.client.gui.PvLayout;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvScrollPane;
 import com.leipishu.pvpocket.client.gui.PvSlider;
@@ -45,11 +46,22 @@ public class RuleScreen extends PvScreen {
 
     private static final int MAX_W = 580;
     private static final int MAX_H = 348;
-    private static final int HEADER_H = 52;
-    private static final int FOOTER_H = 40;
+    /**
+     * Header and footer are chrome, and on a 240px canvas 52 + 40 of chrome is 38% of the panel.
+     *
+     * <p>The header still carries three things (title, opponent/revision, group hint) but they now
+     * sit 4px apart instead of 6, which buys 10px of content without moving anything the eye needs.
+     * The footer only has to hold a 20px button with air above and below it.</p>
+     */
+    private static final int HEADER_H = 42;
+    private static final int FOOTER_H = 34;
+    /** Upper bound for the tab strip; the actual width is a share of the panel (see {@link #tabWidth()}). */
     private static final int TABS_W = 96;
+    private static final int MIN_TABS_W = 64;
+    /** The roster toolbar row that holds "add team", above the cards and outside the scroll pane. */
+    private static final int TOOLBAR_H = 24;
     /** Below this the group hint is no longer a sentence, so the loadout tag shortens instead. */
-    private static final int MIN_HINT_W = 150;
+    private static final int MIN_HINT_W = 130;
 
     private final RulesOpenPayload payload;
     private final DuelRules incoming;
@@ -89,15 +101,16 @@ public class RuleScreen extends PvScreen {
 
         int contentTop = panelY + HEADER_H;
         int contentH = panelH - HEADER_H - FOOTER_H;
-        int paneX = panelX + 12 + TABS_W + 10;
-        int paneW = panelW - (paneX - panelX) - 12;
+        int tabsW = tabWidth();
+        int paneX = panelX + 12 + tabsW + 8;
+        int paneW = panelX + panelW - 12 - paneX;
 
         // The roster is tab 0 and the opening tab: the first question of an invite is who is in it,
         // and the rules only mean anything once there is a match to apply them to.
         tabs = PvTabs.ofPanel(groups, PvLang.str("pvpocket.gui.roster.tab"), keepTab);
         tabs.x = panelX + 12;
         tabs.y = contentTop;
-        tabs.width = TABS_W;
+        tabs.width = tabsW;
         tabs.fitInto(contentH);
         tabs.onChange(this::buildRows);
         roots.add(tabs);
@@ -136,14 +149,15 @@ public class RuleScreen extends PvScreen {
                 }
             });
         }
-        board.x = paneX;
-        board.y = contentTop;
-        board.width = paneW;
-        board.height = contentH;
 
         buildRows();
         buildFooter();
         setFocus(null);
+    }
+
+    /** The tab strip takes a share of the panel so the content column keeps most of it. */
+    private int tabWidth() {
+        return PvLayout.share(panelW, 0.19F, MIN_TABS_W, TABS_W);
     }
 
     private void buildRows() {
@@ -153,8 +167,14 @@ public class RuleScreen extends PvScreen {
         roots.remove(board);
         if (addTeamButton != null) {
             roots.remove(addTeamButton);
+            addTeamButton = null;
         }
         pane.clear();
+        // The roster page reserves a toolbar row above the cards; the rule pages have no toolbar and
+        // take the whole content box. Set here rather than in init() because the two tabs share one
+        // pane instance.
+        pane.y = panelY + HEADER_H;
+        pane.height = panelH - HEADER_H - FOOTER_H;
 
         if (tabs.group() == null) {
             buildRosterPage();
@@ -169,12 +189,16 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The roster page: the cards, plus an "add team" button under them.
+     * The roster page: a fixed toolbar with "add team", and the cards scrolling underneath it.
      *
-     * <p>The add-team control is a real button rather than a hotspot inside the board so it is a
-     * Tab stop like everything else in the panel — the board's per-card controls are pointer-only,
-     * and a page where nothing is reachable from the keyboard would be a regression against the rest
-     * of the interface.</p>
+     * <p>The cards used to be a root widget with no clipping, so a fourth side simply drew past the
+     * bottom of the panel and over the footer — the content box is 128px tall on a 426x240 canvas and
+     * two rows of cards are 190px. Putting them in the scroll pane is the only arrangement that
+     * survives an arbitrary number of sides.</p>
+     *
+     * <p>The add-team button stays outside the pane, and above it: it is a page-level action, it has
+     * to remain visible while the list is scrolled to the last card, and it is a Tab stop — the cards'
+     * own "+" hotspots are pointer-only.</p>
      */
     private void buildRosterPage() {
         // The slot count is a rule (b.teamSize), so the cards follow the slider on page B.
@@ -185,21 +209,26 @@ public class RuleScreen extends PvScreen {
         if (board.teamCount() == 0) {
             seedBoard();
         }
-        board.visible = true;
-        roots.add(board);
 
         if (rosterEditable()) {
-            int cardsBottom = board.y + board.preferredHeight() + 8;
             addTeamButton = new PvButton(PvLang.str("pvpocket.gui.roster.add_team"),
                     PvButton.Style.NORMAL, () -> {
                 board.addTeam();
                 buildRows();
-            }).size(84, PvTheme.BTN_H);
-            addTeamButton.x = board.x;
-            addTeamButton.y = Math.min(cardsBottom, board.y + board.height - PvTheme.BTN_H);
+            }).size(76, PvTheme.BTN_H);
+            addTeamButton.x = pane.x;
+            addTeamButton.y = pane.y + (TOOLBAR_H - PvTheme.BTN_H) / 2;
             addTeamButton.enabled = board.teamCount() < 4;
             roots.add(addTeamButton);
+
+            pane.y += TOOLBAR_H;
+            pane.height -= TOOLBAR_H;
         }
+
+        board.visible = true;
+        board.height = board.preferredHeight();
+        pane.add(board);
+        pane.layout();
     }
 
     /** Rebuilds the cards from what the server sent: one card per side, players in team order. */
@@ -362,7 +391,7 @@ public class RuleScreen extends PvScreen {
     }
 
     private void buildFooter() {
-        int buttonY = panelY + panelH - FOOTER_H + 8;
+        int buttonY = panelY + panelH - FOOTER_H + 7;
         int right = panelX + panelW - 12;
 
         PvButton primary;
@@ -441,7 +470,7 @@ public class RuleScreen extends PvScreen {
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
         String title = PvLang.str("pvpocket.gui.rule.title");
-        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 13, PvTheme.TEXT);
+        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 10, PvTheme.TEXT);
 
         int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
         // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
@@ -471,13 +500,13 @@ public class RuleScreen extends PvScreen {
         String version = "v" + payload.revision();
         int versionW = tr.getWidth(version) + 12;
         int versionX = panelX + panelW - 12 - versionW;
-        PvDraw.roundRect(ctx, versionX, panelY + 9, versionW, 14, 3, PvTheme.ACCENT_SOFT);
-        PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, panelY + 12, PvTheme.ACCENT);
+        PvDraw.roundRect(ctx, versionX, panelY + 6, versionW, 14, 3, PvTheme.ACCENT_SOFT);
+        PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, panelY + 9, PvTheme.ACCENT);
 
         int subtitleMax = versionX - 8 - titleEnd;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 13, PvTheme.TEXT_DIM);
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 10, PvTheme.TEXT_DIM);
 
-        PvDraw.hLine(ctx, panelX + 12, panelY + 34, panelW - 24, PvTheme.DIVIDER);
+        PvDraw.hLine(ctx, panelX + 12, panelY + 27, panelW - 24, PvTheme.DIVIDER);
 
         // The loadout summary sits on the hint line rather than the title: the title row is already
         // carrying the opponent's name and the revision, and this is the line the eye passes on the
@@ -503,17 +532,22 @@ public class RuleScreen extends PvScreen {
                         payload.agreed(), payload.total());
                 tagW = tr.getWidth(loadout);
             }
-            PvDraw.textRight(ctx, tr, loadout, hintRight, panelY + 40, PvTheme.TEXT_DIM);
+            PvDraw.textRight(ctx, tr, loadout, hintRight, panelY + 32, PvTheme.TEXT_DIM);
             hintMax = hintRight - tagW - 12 - pane.x;
         }
         PvDraw.text(ctx, tr, PvDraw.fit(tr, groupHint(tabs.group()), Math.max(0, hintMax)),
-                pane.x, panelY + 40, PvTheme.TEXT_MUTED);
+                pane.x, panelY + 32, PvTheme.TEXT_MUTED);
+        // The roster toolbar is a band of its own; without a rule under it the add-team button reads
+        // as the first row of the first card.
+        if (tabs.group() == null && rosterEditable()) {
+            PvDraw.hLine(ctx, pane.x, pane.y - 1, pane.width, PvTheme.DIVIDER);
+        }
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
         drawFooterText(ctx, tr, reviewer);
     }
 
     private void drawFooterText(DrawContext ctx, TextRenderer tr, boolean reviewer) {
-        int y = panelY + panelH - FOOTER_H + 16;
+        int y = panelY + panelH - FOOTER_H + 13;
         int maxW = footerTextRight - panelX - 16;
         int changes = changeCount();
 

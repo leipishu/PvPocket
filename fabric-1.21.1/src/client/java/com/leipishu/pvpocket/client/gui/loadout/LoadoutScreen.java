@@ -1,17 +1,12 @@
 package com.leipishu.pvpocket.client.gui.loadout;
 
 import com.leipishu.pvpocket.client.gui.PvButton;
-import com.leipishu.pvpocket.client.gui.PvChips;
-import com.leipishu.pvpocket.client.gui.PvCycle;
 import com.leipishu.pvpocket.client.gui.PvDraw;
+import com.leipishu.pvpocket.client.gui.PvLayout;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvScrollPane;
-import com.leipishu.pvpocket.client.gui.PvSlider;
 import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
-import com.leipishu.pvpocket.client.gui.PvToggle;
-import com.leipishu.pvpocket.client.gui.PvValueControl;
-import com.leipishu.pvpocket.client.gui.rule.RuleRow;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.ItemKind;
@@ -36,14 +31,19 @@ import java.util.List;
 /**
  * The loadout editor: what each side brings into the round.
  *
- * <p>Three columns, each answering one question:</p>
+ * <p>Two regions, not three:</p>
  * <ol>
  *   <li><b>Left</b> — which page: weapons, equipment, consumables, blocks.</li>
- *   <li><b>Middle</b> — what is already in this page, and what can be added. Every line carries the
- *       real item icon, because "金苹果" and "附魔金苹果" are the same four characters to a reader and
- *       two very different items to a player.</li>
- *   <li><b>Right</b> — the selected item's numbers, built out of the same rows the rule panel uses.</li>
+ *   <li><b>Right</b> — one list holding what is already on this page and what can be added. Every
+ *       line carries the real item icon, because "金苹果" and "附魔金苹果" are the same four characters
+ *       to a reader and two very different items to a player.</li>
  * </ol>
+ *
+ * <p>The item's own settings live in a {@link LoadoutEditor} dialog, opened by 编辑 on an added entry
+ * or by picking something from the "can be added" list. They used to be a third column, and at the
+ * 426x240 logical canvas that column was 66px wide — narrower than the 104px stepper it had to hold,
+ * so the controls drew outside it. A dialog is the same content with room to breathe, and it costs
+ * the list the column that was previously empty whenever nothing was selected.</p>
  *
  * <p>The editor never blocks the negotiation: Esc and 返回 go back to the rule panel with the
  * negotiation intact, and only 保存 writes anything. That is deliberate — a player comparing two
@@ -53,10 +53,10 @@ public class LoadoutScreen extends PvScreen {
 
     private static final int MAX_W = 680;
     private static final int MAX_H = 392;
-    private static final int HEADER_H = 52;
-    private static final int FOOTER_H = 40;
+    private static final int HEADER_H = 42;
+    private static final int FOOTER_H = 34;
     private static final int TABS_W = 96;
-    private static final int LIST_W = 200;
+    private static final int MIN_TABS_W = 64;
 
     private static final List<ItemKind.Page> PAGES = List.of(
             ItemKind.Page.WEAPON, ItemKind.Page.ARMOR,
@@ -74,7 +74,6 @@ public class LoadoutScreen extends PvScreen {
 
     private PvTabs tabs;
     private PvScrollPane listPane;
-    private PvScrollPane fieldPane;
     private String note;
     private int footerTextRight;
 
@@ -110,45 +109,56 @@ public class LoadoutScreen extends PvScreen {
 
         int contentTop = panelY + HEADER_H;
         int contentH = panelH - HEADER_H - FOOTER_H;
+        int tabsW = pageTabsWidth(panelW);
 
         tabs = new PvTabs(PAGE_LABELS, Math.max(0, PAGES.indexOf(page)));
         tabs.x = panelX + 12;
         tabs.y = contentTop;
-        tabs.width = TABS_W;
+        tabs.width = tabsW;
         tabs.fitInto(contentH);
         tabs.onChange(() -> {
             page = PAGES.get(tabs.selected());
             selected = -1;
             rebuildList();
-            rebuildFields();
         });
         roots.add(tabs);
 
-        int listX = panelX + 12 + TABS_W + 10;
+        // One column now. It takes everything the tab strip does not, which on a 426x240 canvas is
+        // about 290px — enough for a full item name, its summary and both action words.
         listPane = new PvScrollPane();
-        listPane.x = listX;
+        listPane.x = panelX + 12 + tabsW + 10;
         listPane.y = contentTop;
-        listPane.width = LIST_W;
+        listPane.width = panelX + panelW - 12 - listPane.x;
         listPane.height = contentH;
         listPane.gap = 2;
         roots.add(listPane);
 
-        int fieldX = listX + LIST_W + 10;
-        fieldPane = new PvScrollPane();
-        fieldPane.x = fieldX;
-        fieldPane.y = contentTop;
-        fieldPane.width = panelX + panelW - 12 - fieldX;
-        fieldPane.height = contentH;
-        fieldPane.gap = 2;
-        roots.add(fieldPane);
-
         rebuildList();
-        rebuildFields();
         buildFooter();
         setFocus(null);
     }
 
-    // ------------------------------------------------------------------ middle column
+    // ------------------------------------------------------------------ list
+
+    /**
+     * Width of the page strip: a share of the panel, but never narrower than its longest label.
+     *
+     * <p>"Consumables" is 64px in the default font and the proportional share came out at 77px, which
+     * leaves 57px for text after the 10px inset — the label ran into the sidebar's edge. The list
+     * beside it only gives up the few pixels it takes to make the tab legible, and the cap keeps the
+     * list from being squeezed below a usable column on a small window.</p>
+     */
+    private int pageTabsWidth(int panelW) {
+        int proportional = PvLayout.share(panelW, 0.19F, MIN_TABS_W, TABS_W);
+        TextRenderer tr = font();
+        int widest = 0;
+        for (String label : PAGE_LABELS) {
+            widest = Math.max(widest, tr.getWidth(label));
+        }
+        // 20 = 10px text inset + 8px right padding + 2px slack, matching PvTabs' own insets.
+        int needed = widest + 20;
+        return Math.min(TABS_W, Math.max(proportional, needed));
+    }
 
     private void rebuildList() {
         if (listPane == null) {
@@ -165,10 +175,11 @@ public class LoadoutScreen extends PvScreen {
             }
             any = true;
             final int index = i;
+            // 编辑 and 删除 are always visible, and the row itself opens the editor as well: the words
+            // are the discoverable path, the row is the shortcut for the player who already knows.
             LoadoutRow row = new LoadoutRow(LoadoutRow.Type.ENTRY, entryLabel(entry), entryDetail(entry),
                     iconOf(entry), selected == i,
-                    () -> select(index),
-                    () -> remove(index));
+                    () -> edit(index), () -> edit(index), () -> remove(index));
             row.tooltip(PvLang.str("pvpocket.gui.loadout.tooltip.row"));
             listPane.add(row);
         }
@@ -178,6 +189,8 @@ public class LoadoutScreen extends PvScreen {
 
         listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.available")));
         for (ItemKind kind : ItemKind.of(page)) {
+            // Adding opens the dialog immediately: a new entry that appears in the list with default
+            // numbers and no dialog is a row the player has to be told to go and click again.
             listPane.add(new LoadoutRow(LoadoutRow.Type.KIND, kind.label(), null, iconOf(kind),
                     false, () -> add(kind), null));
         }
@@ -189,11 +202,7 @@ public class LoadoutScreen extends PvScreen {
         return new LoadoutRow(LoadoutRow.Type.HEADER, label, null, ItemStack.EMPTY, false, null, null);
     }
 
-    private void select(int index) {
-        selected = index;
-        rebuildList();
-        rebuildFields();
-    }
+    // ------------------------------------------------------------------ actions
 
     private void add(ItemKind kind) {
         if (loadout.entries.size() >= LoadoutCatalog.MAX_ENTRIES) {
@@ -202,10 +211,49 @@ public class LoadoutScreen extends PvScreen {
         }
         LoadoutEntry entry = LoadoutEntry.of(kind);
         loadout.entries.add(entry);
-        selected = loadout.entries.size() - 1;
-        note = PvLang.str("pvpocket.gui.loadout.note.added", kind.labelText());
-        rebuildList();
-        rebuildFields();
+        int index = loadout.entries.size() - 1;
+        // The entry exists before the dialog opens so the dialog edits a real object; cancelling
+        // takes it back out, which is what makes "add then cancel" a no-op.
+        openEditor(index, true);
+    }
+
+    private void edit(int index) {
+        if (index < 0 || index >= loadout.entries.size()) {
+            return;
+        }
+        openEditor(index, false);
+    }
+
+    private void openEditor(int index, boolean isNew) {
+        LoadoutEntry entry = loadout.entries.get(index);
+        LoadoutEditor editor = new LoadoutEditor(entry);
+        editor.x = 0;
+        editor.y = 0;
+        editor.width = width;
+        editor.height = height;
+        editor.listener(new LoadoutEditor.Listener() {
+            @Override
+            public void onConfirm(LoadoutEntry draft) {
+                entry.copyFrom(draft);
+                selected = index;
+                note = PvLang.str(isNew
+                        ? "pvpocket.gui.loadout.note.added"
+                        : "pvpocket.gui.loadout.note.edited", draft.kind.labelText());
+                setOverlay(null);
+                rebuildList();
+            }
+
+            @Override
+            public void onCancel() {
+                if (isNew) {
+                    // Roll the placeholder row back out; "cancel" on an add means nothing was added.
+                    loadout.entries.remove(index);
+                }
+                setOverlay(null);
+                rebuildList();
+            }
+        });
+        setOverlay(editor);
     }
 
     private void remove(int index) {
@@ -220,64 +268,12 @@ public class LoadoutScreen extends PvScreen {
         }
         note = PvLang.str("pvpocket.gui.loadout.note.removed");
         rebuildList();
-        rebuildFields();
-    }
-
-    // ------------------------------------------------------------------ right column
-
-    private void rebuildFields() {
-        if (fieldPane == null) {
-            return;
-        }
-        fieldPane.clear();
-        if (selected < 0 || selected >= loadout.entries.size()) {
-            fieldPane.layout();
-            validateFocus();
-            return;
-        }
-        LoadoutEntry entry = loadout.entries.get(selected);
-        for (LoadoutFields.Field field : LoadoutFields.of(entry)) {
-            int value = field.get().getAsInt();
-            PvValueControl control = switch (field.def().kind) {
-                case TOGGLE -> new PvToggle(value != 0);
-                case INT -> new PvSlider(field.def(), value);
-                case ENUM -> new PvCycle(field.def(), value);
-                case MULTI -> new PvChips(field.def(), value);
-                case FIXED -> null;
-            };
-            if (control != null) {
-                control.onChange(v -> {
-                    field.set().accept(v);
-                    // The middle column shows damage and counts, so it has to follow the edit.
-                    rebuildListQuietly();
-                });
-            }
-            fieldPane.add(new RuleRow(field.def(), control, value, true));
-        }
-        fieldPane.layout();
-        validateFocus();
-    }
-
-    /**
-     * Refreshes the middle column without dropping the selection or the scroll position.
-     *
-     * <p>Rebuilding the list also rebuilds its rows, which is cheap, but doing it through
-     * {@link #select} would reset the right-hand scroll offset on every slider tick — the panel would
-     * jump to the top while the player is dragging.</p>
-     */
-    private void rebuildListQuietly() {
-        if (listPane == null) {
-            return;
-        }
-        int scroll = listPane.scroll();
-        rebuildList();
-        listPane.scrollTo(scroll);
     }
 
     // ------------------------------------------------------------------ footer
 
     private void buildFooter() {
-        int buttonY = panelY + panelH - FOOTER_H + 8;
+        int buttonY = panelY + panelH - FOOTER_H + 7;
         int right = panelX + panelW - 12;
 
         PvButton save = new PvButton(PvLang.str("pvpocket.gui.loadout.button.save"),
@@ -308,7 +304,7 @@ public class LoadoutScreen extends PvScreen {
         TextRenderer tr = font();
 
         String title = PvLang.str("pvpocket.gui.loadout.title");
-        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 13, PvTheme.TEXT);
+        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 10, PvTheme.TEXT);
         int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
 
         String subtitle = isPersonal()
@@ -321,42 +317,22 @@ public class LoadoutScreen extends PvScreen {
         String digest = loadout.digest();
         int digestW = tr.getWidth(digest) + 12;
         int digestX = panelX + panelW - 12 - digestW;
-        PvDraw.roundRect(ctx, digestX, panelY + 9, digestW, 14, 3, PvTheme.ACCENT_SOFT);
-        PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, panelY + 12, PvTheme.ACCENT);
+        PvDraw.roundRect(ctx, digestX, panelY + 6, digestW, 14, 3, PvTheme.ACCENT_SOFT);
+        PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, panelY + 9, PvTheme.ACCENT);
 
         int subtitleMax = digestX - 8 - titleEnd;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 13, PvTheme.TEXT_DIM);
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 10,
+                PvTheme.TEXT_DIM);
 
-        PvDraw.hLine(ctx, panelX + 12, panelY + 34, panelW - 24, PvTheme.DIVIDER);
-        PvDraw.text(ctx, tr, pageHint(), panelX + 16, panelY + 40, PvTheme.TEXT_MUTED);
-
-        drawRightColumn(ctx, tr);
+        PvDraw.hLine(ctx, panelX + 12, panelY + 27, panelW - 24, PvTheme.DIVIDER);
+        PvDraw.text(ctx, tr, pageHint(), panelX + 16, panelY + 32, PvTheme.TEXT_MUTED);
 
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
         drawFooterText(ctx, tr);
     }
 
-    /**
-     * The right column either shows the selected item's fields or explains why it is empty.
-     *
-     * <p>An empty pane with no words is indistinguishable from a broken one, so the empty state gets
-     * the two short lines that tell the player what to do next. Kept to two: three lines of grey
-     * prose in the middle of a 340px column reads as an error message.</p>
-     */
-    private void drawRightColumn(DrawContext ctx, TextRenderer tr) {
-        if (selected >= 0 && selected < loadout.entries.size()) {
-            return;
-        }
-        int cx = fieldPane.x + fieldPane.width / 2;
-        int cy = fieldPane.y + fieldPane.height / 2 - 12;
-        PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.loadout.empty.title"), cx, cy,
-                PvTheme.TEXT_DIM);
-        PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.loadout.empty.hint"), cx, cy + 14,
-                PvTheme.TEXT_MUTED);
-    }
-
     private void drawFooterText(DrawContext ctx, TextRenderer tr) {
-        int y = panelY + panelH - FOOTER_H + 16;
+        int y = panelY + panelH - FOOTER_H + 13;
         int maxW = footerTextRight - panelX - 16;
 
         List<Text> problems = loadout.validate();
@@ -460,7 +436,6 @@ public class LoadoutScreen extends PvScreen {
         selected = -1;
         note = PvLang.str("pvpocket.gui.loadout.note.reset");
         rebuildList();
-        rebuildFields();
     }
 
     private void submit() {

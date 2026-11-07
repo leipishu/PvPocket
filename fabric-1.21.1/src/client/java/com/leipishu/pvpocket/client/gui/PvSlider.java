@@ -19,6 +19,7 @@ import net.minecraft.util.math.MathHelper;
  */
 public class PvSlider extends PvValueControl {
 
+    /** Floor for the read-out column; the real width is measured from the value range below. */
     private static final int READOUT = 44;
     private static final int KNOB = 10;
     private static final int TRACK_H = 4;
@@ -26,6 +27,8 @@ public class PvSlider extends PvValueControl {
     private final RuleDefinition def;
     private boolean dragging;
     private float display = -1F;
+    /** -1 until the first frame, then the widest read-out this rule can produce. */
+    private int readoutW = -1;
 
     public PvSlider(RuleDefinition def, int value) {
         this.def = def;
@@ -38,8 +41,25 @@ public class PvSlider extends PvValueControl {
         return x + 2;
     }
 
+    /**
+     * Width of the read-out, measured once from the extremes of the range.
+     *
+     * <p>A fixed 44 was one character too narrow for "500 uses": the read-out was ellipsised, which
+     * reads as a broken number rather than as a short column. Measuring the endpoints and keeping the
+     * result fixed avoids the other failure — sizing to the current value would make the track jump
+     * sideways every time a digit is added while dragging.</p>
+     */
+    private int readoutWidth(TextRenderer tr) {
+        if (readoutW < 0) {
+            readoutW = Math.max(READOUT, Math.max(
+                    tr.getWidth(def.format(def.min)),
+                    tr.getWidth(def.format(def.max))));
+        }
+        return readoutW;
+    }
+
     private int trackWidth() {
-        return Math.max(1, width - READOUT - 6);
+        return Math.max(1, width - readoutW - 6);
     }
 
     private float ratio() {
@@ -64,6 +84,7 @@ public class PvSlider extends PvValueControl {
         }
 
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        int readoutW = readoutWidth(tr);
         int trackX = trackLeft();
         int trackW = trackWidth();
         int trackY = y + height / 2 - TRACK_H / 2;
@@ -89,7 +110,7 @@ public class PvSlider extends PvValueControl {
         if (focused && enabled) {
             color = PvTheme.ACCENT;
         }
-        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, readout, READOUT), x + width,
+        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, readout, readoutW), x + width,
                 y + (height - 8) / 2 + 1, color);
 
         drawFocusRing(ctx, PvTheme.RADIUS);
@@ -141,6 +162,9 @@ public class PvSlider extends PvValueControl {
     }
 
     private void applyMouse(double mx) {
+        // The read-out is normally measured on the first frame, but a click can arrive before any
+        // render if the widget was just added; measuring here keeps the mapping identical.
+        readoutWidth(MinecraftClient.getInstance().textRenderer);
         int trackW = trackWidth();
         float t = (float) ((mx - trackLeft()) / trackW);
         t = MathHelper.clamp(t, 0F, 1F);

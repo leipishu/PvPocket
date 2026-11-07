@@ -105,14 +105,20 @@ public final class PvTheme {
     }
 
     // Metrics
+    //
+    // Sized for the panel the game actually draws, not for a large monitor. At 1280x720 with GUI
+    // scale 3 the logical canvas is 426x240, so a 24px button is a tenth of the screen height and a
+    // 28px row leaves four rows visible in a 128px content area. These are one step smaller than the
+    // vanilla widget metrics on purpose: the glyphs stay at 1.0x (a scaled bitmap font samples off
+    // the pixel grid and goes soft), so the density has to come from the boxes around them.
     public static final int PAD = 8;
     public static final int PAD_L = 16;
     public static final int RADIUS = 4;
     public static final int RADIUS_PANEL = 6;
-    public static final int ROW_H = 28;
-    public static final int ROW_H_TALL = 46;
-    public static final int BTN_H = 24;
-    public static final int TAB_H = 26;
+    public static final int ROW_H = 24;
+    public static final int ROW_H_TALL = 40;
+    public static final int BTN_H = 20;
+    public static final int TAB_H = 24;
     public static final int SCROLLBAR_W = 6;
 
     /** One switch for the whole animation layer; false makes every control snap like before. */

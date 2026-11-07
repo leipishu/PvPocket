@@ -57,13 +57,22 @@ public class RosterBoard extends PvWidget {
     }
 
     private static final int GAP = 8;
-    private static final int CARD_HEAD = 18;
-    private static final int SLOT_H = 16;
-    private static final int CARD_PAD = 6;
-    private static final int CAP = 14;
-    private static final int HEAD = 12;
+    private static final int CARD_HEAD = 16;
+    private static final int SLOT_H = 14;
+    private static final int CARD_PAD = 5;
+    private static final int CAP = 12;
+    private static final int HEAD = 10;
     private static final int MIN_TEAMS = 2;
     private static final int MAX_TEAMS = 4;
+    /**
+     * Narrowest card that still shows an avatar, a name and the remove glyph without truncating.
+     *
+     * <p>Two columns need two of these plus the gap. Below that the grid drops to one column: at the
+     * 426x240 logical canvas the roster pane is about 200px wide, and two 96px cards truncate every
+     * name to three characters — a roster you cannot read is worse than a roster you have to scroll.
+     * </p>
+     */
+    private static final int MIN_CARD_W = 150;
 
     private final List<List<Member>> teams = new ArrayList<>();
     private final boolean editable;
@@ -197,8 +206,14 @@ public class RosterBoard extends PvWidget {
 
     // ------------------------------------------------------------------ layout
 
+    /** 2 when two readable cards fit, 1 when they do not. Never 0. */
+    private int columns() {
+        return width >= MIN_CARD_W * 2 + GAP ? 2 : 1;
+    }
+
     private int cardW() {
-        return (width - GAP) / 2;
+        int cols = columns();
+        return (width - GAP * (cols - 1)) / cols;
     }
 
     private int cardH() {
@@ -206,11 +221,11 @@ public class RosterBoard extends PvWidget {
     }
 
     private int cardX(int index) {
-        return x + (index % 2) * (cardW() + GAP);
+        return x + (index % columns()) * (cardW() + GAP);
     }
 
     private int cardY(int index) {
-        return y + (index / 2) * (cardH() + GAP);
+        return y + (index / columns()) * (cardH() + GAP);
     }
 
     private int slotY(int cardY, int slot) {
@@ -219,8 +234,21 @@ public class RosterBoard extends PvWidget {
 
     /** Height the cards need, so the screen can decide whether it fits. */
     public int preferredHeight() {
-        int rows = (teams.size() + 1) / 2;
+        int cols = columns();
+        int rows = (teams.size() + cols - 1) / cols;
         return rows * cardH() + Math.max(0, rows - 1) * GAP;
+    }
+
+    /**
+     * The scroll pane hands out the width, and the grid has to re-answer "how tall am I" for it.
+     *
+     * <p>Column count is a function of width, so a card row that fits on two columns at 450px needs
+     * two rows at 200px. Without this the pane would total the heights from the previous width and
+     * cut the last card off.</p>
+     */
+    @Override
+    public void onWidth(int width) {
+        this.height = preferredHeight();
     }
 
     // ------------------------------------------------------------------ drawing
@@ -265,9 +293,9 @@ public class RosterBoard extends PvWidget {
             // Remove-team sits to the left of add-player, so the add button keeps the corner the
             // player is told to look for.
             if (teams.size() > MIN_TEAMS) {
-                drawCap(ctx, cx + cw - 6 - CAP * 2 - 4, cy + 6, mouseX, mouseY, false);
+                drawCap(ctx, cx + cw - 6 - CAP * 2 - 4, cy + 4, mouseX, mouseY, false);
             }
-            drawCap(ctx, capX, cy + 6, mouseX, mouseY, true);
+            drawCap(ctx, capX, cy + 4, mouseX, mouseY, true);
         }
 
         for (int slot = 0; slot < slots; slot++) {
@@ -362,7 +390,7 @@ public class RosterBoard extends PvWidget {
             if (mx < cx || mx >= cx + cw || my < cy || my >= cy + cardH()) {
                 continue;
             }
-            int capY = cy + 6;
+            int capY = cy + 4;
             if (my >= capY && my < capY + CAP) {
                 if (mx >= cx + cw - 6 - CAP && mx < cx + cw - 6) {
                     if (listener != null) {
