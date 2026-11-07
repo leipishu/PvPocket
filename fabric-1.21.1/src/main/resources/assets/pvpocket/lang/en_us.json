@@ -371,6 +371,7 @@
   "pvpocket.gui.rule.button.cancel": "Cancel",
   "pvpocket.gui.rule.button.accept": "Accept & start",
   "pvpocket.gui.rule.button.repropose": "Edit & resend",
+  "pvpocket.gui.rule.accept_blocked": "This panel holds unsent changes. Use Edit & resend to send them, or Revert to drop them and then accept.",
   "pvpocket.gui.rule.button.reject": "Reject",
   "pvpocket.gui.rule.button.revert": "Revert",
   "pvpocket.gui.rule.button.edit_loadout": "Edit loadout",

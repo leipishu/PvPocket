@@ -371,6 +371,7 @@
   "pvpocket.gui.rule.button.cancel": "取消",
   "pvpocket.gui.rule.button.accept": "同意并开始",
   "pvpocket.gui.rule.button.repropose": "修改后征询",
+  "pvpocket.gui.rule.accept_blocked": "这一页有还没发出去的改动。点「修改后征询」把改动发给对方，或点「还原」放弃改动后再同意。",
   "pvpocket.gui.rule.button.reject": "拒绝",
   "pvpocket.gui.rule.button.revert": "还原",
   "pvpocket.gui.rule.button.edit_loadout": "编辑配装",

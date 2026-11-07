@@ -439,6 +439,15 @@ public class RuleScreen extends PvScreen {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_ACCEPT)).size(92, PvTheme.BTN_H);
+            // "Accept" means "this revision, as it stands", and the server takes the revision from
+            // its own record rather than from the packet — so a player who moved a slider here and
+            // then pressed this button had the edit dropped without a word anywhere. That is the
+            // only way this panel could lose work silently, so the button refuses while there is
+            // anything unsent and the tooltip names the two ways forward.
+            if (changeCount() > 0) {
+                primary.enabled = false;
+                primary.tooltip = PvLang.str("pvpocket.gui.rule.accept_blocked");
+            }
             right = place(primary, right, buttonY);
             right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.repropose"),
                     PvButton.Style.NORMAL,

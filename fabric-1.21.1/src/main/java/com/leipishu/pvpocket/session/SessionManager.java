@@ -2030,6 +2030,16 @@ public final class SessionManager {
             // "the other party" to hand the pen to, so the session starts when every participant has
             // said yes to the current revision — and a re-proposal bumps the revision, which
             // invalidates all earlier yeses by construction rather than by bookkeeping.
+            //
+            // The rules carried by an ACCEPT are deliberately not applied: the revision on the table
+            // is what is being agreed to. A client with unsent edits therefore has to send PROPOSE
+            // instead, and the panel refuses to let it send ACCEPT in that state — this branch only
+            // sees the case of an older or hand-built client, and records it so the dropped edit is
+            // visible afterwards instead of leaving no trace at all.
+            if (encoded != null && !encoded.isEmpty() && !encoded.equals(session.rules)) {
+                journal(session).append("RULES_ACCEPT_DROPPED_EDITS", "player", me.name,
+                        "revision", session.rulesRevision);
+            }
             me.acceptedRevision = session.rulesRevision;
             me.agreedLoadoutDigest = combinedLoadoutDigest(session);
             journal(session).append("RULES_AGREED", "player", me.name,
@@ -3017,6 +3027,16 @@ public final class SessionManager {
             var health = player.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
             if (health != null) {
                 health.setBaseValue(maxHealth);
+                // Read back immediately: if anything else on the server is holding this attribute
+                // down (another mod, a leftover modifier), the player starts the round on a cap
+                // nobody asked for and the only evidence would be a health bar. One journal line
+                // turns that into a fact.
+                if (Math.abs(player.getMaxHealth() - maxHealth) > 0.01F) {
+                    journal(session).append("ROUND_START_HEALTH_MISMATCH", "player", p.name,
+                            "wanted", maxHealth, "actual", player.getMaxHealth());
+                }
+            } else {
+                journal(session).append("ROUND_START_NO_HEALTH_ATTRIBUTE", "player", p.name);
             }
             // Same mechanism, same reason. Applied per round rather than at freeze so a mid-series
             // rule change (or a reloaded session) cannot leave the previous value in place.
@@ -3137,6 +3157,10 @@ public final class SessionManager {
                 // is unfalsifiable after the fact: the digest is a hash, and a hash cannot be read
                 // back into "which of the two boundary rules was actually running".
                 "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
+                // Same reasoning for the health cap: it is the one rule whose effect is a number on
+                // the HUD rather than a behaviour, and "I set it to 40 and started on 20" needs an
+                // answer that does not depend on remembering which revision ran.
+                "maxHealth", rules.get("c.maxHealth"),
                 "region", region == null ? "-" : region.id,
                 "teams", session.teamCount,
                 "shape", shapeOf(session),
