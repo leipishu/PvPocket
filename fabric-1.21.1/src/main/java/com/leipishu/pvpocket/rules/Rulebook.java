@@ -178,6 +178,11 @@ public final class Rulebook {
         return rules.get("f.blockFilter");
     }
 
+    /** {@code f.allowExplosives}: whether TNT, creepers and crystals are allowed to detonate. */
+    public boolean explosives() {
+        return rules.flag("f.allowExplosives");
+    }
+
     // ------------------------------------------------------------------ G. 其他
 
     /** {@code g.enderPearl}: whether pearls can be thrown. */

@@ -89,15 +89,15 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 37 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，其中 38 条在当前版本真正影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 37 条真正影响对局，2 条仅记录。**
+**当前 38 条真正影响对局，1 条仅记录。**
 
-### 已生效（37 条）
+### 已生效（38 条）
 
 | 组 | 规则 |
 | --- | --- |
@@ -106,7 +106,7 @@
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
 | D | `d.loadoutScope`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
-| F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
+| F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter`、`f.allowExplosives` |
 | G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
@@ -114,7 +114,7 @@
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，各自的读取点：
+D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`f.allowExplosives` 是「爆炸」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -187,9 +187,16 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
   范围同样锁在 `ROUND_ACTIVE`：一条比回合活得更久的规则，会把大厅静音给任何一个共用会话的人。
   观众（在会话里但不在任何一队）发的话只回显给自己。
 
-### 仅记录（2 条）
+- **`f.allowExplosives`** — 混入 `Explosion` 的两个方法，因为一次爆炸是两步：
+  `collectBlocksAndDamageEntities` 找方块、伤实体，`affectWorld` 拆方块、掉物品、点火、放音效。
+  只取消前者会留下「炸了但什么都没发生」，只取消后者会留下伤害——两者都算这条规则。
+  两边都要拦，而且不是重复劳动：`affectWorld` 就是客户端在自己世界里拆方块的那一步，
+  不知道这条规则的客户端会挖出一个服务端从没确认过的坑。
+  服务端按**位置**查归属地块（爆炸没有主人，苦力怕不属于任何人），客户端用自己载荷里那个布尔。
 
-`d.allowSwapBetweenRounds`、`f.allowExplosives`
+### 仅记录（1 条）
+
+`d.allowSwapBetweenRounds`
 
 这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
 写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
@@ -198,7 +205,7 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
 规则冲突」，没有取值可言。
 
 **为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（换装征询、爆炸判定）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
+（换装征询流程）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
 但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
 不要让它和代码各说各话。
 

@@ -140,5 +140,8 @@ public final class PvPocketClient implements ClientModInitializer {
         // Without this the client predicts a placement the server refuses and keeps a block only it
         // can see; the same mask makes both sides reach the same answer.
         CombatState.setUseGate(client.player.getUuid(), payload.useGate(), payload.bans());
+        // An explosion destroys blocks on whichever side runs it, so this has to reach the client or
+        // it leaves holes the server never confirms.
+        CombatState.setClientExplosivesAllowed(payload.explosives());
     }
 }

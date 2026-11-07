@@ -41,8 +41,10 @@ import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.GameRules;
+import net.minecraft.world.World;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -711,6 +713,46 @@ public final class SessionManager {
     public static boolean craftingAllowed(UUID uuid) {
         DuelSession session = activeSessionOf(uuid);
         return session == null || session.rulebook().allowCrafting();
+    }
+
+    /**
+     * {@code f.allowExplosives}, asked from {@code Explosion#collectBlocksAndDamageEntities} and
+     * {@code Explosion#affectWorld}.
+     *
+     * <p>The two sides ask different questions, because they know different things. The server looks
+     * the plot up by position: an explosion has no owner — a creeper is nobody's — so the only
+     * thing that identifies which rule set applies is where it went off. The client has no sessions
+     * at all and only ever renders its own surroundings, so it uses the flag its own payload
+     * carried.</p>
+     *
+     * <p>Getting the client copy right is not cosmetic. {@code affectWorld} destroys blocks on
+     * whichever side runs it, so a client that has not been told would carve holes that the server
+     * never confirms — a crater only the person who lit the fuse can see.</p>
+     */
+    public static boolean explosivesAllowed(World world, Vec3d pos) {
+        if (world == null) {
+            return true;
+        }
+        if (world.isClient()) {
+            return CombatState.clientExplosivesAllowed();
+        }
+        SessionManager manager = instance;
+        if (manager == null || !ArenaManager.isArena(world)) {
+            return true;
+        }
+        ArenaRegion region = ArenaManager.regionAt(pos.x, pos.z);
+        if (region == null) {
+            return true;
+        }
+        DuelSession session = manager.sessions.get(region.id);
+        return session == null || session.stage != SessionStage.ROUND_ACTIVE
+                || session.rulebook().explosives();
+    }
+
+    /** The same answer for one player, which is what the client mirror is built from. */
+    public static boolean explosivesAllowedFor(ServerPlayerEntity player) {
+        DuelSession session = activeSessionOf(player.getUuid());
+        return session == null || session.rulebook().explosives();
     }
 
     /** The session whose round this player is currently fighting, or null. */

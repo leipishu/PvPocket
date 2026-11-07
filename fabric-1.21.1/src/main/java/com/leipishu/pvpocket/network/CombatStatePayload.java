@@ -24,8 +24,13 @@ import net.minecraft.network.packet.CustomPayload;
  *
  * <p>{@code useGate} and {@code bans} are the two masks {@link com.leipishu.pvpocket.combat.UsePolicy}
  * takes; see {@code CombatState.setUseGate} for why they are pushed rather than recomputed.</p>
+ *
+ * <p>{@code explosives} is here for the same reason as the gate: an explosion destroys blocks on
+ * whichever side runs it, so a client that has not been told would punch holes the server never
+ * confirms — holes only the person who lit the TNT can see.</p>
  */
-public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans)
+public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans,
+                                 boolean explosives)
         implements CustomPayload {
 
     public static final CustomPayload.Id<CombatStatePayload> ID =
@@ -36,6 +41,7 @@ public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, 
             PacketCodecs.BOOL, CombatStatePayload::blocking,
             PacketCodecs.VAR_INT, CombatStatePayload::useGate,
             PacketCodecs.VAR_INT, CombatStatePayload::bans,
+            PacketCodecs.BOOL, CombatStatePayload::explosives,
             CombatStatePayload::new);
 
     @Override

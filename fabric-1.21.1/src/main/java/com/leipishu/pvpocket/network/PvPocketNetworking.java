@@ -232,6 +232,7 @@ public final class PvPocketNetworking {
                 CombatState.isLegacy(player.getUuid()),
                 CombatState.isBlocking(player.getUuid()),
                 CombatState.useGate(player.getUuid()),
-                CombatState.useBans(player.getUuid())));
+                CombatState.useBans(player.getUuid()),
+                SessionManager.explosivesAllowedFor(player)));
     }
 }

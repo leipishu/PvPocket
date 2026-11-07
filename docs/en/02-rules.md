@@ -99,12 +99,12 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 37 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and 38 of those currently affect a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (37)
+### In effect (38)
 
 | Group | Rules |
 | --- | --- |
@@ -113,7 +113,7 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
 | D | `d.loadoutScope`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
-| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
+| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter`, `f.allowExplosives` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
@@ -123,7 +123,8 @@ is not wired up.
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
 the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
-with the interaction slice, and the last two in G with the display slice. Where each one is read:
+with the interaction slice, the last two in G with the display slice, and `f.allowExplosives` with the explosion slice.
+Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
   target second at the end of every round; with the cap reached and nobody at the line, `leaderTeam`
@@ -220,9 +221,18 @@ with the interaction slice, and the last two in G with the display slice. Where 
   the lobby for anybody who shares a session. A spectator (in the session but on no side) gets their
   own line echoed back to themselves.
 
-### Recorded only (2)
+- **`f.allowExplosives`** — injected into two methods of `Explosion`, because a detonation is two
+  steps: `collectBlocksAndDamageEntities` finds the blocks and hurts the entities, `affectWorld`
+  removes the blocks, drops the items, sets the fire and plays the sound. Cancelling only the first
+  leaves a bang with nothing behind it; cancelling only the second leaves the damage. Both are the
+  rule. Both sides run it, and that is not redundant: `affectWorld` is exactly where the client
+  destroys blocks in its own copy of the world, so a client that had not been told would dig a
+  crater the server never confirms. The server looks the plot up by position — an explosion has no
+  owner, a creeper is nobody's — and the client uses the boolean its payload carried.
 
-`d.allowSwapBetweenRounds`, `f.allowExplosives`
+### Recorded only (1)
+
+`d.allowSwapBetweenRounds`
 
 These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
 changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
@@ -231,11 +241,10 @@ There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "
 some rules" note; it has no value.
 
 **Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is spread across several slices (loadout re-consent, explosion checks). Keeping a
-declared-but-unenforced state converges faster than removing and re-adding. The backlog is being
-closed slice by slice: **update the three counts in this section whenever a slice lands**, so the
-document and the code cannot drift apart. **Any public claim about features must follow this
-section, not the panel.**
+work is a whole flow of its own (the between-round swap handshake). Keeping a declared-but-unenforced
+state converges faster than removing and re-adding. The backlog is being closed slice by slice:
+**update the three counts in this section whenever a slice lands**, so the document and the code
+cannot drift apart. **Any public claim about features must follow this section, not the panel.**
 
 ## 4. Series arithmetic
 
