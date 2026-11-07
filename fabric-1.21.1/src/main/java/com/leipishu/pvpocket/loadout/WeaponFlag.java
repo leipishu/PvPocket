@@ -27,12 +27,22 @@ import java.util.Set;
  */
 public enum WeaponFlag {
 
-    SWEEPING("sweeping", Enchantments.SWEEPING_EDGE, 3, ItemKind.SWORD),
-    INFINITY("infinity", Enchantments.INFINITY, 1, ItemKind.BOW),
-    FLAME("flame", Enchantments.FLAME, 1, ItemKind.BOW),
-    PUNCH("punch", Enchantments.PUNCH, 2, ItemKind.BOW),
-    RIPTIDE("riptide", Enchantments.RIPTIDE, 3, ItemKind.TRIDENT),
-    PIERCING("piercing", Enchantments.PIERCING, 4, ItemKind.CROSSBOW);
+    SWEEPING("sweeping", Enchantments.SWEEPING_EDGE, 3, 0, ItemKind.SWORD),
+    INFINITY("infinity", Enchantments.INFINITY, 1, 1, ItemKind.BOW),
+    FLAME("flame", Enchantments.FLAME, 1, 2, ItemKind.BOW),
+    PUNCH("punch", Enchantments.PUNCH, 2, 3, ItemKind.BOW),
+    // Bit 4 is retired: it was RIPTIDE, which is now one of the three TridentStyle values.
+    // Do not reuse it — a saved preset written before the move would silently gain a different flag.
+    PIERCING("piercing", Enchantments.PIERCING, 4, 5, ItemKind.CROSSBOW);
+
+    /**
+     * The bit the old {@code RIPTIDE} flag occupied.
+     *
+     * <p>Kept so that {@link LoadoutEntry#decode} can recognise a preset saved before the move and
+     * turn it into a {@link TridentStyle} instead of quietly dropping the enchantment. Nothing writes
+     * this bit any more.</p>
+     */
+    public static final int RETIRED_RIPTIDE_BIT = 1 << 4;
 
     public final String id;
     public final String labelKey;
@@ -40,14 +50,24 @@ public enum WeaponFlag {
     public final RegistryKey<Enchantment> enchantment;
     /** Highest level the flag will write. Level is fixed at 1 for boolean-style flags. */
     public final int maxLevel;
+    /**
+     * Bit position in the encoded mask.
+     *
+     * <p>Explicit rather than {@code ordinal()} so that removing a flag does not shift every flag
+     * after it. The mask is written into saved presets, so a shift is not a cosmetic change: it
+     * turns somebody's Piercing crossbow into whatever moved into that bit.</p>
+     */
+    private final int bitIndex;
     private final ItemKind[] kinds;
 
-    WeaponFlag(String id, RegistryKey<Enchantment> enchantment, int maxLevel, ItemKind... kinds) {
+    WeaponFlag(String id, RegistryKey<Enchantment> enchantment, int maxLevel, int bitIndex,
+               ItemKind... kinds) {
         this.id = id;
         this.labelKey = "pvpocket.flag." + id;
         this.hintKey = "pvpocket.flag." + id + ".hint";
         this.enchantment = enchantment;
         this.maxLevel = maxLevel;
+        this.bitIndex = bitIndex;
         this.kinds = kinds;
     }
 
@@ -74,7 +94,7 @@ public enum WeaponFlag {
     }
 
     public int bit() {
-        return 1 << ordinal();
+        return 1 << bitIndex;
     }
 
     public static List<WeaponFlag> of(ItemKind kind) {

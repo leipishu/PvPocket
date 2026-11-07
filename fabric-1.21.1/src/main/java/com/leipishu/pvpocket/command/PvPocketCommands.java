@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
+import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.loadout.WeaponFlag;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
@@ -448,6 +449,12 @@ public final class PvPocketCommands {
         }
         for (WeaponFlag flag : WeaponFlag.decode(entry.flags)) {
             out.append(Text.literal(" ")).append(flag.labelText());
+        }
+        if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle != TridentStyle.NONE) {
+            out.append(Text.literal(" ")).append(entry.tridentStyle.labelText());
+        }
+        if (entry.kind == ItemKind.FIREWORK_ROCKET) {
+            out.append(PvLang.t("pvpocket.command.loadout.entry.firework_flight", entry.fireworkFlight));
         }
         if (entry.kind == ItemKind.BOW
                 && !entry.has(WeaponFlag.INFINITY)

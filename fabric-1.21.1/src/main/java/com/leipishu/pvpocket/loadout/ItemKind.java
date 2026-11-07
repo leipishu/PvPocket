@@ -40,9 +40,13 @@ public enum ItemKind {
     LEGGINGS(Page.ARMOR, "leggings", true, 1),
     BOOTS(Page.ARMOR, "boots", true, 1),
     SHIELD(Page.ARMOR, "shield", false, 1),
+    /** Not {@link #isArmor()}: it grants no armour points and wants the chest slot all the same. */
+    ELYTRA(Page.ARMOR, "elytra", false, 1),
 
     FOOD(Page.CONSUMABLE, "food", false, 16),
     POTION(Page.CONSUMABLE, "potion", false, 1),
+    FIREWORK_ROCKET(Page.CONSUMABLE, "firework_rocket", false, 16),
+    WIND_CHARGE(Page.CONSUMABLE, "wind_charge", false, 16),
 
     /** Pickaxe and shears live on the block page because that is where they are actually needed. */
     PICKAXE(Page.BLOCK, "pickaxe", true, 1),
@@ -124,6 +128,21 @@ public enum ItemKind {
     public boolean editableAttributes() {
         return switch (this) {
             case FOOD, BLOCK, SHEARS, SHIELD -> false;
+            default -> true;
+        };
+    }
+
+    /**
+     * True for kinds that actually wear out.
+     *
+     * <p>Drives the durability rows in the editor and the {@code MAX_DAMAGE} write in the builder.
+     * A firework rocket carrying {@code max_damage} would be an item with a durability bar that
+     * never moves and a stack that cannot be used up the usual way, which is worse than having no
+     * field at all — so the question is asked once, here, rather than as a blacklist in two places.</p>
+     */
+    public boolean hasDurability() {
+        return switch (this) {
+            case FOOD, POTION, BLOCK, FIREWORK_ROCKET, WIND_CHARGE -> false;
             default -> true;
         };
     }

@@ -1,6 +1,8 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.session.SessionManager;
+import net.minecraft.entity.projectile.AbstractWindChargeEntity;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import net.minecraft.world.explosion.Explosion;
@@ -45,7 +47,29 @@ public abstract class ExplosionMixin {
     }
 
     private boolean allowed() {
+        if (isWindBurst()) {
+            // 风弹不是爆炸物。它不改方块、不造成爆炸伤害，只把人推开——`f.allowExplosives` 管的是
+            // 「这一局会不会被 TNT 炸成废墟」，让它顺手把风弹也关掉，等于一条规则干两件事，而
+            // 玩家只会看到「我配了风弹但它什么都不做」。
+            return true;
+        }
         Vec3d pos = ((Explosion) (Object) this).getPosition();
         return SessionManager.explosivesAllowed(world, pos);
+    }
+
+    /**
+     * 风爆与 TNT 的区别只能靠来源实体认，客户端还得退一步靠音效。
+     *
+     * <p>服务端创建的爆炸带着来源实体（风弹实体）；客户端收到的 {@code ExplosionS2CPacket}
+     * 不带实体，只带服务端挑的粒子与音效，所以那一侧用风弹专用的爆发音效作判据。两条路都认不
+     * 出来时按「普通爆炸」处理——漏放一个 TNT 比漏关一个风弹严重。</p>
+     */
+    private boolean isWindBurst() {
+        Explosion self = (Explosion) (Object) this;
+        if (self.getEntity() instanceof AbstractWindChargeEntity) {
+            return true;
+        }
+        return self.getSoundEvent() != null
+                && self.getSoundEvent().value() == SoundEvents.ENTITY_WIND_CHARGE_WIND_BURST.value();
     }
 }

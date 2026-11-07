@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.PvPocket;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.AttributeModifierSlot;
 import net.minecraft.component.type.AttributeModifiersComponent;
+import net.minecraft.component.type.FireworksComponent;
 import net.minecraft.component.type.ItemEnchantmentsComponent;
 import net.minecraft.component.type.PotionContentsComponent;
 import net.minecraft.component.type.UnbreakableComponent;
@@ -98,6 +99,7 @@ public final class LoadoutBuilder {
         applyAttributes(stack, entry);
         applyDurability(stack, entry);
         applyEnchantments(stack, entry, registries);
+        applyFireworks(stack, entry);
         return stack;
     }
 
@@ -157,6 +159,12 @@ public final class LoadoutBuilder {
     }
 
     private static void applyDurability(ItemStack stack, LoadoutEntry entry) {
+        if (!entry.kind.hasDurability()) {
+            // A hand-edited string can put a durability on a firework rocket. Writing max_damage
+            // there would produce an item with a durability bar that never moves, so the field is
+            // ignored rather than honoured.
+            return;
+        }
         if (entry.durability == LoadoutEntry.DURABILITY_UNBREAKABLE) {
             stack.set(DataComponentTypes.UNBREAKABLE, new UnbreakableComponent(true));
             return;
@@ -191,9 +199,34 @@ public final class LoadoutBuilder {
                 any = true;
             }
         }
+        // Trident style is an enchantment but not a flag: it is one of three exclusive values, and
+        // it is written at its maximum level rather than at 1 like the boolean flags.
+        if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle.enchantment != null) {
+            RegistryEntry<Enchantment> style = enchantment(registries, entry.tridentStyle.enchantment);
+            if (style != null) {
+                builder.add(style, TridentStyle.LEVEL);
+                any = true;
+            }
+        }
         if (any) {
             stack.set(DataComponentTypes.ENCHANTMENTS, builder.build());
         }
+    }
+
+    /**
+     * Gives a firework rocket its flight duration and nothing else.
+     *
+     * <p>No explosions on purpose: a rocket with a firework star deals area damage when it bursts,
+     * which would quietly turn the elytra's fuel into a weapon. The empty explosion list is what
+     * makes it pure thrust.</p>
+     */
+    private static void applyFireworks(ItemStack stack, LoadoutEntry entry) {
+        if (entry.kind != ItemKind.FIREWORK_ROCKET) {
+            return;
+        }
+        int flight = Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
+                Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, entry.fireworkFlight));
+        stack.set(DataComponentTypes.FIREWORKS, new FireworksComponent(flight, List.of()));
     }
 
     private static RegistryEntry<Enchantment> enchantment(DynamicRegistryManager registries,

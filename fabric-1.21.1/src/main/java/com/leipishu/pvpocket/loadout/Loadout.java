@@ -200,7 +200,9 @@ public final class Loadout {
             // Vanilla armour slot order is boots(36) leggings(37) chest(38) helmet(39) offhand(40).
             case BOOTS -> 36;
             case LEGGINGS -> 37;
-            case CHESTPLATE -> 38;
+            // The elytra goes on the chest slot too, so it competes with the chestplate for 38. The
+            // loser falls through to the hotbar rather than silently overwriting a chosen item.
+            case CHESTPLATE, ELYTRA -> 38;
             case HELMET -> 39;
             case SHIELD -> 40;
             default -> -1;
@@ -290,6 +292,14 @@ public final class Loadout {
                 }
                 if (entry.amplifier < 0 || entry.amplifier > LoadoutCatalog.AMPLIFIER_MAX) {
                     problems.add(PvLang.t("pvpocket.loadout.problem.amplifier", row));
+                }
+            }
+            case FIREWORK_ROCKET -> {
+                if (entry.fireworkFlight < LoadoutCatalog.FIREWORK_FLIGHT_MIN
+                        || entry.fireworkFlight > LoadoutCatalog.FIREWORK_FLIGHT_MAX) {
+                    problems.add(PvLang.t("pvpocket.loadout.problem.firework_flight", row,
+                            LoadoutCatalog.FIREWORK_FLIGHT_MIN,
+                            LoadoutCatalog.FIREWORK_FLIGHT_MAX));
                 }
             }
             case FOOD -> {

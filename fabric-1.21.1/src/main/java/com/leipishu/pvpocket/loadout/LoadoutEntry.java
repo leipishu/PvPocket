@@ -42,6 +42,11 @@ public final class LoadoutEntry {
     /** Splash potion amplifier, 0 = level I. */
     public int amplifier = 0;
 
+    /** Which exclusive trident enchantment this row carries. Only meaningful for {@link ItemKind#TRIDENT}. */
+    public TridentStyle tridentStyle = TridentStyle.NONE;
+    /** Firework rocket flight duration, 1-3. Only meaningful for {@link ItemKind#FIREWORK_ROCKET}. */
+    public int fireworkFlight = 1;
+
     public static LoadoutEntry of(ItemKind kind) {
         LoadoutEntry entry = new LoadoutEntry();
         entry.kind = kind;
@@ -99,6 +104,8 @@ public final class LoadoutEntry {
         arrowCount = other.arrowCount;
         durationSec = other.durationSec;
         amplifier = other.amplifier;
+        tridentStyle = other.tridentStyle;
+        fireworkFlight = other.fireworkFlight;
     }
 
     public boolean has(WeaponFlag flag) {
@@ -142,7 +149,9 @@ public final class LoadoutEntry {
                 Integer.toString(flags),
                 Integer.toString(arrowCount),
                 Integer.toString(durationSec),
-                Integer.toString(amplifier));
+                Integer.toString(amplifier),
+                tridentStyle.id,
+                Integer.toString(fireworkFlight));
     }
 
     public static LoadoutEntry decode(String encoded) {
@@ -164,6 +173,19 @@ public final class LoadoutEntry {
         entry.arrowCount = num(parts, 10, 0);
         entry.durationSec = num(parts, 11, 0);
         entry.amplifier = num(parts, 12, 0);
+        entry.tridentStyle = TridentStyle.byId(part(parts, 13, "none"));
+        entry.fireworkFlight = Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
+                Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, num(parts, 14, 1)));
+        // A preset saved before Riptide became a TridentStyle still carries its old bit. Reading it
+        // once here is what keeps that preset from silently losing its enchantment; the bit itself is
+        // cleared so the string re-encodes in the new shape. The kind guard matters because a bit set
+        // on the wrong kind used to be a validation error and must not become a silent field write.
+        if (entry.kind == ItemKind.TRIDENT
+                && entry.tridentStyle == TridentStyle.NONE
+                && (entry.flags & WeaponFlag.RETIRED_RIPTIDE_BIT) != 0) {
+            entry.tridentStyle = TridentStyle.RIPTIDE;
+            entry.flags &= ~WeaponFlag.RETIRED_RIPTIDE_BIT;
+        }
         return entry;
     }
 

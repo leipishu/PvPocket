@@ -13,6 +13,7 @@ import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
+import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -406,6 +407,11 @@ public class LoadoutScreen extends PvScreen {
         }
         if (!entry.variant.isEmpty()) {
             sb.append(' ').append(LoadoutCatalog.labelOf(entry.variant));
+        }
+        // The style is part of what the row *is*, not a detail: two tridents with different styles
+        // are different weapons, and the list would otherwise show two identical lines.
+        if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle != TridentStyle.NONE) {
+            sb.append(' ').append(entry.tridentStyle.label());
         }
         return sb.toString();
     }

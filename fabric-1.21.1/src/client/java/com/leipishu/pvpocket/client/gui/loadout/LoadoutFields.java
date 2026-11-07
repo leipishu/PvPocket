@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
 import com.leipishu.pvpocket.loadout.Material;
+import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.loadout.WeaponFlag;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
@@ -76,7 +77,7 @@ public final class LoadoutFields {
                     v -> entry.armorTenths = v));
         }
 
-        if (kind != ItemKind.FOOD && kind != ItemKind.POTION && kind != ItemKind.BLOCK) {
+        if (kind.hasDurability()) {
             out.add(new Field(
                     RuleDefinition.intRange("lo.durability", RuleGroup.D,
                             LoadoutEntry.DURABILITY_DEFAULT, LoadoutCatalog.DURABILITY_MAX, 50,
@@ -164,6 +165,26 @@ public final class LoadoutFields {
                         () -> indexOfOption(blocks, entry.variant),
                         v -> entry.variant = blocks.get(Math.floorMod(v, blocks.size())).id()));
             }
+            case TRIDENT -> {
+                // Three choices in one cycle, not two toggles: 忠诚 and 激流 are alternatives, and a
+                // pair of switches that silently turn each other off is a puzzle, not a control.
+                TridentStyle[] styles = TridentStyle.values();
+                String[] labels = Arrays.stream(styles)
+                        .map(s -> s.labelKey)
+                        .toArray(String[]::new);
+                out.add(new Field(
+                        RuleDefinition.enumOf("lo.trident", RuleGroup.D,
+                                entry.tridentStyle.ordinal(), labels),
+                        () -> entry.tridentStyle.ordinal(),
+                        v -> entry.tridentStyle = styles[Math.floorMod(v, styles.length)]));
+            }
+            case FIREWORK_ROCKET -> out.add(new Field(
+                    RuleDefinition.intRange("lo.firework_flight", RuleGroup.D,
+                            LoadoutCatalog.FIREWORK_FLIGHT_MIN, LoadoutCatalog.FIREWORK_FLIGHT_MAX, 1,
+                            Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
+                                    Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, entry.fireworkFlight))),
+                    () -> entry.fireworkFlight,
+                    v -> entry.fireworkFlight = v));
             default -> {
             }
         }

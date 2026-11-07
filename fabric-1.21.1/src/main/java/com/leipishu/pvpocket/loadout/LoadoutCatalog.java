@@ -37,6 +37,16 @@ public final class LoadoutCatalog {
     public static final int DURATION_MAX_SEC = 300;
     public static final int AMPLIFIER_MAX = 4;
 
+    /**
+     * Firework rocket flight duration, the same 1-3 the crafting table produces.
+     *
+     * <p>The component itself is an unsigned byte, so 0 and 4-255 are representable but meaningless:
+     * duration 0 is a rocket that dies before it finishes pushing, and anything above 3 is a
+     * lifetime nobody can craft. Offering the range the game actually has keeps the slider honest.</p>
+     */
+    public static final int FIREWORK_FLIGHT_MIN = 1;
+    public static final int FIREWORK_FLIGHT_MAX = 3;
+
     /** Team colours used when a block entry is marked as team-coloured wool. */
     public static final String[] TEAM_COLORS = {"red", "blue"};
 
