@@ -82,6 +82,7 @@ Tasks > fabric > runClient` … `runServer`），不用开终端，也不用维�
 | `-PquickJoin=<host:port>` | `localhost:25565` | 连别的地址 |
 | `-PquickJoin=off` | — | 停在标题界面（服务端没起、只想看界面时） |
 | `-PclientHeap=<size>` | `1G` | 抬客户端堆上限 |
+| `-PdebugBlocking` | — | 强制本机玩家处于剑格挡状态，用来单独看格挡姿势（第一/第三人称），不必开一局经典决斗 |
 
 ```bash
 # 终端 1：共享服务端，保持前台运行（这样控制台还能输入 stop / op / pvpocket）

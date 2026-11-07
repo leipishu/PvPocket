@@ -432,6 +432,9 @@ public final class SessionManager {
             // No-op for everybody the sessions already sent home; this is for the player who was in
             // the dimension for a reason that no longer exists.
             homes.evict(player);
+            // CombatState.clearAll() below is server-side only; without this everybody keeps
+            // seeing the last block pose that was pushed to them.
+            PvPocketNetworking.broadcastBlocking(player, false);
         }
         CombatState.clearAll();
         // Before clearAll(), because the region objects are what know how tall the debris in a cell
@@ -3820,6 +3823,9 @@ public final class SessionManager {
         // Cleared above, so this is the unconditional push: an offline-then-online player would
         // otherwise keep a stale legacy flag and a phantom block penalty on their client.
         PvPocketNetworking.sendState(player);
+        // And the same for everyone else's screen. The block pose is drawn from a flag that lives
+        // on other clients, and CombatState.clear above only reaches the server's own copy.
+        PvPocketNetworking.broadcastBlocking(player, false);
         try {
             Path file = storage.snapshotDir(session.id).resolve(p.snapshotFile);
             PlayerSnapshot snapshot = PlayerSnapshot.readFrom(file);

@@ -13,6 +13,7 @@ import com.leipishu.pvpocket.client.render.BoundaryRenderer;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
+import com.leipishu.pvpocket.network.BlockingStatePayload;
 import com.leipishu.pvpocket.network.CombatStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
@@ -41,6 +42,12 @@ public final class PvPocketClient implements ClientModInitializer {
     public void onInitializeClient() {
         ClientPlayNetworking.registerGlobalReceiver(CombatStatePayload.ID, (payload, context) -> {
             context.client().execute(() -> apply(payload));
+        });
+
+        // Somebody else's block, so it can be drawn. Lands on the client thread because the render
+        // thread reads the same set every frame.
+        ClientPlayNetworking.registerGlobalReceiver(BlockingStatePayload.ID, (payload, context) -> {
+            context.client().execute(() -> CombatState.setBlocking(payload.player(), payload.blocking()));
         });
 
         ClientPlayNetworking.registerGlobalReceiver(RulesOpenPayload.ID, (payload, context) -> {

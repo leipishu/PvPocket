@@ -5,9 +5,15 @@ import com.leipishu.pvpocket.combat.LegacyCombatValues;
 import com.leipishu.pvpocket.combat.LegacyKnockback;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ParticleEffect;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -101,6 +107,68 @@ public abstract class PlayerEntityMixin {
     private boolean pvpocket$allowSprintCrit(boolean original) {
         PlayerEntity self = (PlayerEntity) (Object) this;
         return !CombatState.isLegacy(self.getUuid()) && original;
+    }
+
+    /**
+     * Silences the 1.9 attack sound set for legacy attackers.
+     *
+     * <p>1.8 plays exactly one sound when a hit lands: {@code entity.player.hurt} on the victim. The
+     * crit / knockback / strong / weak / nodamage / sweep sounds that {@code attack} fires are all
+     * 1.9 additions, and they are the main reason a modern trade sounds "chunkier" than a 1.8 one —
+     * three sounds land where 1.8 has one, and they fire at a different pitch each time. Muting them
+     * leaves the hurt sound as the only feedback, which is what 1.8's rhythm actually is.</p>
+     *
+     * <p>Both overloads are redirected because {@code attack} uses both: the redirect-overload for
+     * the "no damage" branch, the volume/pitch one everywhere else. Scoped to {@code attack}, so
+     * nothing outside combat is affected.</p>
+     */
+    @Redirect(method = "attack",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/World;playSound("
+                            + "Lnet/minecraft/entity/player/PlayerEntity;DDD"
+                            + "Lnet/minecraft/sound/SoundEvent;Lnet/minecraft/sound/SoundCategory;)V"))
+    private void pvpocket$muteAttackSound(World world, PlayerEntity except, double x, double y,
+                                          double z, SoundEvent sound, SoundCategory category) {
+        if (!pvpocket$isLegacyAttacker()) {
+            world.playSound(except, x, y, z, sound, category);
+        }
+    }
+
+    @Redirect(method = "attack",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/World;playSound("
+                            + "Lnet/minecraft/entity/player/PlayerEntity;DDD"
+                            + "Lnet/minecraft/sound/SoundEvent;Lnet/minecraft/sound/SoundCategory;FF)V"))
+    private void pvpocket$muteAttackSound(World world, PlayerEntity except, double x, double y,
+                                          double z, SoundEvent sound, SoundCategory category,
+                                          float volume, float pitch) {
+        if (!pvpocket$isLegacyAttacker()) {
+            world.playSound(except, x, y, z, sound, category, volume, pitch);
+        }
+    }
+
+    /**
+     * Drops the 1.9 damage-indicator particles for legacy attackers.
+     *
+     * <p>{@code DAMAGE_INDICATOR} — the small dark hearts that pop off a target hit for more than
+     * two points — does not exist in 1.8. It is also spawned server-side only, so a client-side
+     * filter would never see it.</p>
+     */
+    @Redirect(method = "attack",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/server/world/ServerWorld;spawnParticles("
+                            + "Lnet/minecraft/particle/ParticleEffect;DDDIDDDD)I"))
+    private int pvpocket$noDamageIndicator(ServerWorld world, ParticleEffect particle,
+                                           double x, double y, double z, int count,
+                                           double deltaX, double deltaY, double deltaZ, double speed) {
+        if (pvpocket$isLegacyAttacker()) {
+            return 0;
+        }
+        return world.spawnParticles(particle, x, y, z, count, deltaX, deltaY, deltaZ, speed);
+    }
+
+    private boolean pvpocket$isLegacyAttacker() {
+        return CombatState.isLegacy(((PlayerEntity) (Object) this).getUuid());
     }
 
     /**

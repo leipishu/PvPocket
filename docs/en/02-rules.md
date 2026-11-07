@@ -67,11 +67,22 @@ what the panel shows.
 > reaches an inventory some other way is refused — otherwise raising it would both take the
 > right-click away from the sword block and block damage outright. Blocking is the state "main hand
 > holds a sword and right-click is down", not a shield: damage becomes `(1 + damage) × 0.5`, movement
-> is ×0.2, the blade tilts across the screen in first person (1.8's `doBlockTransformations`, copied
-> as-is) with four warm brackets around the crosshair, and other players see the vanilla blocking arm
-> pose. Sprint is dropped while blocking — in 1.8 that fell out of the movement penalty (the scaled
-> `moveForward` no longer clears the sprint threshold); here it is cleared explicitly. 1.8 blocking
-> does not reduce knockback, and neither does this.
+> is ×0.2, the blade tilts across the screen in first person (flat face square to the camera, blade at
+> 45° up-left, grip anchored on the hilt) with four warm brackets around the crosshair, and other
+> players see the vanilla blocking arm pose — the state is broadcast to everyone in the arena, so it
+> is not a local-only effect. Sprint is dropped while blocking — in 1.8 that fell out of
+> the movement penalty (the scaled `moveForward` no longer clears the sprint threshold); here it is
+> cleared explicitly. 1.8 blocking does not reduce knockback, and neither does this. Blocking and
+> attacking are not exclusive: left-click still swings while right-click is held, and the sword
+> animates normally.
+
+> **Legacy mode also changes four things about how a trade feels, none of them panel rules.**
+> ① A whiff costs no time — 1.21's `doAttack` bills a miss to `attackCooldown`, and that counter is
+> itself the gate on the next attack; 1.8 has no such thing. ② Only the victim's hurt sound plays:
+> the crit / knockback / strong / weak / nodamage / sweep sounds are all 1.9 additions and are muted.
+> ③ The `DAMAGE_INDICATOR` particles on hits above two points are dropped. ④ The targeting margin
+> goes back to 1.8's 0.1 blocks — 1.21's `getTargetingMargin()` returns 0, so the boxes are the same
+> size but the tolerance around them is gone, which reads as "the blade went through them and missed".
 
 **Loadout** — What you bring in and pick up
 

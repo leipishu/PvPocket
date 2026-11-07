@@ -27,6 +27,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
@@ -222,7 +223,37 @@ public final class PvPocketNetworking {
             PvPocket.LOGGER.info("Blocking {} for {}", blocking ? "on" : "off",
                     player.getName().getString());
             sendState(player);
+            broadcastBlocking(player, blocking);
         }
+    }
+
+    /**
+     * Tells every other client that {@code player} started or stopped blocking.
+     *
+     * <p>The blocker is skipped: their own client learns the flag from {@link #sendState}, and
+     * sending both would only give two packets the chance to arrive in the wrong order.</p>
+     *
+     * <p>Silent, unlike {@link #setBlocking} — the transition itself is already logged there, and
+     * this is a fan-out of the same event rather than a second event.</p>
+     */
+    public static void broadcastBlocking(ServerPlayerEntity player, boolean blocking) {
+        BlockingStatePayload payload = new BlockingStatePayload(player.getUuid(), blocking);
+        for (ServerPlayerEntity target : player.server.getPlayerManager().getPlayerList()) {
+            if (target != player && ServerPlayNetworking.canSend(target, BlockingStatePayload.ID)) {
+                ServerPlayNetworking.send(target, payload);
+            }
+        }
+    }
+
+    /**
+     * Clears every remote blocking pose.
+     *
+     * <p>Called where the server drops combat state wholesale rather than player by player — arena
+     * reset and shutdown. Without it the last frame a client saw is kept forever, and a player who
+     * was blocking when the round ended goes on standing in a block pose for everyone else.</p>
+     */
+    public static void clearBlocking(ServerPlayerEntity player) {
+        broadcastBlocking(player, false);
     }
 
     /**

@@ -108,6 +108,12 @@ loom.runs.configureEach { run ->
             run.programArgs("--quickPlayMultiplayer", quickJoin)
         }
         run.vmArg "-Xmx${clientHeap}".toString()
+        // -PdebugBlocking forces this client to report itself as blocking a sword, so the first and
+        // third person poses can be inspected without setting up a legacy duel. Applied to the
+        // local mirror only — see MinecraftClientMixin.DEBUG_BLOCKING.
+        if (project.hasProperty("debugBlocking")) {
+            run.vmArg "-Dpvpocket.debug.blocking=true"
+        }
     }
 }
 

@@ -7,6 +7,9 @@ param(
     # keybinding fires whether or not the window is active.
     [string]$Username = "Dev3",
     [string]$Key = "G",
+    # Virtual-key code for keys that are not a single character (F5 = 0x74, Esc = 0x1B). Takes
+    # precedence over -Key; -Key stays as the shorthand for the common letter case.
+    [int]$Vk = 0,
     [int]$HoldMs = 60
 )
 
@@ -27,8 +30,8 @@ if (-not $proc) { Write-Error "no client process for $Username"; exit 1 }
 $hwnd = (Get-Process -Id $proc.ProcessId).MainWindowHandle
 if ($hwnd -eq 0) { Write-Error "no window handle"; exit 1 }
 
-# Virtual-key code for a single ASCII letter, e.g. G -> 0x47.
-$vk = [int][char]$Key.ToUpper()
+# Virtual-key code for a single ASCII letter, e.g. G -> 0x47, unless -Vk was given.
+if ($Vk -ne 0) { $vk = $Vk } else { $vk = [int][char]$Key.ToUpper() }
 $scan = [int][PostKey]::MapVirtualKey([uint32]$vk, 0)
 $down = [IntPtr](1 -bor ($scan -shl 16))
 $up = [IntPtr](1 -bor ($scan -shl 16) -bor 0xC0000000)
