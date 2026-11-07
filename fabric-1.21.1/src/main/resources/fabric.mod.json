@@ -8,7 +8,7 @@
     "leipishu"
   ],
   "contact": {},
-  "license": "All-Rights-Reserved",
+  "license": "LGPL-3.0-only",
   "environment": "*",
   "entrypoints": {
     "main": [

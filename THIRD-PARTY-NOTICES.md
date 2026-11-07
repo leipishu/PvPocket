@@ -1,7 +1,9 @@
 # Third-party notices
 
-PvPocket's own source code is not covered by this file. What follows covers the **artwork** that
-ships inside the jar under `data/pvpocket/structure/`.
+PvPocket's own source code is licensed under the GNU Lesser General Public License v3.0 — see
+[`LICENSE`](LICENSE) and [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt) — and is not covered by this
+file. What follows covers the **artwork** that ships inside the jar under
+`data/pvpocket/structure/`.
 
 ## Arena maps
 

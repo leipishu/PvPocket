@@ -333,6 +333,16 @@
   记 `ROUND_START_HEALTH_MISMATCH`（`wanted` / `actual`），属性拿不到记
   `ROUND_START_NO_HEALTH_ATTRIBUTE`。
 
+### 许可与仓库
+
+- **模组代码确定为 LGPL-3.0。** 根目录新增 `LICENSE`（LGPL-3.0 全文）与 `LICENSE-GPL-3.0.txt`
+  ——后者不是可选项：LGPL-3.0 的条款本身就是叠在 GPL-3.0 上的，正文明确要求随附那份副本。
+  `fabric.mod.json` 的 `license` 从 `All-Rights-Reserved` 改为 SPDX 标识 `LGPL-3.0-only`。
+- **内置地图不受影响**，仍是 CC BY-SA 4.0，署名与改动声明留在 `THIRD-PARTY-NOTICES.md`。
+- 新增 `AGENTS.md`：给在本仓库工作的编码代理的入口——命令在哪跑、哪些约定是硬性的（本地化、
+  指令面、界面尺寸、沙盒、文档同步）、界面自动化踩过的坑。设计理由仍只在 `docs/`，
+  `AGENTS.md` 不重复它们。
+
 ---
 
 ## 2026-11-06

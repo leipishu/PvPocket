@@ -19,6 +19,7 @@
 | 部署、权限、玩家流程、指令、运维、排障 | [`docs/zh/05-usage.md`](docs/zh/05-usage.md) |
 | 地图来源与许可、转换流程、怎么加一张图 | [`docs/zh/06-maps.md`](docs/zh/06-maps.md) |
 | 每个版本改了什么 | [`CHANGELOG.md`](CHANGELOG.md) |
+| 让编码代理在本仓库干活（命令、硬约定、雷区） | [`AGENTS.md`](AGENTS.md) |
 | 设计草案与阶段记录（非规范） | [`docs/archive/`](docs/archive/README.md) |
 
 视觉规范与地图的第三方许可另见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
@@ -131,6 +132,9 @@ PvPocket/
 │       ├── main/              common：服务端与客户端共用
 │       └── client/            客户端专用（split source set）
 ├── CHANGELOG.md
+├── AGENTS.md                  给编码代理的说明：命令、硬约定、雷区
+├── LICENSE                    LGPL-3.0
+├── LICENSE-GPL-3.0.txt        LGPL-3.0 引用的 GPL-3.0 副本
 ├── THIRD-PARTY-NOTICES.md
 └── .gitignore / .gitattributes
 ```
@@ -152,7 +156,9 @@ PvPocket/
 
 ## 许可
 
-模组代码的许可未指定，`fabric.mod.json` 中暂标为 `All-Rights-Reserved`，确定后再改。
+模组代码按 **GNU Lesser General Public License v3.0** 分发，全文见 [`LICENSE`](LICENSE)。
+LGPL-3.0 引用 GPL-3.0 的条款，其副本见 [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt)。
+`fabric.mod.json` 中的 SPDX 标识为 `LGPL-3.0-only`。
 
 **内置地图不受此影响**：`data/pvpocket/structure/*.nbt` 中四张来自
 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，按 **CC BY-SA 4.0** 分发；斗兽场由
