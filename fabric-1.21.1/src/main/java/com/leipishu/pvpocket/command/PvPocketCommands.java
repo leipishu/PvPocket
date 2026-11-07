@@ -88,6 +88,8 @@ public final class PvPocketCommands {
                 .executes(PvPocketCommands::loadout)
                 .then(CommandManager.literal("give").executes(PvPocketCommands::loadoutGive))
                 .then(CommandManager.literal("edit").executes(PvPocketCommands::loadoutEdit))
+                .then(CommandManager.literal("accept").executes(PvPocketCommands::loadoutAccept))
+                .then(CommandManager.literal("decline").executes(PvPocketCommands::loadoutDecline))
                 .then(CommandManager.literal("reset").executes(PvPocketCommands::loadoutReset)));
 
         dispatcher.register(root);
@@ -121,6 +123,7 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket spectate <prefix>", "pvpocket.command.help.spectate");
         helpLine(source, "/pvpocket spectate leave", "pvpocket.command.help.spectate_leave");
         helpLine(source, "/pvpocket loadout [give|edit|reset]", "pvpocket.command.help.loadout");
+        helpLine(source, "/pvpocket loadout [accept|decline]", "pvpocket.command.help.loadout_swap");
         source.sendFeedback(() -> PvLang.t("pvpocket.command.help.footer")
                 .formatted(Formatting.DARK_GRAY), false);
         return 1;
@@ -376,8 +379,33 @@ public final class PvPocketCommands {
         }
     }
 
-    private static int loadoutReset(CommandContext<ServerCommandSource> ctx) {
+    /**
+     * {@code /pvpocket loadout accept|decline} — the between-round loadout handshake.
+     *
+     * <p>A command rather than a panel button because there is no mid-series panel to put a button
+     * on: the rules panel is a draft/negotiation screen and opening it mid-series would be a
+     * different feature. These two leaves are the first path to this decision, not a second one
+     * beside a GUI.</p>
+     */
+    private static int loadoutAccept(CommandContext<ServerCommandSource> ctx) {
         try {
+            SessionManager.get().acceptLoadoutSwap(ctx.getSource().getPlayerOrThrow());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int loadoutDecline(CommandContext<ServerCommandSource> ctx) {
+        try {
+            SessionManager.get().declineLoadoutSwap(ctx.getSource().getPlayerOrThrow());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int loadoutReset(CommandContext<ServerCommandSource> ctx) {        try {
             SessionManager.get().resetPersonalLoadout(ctx.getSource().getPlayerOrThrow());
             return 1;
         } catch (Exception e) {

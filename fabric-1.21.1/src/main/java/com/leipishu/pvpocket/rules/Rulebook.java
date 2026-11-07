@@ -160,6 +160,11 @@ public final class Rulebook {
         return rules.flag("d.allowCrafting");
     }
 
+    /** {@code d.allowSwapBetweenRounds}: whether a loadout may be re-proposed mid-series. */
+    public boolean allowSwapBetweenRounds() {
+        return rules.flag("d.allowSwapBetweenRounds");
+    }
+
     // ------------------------------------------------------------------ F. 方块
 
     /**

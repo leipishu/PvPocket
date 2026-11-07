@@ -66,6 +66,16 @@ public final class DuelSession {
     }
     /** Bumped on every accepted edit, so "you agreed to v1, this is v3" is visible to both sides. */
     public int rulesRevision;
+    /**
+     * Bumped every time somebody changes their loadout between rounds; see
+     * {@code Participant#acceptedLoadoutRevision}.
+     *
+     * <p>Deliberately not the same counter as {@link #rulesRevision}. The rules are frozen once the
+     * series starts — {@code d.allowSwapBetweenRounds} is about the loadout alone, and a single
+     * counter would make a loadout change look like a re-negotiation of the rule set, which is the
+     * one thing a mid-series change must not be able to do.</p>
+     */
+    public int loadoutRevision;
     /** Uuid of the player who authored the current revision. */
     public String rulesAuthor;
     /** Uuid of the player whose answer the session is waiting on. */

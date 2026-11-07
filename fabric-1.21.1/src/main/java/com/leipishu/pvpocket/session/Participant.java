@@ -77,6 +77,27 @@ public final class Participant {
     public boolean loadoutApplied;
 
     /**
+     * A between-round loadout change waiting for the rest of the match to agree.
+     *
+     * <p>Separate from {@link #loadout} rather than overwriting it, because the change is not in
+     * effect until everybody says yes. Overwriting first and rolling back on a refusal would mean
+     * the old loadout has to be reconstructed from somewhere — and there is nowhere to reconstruct
+     * it from, since it was never written down twice.</p>
+     */
+    public String pendingLoadout;
+    public String pendingLoadoutDigest;
+
+    /**
+     * Which {@code DuelSession#loadoutRevision} this player has agreed to.
+     *
+     * <p>Same shape as {@link #acceptedRevision} and for the same reason: with three or four sides
+     * there is no single "the other party" to ask, so the change lands when every participant's
+     * number matches the current one. Bumping the revision invalidates every earlier yes by
+     * construction.</p>
+     */
+    public int acceptedLoadoutRevision;
+
+    /**
      * The combined loadout fingerprint this player has agreed to, or null if they have not agreed.
      *
      * <p>Storing the fingerprint rather than a boolean is what makes "everyone agrees" checkable:

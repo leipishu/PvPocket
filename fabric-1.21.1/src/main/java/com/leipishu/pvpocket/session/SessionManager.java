@@ -2443,6 +2443,20 @@ public final class SessionManager {
     public void onLoadoutRequest(ServerPlayerEntity player) {
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null) {
+            // d.allowSwapBetweenRounds. The series is running, so the editor is still the right
+            // screen — what changes is where the result goes (a pending slot, not the live loadout).
+            DuelSession series = seriesSessionOf(player.getUuid());
+            if (series != null) {
+                if (series.rulebook().allowSwapBetweenRounds()) {
+                    openSeriesEditor(player, series);
+                    return;
+                }
+                // Falling through to the personal loadout is the old behaviour, but doing it in
+                // silence would leave a player believing they had just changed what they fight
+                // with. The rule is off; say so.
+                player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_locked")
+                        .formatted(Formatting.GRAY), false);
+            }
             Loadout personal = loadouts.get(player.getUuid());
             personal.autoAssignSlots();
             PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
@@ -2493,7 +2507,9 @@ public final class SessionManager {
             return;
         }
         if (!session.stage.isPreFreeze()) {
-            fail(player, "pvpocket.msg.loadout.frozen");
+            // d.allowSwapBetweenRounds: the series is already running, so the loadout can still
+            // change but it cannot land on its own. See proposeLoadoutSwap.
+            proposeLoadoutSwap(player, session, encoded);
             return;
         }
         Loadout loadout = Loadout.decode(encoded);
@@ -2521,9 +2537,225 @@ public final class SessionManager {
                 .formatted(Formatting.GREEN), false);
     }
 
-    /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
-    private void submitPersonal(ServerPlayerEntity player, String encoded) {
+    /**
+     * A loadout change made after the series has started, held until everybody agrees to it.
+     *
+     * <p>The loadout is part of what the two sides agreed to before the first round, so changing it
+     * afterwards is changing the terms. It is not forbidden — {@code d.allowSwapBetweenRounds}
+     * exists because a series where one side is hard-countered and has no answer is not a series —
+     * but it has to be re-agreed, which is the whole point of the rule's name.</p>
+     *
+     * <p>Stored as {@code pendingLoadout} rather than written over {@code loadout}: the change is
+     * not in effect until it is accepted, and the old loadout has to survive a refusal. Nothing has
+     * to be timed here either — the loadout is only written into an inventory at a round start, so
+     * "it lands at the next round boundary" is a consequence of where it is read, not a deadline
+     * anybody has to meet.</p>
+     */
+    private void proposeLoadoutSwap(ServerPlayerEntity player, DuelSession session, String encoded) {
+        String uuid = player.getUuidAsString();
+        Participant me = session.participant(uuid);
+        if (me == null) {
+            fail(player, "pvpocket.msg.loadout.not_participant");
+            return;
+        }
+        if (!session.rulebook().allowSwapBetweenRounds()) {
+            fail(player, "pvpocket.msg.loadout.swap_locked");
+            return;
+        }
+        if (session.stage != SessionStage.ROUND_READY && session.stage != SessionStage.ROUND_ACTIVE) {
+            fail(player, "pvpocket.msg.loadout.frozen");
+            return;
+        }
         Loadout loadout = Loadout.decode(encoded);
+        List<Text> problems = loadout.validate();
+        if (!problems.isEmpty()) {
+            fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
+            return;
+        }
+        if (loadout.digest().equals(me.loadoutDigest)) {
+            // Nothing changed. Saying so beats bumping the revision and making the other side
+            // confirm a change that does not exist.
+            player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_unchanged")
+                    .formatted(Formatting.GRAY), false);
+            return;
+        }
+        me.pendingLoadout = loadout.encode();
+        me.pendingLoadoutDigest = loadout.digest();
+        session.loadoutRevision++;
+        me.acceptedLoadoutRevision = session.loadoutRevision;
+        journal(session).append("LOADOUT_PROPOSED", "player", me.name,
+                "digest", me.pendingLoadoutDigest, "items", loadout.size(),
+                "revision", session.loadoutRevision, "round", session.round);
+        persist(session);
+        player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_sent", loadout.size())
+                .formatted(Formatting.GOLD), false);
+        for (Participant p : session.participants) {
+            if (p.rejected || p.uuid.equals(uuid)) {
+                continue;
+            }
+            ServerPlayerEntity target = online(p);
+            if (target == null) {
+                continue;
+            }
+            target.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_asked", me.name)
+                    .formatted(Formatting.GOLD), false);
+            target.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_hint")
+                    .formatted(Formatting.DARK_GRAY), false);
+        }
+    }
+
+    /** {@code /pvpocket loadout accept}: one player's yes to the change currently on the table. */
+    public void acceptLoadoutSwap(ServerPlayerEntity player) {
+        DuelSession session = swapSessionOf(player);
+        if (session == null) {
+            fail(player, "pvpocket.msg.loadout.swap_none");
+            return;
+        }
+        Participant me = session.participant(player.getUuidAsString());
+        me.acceptedLoadoutRevision = session.loadoutRevision;
+        journal(session).append("LOADOUT_SWAP_AGREED", "player", me.name,
+                "revision", session.loadoutRevision);
+        persist(session);
+        if (!swapAgreed(session)) {
+            player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_waiting",
+                            swapAgreedCount(session), liveCount(session))
+                    .formatted(Formatting.GRAY), false);
+            return;
+        }
+        commitLoadoutSwap(session, "LOADOUT_COMMITTED");
+    }
+
+    /** {@code /pvpocket loadout decline}: the change is dropped and the old loadout stands. */
+    public void declineLoadoutSwap(ServerPlayerEntity player) {
+        DuelSession session = swapSessionOf(player);
+        if (session == null) {
+            fail(player, "pvpocket.msg.loadout.swap_none");
+            return;
+        }
+        Participant me = session.participant(player.getUuidAsString());
+        // The table is reset rather than the revision rewound: every participant is marked as
+        // having agreed to a revision nobody proposed anything under, which is the same state as
+        // "no change pending" without having to remember what the previous revision was.
+        clearLoadoutSwaps(session);
+        journal(session).append("LOADOUT_SWAP_DECLINED", "player", me.name,
+                "revision", session.loadoutRevision);
+        persist(session);
+        broadcastParticipants(session, PvLang.t("pvpocket.msg.loadout.swap_declined", me.name));
+    }
+
+    /**
+     * The series this player is fighting, in the two stages where a loadout change means anything.
+     *
+     * <p>{@code ROUND_READY} is the intermission and {@code ROUND_ACTIVE} the round itself. The
+     * proposal is accepted in either: the change only reaches an inventory at a round start, so
+     * there is nothing to be gained by refusing to take the note during a round, and a player who
+     * wants to think about it while fighting can.</p>
+     */
+    private DuelSession seriesSessionOf(UUID uuid) {
+        String id = sessionByPlayer.get(uuid);
+        DuelSession session = id == null ? null : sessions.get(id);
+        if (session == null || session.stage.isTerminal()) {
+            return null;
+        }
+        if (session.stage != SessionStage.ROUND_READY && session.stage != SessionStage.ROUND_ACTIVE) {
+            return null;
+        }
+        Participant p = session.participant(uuid.toString());
+        return p != null && !p.rejected ? session : null;
+    }
+
+    /** Opens the loadout editor against a running series; see {@link #proposeLoadoutSwap}. */
+    private void openSeriesEditor(ServerPlayerEntity player, DuelSession session) {
+        Participant p = session.participant(player.getUuidAsString());
+        String encoded = p.pendingLoadout != null
+                ? p.pendingLoadout
+                : (p.loadout != null ? p.loadout : Loadout.defaultDuel().encode());
+        PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
+                session.id, encoded, RulesOpenPayload.ROLE_REVIEWER,
+                otherName(session, player.getUuidAsString())));
+    }
+
+    /**
+     * The session a swap command may act on, or null.
+     *
+     * <p>Deliberately not {@code findOpenSession}: that one only knows about drafts and
+     * negotiations, which is exactly the window a mid-series change is not in.</p>
+     */
+    private DuelSession swapSessionOf(ServerPlayerEntity player) {        String id = sessionByPlayer.get(player.getUuid());
+        DuelSession session = id == null ? null : sessions.get(id);
+        if (session == null || session.stage.isTerminal()
+                || session.participant(player.getUuidAsString()) == null) {
+            return null;
+        }
+        return swapPending(session) ? session : null;
+    }
+
+    private static boolean swapPending(DuelSession session) {
+        for (Participant p : session.participants) {
+            if (!p.rejected && p.pendingLoadout != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean swapAgreed(DuelSession session) {
+        for (Participant p : session.participants) {
+            if (!p.rejected && p.acceptedLoadoutRevision != session.loadoutRevision) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int swapAgreedCount(DuelSession session) {
+        int count = 0;
+        for (Participant p : session.participants) {
+            if (!p.rejected && p.acceptedLoadoutRevision == session.loadoutRevision) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Writes every pending loadout into place and closes the table. */
+    private void commitLoadoutSwap(DuelSession session, String reason) {
+        for (Participant p : session.participants) {
+            if (p.pendingLoadout == null) {
+                continue;
+            }
+            p.loadout = p.pendingLoadout;
+            p.loadoutDigest = p.pendingLoadoutDigest;
+            journal(session).append("LOADOUT_SWAPPED", "player", p.name,
+                    "digest", p.loadoutDigest, "round", session.round);
+        }
+        clearLoadoutSwaps(session);
+        journal(session).append(reason, "revision", session.loadoutRevision, "round", session.round);
+        persist(session);
+        // Says "from the next round", not "now": the inventory is re-granted at every round start,
+        // so a player reading "changed" while holding the old sword would go looking for a bug.
+        broadcastParticipants(session, PvLang.t("pvpocket.msg.loadout.swap_done"));
+    }
+
+    private static void clearLoadoutSwaps(DuelSession session) {
+        for (Participant p : session.participants) {
+            p.pendingLoadout = null;
+            p.pendingLoadoutDigest = null;
+            p.acceptedLoadoutRevision = session.loadoutRevision;
+        }
+    }
+
+    private void broadcastParticipants(DuelSession session, Text line) {
+        for (Participant p : session.participants) {
+            ServerPlayerEntity player = online(p);
+            if (player != null) {
+                player.sendMessage(line.copy().formatted(Formatting.GOLD), false);
+            }
+        }
+    }
+
+    /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
+    private void submitPersonal(ServerPlayerEntity player, String encoded) {        Loadout loadout = Loadout.decode(encoded);
         List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));

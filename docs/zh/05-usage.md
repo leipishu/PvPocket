@@ -75,6 +75,8 @@
 | `/pvpocket loadout` | 打印配装明细、指纹与校验结果 |
 | `/pvpocket loadout edit` | 打开配装编辑器（无需对局） |
 | `/pvpocket loadout give` | 把配装发到手上（测试用） |
+| `/pvpocket loadout accept` | 同意对手提出的局间配装改动（需规则开启） |
+| `/pvpocket loadout decline` | 拒绝对手提出的局间配装改动，沿用原配装 |
 | `/pvpocket loadout reset` | 清空个人配装，回到默认预设 |
 | `/pvpocket arena` | 场地分区占用、变更数、进行中的对局 |
 | `/pvpocket arena reset` | 强制结束所有对局并重建整个场地维度（OP 3） |

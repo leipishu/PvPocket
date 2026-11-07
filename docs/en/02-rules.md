@@ -65,7 +65,7 @@ what the panel shows.
 **Loadout** — What you bring in and pick up
 
 - **Loadout scope** — `d.loadoutScope` · choice · default Per player · Per player / Per team. When set to per team, everyone on a side uses the same loadout.
-- **Swap loadout between rounds** — `d.allowSwapBetweenRounds` · toggle · default Off. When on, the loadout can be changed before every round.
+- **Swap loadout between rounds** — `d.allowSwapBetweenRounds` · toggle · default Off. When on, a loadout can be changed mid-series, but the change needs the other side to agree and applies from the next round.
 - **Pick up dropped items** — `d.allowPickup` · toggle · default Off. When off, items dropped in the arena cannot be picked up.
 - **Allow crafting** — `d.allowCrafting` · toggle · default Off. When off, crafting tables and the inventory grid are disabled.
 - **Allow consumables** — `d.allowConsumables` · toggle · default On. When off, potions, food and golden apples cannot be used.
@@ -99,19 +99,19 @@ what the panel shows.
 ## 3. Enforcement status (important)
 
 **All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and 38 of those currently affect a duel.** This is the section that matters. Do
+conflict note), **and every one of those currently affects a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (38)
+### In effect (39)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
-| D | `d.loadoutScope`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
+| D | `d.loadoutScope`, `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter`, `f.allowExplosives` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
@@ -123,7 +123,8 @@ is not wired up.
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
 the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
-with the interaction slice, the last two in G with the display slice, and `f.allowExplosives` with the explosion slice.
+with the interaction slice, the last two in G with the display slice, `f.allowExplosives` with the explosion slice, and
+`d.allowSwapBetweenRounds` with the between-round swap slice.
 Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
@@ -230,21 +231,36 @@ Where each one is read:
   crater the server never confirms. The server looks the plot up by position — an explosion has no
   owner, a creeper is nobody's — and the client uses the boolean its payload carried.
 
-### Recorded only (1)
+- **`d.allowSwapBetweenRounds`** — off, a mid-series submission is refused by `onLoadoutSubmit`;
+  on, the change goes into `Participant.pendingLoadout`, `DuelSession.loadoutRevision` is bumped,
+  the proposer counts as having agreed, and the rest answer with `/pvpocket loadout accept` or
+  `decline`. Only a unanimous yes writes it back into `loadout`.
 
-`d.allowSwapBetweenRounds`
+  **The change never overwrites the live loadout.** It is stored beside it, because a refusal has to
+  restore the old one and the old one was never written down a second time — overwrite-then-roll-back
+  has nowhere to roll back to.
 
-These are written into `DuelSession.rules` and the session journal; no code reads them. They can be
-changed in the panel, appear in the rule summary, and are frozen by consent — and they change nothing.
+  **There is no deadline and the intermission clock does not need pausing.** A loadout only reaches
+  an inventory at a round start, so "applies from the next round" is a consequence of where it is
+  read rather than a deadline anybody has to meet. Unresolved, the round runs on the old loadout and
+  the proposal waits for the next boundary.
 
-There is also one non-setting: `c.modeConflict` is `fixed` and only prints the "1.8 mode conflicts with
-some rules" note; it has no value.
+  The consent uses **the same shape as the rule negotiation but a separate counter**
+  (`loadoutRevision` ≠ `rulesRevision`): the rules are frozen once the series starts, and a rule
+  called "swap loadout" must not be able to re-open the rule set.
 
-**Why keep them:** deleting them would decouple the summary from the protocol, and the enforcement
-work is a whole flow of its own (the between-round swap handshake). Keeping a declared-but-unenforced
-state converges faster than removing and re-adding. The backlog is being closed slice by slice:
-**update the three counts in this section whenever a slice lands**, so the document and the code
-cannot drift apart. **Any public claim about features must follow this section, not the panel.**
+  The two answers are commands rather than panel buttons because there is no mid-series panel to put
+  a button on — the rules panel is a draft/negotiation screen. These two leaves are the *first* path
+  to this decision, not a second one beside a GUI.
+
+### There is no "recorded only" left
+
+**All 39 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+`fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
+
+This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line
+in `RuleCatalog` means there is a switch on the panel, not that anything in a duel changes; a rule
+with no getter in `Rulebook` is not wired up. Keep the counts in this section moving with the code.
 
 ## 4. Series arithmetic
 

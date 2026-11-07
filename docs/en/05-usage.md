@@ -85,6 +85,8 @@ Propose, accept and reject exist only as panel buttons.
 | `/pvpocket loadout` | Print the loadout, its fingerprint and validation result |
 | `/pvpocket loadout edit` | Open the loadout editor (no duel required) |
 | `/pvpocket loadout give` | Hand the loadout to yourself (testing) |
+| `/pvpocket loadout accept` | Agree to a proposed between-round loadout change (rule must be on) |
+| `/pvpocket loadout decline` | Refuse a proposed change; the old loadout stands |
 | `/pvpocket loadout reset` | Clear the personal loadout, back to the default preset |
 | `/pvpocket arena` | Cell occupancy, change counts, live sessions |
 | `/pvpocket arena reset` | Abort every session and rebuild the dimension (OP 3) |

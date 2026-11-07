@@ -56,7 +56,7 @@
 **配装** — 进场物品与拾取
 
 - **配装归属** — `d.loadoutScope` · 单选 · 默认 每人独立 · 每人独立 / 每队统一。每队统一时，同队成员使用同一套配装。
-- **局间可换配装** — `d.allowSwapBetweenRounds` · 开关 · 默认 关。开启后每局开始前可以重新选择配装。
+- **局间可换配装** — `d.allowSwapBetweenRounds` · 开关 · 默认 关。开启后可以在系列赛中途改配装，但改动要对手同意，从下一局开始生效。
 - **允许拾取场地物品** — `d.allowPickup` · 开关 · 默认 关。关闭后无法捡起场地里掉落的物品。
 - **允许合成** — `d.allowCrafting` · 开关 · 默认 关。关闭后工作台与背包合成格不可用。
 - **允许消耗品** — `d.allowConsumables` · 开关 · 默认 开。关闭后药水、食物、金苹果不可使用。
@@ -89,22 +89,22 @@
 
 ## 3. 执行状态（重要）
 
-**面板上全部 39 条都可配置、都会写入会话并进日志，其中 38 条在当前版本真正影响对局。**
+**面板上全部 39 条都可配置、都会写入会话并进日志，而且每一条都真的影响对局。**
 这一节是本文档最需要读的部分——不要看着面板以为整套规则都生效了。
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
 **共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突），
-**当前 38 条真正影响对局，1 条仅记录。**
+**当前 39 条真正影响对局，没有一条是"仅记录"。**
 
-### 已生效（38 条）
+### 已生效（39 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
-| D | `d.loadoutScope`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
+| D | `d.loadoutScope`、`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter`、`f.allowExplosives` |
 | G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
@@ -114,7 +114,7 @@
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`f.allowExplosives` 是「爆炸」切片接上的，各自的读取点：
+D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`f.allowExplosives` 是「爆炸」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -194,20 +194,30 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
   不知道这条规则的客户端会挖出一个服务端从没确认过的坑。
   服务端按**位置**查归属地块（爆炸没有主人，苦力怕不属于任何人），客户端用自己载荷里那个布尔。
 
-### 仅记录（1 条）
+- **`d.allowSwapBetweenRounds`** — 关掉时中途提交配装会被 `onLoadoutSubmit` 拒掉；开着时改动进入
+  `Participant.pendingLoadout`，`DuelSession.loadoutRevision` 加一，提出者自己记作已同意，
+  其余人用 `/pvpocket loadout accept` / `decline` 表态；全员同意才写回 `loadout`。
 
-`d.allowSwapBetweenRounds`
+  **改动不会覆盖原配装**，而是另存一份：拒绝时要把旧配装找回来，而旧配装从来没被写过第二遍，
+  先覆盖再回滚就是无处回滚。
 
-这些规则写进了 `DuelSession.rules` 与会话日志，没有任何代码读取。它们在面板上可以改、会被
-写入规则摘要、会随双方同意一起冻结，但对局行为不受影响。
+  **没有时间压力，也不需要暂停局间计时**。配装只在开局那一刻写进背包，所以「从下一局开始生效」
+  是读取点决定的，不是谁必须赶上的截止时间——没谈拢就这一局照旧，改动继续挂着等下一局。
 
-另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，只用来在面板上说明「1.8 模式与某些
-规则冲突」，没有取值可言。
+  同意用的是**和规则协商同构但独立的计数器**（`loadoutRevision` ≠ `rulesRevision`）：规则在系列赛
+  开始后就冻结了，一条「换装」规则如果能让双方重新谈规则，那它就不只是换装。
 
-**为什么保留**：删掉它们会让规则摘要与实际协议脱节，而补上执行逻辑的工作量分散在多个切片里
-（换装征询流程）。保留「已声明但未执行」的状态比删掉再重新加回来更容易收敛，
-但**在对外宣传功能时必须以本节为准**。补齐按切片推进：每接上一组就更新本节的三处计数，
-不要让它和代码各说各话。
+  表态用指令而不是面板按钮：局间没有面板可放按钮——规则面板是草案/协商界面，中途打开它是另一
+  件事。这两条指令是这个决定的**第一条**路径，不是和 GUI 并存的第二条。
+
+### 现在没有"仅记录"了
+
+**39 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
+只用来在面板上说明「1.8 模式与某些规则冲突」，没有取值可言。
+
+这一节保留下来是因为它记的是一条纪律：**加规则时先问「谁读它」**。写进 `RuleCatalog` 只说明
+面板上有个开关，说明不了对局里有任何变化；`Rulebook` 里没有对应的 getter，就等于没接。
+以后再加规则，`02` 这一节的计数要跟着动，不要让它和代码各说各话。
 
 ## 4. 赛制换算
 
