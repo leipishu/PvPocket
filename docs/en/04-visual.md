@@ -1,4 +1,4 @@
-# Visual specification v0.6
+# Visual specification v0.7.1
 
 > Specification · English. Chinese version: [`../zh/04-visual.md`](../zh/04-visual.md)
 >
