@@ -210,6 +210,10 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 模组代码按 **GNU Lesser General Public License v3.0** 分发，全文见 [`LICENSE`](LICENSE)；
 它引用 GPL-3.0 的条款，副本见 [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt)。
 
+**这两份（外加 `THIRD-PARTY-NOTICES.md`）会被打进 jar 根目录**，由 `fabric-1.21.1/build.gradle` 的
+`processResources` 从仓库根复制。**不要**在 `src/main/resources` 里再放一份副本——许可全文只能有
+一处来源。改文件名要同步 `legalFiles`，对不上时构建会直接失败。
+
 **内置地图不受此影响**：`data/pvpocket/structure/*.nbt` 中四张来自
 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，按 CC BY-SA 4.0 分发；斗兽场由 `scripts/colosseum.py`
 生成。署名与改动声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。

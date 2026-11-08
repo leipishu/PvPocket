@@ -49,6 +49,14 @@ cd fabric-1.21.1
 ./gradlew build                           # output in fabric-1.21.1/build/libs/
 ```
 
+**The jar root carries three legal files**: `LICENSE`, `LICENSE-GPL-3.0.txt` and
+`THIRD-PARTY-NOTICES.md`. They are not in `src/main/resources`; `processResources` in `build.gradle`
+copies them in from the repository root, because a licence should exist in exactly one place — the
+root copy — and copies drift. LGPL-3.0 §4 requires that whoever receives the object code also receives
+the licence, and what gets distributed is the jar, not the repository. Renaming any of them means
+updating `legalFiles` in `build.gradle`: a name that no longer matches fails the build instead of
+quietly producing a jar without a licence.
+
 Sources are split across two source sets, and the boundary must hold:
 
 | Directory | Contents | Constraint |

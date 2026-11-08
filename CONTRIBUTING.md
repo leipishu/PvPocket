@@ -48,6 +48,12 @@ cd fabric-1.21.1
 ./gradlew build                           # 产物在 fabric-1.21.1/build/libs/
 ```
 
+**jar 根目录里带三份法律文件**：`LICENSE`、`LICENSE-GPL-3.0.txt`、`THIRD-PARTY-NOTICES.md`。
+它们不放在 `src/main/resources` 里，而是由 `build.gradle` 的 `processResources` 从仓库根复制进去——
+许可全文只该有一份，仓库根那份是唯一来源，复制品会漂移。LGPL-3.0 §4 要求收到二进制的人同时收到
+许可副本，而分发的是 jar 不是仓库。改这几个文件名时要同步 `build.gradle` 里的 `legalFiles`，
+文件名对不上会直接让构建失败，不会悄悄打出一个没有许可的 jar。
+
 源码分两个 source set，边界不能破：
 
 | 目录 | 内容 | 约束 |

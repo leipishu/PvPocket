@@ -94,6 +94,10 @@
 LGPL-3.0 引用 GPL-3.0 的条款，其副本见 [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt)。  
 `fabric.mod.json` 中的 SPDX 标识为 `LGPL-3.0-only`。
 
+**发布的 jar 里带一份。** `LICENSE`、`LICENSE-GPL-3.0.txt` 与 `THIRD-PARTY-NOTICES.md` 会被
+`processResources` 打进 jar 根目录——LGPL-3.0 §4 要求收到二进制的人同时收到许可副本，而实际被分发的
+是 jar，不是这个仓库。解压 jar 就能看到，许可证扫描器也读得到。
+
 **内置地图不受此影响**：五张地图中四张来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，按  
 **CC BY-SA 4.0** 分发；斗兽场由 `scripts/colosseum.py` 生成，无第三方义务。署名与改动声明见  
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。

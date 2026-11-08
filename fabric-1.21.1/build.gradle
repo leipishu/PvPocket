@@ -160,12 +160,35 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 }
 
+// The licence ships inside the jar, not only beside it.
+//
+// LGPL-3.0 §4 asks that anyone who receives the object code also receive a copy of the licence, and
+// it builds on GPL-3.0 §1, which asks the same. A LICENSE file in the repository does not satisfy
+// that: what gets distributed is the jar — people drop it into a modpack folder, and a modpack author
+// never sees this repository. So the three legal files go in at the jar root, where an unzip shows
+// them and where a licence scanner looks first.
+//
+// The paths are one level up because the Gradle build sits inside the repository (`fabric-1.21.1/`)
+// rather than at its root — the docs, the changelog and the licences live above it.
+def legalRoot = project.rootDir.parentFile
+def legalFiles = ["LICENSE", "LICENSE-GPL-3.0.txt", "THIRD-PARTY-NOTICES.md"]
+legalFiles.each { name ->
+    def file = new File(legalRoot, name)
+    if (!file.isFile()) {
+        // Failing here rather than shipping a jar without it: a release that silently loses its
+        // licence is a release nobody notices is out of compliance.
+        throw new GradleException("missing ${file} — the jar has to ship a copy of the licence")
+    }
+}
+
 processResources {
     inputs.property "version", project.version
 
     filesMatching("fabric.mod.json") {
         expand "version": inputs.properties.version
     }
+
+    from(legalFiles.collect { new File(legalRoot, it) })
 }
 
 tasks.withType(JavaCompile).configureEach {
