@@ -12,6 +12,7 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
+import com.leipishu.pvpocket.mixin.PlayerManagerInvoker;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
@@ -2355,6 +2356,15 @@ public final class SessionManager {
             // winner=null on purpose: the round has no winner, the series does.
             journal(session).append("ROUND_ENDED",
                     "round", session.round, "reason", "SURRENDER", "winner", null);
+            // The round goes into the log as well, with no winner, and this is not bookkeeping for
+            // its own sake: the log is what {@link #recordSeries} counts, and it refuses a series
+            // with no settled round. Surrender used to write its own ROUND_ENDED and skip the log,
+            // so a forfeited series reached recordSeries empty and was dropped — the match never
+            // appeared in the player's stats or history at all, while the journal showed it ending
+            // normally. Logged before the start time is dropped, same as {@link #settle}.
+            long startedAt = roundStartedAt.getOrDefault(session.id, System.currentTimeMillis());
+            session.roundLog.add(new DuelSession.RoundLog(-1, "SURRENDER",
+                    Math.max(0L, System.currentTimeMillis() - startedAt)));
             session.pendingWinner = null;
             session.pendingReason = null;
             roundStartedAt.remove(session.id);
@@ -4203,6 +4213,15 @@ public final class SessionManager {
             // crash halfway through leaves a correct intermediate state that names exactly who is
             // still owed a restore.
             persist(session);
+            // The snapshot is applied to the live entity, and nothing writes it to playerdata until
+            // the next autosave (up to five minutes) or a clean disconnect. A hard stop inside that
+            // window reloads the pre-match inventory on the next login — and because the following
+            // match snapshots whatever it finds, the loadout stops being a temporary state and
+            // becomes the baseline that every later restore faithfully restores. That is exactly the
+            // "the duel items are still on me" report: the restore had worked, and then the world was
+            // killed before it reached the disk. One explicit save closes the window.
+            ((PlayerManagerInvoker) player.getServer().getPlayerManager())
+                    .pvpocket$savePlayerData(player);
             sessionByPlayer.remove(player.getUuid());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {

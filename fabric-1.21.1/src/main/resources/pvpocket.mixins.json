@@ -10,6 +10,7 @@
     "ItemStackMixin",
     "LivingEntityMixin",
     "PlayerEntityMixin",
+    "PlayerManagerInvoker",
     "ServerPlayerInteractionManagerMixin",
     "SlotMixin",
     "SpawnHelperMixin",
