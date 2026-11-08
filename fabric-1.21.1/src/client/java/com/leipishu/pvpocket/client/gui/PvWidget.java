@@ -146,4 +146,16 @@ public abstract class PvWidget {
     /** Keyboard value change (Left / Right). No-op for widgets without a value. */
     public void nudge(int direction) {
     }
+
+    /**
+     * Children for the layout audit to descend into.
+     *
+     * <p>Containers override this; a leaf returns nothing. It exists so {@link PvAudit} can see the
+     * whole tree without knowing which classes are containers — the alternative was a chain of
+     * {@code instanceof} checks in the audit, which silently stops covering a new container the day
+     * one is added.</p>
+     */
+    public java.util.List<PvWidget> childrenForAudit() {
+        return java.util.List.of();
+    }
 }

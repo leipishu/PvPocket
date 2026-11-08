@@ -50,21 +50,24 @@ public class RuleScreen extends PvScreen {
     private static final int MAX_W = 580;
     private static final int MAX_H = 348;
     /**
-     * Header and footer are chrome, and on a 240px canvas 52 + 40 of chrome is 38% of the panel.
-     *
-     * <p>The header still carries three things (title, opponent/revision, group hint) but they now
-     * sit 4px apart instead of 6, which buys 10px of content without moving anything the eye needs.
-     * The footer only has to hold a 20px button with air above and below it.</p>
+     * Chrome metrics. The header is one row of text and nothing else, so 30px is the height of a
+     * 16px chip plus 7px of air above and below — the 42px version carried a second line, and a
+     * second line is what made the bar read as a thick lid rather than as a title.
      */
-    private static final int HEADER_H = 42;
-    private static final int FOOTER_H = 34;
-    /** Upper bound for the tab strip; the actual width is a share of the panel (see {@link #tabWidth()}). */
-    private static final int TABS_W = 96;
-    private static final int MIN_TABS_W = 64;
+    private static final int HEADER_H = 30;
+    /** The status line under the well: one 9px line with air, no buttons of its own. */
+    private static final int STATUS_H = 18;
+    /** Height of a commit button stacked in the sidebar. */
+    private static final int ACTION_H = 18;
+    private static final int ACTION_GAP = 4;
+    /** Inset of the sidebar's contents from the panel edge. */
+    private static final int SIDE_PAD = 6;
+    private static final int TAB_GAP = 4;
+    /** Sidebar width: wide enough for the longest label it holds, and no wider. */
+    private static final int SIDEBAR_MIN = 72;
+    private static final int SIDEBAR_MAX = 100;
     /** The roster toolbar row that holds "add team", above the cards and outside the scroll pane. */
     private static final int TOOLBAR_H = 24;
-    /** Below this the group hint is no longer a sentence, so the loadout tag shortens instead. */
-    private static final int MIN_HINT_W = 130;
 
     private final RulesOpenPayload payload;
     private final DuelRules incoming;
@@ -75,13 +78,29 @@ public class RuleScreen extends PvScreen {
     private PvScrollPane pane;
     private RosterBoard board;
     private PvButton addTeamButton;
-    /** The 预设 link in the title row; rebuilt by {@link #init()} like everything else in {@code roots}. */
+    /** Title-row chip: the preset dialog. */
     private PvButton presetButton;
-    /** Footer buttons, kept so the footer can be rebuilt without leaving orphans in {@link #roots}. */
-    private final List<PvButton> footerButtons = new ArrayList<>();
-    /** Whether the current footer contains 还原; the footer is rebuilt when this flips. */
+    /**
+     * 编辑配装, on the 配装 page's toolbar.
+     *
+     * <p>It used to be a chip in the title row, which made the header carry a link to a whole other
+     * screen next to the version and the subtitle. A page-level action belongs on its page: the
+     * player reading the 配装 rules is the one who wants to open the editor, and nobody else needs
+     * to be told the editor exists from the title band.</p>
+     */
+    private PvButton loadoutButton;
+    /** The commit buttons stacked at the foot of the sidebar, bottom-most first. */
+    private final List<PvButton> actionButtons = new ArrayList<>();
+    /** 还原, in the status line, present only while something has been edited. */
+    private PvButton revertButton;
+    /** y of the gap above the topmost commit button; the tab strip ends here. */
+    private int actionTop;
+    /** Whether the current page has a toolbar band above the scroll pane. */
+    private boolean toolbarVisible;
+    /** Whether the commit buttons are a row under the well instead of a stack in the sidebar. */
+    private boolean compact;
+    /** Whether the current stack contains 还原; the stack is rebuilt when this flips. */
     private boolean footerHasRevert;
-    private int footerTextRight;
     private boolean submitted;
 
     public RuleScreen(RulesOpenPayload payload) {
@@ -108,28 +127,28 @@ public class RuleScreen extends PvScreen {
         roots.clear();
         layoutPanel(MAX_W, MAX_H);
 
-        int contentTop = panelY + HEADER_H;
-        int contentH = panelH - HEADER_H - FOOTER_H;
-        int tabsW = tabWidth();
-        int paneX = panelX + 12 + tabsW + 8;
-        int paneW = panelX + panelW - 12 - paneX;
+        // Built before the column is measured: the sidebar has to hold the longest commit label as
+        // well as the longest tab label, so it cannot be sized until the buttons exist.
+        List<PvButton> stack = buildStack();
+
+        chromeH = HEADER_H;
+        chromeW = sidebarWidth(stack);
+        int paneX = panelX + chromeW + 12;
+        int paneW = panelW - chromeW - 24;
 
         // The roster is tab 0 and the opening tab: the first question of an invite is who is in it,
         // and the rules only mean anything once there is a match to apply them to.
         tabs = PvTabs.ofPanel(groups, PvLang.str("pvpocket.gui.roster.tab"), keepTab);
         tabs.dirtyTest(this::groupDirty);
-        tabs.x = panelX + 12;
-        tabs.y = contentTop;
-        tabs.width = tabsW;
-        tabs.fitInto(contentH);
+        tabs.x = panelX;
+        tabs.y = panelY + HEADER_H;
+        tabs.width = chromeW;
         tabs.onChange(this::buildRows);
         roots.add(tabs);
 
         pane = new PvScrollPane();
         pane.x = paneX;
-        pane.y = contentTop;
         pane.width = paneW;
-        pane.height = contentH;
         pane.gap = 2;
         roots.add(pane);
 
@@ -160,21 +179,35 @@ public class RuleScreen extends PvScreen {
             });
         }
 
+        buildActions(stack);
+        buildChips();
         buildRows();
-        buildFooter();
-        // Title row, not footer: in the reviewer role the footer is already 386px of buttons on a
-        // 382px line, so a sixth one has nowhere to go. Presets also never commit anything — they
-        // load and save — which is exactly the class of action the title row holds.
-        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
-        presetButton.x = panelX + panelW - 12 - presetButton.width;
-        presetButton.y = panelY + 5;
-        roots.add(presetButton);
         setFocus(null);
     }
 
-    /** The tab strip takes a share of the panel so the content column keeps most of it. */
-    private int tabWidth() {
-        return PvLayout.share(panelW, 0.19F, MIN_TABS_W, TABS_W);
+    /**
+     * Width of the sidebar column: the longest label it has to hold plus its insets, clamped.
+     *
+     * <p>Derived from the labels rather than fixed, because the same column carries "Players" in one
+     * language and 参与者 in another, and "Accept & start" beside 同意并开始. A fixed width is either
+     * wasteful in one or truncating in the other. Both kinds of label count: the tabs and the commit
+     * stack share the column, and in English the buttons are the wider of the two.</p>
+     */
+    private int sidebarWidth(List<PvButton> stack) {
+        TextRenderer tr = font();
+        int widest = tr.getWidth(PvLang.str("pvpocket.gui.roster.tab"));
+        for (RuleGroup group : groups) {
+            widest = Math.max(widest, tr.getWidth(group.label()));
+        }
+        // 34 = 2 x SIDE_PAD + 10px text inset + 12px for the dirty dot column.
+        int need = widest + 34;
+        // A commit button is the column's width minus SIDE_PAD on each side, and its label is
+        // fitted to that minus 4 — so 16 is what a label needs beyond its own width. English is the
+        // case that binds here: "Accept & start" is 84px against a 42px "Players" tab.
+        for (PvButton button : stack) {
+            need = Math.max(need, tr.getWidth(button.label()) + 16);
+        }
+        return PvLayout.clamp(need, SIDEBAR_MIN, SIDEBAR_MAX);
     }
 
     private void buildRows() {
@@ -186,17 +219,27 @@ public class RuleScreen extends PvScreen {
             roots.remove(addTeamButton);
             addTeamButton = null;
         }
+        if (loadoutButton != null) {
+            roots.remove(loadoutButton);
+            loadoutButton = null;
+        }
+        toolbarVisible = false;
         pane.clear();
-        // The roster page reserves a toolbar row above the cards; the rule pages have no toolbar and
-        // take the whole content box. Set here rather than in init() because the two tabs share one
-        // pane instance.
+        // The content well runs from the header to the status line, at the full height of the
+        // panel's right-hand region. A page with a toolbar row above its content gives that row its
+        // height back below. Set here rather than in init() because the tabs share one pane
+        // instance.
         pane.y = panelY + HEADER_H;
-        pane.height = panelH - HEADER_H - FOOTER_H;
+        // The compact stack took a row of the well's height; see buildActions.
+        pane.height = panelH - HEADER_H - STATUS_H - (compact ? ACTION_H + ACTION_GAP : 0);
 
         if (tabs.group() == null) {
             buildRosterPage();
             validateFocus();
             return;
+        }
+        if (tabs.group() == RuleGroup.D) {
+            buildLoadoutToolbar();
         }
         for (RuleDefinition def : RuleCatalog.of(tabs.group())) {
             pane.add(new RuleRow(def, createControl(def), incoming.get(def.id), true));
@@ -238,6 +281,7 @@ public class RuleScreen extends PvScreen {
             addTeamButton.enabled = board.teamCount() < 4;
             roots.add(addTeamButton);
 
+            toolbarVisible = true;
             pane.y += TOOLBAR_H;
             pane.height -= TOOLBAR_H;
         }
@@ -246,6 +290,27 @@ public class RuleScreen extends PvScreen {
         board.height = board.preferredHeight();
         pane.add(board);
         pane.layout();
+    }
+
+    /**
+     * The 配装 page's toolbar: 编辑配装, above the rules it edits.
+     *
+     * <p>Same band as the roster's "+ 添加队伍", for the same reason: it is a page-level action that
+     * has to stay reachable while the list is scrolled, and it opens something rather than changing
+     * a value, so it cannot be a row. It is a normal (outlined) button rather than a ghost chip now
+     * that it is the only thing on the band — a bare word over the well would read as a heading.</p>
+     */
+    private void buildLoadoutToolbar() {
+        loadoutButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
+                PvButton.Style.NORMAL, this::openLoadout);
+        loadoutButton.size(Math.max(76, font().getWidth(loadoutButton.label()) + 16), PvTheme.BTN_H);
+        loadoutButton.x = pane.x;
+        loadoutButton.y = pane.y + (TOOLBAR_H - PvTheme.BTN_H) / 2;
+        roots.add(loadoutButton);
+
+        toolbarVisible = true;
+        pane.y += TOOLBAR_H;
+        pane.height -= TOOLBAR_H;
     }
 
     /** Rebuilds the cards from what the server sent: one card per side, players in team order. */
@@ -407,38 +472,53 @@ public class RuleScreen extends PvScreen {
         MinecraftClient.getInstance().execute(this::buildRows);
     }
 
-    private void buildFooter() {
-        // Rebuild-safe: the footer is rebuilt when the edit count crosses zero (see syncFooter), and
-        // without this the old buttons would stay in the root list and both sets would be drawn.
-        roots.removeAll(footerButtons);
-        footerButtons.clear();
+    /**
+     * Stacks the commit buttons at the foot of the sidebar, primary lowest.
+     *
+     * <p>They used to be a row along the bottom of the panel, which cost the content area a 34px
+     * band and forced the sidebar to stop above it. In a 72px column the same buttons stack, and
+     * the primary sits nearest the corner where a form's confirm button belongs.</p>
+     *
+     * <p>Only the actions that <em>commit</em> the negotiation live here. 还原 and 编辑配装 are not
+     * commits — one undoes an edit, the other opens a screen — so they went to the status line and
+     * the 配装 page's toolbar, which is also what keeps the stack at three buttons. Five would not
+     * fit beside eight tabs in a 190px column at any legible size.</p>
+     */
+    private void buildActions() {
+        buildActions(buildStack());
+    }
 
-        int buttonY = panelY + panelH - FOOTER_H + 7;
-        int right = panelX + panelW - 12;
-
+    /**
+     * The commit buttons for this role, unpositioned.
+     *
+     * <p>Separate from the layout because the sidebar is measured from them: the column has to be
+     * wide enough for "Accept & start" as well as for "Sides", and those two disagree by 48px in
+     * English. Building the buttons first and the column second is the only order in which the
+     * width can be right — the other order truncates the label or lets it hang over the well.</p>
+     */
+    private List<PvButton> buildStack() {
         PvButton primary;
+        List<PvButton> stack = new ArrayList<>();
         if (payload.role() == RulesOpenPayload.ROLE_DRAFT) {
             // Draft: nothing has been sent yet, so the only decisions are "send it" and "drop it".
             // No reject and no revert — there is no earlier revision to go back to.
             primary = new PvButton(PvLang.str("pvpocket.gui.roster.button.send"),
                     PvButton.Style.PRIMARY,
-                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(88, PvTheme.BTN_H);
-            right = place(primary, right, buttonY);
-            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
-                    PvButton.Style.DANGER,
-                    this::close).size(56, PvTheme.BTN_H), right, buttonY);
+                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
+            stack.add(primary);
+            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
+                    PvButton.Style.DANGER, this::close));
         } else if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
                     PvButton.Style.PRIMARY,
-                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(80, PvTheme.BTN_H);
-            right = place(primary, right, buttonY);
-            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
-                    PvButton.Style.DANGER,
-                    this::close).size(56, PvTheme.BTN_H), right, buttonY);
+                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
+            stack.add(primary);
+            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
+                    PvButton.Style.DANGER, this::close));
         } else {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
-                    () -> submit(RulesSubmitPayload.ACTION_ACCEPT)).size(92, PvTheme.BTN_H);
+                    () -> submit(RulesSubmitPayload.ACTION_ACCEPT));
             // "Accept" means "this revision, as it stands", and the server takes the revision from
             // its own record rather than from the packet — so a player who moved a slider here and
             // then pressed this button had the edit dropped without a word anywhere. That is the
@@ -448,40 +528,133 @@ public class RuleScreen extends PvScreen {
                 primary.enabled = false;
                 primary.tooltip = PvLang.str("pvpocket.gui.rule.accept_blocked");
             }
-            right = place(primary, right, buttonY);
-            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.repropose"),
-                    PvButton.Style.NORMAL,
-                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE)).size(88, PvTheme.BTN_H), right, buttonY);
-            right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.reject"),
-                    PvButton.Style.DANGER,
-                    () -> submit(RulesSubmitPayload.ACTION_REJECT)).size(56, PvTheme.BTN_H), right, buttonY);
+            stack.add(primary);
+            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.repropose"),
+                    PvButton.Style.NORMAL, () -> submit(RulesSubmitPayload.ACTION_PROPOSE)));
+            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.reject"),
+                    PvButton.Style.DANGER, () -> submit(RulesSubmitPayload.ACTION_REJECT)));
         }
         defaultButton = primary;
+        return stack;
+    }
 
-        // Revert lives at the far end of the button row so it never sits where the confirm button
-        // is expected, but is still available the moment anything has been touched.
-        //
-        // Not in a draft: there 还原 would also clear the sides the player has just placed (a draft's
-        // roster counts as "received"), and a button that wipes five clicks of setup must not sit
-        // next to 发送邀请.
-        footerHasRevert = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
-        if (footerHasRevert) {
-            PvButton revert = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
-                    PvButton.Style.GHOST, this::revert)
-                    .size(50, PvTheme.BTN_H);
-            right = place(revert, right, buttonY);
+    private void buildActions(List<PvButton> stack) {
+        // Rebuild-safe: the stack is rebuilt when the edit count crosses zero (see syncActions), and
+        // without this the old buttons would stay in the root list and both sets would be drawn.
+        roots.removeAll(actionButtons);
+        actionButtons.clear();
+
+        compact = compactStack(stack.size());
+        if (compact) {
+            // One row across the bottom of the well, above the status line. The column cannot hold
+            // the strip and the stack at this panel height, and the well can spare 22px because it
+            // scrolls — the sidebar cannot spare anything, because a tab strip that loses entries
+            // loses them for good.
+            int gaps = ACTION_GAP * (stack.size() - 1);
+            int span = panelW - chromeW - 24;
+            int wanted = gaps;
+            int[] want = new int[stack.size()];
+            for (int i = 0; i < stack.size(); i++) {
+                // Each button takes the width of its own label when the row can afford it, so 拒绝
+                // does not get the same 64px as 同意并开始; when it cannot, they share the span and
+                // the label is fitted rather than printed over its neighbour.
+                want[i] = font().getWidth(stack.get(i).label()) + 16;
+                wanted += want[i];
+            }
+            int x = panelX + chromeW + 12;
+            int y = panelY + panelH - STATUS_H - ACTION_GAP - ACTION_H;
+            for (int i = 0; i < stack.size(); i++) {
+                PvButton button = stack.get(i);
+                button.size(wanted <= span ? want[i] : (span - gaps) / stack.size(), ACTION_H);
+                button.x = x;
+                button.y = y;
+                x += button.width + ACTION_GAP;
+                roots.add(button);
+                actionButtons.add(button);
+            }
+            actionTop = panelY + panelH - SIDE_PAD;
+        } else {
+            int y = panelY + panelH - SIDE_PAD;
+            for (PvButton button : stack) {
+                button.size(chromeW - SIDE_PAD * 2, ACTION_H);
+                button.x = panelX + SIDE_PAD;
+                y -= button.height;
+                button.y = y;
+                y -= ACTION_GAP;
+                roots.add(button);
+                actionButtons.add(button);
+            }
+            actionTop = y;
         }
-        // The loadout editor sits leftmost, furthest from "send proposal". Configuring items and
-        // committing a rule set are two different decisions and should not be neighbours.
-        //
-        // Labelled "edit loadout" rather than "loadout" because the tab strip already has a loadout
-        // tab (rule group D, which is about *rules* for what you bring). Two things with the same
-        // name in one panel, one of which opens the editor and one of which shows a rule page, is a
-        // coin flip the player should not have to make.
-        right = place(new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
-                PvButton.Style.NORMAL, this::openLoadout)
-                .size(68, PvTheme.BTN_H), right, buttonY);
-        footerTextRight = right - 8;
+
+        footerHasRevert = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
+        if (revertButton != null) {
+            roots.remove(revertButton);
+            revertButton = null;
+        }
+        if (footerHasRevert) {
+            // Not in a draft: there 还原 would also clear the sides the player has just placed (a
+            // draft's roster counts as "received"), and a button that wipes five clicks of setup must
+            // not sit next to 发送邀请.
+            revertButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
+                    PvButton.Style.GHOST, this::revert);
+            revertButton.size(font().getWidth(revertButton.label()) + 16, PvButton.CHIP_H);
+            revertButton.x = panelX + panelW - 12 - revertButton.width;
+            revertButton.y = panelY + panelH - STATUS_H + (STATUS_H - PvButton.CHIP_H) / 2;
+            roots.add(revertButton);
+        }
+        layoutTabs();
+    }
+
+    /**
+     * Whether the sidebar column can hold both the tab strip and the commit stack.
+     *
+     * <p>Eight entries plus three buttons need 213px of panel height at the shortest legible tab
+     * pitch. At 320x180 the panel is 160, so the tabs and the buttons cannot share the column at
+     * any size a label can still be read at — one of them has to leave, and the strip cannot: a tab
+     * that is not drawn is a page that cannot be reached.</p>
+     */
+    private boolean compactStack(int stackSize) {
+        int needed = HEADER_H + SIDE_PAD + PvTabs.minHeight(groups.size() + 1) + TAB_GAP
+                + stackSize * (ACTION_H + ACTION_GAP);
+        return panelH < needed;
+    }
+
+    /**
+     * Fits the tab strip into whatever the commit stack left.
+     *
+     * <p>A strip that clips its last entries is worse than a dense one: the hidden groups are not
+     * merely off-screen, they are unreachable, because there is nothing to scroll. The strip
+     * compresses instead, and only the reviewer role — the one with three commit buttons — gets
+     * down to the floor.</p>
+     */
+    private void layoutTabs() {
+        if (tabs == null) {
+            return;
+        }
+        int available = actionTop - TAB_GAP - tabs.y;
+        tabs.fitInto(Math.max(48, available));
+    }
+
+    /**
+     * The title row's single chip.
+     *
+     * <p>Only 预设 is left up here. It opens a dialog over this panel, which is the class of action
+     * the title row holds; 编辑配装 opens a whole other screen and moved onto the 配装 page's toolbar,
+     * where the player who wants it is already looking. The row is now title, subtitle, version and
+     * one link, which is what it can carry at a legible size.</p>
+     */
+    private void buildChips() {
+        if (presetButton != null) {
+            roots.remove(presetButton);
+        }
+        int right = panelX + panelW - 12;
+        int chipY = panelY + (HEADER_H - PvButton.CHIP_H) / 2;
+
+        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
+        presetButton.x = right - presetButton.width;
+        presetButton.y = chipY;
+        roots.add(presetButton);
     }
 
     /** Asks the server to open the loadout editor; the server answers with a {@code loadout_open}. */
@@ -491,26 +664,18 @@ public class RuleScreen extends PvScreen {
         }
     }
 
-    private int place(PvButton button, int right, int y) {
-        button.x = right - button.width;
-        button.y = y;
-        roots.add(button);
-        footerButtons.add(button);
-        return button.x - 8;
-    }
-
     /**
      * Adds or removes 还原 as the edit count crosses zero.
      *
-     * <p>The footer used to be built only from {@code init()}, so the button appeared after a window
-     * resize and not when the player actually changed a rule — the one moment it means anything.
-     * Rebuilding on the transition instead of every frame keeps the buttons from being torn down and
-     * recreated in the middle of a slider drag.</p>
+     * <p>The stack used to be built only from {@code init()}, so 还原 appeared after a window resize
+     * and not when the player actually changed a rule — the one moment it means anything. Rebuilding
+     * on the transition instead of every frame keeps the buttons from being torn down and recreated
+     * in the middle of a slider drag.</p>
      */
-    private void syncFooter() {
+    private void syncActions() {
         boolean want = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
         if (want != footerHasRevert) {
-            buildFooter();
+            buildActions();
         }
     }
 
@@ -518,15 +683,15 @@ public class RuleScreen extends PvScreen {
 
     @Override
     protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        // Before anything is drawn, so a footer button that just appeared is laid out this frame.
-        syncFooter();
+        // Before anything is drawn, so a commit button that just appeared is laid out this frame.
+        syncActions();
         TextRenderer tr = font();
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
         String title = PvLang.str("pvpocket.gui.rule.title");
-        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 10, PvTheme.TEXT);
+        PvDraw.title(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
 
-        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
+        int titleEnd = panelX + 14 + PvDraw.titleWidth(tr, title) + 10;
         // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
         // "who am I fighting", but in a 2v2 the question that actually needs answering before
         // agreeing is "who is on my side" — and the sides are drawn by hand now, so the invite order
@@ -554,71 +719,55 @@ public class RuleScreen extends PvScreen {
         String version = "v" + payload.revision();
         int versionW = tr.getWidth(version) + 12;
         int versionX = presetButton.x - 6 - versionW;
-        PvDraw.roundRect(ctx, versionX, panelY + 6, versionW, 14, 3, PvTheme.ACCENT_SOFT);
-        PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, panelY + 9, PvTheme.ACCENT);
+        int chipY = panelY + (HEADER_H - 14) / 2;
+        PvDraw.roundRect(ctx, versionX, chipY, versionW, 14, 3, PvTheme.ACCENT_SOFT);
+        PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, chipY + 3, PvTheme.ACCENT);
 
         int subtitleMax = versionX - 8 - titleEnd;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 10, PvTheme.TEXT_DIM);
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 11,
+                PvTheme.TEXT_DIM);
 
-        PvDraw.hLine(ctx, panelX + 12, panelY + 27, panelW - 24, PvTheme.DIVIDER);
-
-        // The loadout summary sits on the hint line rather than the title: the title row is already
-        // carrying the opponent's name and the revision, and this is the line the eye passes on the
-        // way to the tab strip. Seeing "loadout 8 items · agreed 1/2" here is what makes the edit
-        // button in the footer discoverable instead of merely present.
-        //
-        // The summary is assembled here rather than sent pre-formatted: the server knows the counts
-        // and the agreement tally, but not the reader's language.
-        //
-        // The hint starts at pane.x, not at panelX + 12 — the tab strip sits between them. Budgeting
-        // the hint against panelW instead of the pane's own width let the two strings overlap.
-        String loadout = loadoutSummary();
-        int hintRight = panelX + panelW - 12;
-        int hintMax = hintRight - pane.x;
-        if (!loadout.isEmpty()) {
-            int tagW = tr.getWidth(loadout);
-            // The summary wins the space, because it is the only place the agreement counter appears
-            // and a negotiation where nobody can see "agreed 1/2" is a negotiation nobody can act on.
-            // The hint gives way instead — but only down to a point; below it the summary drops to
-            // its agreement half and the hint gets its space back.
-            if (hintRight - tagW - 12 - pane.x < MIN_HINT_W) {
-                loadout = PvLang.str("pvpocket.gui.rule.loadout_agreed",
-                        payload.agreed(), payload.total());
-                tagW = tr.getWidth(loadout);
-            }
-            PvDraw.textRight(ctx, tr, loadout, hintRight, panelY + 32, PvTheme.TEXT_DIM);
-            hintMax = hintRight - tagW - 12 - pane.x;
-        }
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, groupHint(tabs.group()), Math.max(0, hintMax)),
-                pane.x, panelY + 32, PvTheme.TEXT_MUTED);
-        // The roster toolbar is a band of its own; without a rule under it the add-team button reads
-        // as the first row of the first card.
-        if (tabs.group() == null && rosterEditable()) {
+        // The toolbar is a band of its own; without a rule under it the page action reads as the
+        // first row of the list.
+        if (toolbarVisible) {
             PvDraw.hLine(ctx, pane.x, pane.y - 1, pane.width, PvTheme.DIVIDER);
         }
-        PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
-        drawFooterText(ctx, tr, reviewer);
+        drawStatus(ctx, tr, reviewer);
     }
 
-    private void drawFooterText(DrawContext ctx, TextRenderer tr, boolean reviewer) {
-        int y = panelY + panelH - FOOTER_H + 13;
-        int maxW = footerTextRight - panelX - 16;
+    /**
+     * The status line: what state the draft is in, the loadout tally, and 还原.
+     *
+     * <p>It replaces the old footer band, which held the same text plus five buttons on a 382px line
+     * and ran out of width in the reviewer role — the one role where "3 rules changed" is the fact
+     * that decides what to press next. The buttons moved to the sidebar; what is left is one line
+     * that finally has room for both halves.</p>
+     *
+     * <p>还原 sits here rather than in the stack because it is the inverse of the change count it
+     * stands next to: the line reads "3 rules changed … 还原", which is the whole sentence.</p>
+     */
+    private void drawStatus(DrawContext ctx, TextRenderer tr, boolean reviewer) {
+        int top = panelY + panelH - STATUS_H;
+        int left = panelX + chromeW + 12;
+        int right = panelX + panelW - 12;
+        PvDraw.hLine(ctx, left, top, right - left, PvTheme.DIVIDER);
+        int textY = top + 5;
         int changes = changeCount();
 
-        // The draft footer talks about the roster, not about the other side: there is no other side
+        // The draft status talks about the roster, not about the other side: there is no other side
         // yet, and "you are proposing to nobody" would be a sentence the player has to decode.
         //
         // On the roster page it names the blocker rather than restating the button. "Send when the
-        // sides are set" was the same sentence as the button label, and it did not survive the
-        // footer's width — a line that ends in an ellipsis is not a hint. Naming what is still
-        // missing is shorter and is the one thing the reader cannot see for themselves: the cards
-        // show who is placed, not how many sides the rules require.
-        String left;
+        // sides are set" was the same sentence as the button label, and a line that ends in an
+        // ellipsis is not a hint. Naming what is still missing is shorter and is the one thing the
+        // reader cannot see for themselves: the cards show who is placed, not how many sides the
+        // rules require.
+        String status;
         int color = PvTheme.TEXT_MUTED;
         if (rosterEditable()) {
             int teams = board == null ? 0 : board.playingTeams();
             int people = board == null ? 0 : board.playerCount();
-            left = teams < 2
+            status = teams < 2
                     ? PvLang.str("pvpocket.gui.roster.footer.need_sides")
                     : people < 2
                     ? PvLang.str("pvpocket.gui.roster.footer.need_people")
@@ -627,15 +776,37 @@ public class RuleScreen extends PvScreen {
                 color = PvTheme.ACCENT;
             }
         } else {
-            left = reviewer
+            status = reviewer
                     ? PvLang.str("pvpocket.gui.rule.footer.reviewer")
                     : PvLang.str("pvpocket.gui.rule.footer.proposer");
             if (changes > 0) {
-                left = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
+                status = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
                 color = PvTheme.ACCENT;
             }
         }
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, left, Math.max(0, maxW)), panelX + 16, y, color);
+
+        // The loadout tally keeps its place on the right: it is the only place the agreement counter
+        // appears, and a negotiation where nobody can see "agreed 1/2" is one nobody can act on. It
+        // gives way to the status text rather than the other way round, but only down to the point
+        // where the status text is still a sentence.
+        int cursor = revertButton == null ? right : revertButton.x - 8;
+        String loadout = loadoutSummary();
+        if (!loadout.isEmpty()) {
+            int tagW = tr.getWidth(loadout);
+            if (cursor - tagW - 12 - left >= 64) {
+                PvDraw.textRight(ctx, tr, loadout, cursor, textY, PvTheme.TEXT_DIM);
+                cursor -= tagW + 12;
+            } else {
+                String agreed = PvLang.str("pvpocket.gui.rule.loadout_agreed",
+                        payload.agreed(), payload.total());
+                int agreedW = tr.getWidth(agreed);
+                if (cursor - agreedW - 12 - left >= 64) {
+                    PvDraw.textRight(ctx, tr, agreed, cursor, textY, PvTheme.TEXT_DIM);
+                    cursor -= agreedW + 12;
+                }
+            }
+        }
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, status, Math.max(0, cursor - left)), left, textY, color);
     }
 
     /**
@@ -741,20 +912,6 @@ public class RuleScreen extends PvScreen {
                     .append(' ').append(e.getValue());
         }
         return out.toString();
-    }
-
-    /**
-     * One short line per group, shown under the title so the tabs do not need to explain themselves.
-     *
-     * <p>Kept short. The line shares its row with the loadout tag, and a hint that needs truncation
-     * has stopped being a hint — the tab label already names the group, so this only has to say what
-     * is <em>inside</em> it.</p>
-     */
-    private static String groupHint(RuleGroup group) {
-        // The roster tab has no rule group: it is the page that decides who the rules apply to.
-        return group == null
-                ? PvLang.str("pvpocket.gui.roster.hint")
-                : PvLang.str(group.hintKey);
     }
 
     // ------------------------------------------------------------------ actions
@@ -878,5 +1035,44 @@ public class RuleScreen extends PvScreen {
     public void closeSilently() {
         submitted = true;
         MinecraftClient.getInstance().setScreen(null);
+    }
+
+    // ------------------------------------------------------------------ audit
+
+    /**
+     * Every arrangement this screen can be in: eight tabs, two dialogs, and the edited state.
+     *
+     * <p>The pages are separate variants because each one puts a different number of rows of a
+     * different height into the same well, and the edited state is separate again because 还原
+     * appearing on the status line is the only thing that changes the status line's width budget.
+     * See {@link PvScreen#auditVariantCount()}.</p>
+     */
+    @Override
+    public int auditVariantCount() {
+        return 11;
+    }
+
+    @Override
+    public void auditVariant(int index) {
+        if (tabs == null) {
+            return;
+        }
+        if (index < groups.size() + 1) {
+            tabs.select(index);
+            return;
+        }
+        if (index == 8) {
+            openPresets();
+            return;
+        }
+        if (index == 9) {
+            openPicker(0);
+            return;
+        }
+        // 10: one rule changed, so the status line grows 还原 and the accept button locks itself —
+        // the only state in which the panel draws its widest status line.
+        edited.set("a.maxRounds", Math.max(1, edited.get("a.maxRounds") - 1));
+        edited.set("a.winsNeeded", Math.max(1, edited.get("a.winsNeeded") - 1));
+        syncActions();
     }
 }

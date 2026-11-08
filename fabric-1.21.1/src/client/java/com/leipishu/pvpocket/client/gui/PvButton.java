@@ -146,7 +146,14 @@ public class PvButton extends PvWidget {
             PvDraw.roundPanel(ctx, bx, by, bw, bh, PvTheme.RADIUS, border, fill);
         }
         drawFocusRing(ctx, PvTheme.RADIUS);
-        PvDraw.textCenter(ctx, tr, label, bx + bw / 2, by + (bh - 8) / 2 + 1, textColor);
+        // Fitted, not trusted. A button is the one widget whose size callers set by hand — a fixed
+        // 44px default, a shared row, a chip measured from its own label — and in the first two
+        // cases the label can be wider than the box. Centred text that overflows by 6px does not
+        // read as "the button is too small", it reads as a label printed across the neighbour.
+        // Two pixels a side is enough inset for centred text, and it leaves the label the room a
+        // caller who sized the button from that same label expects.
+        PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, label, bw - 4), bx + bw / 2,
+                by + (bh - 8) / 2 + 1, textColor);
     }
 
     @Override

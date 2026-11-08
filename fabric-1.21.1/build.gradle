@@ -117,6 +117,19 @@ loom.runs.configureEach { run ->
     }
 }
 
+// -PuiAudit runs the layout audit instead of a game session: the client opens every panel, page and
+// dialog at two canvas sizes, reports the rectangles that collide, and quits. scripts/audit-ui.sh
+// wraps it and fails on any finding, which is how a layout regression is caught without a human
+// opening eight pages at two window sizes.
+if (project.hasProperty("uiAudit")) {
+    loom.runs.configureEach { run ->
+        if (devClient(run)) {
+            run.vmArg "-Dpvpocket.audit=true"
+            run.vmArg "-Dpvpocket.audit.exit=true"
+        }
+    }
+}
+
 // -PmixinDebug exports every transformed class to <runDir>/.mixin.out/class/ and makes Mixin log
 // each applied injection. This mod rewrites hot paths inside PlayerEntity#attack, where "no exception
 // at startup" only proves a target matched, not that the right one did — javap the exported class to

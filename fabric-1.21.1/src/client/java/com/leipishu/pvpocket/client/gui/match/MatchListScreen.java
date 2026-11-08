@@ -33,7 +33,8 @@ import java.util.List;
 public class MatchListScreen extends PvScreen {
 
     private static final int MAX_W = 500;
-    private static final int HEADER_H = 46;
+    /** One row of text and a right-aligned count: the same header band as the other two panels. */
+    private static final int HEADER_H = 30;
     private static final int ROW_H = 38;
     private static final int FOOTER_H = 40;
     private static final int MAX_ROWS = 6;
@@ -126,6 +127,10 @@ public class MatchListScreen extends PvScreen {
     private final List<Entry> entries;
     private final float[] rowHot;
     private int rowTop;
+    /** Rows actually drawn: the design cap and the height of the canvas, whichever is smaller. */
+    private int shownRows;
+    /** The footer's 关闭 button, so the hint beside it knows where it has to stop. */
+    private PvButton closeButton;
 
     public MatchListScreen(MatchListPayload payload) {
         super(PvLang.t("pvpocket.gui.match.title"));
@@ -138,13 +143,20 @@ public class MatchListScreen extends PvScreen {
     @Override
     protected void init() {
         roots.clear();
-        int shown = Math.min(entries.size(), MAX_ROWS);
-        int extra = entries.size() > MAX_ROWS ? 14 : 0;
-        int rowsHeight = Math.max(1, shown) * ROW_H;
+        // Rows start at the top and the footer is pinned to the bottom, so how many fit is a
+        // subtraction rather than a constant: on a 320x180 canvas the panel is 160px tall, and three
+        // 38px rows already reach past the footer rule and under the close button. MAX_ROWS is the
+        // design cap; this is the physical one.
+        int fit = Math.max(1, (height - 20 - HEADER_H - FOOTER_H) / ROW_H);
+        shownRows = Math.min(entries.size(), Math.min(MAX_ROWS, fit));
+        int extra = entries.size() > shownRows ? 14 : 0;
+        int rowsHeight = shownRows * ROW_H;
         layoutPanel(MAX_W, HEADER_H + rowsHeight + extra + FOOTER_H);
+        chromeH = HEADER_H;
+        chromeW = 0;
         rowTop = panelY + HEADER_H;
 
-        for (int i = 0; i < shown; i++) {
+        for (int i = 0; i < shownRows; i++) {
             addRowButton(entries.get(i), i);
         }
         buildFooter();
@@ -190,6 +202,7 @@ public class MatchListScreen extends PvScreen {
         close.x = right - close.width;
         close.y = y;
         roots.add(close);
+        closeButton = close;
 
         PvButton refresh = new PvButton(PvLang.str("pvpocket.gui.match.button.refresh"),
                 PvButton.Style.GHOST, this::refresh);
@@ -206,31 +219,35 @@ public class MatchListScreen extends PvScreen {
         TextRenderer tr = font();
         float d = PvAnim.dt(delta);
 
-        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 13,
+        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 11,
                 PvTheme.TEXT);
-        PvDraw.text(ctx, tr, entries.isEmpty()
+        // The count shares the title row now that the band is one line: it is a modifier of the
+        // title ("duels: 3"), not a second subject, and the rule under it went with the second row.
+        PvDraw.textRight(ctx, tr, entries.isEmpty()
                         ? PvLang.str("pvpocket.gui.match.count.none")
                         : PvLang.str("pvpocket.gui.match.count.some", entries.size()),
-                panelX + 16, panelY + 28, PvTheme.TEXT_DIM);
-        PvDraw.hLine(ctx, panelX + 12, panelY + 40, panelW - 24, PvTheme.DIVIDER);
+                panelX + panelW - 16, panelY + 11, PvTheme.TEXT_DIM);
 
         if (entries.isEmpty()) {
             PvDraw.textCenter(ctx, tr, PvLang.str("pvpocket.gui.match.empty"),
                     panelX + panelW / 2, rowTop + 14, PvTheme.TEXT_MUTED);
         }
 
-        int shown = Math.min(entries.size(), MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
+        for (int i = 0; i < shownRows; i++) {
             drawRow(ctx, tr, entries.get(i), i, mouseX, mouseY, d);
         }
-        if (entries.size() > MAX_ROWS) {
+        if (entries.size() > shownRows) {
             PvDraw.textCenter(ctx, tr,
-                    PvLang.str("pvpocket.gui.match.overflow", entries.size() - MAX_ROWS),
-                    panelX + panelW / 2, rowTop + shown * ROW_H + 2, PvTheme.TEXT_MUTED);
+                    PvLang.str("pvpocket.gui.match.overflow", entries.size() - shownRows),
+                    panelX + panelW / 2, rowTop + shownRows * ROW_H + 2, PvTheme.TEXT_MUTED);
         }
-
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
-        PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.match.keys"),
+        // Fitted against the 关闭 button rather than left to run: the hint is a sentence in both
+        // languages and it used to end under the button on a 320x180 canvas.
+        PvDraw.text(ctx, tr,
+                PvDraw.fit(tr, PvLang.str("pvpocket.gui.match.keys"),
+                        (closeButton == null ? panelX + panelW - 68 : closeButton.x) - 8
+                                - (panelX + 72)),
                 panelX + 72, panelY + panelH - FOOTER_H + 16, PvTheme.TEXT_MUTED);
     }
 
@@ -262,37 +279,60 @@ public class MatchListScreen extends PvScreen {
         int textX = x + 10;
         int line1 = y + 7;
         int line2 = y + 20;
-        PvDraw.text(ctx, tr, entry.mapLabel(), textX, line1, PvTheme.TEXT);
+
+        // The right-hand block is measured first, because the left block has to stop before it. On
+        // a 320x180 canvas the card is 178px wide and "Colosseum" + "In progress" + "Round 2/7" is
+        // 180px on its own — without a budget the round number was drawn straight through the score.
+        // Right to left: the score, then the watcher count, then whatever is left for the map name.
+        int anchor = panelX + panelW - 20 - BTN_W - 12;
+        String score = entry.score();
+        int scoreW = tr.getWidth(score);
+        String watchers = entry.spectators() > 0
+                ? PvLang.str("pvpocket.gui.match.watchers", entry.spectators())
+                : null;
+        int rightW = scoreW + (watchers == null ? 0 : tr.getWidth(watchers) + 10);
+        int leftLimit = anchor - rightW - 10;
+
+        String stage = entry.stageLabel();
+        int chipW = tr.getWidth(stage) + 10;
+        String round = entry.maxRounds() > 1
+                ? PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.maxRounds())
+                : null;
+        int room = leftLimit - textX;
+        int roundW = round == null ? 0 : tr.getWidth(round) + 6;
+        // The round number is the first thing to go: it qualifies the stage, while the stage and the
+        // map name are the row. Squeezing all three into a 178px card truncated the map to two
+        // letters and still ran the round through the score.
+        if (round != null && room - chipW - 8 - roundW < 24) {
+            round = null;
+            roundW = 0;
+        }
+        String map = PvDraw.fit(tr, entry.mapLabel(), Math.max(8, room - chipW - 8 - roundW));
+        PvDraw.text(ctx, tr, map, textX, line1, PvTheme.TEXT);
 
         // Stage chip, right after the map name so the eye reads "where, then what state". The live
         // colour is keyed on the stage constant, not on the rendered word: "in progress" is a
         // different string in every language and comparing against it broke the moment a second one
         // existed.
         int stageColor = "ROUND_ACTIVE".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
-        int chipX = textX + tr.getWidth(entry.mapLabel()) + 8;
-        int chipW = tr.getWidth(entry.stageLabel()) + 10;
+        int chipX = textX + tr.getWidth(map) + 8;
         PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3, PvTheme.alpha(stageColor, 0.14F));
-        PvDraw.text(ctx, tr, entry.stageLabel(), chipX + 5, line1, stageColor);
+        PvDraw.text(ctx, tr, stage, chipX + 5, line1, stageColor);
 
-        PvDraw.text(ctx, tr, entry.playersLine(), textX, line2, PvTheme.TEXT_DIM);
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, entry.playersLine(), leftLimit - textX), textX, line2,
+                PvTheme.TEXT_DIM);
 
         // Score and spectator count right-aligned against the button, on one line centred in the
         // card. They used to sit on the two text baselines on the left, which left the score in the
         // top third of the row next to a button centred in it — the two anchors disagreed.
-        int anchor = panelX + panelW - 20 - BTN_W - 12;
         int scoreY = y + (h - 8) / 2 + 1;
-        String score = entry.score();
         PvDraw.textRight(ctx, tr, score, anchor, scoreY, PvTheme.TEXT);
-        if (entry.spectators() > 0) {
-            String watchers = PvLang.str("pvpocket.gui.match.watchers", entry.spectators());
-            PvDraw.textRight(ctx, tr, watchers, anchor - tr.getWidth(score) - 10, scoreY,
-                    PvTheme.TEXT_MUTED);
+        if (watchers != null) {
+            PvDraw.textRight(ctx, tr, watchers, anchor - scoreW - 10, scoreY, PvTheme.TEXT_MUTED);
         }
         // Round number after the stage chip, where it reads as "which round of that state".
-        if (entry.maxRounds() > 1) {
-            PvDraw.text(ctx, tr,
-                    PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.maxRounds()),
-                    chipX + chipW + 6, line1, PvTheme.TEXT_MUTED);
+        if (round != null) {
+            PvDraw.text(ctx, tr, round, chipX + chipW + 6, line1, PvTheme.TEXT_MUTED);
         }
     }
 

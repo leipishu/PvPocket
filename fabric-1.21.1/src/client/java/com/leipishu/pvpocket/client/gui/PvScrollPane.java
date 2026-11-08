@@ -121,6 +121,9 @@ public class PvScrollPane extends PvWidget {
         layout(d);
 
         ctx.enableScissor(x, y, x + width, y + height);
+        // The rows are a surface of their own for the layout audit: what the viewport cuts off is
+        // clipped, not overlapping the status line underneath.
+        String layer = PvAudit.layer(PvAudit.paneLayer(this));
         for (PvWidget child : children) {
             if (child.y + child.height < y || child.y > y + height) {
                 continue;
@@ -128,6 +131,7 @@ public class PvScrollPane extends PvWidget {
             child.updateHover(mouseX, mouseY);
             child.render(ctx, mouseX, mouseY, delta);
         }
+        PvAudit.layer(layer);
         ctx.disableScissor();
 
         // Fades on whichever side still has content. Without them a half-scrolled row reads as a
@@ -266,6 +270,11 @@ public class PvScrollPane extends PvWidget {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         return false;
+    }
+
+    @Override
+    public List<PvWidget> childrenForAudit() {
+        return children;
     }
 
     @Override

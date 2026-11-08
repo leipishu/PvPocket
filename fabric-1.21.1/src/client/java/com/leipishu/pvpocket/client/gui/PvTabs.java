@@ -11,19 +11,35 @@ import java.util.List;
 import java.util.function.IntPredicate;
 
 /**
- * Vertical tab strip for the rule groups, drawn as a sidebar.
+ * Vertical tab strip for the rule groups, drawn as a sidebar rail.
  *
  * <p>Vertical rather than horizontal because the labels are short and the panel is wider than it is
- * tall: a vertical strip costs 96px of width and saves 26px of the scarce axis, and it leaves room
- * for all seven groups without a scroll or an overflow menu.</p>
+ * tall: a vertical strip costs 72px of width and saves 26px of the scarce axis, and it leaves room
+ * for all eight entries without a scroll or an overflow menu.</p>
  *
- * <p>The strip owns its own surface — one step lighter than the panel, one step darker than a card.
- * Before this it had no background at all, which made the tabs read as a list of links rather than
- * as a place; the sidebar is what tells the eye that the panel has two regions.</p>
+ * <p>The strip no longer owns a surface. It used to draw its own rounded, bordered panel inside the
+ * screen's panel, which is what made it read as a card dropped into the layout — the sidebar is
+ * chrome now, drawn once by {@link PvScreen#drawPanelFrame} and continuous with the title band, so
+ * the strip only draws what belongs to the tabs themselves: the selected pill and the labels.
+ * Nothing here may draw a background again; a second surface over the chrome reintroduces the seam
+ * the one-piece layout exists to remove.</p>
+ *
+ * <p>There is no selection marker either. An accent bar pinned to the sidebar's outer edge used to
+ * slide between tabs, and it made the strip read as a second navigation column stacked on the
+ * first: the pill already says which entry is current, and a bar beside it says it a second time in
+ * a louder colour. One selection cue, and it is the one the pointer and the keyboard both move.</p>
  */
 public class PvTabs extends PvWidget {
 
-    private static final int INSET = 5;
+    private static final int INSET = 6;
+    /**
+     * Shortest legible tab pitch.
+     *
+     * <p>A label is 8px tall, so anything under 11 either clips the glyphs or puts two labels closer
+     * together than the eye can separate them. Below this the strip cannot compress any further,
+     * which is what {@link #minHeight} reports to the panel.</p>
+     */
+    private static final int MIN_TAB_H = 11;
     /** Radius of the "this page differs from what was received" dot. */
     private static final int DOT_R = 2;
 
@@ -41,7 +57,6 @@ public class PvTabs extends PvWidget {
      */
     private IntPredicate dirtyTest;
     private int tabHeight = PvTheme.TAB_H;
-    private float indicatorY = -1F;
     private float[] hotT = new float[0];
 
     public PvTabs(List<String> labels, int selected) {
@@ -102,8 +117,24 @@ public class PvTabs extends PvWidget {
     public void fitInto(int availableHeight) {
         int n = Math.max(1, labels.size());
         int pitch = (availableHeight - INSET * 2 - (n - 1)) / n;
-        tabHeight = Math.max(13, Math.min(PvTheme.TAB_H, pitch));
+        // The floor is 11 rather than 13: the sidebar also carries the commit buttons at its foot,
+        // and on a 220px panel eight entries plus three buttons only fit if a tab may go this
+        // short. Anything less and the last entry would be drawn past the panel edge, which is worse
+        // than a dense strip — a clipped tab is an unreachable tab.
+        tabHeight = Math.max(MIN_TAB_H, Math.min(PvTheme.TAB_H, pitch));
         height = INSET * 2 + labels.size() * tabHeight + (labels.size() - 1);
+    }
+
+    /**
+     * Height the strip needs for {@code count} entries at the shortest legible pitch.
+     *
+     * <p>The panel uses this to decide whether a sidebar can hold the strip and the commit buttons
+     * at all. Below this height the strip would be drawn over whatever is under it, because
+     * {@link #fitInto} refuses to go shorter and there is nothing else to give.</p>
+     */
+    public static int minHeight(int count) {
+        int n = Math.max(1, count);
+        return INSET * 2 + n * MIN_TAB_H + (n - 1);
     }
 
     public int tabHeight() {
@@ -163,16 +194,6 @@ public class PvTabs extends PvWidget {
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         int hoverIndex = hovered ? tabAt(mouseY) : -1;
 
-        PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.BORDER, PvTheme.SIDEBAR);
-
-        // The selection marker slides between tabs instead of jumping. It is the one animation in
-        // the panel that crosses widgets, and it is what makes a tab switch read as one movement
-        // rather than as two independent repaints.
-        float targetY = tabY(selected) + (tabHeight - 14) / 2F;
-        indicatorY = indicatorY < 0F
-                ? targetY
-                : PvAnim.damp(indicatorY, targetY, d, 0.055F);
-
         for (int i = 0; i < labels.size(); i++) {
             if (i >= hotT.length) {
                 break;
@@ -207,7 +228,6 @@ public class PvTabs extends PvWidget {
             }
         }
 
-        PvDraw.roundRect(ctx, tabLeft(), Math.round(indicatorY), 2, 14, 1, PvTheme.ACCENT);
         drawFocusRing(ctx, PvTheme.RADIUS);
     }
 

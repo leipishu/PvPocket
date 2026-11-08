@@ -104,6 +104,11 @@ public class PresetOverlay extends PvWidget {
         onClose.run();
     }
 
+    @Override
+    public List<PvWidget> childrenForAudit() {
+        return children;
+    }
+
     /**
      * Esc goes through the screen, not through {@link #dismiss()}, so the listener is dropped here
      * too — otherwise a closed dialog keeps receiving the next one's answers.

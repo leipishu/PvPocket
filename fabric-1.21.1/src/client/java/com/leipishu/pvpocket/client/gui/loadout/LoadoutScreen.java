@@ -56,10 +56,13 @@ public class LoadoutScreen extends PvScreen {
 
     private static final int MAX_W = 680;
     private static final int MAX_H = 392;
-    private static final int HEADER_H = 42;
-    private static final int FOOTER_H = 34;
-    private static final int TABS_W = 96;
-    private static final int MIN_TABS_W = 64;
+    /** One row of text and 16px chips: see {@code RuleScreen} for why the header is not 42px. */
+    private static final int HEADER_H = 30;
+    private static final int STATUS_H = 18;
+    private static final int ACTION_H = 18;
+    private static final int SIDE_PAD = 6;
+    private static final int SIDEBAR_MIN = 72;
+    private static final int SIDEBAR_MAX = 84;
 
     private static final List<ItemKind.Page> PAGES = List.of(
             ItemKind.Page.WEAPON, ItemKind.Page.ARMOR,
@@ -78,8 +81,12 @@ public class LoadoutScreen extends PvScreen {
     private PvTabs tabs;
     private PvScrollPane listPane;
     private PvButton presetButton;
+    private PvButton saveButton;
+    private PvButton resetButton;
+    private PvButton backButton;
+    /** Right edge of the status text: everything to the right of it belongs to a chip. */
+    private int statusRight;
     private String note;
-    private int footerTextRight;
 
     public LoadoutScreen(LoadoutOpenPayload payload, RuleScreen parent) {
         super(PvLang.t("pvpocket.gui.loadout.title"));
@@ -111,15 +118,14 @@ public class LoadoutScreen extends PvScreen {
         roots.clear();
         layoutPanel(MAX_W, MAX_H);
 
-        int contentTop = panelY + HEADER_H;
-        int contentH = panelH - HEADER_H - FOOTER_H;
-        int tabsW = pageTabsWidth(panelW);
+        chromeH = HEADER_H;
+        chromeW = sidebarWidth();
+        int paneX = panelX + chromeW + 12;
 
         tabs = new PvTabs(PAGE_LABELS, Math.max(0, PAGES.indexOf(page)));
-        tabs.x = panelX + 12;
-        tabs.y = contentTop;
-        tabs.width = tabsW;
-        tabs.fitInto(contentH);
+        tabs.x = panelX;
+        tabs.y = panelY + HEADER_H;
+        tabs.width = chromeW;
         tabs.onChange(() -> {
             page = PAGES.get(tabs.selected());
             selected = -1;
@@ -127,48 +133,37 @@ public class LoadoutScreen extends PvScreen {
         });
         roots.add(tabs);
 
-        // One column now. It takes everything the tab strip does not, which on a 426x240 canvas is
-        // about 290px — enough for a full item name, its summary and both action words.
+        // One column now. It takes everything the sidebar does not, which on a 426x240 canvas is
+        // about 300px — enough for a full item name, its summary and both action words.
         listPane = new PvScrollPane();
-        listPane.x = panelX + 12 + tabsW + 10;
-        listPane.y = contentTop;
-        listPane.width = panelX + panelW - 12 - listPane.x;
-        listPane.height = contentH;
+        listPane.x = paneX;
+        listPane.y = panelY + HEADER_H;
+        listPane.width = panelX + panelW - 12 - paneX;
+        listPane.height = panelH - HEADER_H - STATUS_H;
         listPane.gap = 2;
         roots.add(listPane);
 
+        buildActions();
         rebuildList();
-        buildFooter();
-        // In the title row, not the footer: the footer already carries 保存 / 还原 / 返回 and the
-        // three of them plus their gaps are the whole line on a 426px canvas. Presets are also a
-        // panel-level verb rather than a commit, which is exactly what the title row is for.
-        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
-        presetButton.x = panelX + panelW - 12 - presetButton.width;
-        presetButton.y = panelY + 5;
-        roots.add(presetButton);
+        buildChips();
         setFocus(null);
     }
 
-    // ------------------------------------------------------------------ list
-
     /**
-     * Width of the page strip: a share of the panel, but never narrower than its longest label.
+     * Width of the page column: the longest page label plus its insets, clamped.
      *
-     * <p>"Consumables" is 64px in the default font and the proportional share came out at 77px, which
-     * leaves 57px for text after the 10px inset — the label ran into the sidebar's edge. The list
-     * beside it only gives up the few pixels it takes to make the tab legible, and the cap keeps the
-     * list from being squeezed below a usable column on a small window.</p>
+     * <p>"Consumables" is 64px in the default font, so a fixed 0.19 share of a 406px panel cut it
+     * off mid-word. Deriving the column from the label costs the list the few pixels the word needs
+     * and nothing more, and the cap keeps the column from growing on a wide window.</p>
      */
-    private int pageTabsWidth(int panelW) {
-        int proportional = PvLayout.share(panelW, 0.19F, MIN_TABS_W, TABS_W);
+    private int sidebarWidth() {
         TextRenderer tr = font();
         int widest = 0;
         for (String label : PAGE_LABELS) {
             widest = Math.max(widest, tr.getWidth(label));
         }
-        // 20 = 10px text inset + 8px right padding + 2px slack, matching PvTabs' own insets.
-        int needed = widest + 20;
-        return Math.min(TABS_W, Math.max(proportional, needed));
+        // 34 = 2 x SIDE_PAD + 10px text inset + 12px for the dirty dot column.
+        return PvLayout.clamp(widest + 34, SIDEBAR_MIN, SIDEBAR_MAX);
     }
 
     private void rebuildList() {
@@ -281,31 +276,70 @@ public class LoadoutScreen extends PvScreen {
         rebuildList();
     }
 
-    // ------------------------------------------------------------------ footer
+    // ------------------------------------------------------------------ chrome
 
-    private void buildFooter() {
-        int buttonY = panelY + panelH - FOOTER_H + 7;
-        int right = panelX + panelW - 12;
+    /**
+     * 保存, stacked at the foot of the sidebar.
+     *
+     * <p>It was the rightmost button of a footer row. In a column it becomes the bottom-most item,
+     * which is where a form's confirm belongs, and the content well gets back the 34px the footer
+     * band used to take.</p>
+     */
+    private void buildActions() {
+        if (saveButton != null) {
+            roots.remove(saveButton);
+        }
+        int y = panelY + panelH - SIDE_PAD;
+        saveButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.save"),
+                PvButton.Style.PRIMARY, this::submit);
+        saveButton.size(chromeW - SIDE_PAD * 2, ACTION_H);
+        saveButton.x = panelX + SIDE_PAD;
+        saveButton.y = y - saveButton.height;
+        roots.add(saveButton);
+        defaultButton = saveButton;
 
-        PvButton save = new PvButton(PvLang.str("pvpocket.gui.loadout.button.save"),
-                PvButton.Style.PRIMARY, this::submit)
-                .size(80, PvTheme.BTN_H);
-        right = place(save, right, buttonY);
-        right = place(new PvButton(PvLang.str("pvpocket.gui.loadout.button.reset"),
-                PvButton.Style.NORMAL, this::resetToPreset)
-                .size(78, PvTheme.BTN_H), right, buttonY);
-        right = place(new PvButton(PvLang.str("pvpocket.gui.loadout.button.back"),
-                PvButton.Style.GHOST, this::back)
-                .size(52, PvTheme.BTN_H), right, buttonY);
-        defaultButton = save;
-        footerTextRight = right - 8;
+        tabs.fitInto(Math.max(48, saveButton.y - 4 - tabs.y));
     }
 
-    private int place(PvButton button, int right, int y) {
-        button.x = right - button.width;
-        button.y = y;
-        roots.add(button);
-        return button.x - 8;
+    /**
+     * Title row and status line.
+     *
+     * <p>预设 opens a dialog and lives in the header with the digest it saves. 重置 and 返回 are the
+     * two ways out of an edit — one reverts the list, one leaves the screen — so they sit at the end
+     * of the status line, next to the note that says whether there is anything to revert.</p>
+     */
+    private void buildChips() {
+        if (presetButton != null) {
+            roots.remove(presetButton);
+        }
+        if (resetButton != null) {
+            roots.remove(resetButton);
+        }
+        if (backButton != null) {
+            roots.remove(backButton);
+        }
+
+        presetButton = PvButton.chip(PvLang.str("pvpocket.gui.preset.button"), this::openPresets);
+        presetButton.x = panelX + panelW - 12 - presetButton.width;
+        presetButton.y = panelY + (HEADER_H - PvButton.CHIP_H) / 2;
+        roots.add(presetButton);
+
+        int chipY = panelY + panelH - STATUS_H + (STATUS_H - PvButton.CHIP_H) / 2;
+        int right = panelX + panelW - 12;
+        backButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.back"),
+                PvButton.Style.GHOST, this::back);
+        backButton.size(font().getWidth(backButton.label()) + 16, PvButton.CHIP_H);
+        backButton.x = right - backButton.width;
+        backButton.y = chipY;
+        roots.add(backButton);
+
+        resetButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.reset"),
+                PvButton.Style.NORMAL, this::resetToPreset);
+        resetButton.size(font().getWidth(resetButton.label()) + 16, PvButton.CHIP_H);
+        resetButton.x = backButton.x - 6 - resetButton.width;
+        resetButton.y = chipY;
+        roots.add(resetButton);
+        statusRight = resetButton.x - 8;
     }
 
     // ------------------------------------------------------------------ rendering
@@ -315,8 +349,8 @@ public class LoadoutScreen extends PvScreen {
         TextRenderer tr = font();
 
         String title = PvLang.str("pvpocket.gui.loadout.title");
-        PvDraw.title(ctx, tr, title, panelX + 16, panelY + 10, PvTheme.TEXT);
-        int titleEnd = panelX + 16 + PvDraw.titleWidth(tr, title) + 10;
+        PvDraw.title(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
+        int titleEnd = panelX + 14 + PvDraw.titleWidth(tr, title) + 10;
 
         String subtitle = isPersonal()
                 ? PvLang.str("pvpocket.gui.loadout.subtitle.personal")
@@ -330,23 +364,29 @@ public class LoadoutScreen extends PvScreen {
         // The digest is what the other side has to agree to, so it stays; the preset link is what
         // gives up its space when the title is long, by being pushed left of the digest.
         int digestX = presetButton.x - 6 - digestW;
-        PvDraw.roundRect(ctx, digestX, panelY + 6, digestW, 14, 3, PvTheme.ACCENT_SOFT);
-        PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, panelY + 9, PvTheme.ACCENT);
+        int chipY = panelY + (HEADER_H - 14) / 2;
+        PvDraw.roundRect(ctx, digestX, chipY, digestW, 14, 3, PvTheme.ACCENT_SOFT);
+        PvDraw.textCenter(ctx, tr, digest, digestX + digestW / 2, chipY + 3, PvTheme.ACCENT);
 
         int subtitleMax = digestX - 8 - titleEnd;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 10,
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 11,
                 PvTheme.TEXT_DIM);
 
-        PvDraw.hLine(ctx, panelX + 12, panelY + 27, panelW - 24, PvTheme.DIVIDER);
-        PvDraw.text(ctx, tr, pageHint(), panelX + 16, panelY + 32, PvTheme.TEXT_MUTED);
-
-        PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
-        drawFooterText(ctx, tr);
+        drawStatus(ctx, tr);
     }
 
-    private void drawFooterText(DrawContext ctx, TextRenderer tr) {
-        int y = panelY + panelH - FOOTER_H + 13;
-        int maxW = footerTextRight - panelX - 16;
+    /**
+     * The status line: what the last action did, or the first problem with the loadout.
+     *
+     * <p>It used to share a 34px footer band with three buttons, which left the message about 144px
+     * wide — narrower than a validation sentence. With the buttons moved out, the line has the width
+     * of the well minus two chips, and a problem can be stated rather than truncated.</p>
+     */
+    private void drawStatus(DrawContext ctx, TextRenderer tr) {
+        int top = panelY + panelH - STATUS_H;
+        int left = panelX + chromeW + 12;
+        PvDraw.hLine(ctx, left, top, panelX + panelW - 12 - left, PvTheme.DIVIDER);
+        int maxW = Math.max(0, statusRight - left);
 
         List<Text> problems = loadout.validate();
         String text;
@@ -366,18 +406,7 @@ public class LoadoutScreen extends PvScreen {
             text = note;
             color = PvTheme.TEXT_MUTED;
         }
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, text, Math.max(0, maxW)), panelX + 16, y, color);
-    }
-
-    /**
-     * One short line per page.
-     *
-     * <p>Previously a full sentence naming every item in the category. The category is already the
-     * selected tab; repeating its contents in prose only pushed the line into truncation on the
-     * narrower window sizes.</p>
-     */
-    private String pageHint() {
-        return PvLang.str("pvpocket.gui.loadout.page_hint." + page.name().toLowerCase(java.util.Locale.ROOT));
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, text, maxW), left, top + 5, color);
     }
 
     // ------------------------------------------------------------------ items
@@ -508,5 +537,33 @@ public class LoadoutScreen extends PvScreen {
 
     public String sessionId() {
         return payload.sessionId();
+    }
+
+    // ------------------------------------------------------------------ audit
+
+    /** Four pages, the item dialog, and the preset dialog. See {@link PvScreen#auditVariantCount()}. */
+    @Override
+    public int auditVariantCount() {
+        return 6;
+    }
+
+    @Override
+    public void auditVariant(int index) {
+        if (tabs == null) {
+            return;
+        }
+        if (index < PAGES.size()) {
+            tabs.select(index);
+            return;
+        }
+        if (index == PAGES.size()) {
+            if (loadout.entries.isEmpty()) {
+                loadout.entries.add(LoadoutEntry.of(ItemKind.of(page).get(0)));
+                rebuildList();
+            }
+            openEditor(0, false);
+            return;
+        }
+        openPresets();
     }
 }

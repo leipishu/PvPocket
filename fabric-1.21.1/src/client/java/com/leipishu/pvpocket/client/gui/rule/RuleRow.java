@@ -35,6 +35,25 @@ public class RuleRow extends PvWidget {
      */
     private static final int NARROW_W = 190;
 
+    /**
+     * Top edge of the control inside a stacked row, and the air under it.
+     *
+     * <p>The stacked layout used to place the control by subtracting from the row's bottom edge
+     * ({@code y + height - control.height - 6}), which only agrees with the label if every control
+     * is the same height. Chips are 22 and a stepper is 20, so the chip row started at {@code y+12}
+     * while the label ran to {@code y+14} — the chips were drawn over the last two pixels of
+     * "Environmental hazards". Two pixels is enough to cut the bottom off every glyph in the word,
+     * and it only showed on the multi-select rows, which are the ones tall enough to hide it.</p>
+     *
+     * <p>So the label owns the top of the row by construction: 5px of air, 8px of glyph, 1px of gap,
+     * then the control, then 4px of air. The row height is derived from the control rather than
+     * fixed, so a taller control makes a taller row instead of eating the label.</p>
+     */
+    private static final int STACK_CONTROL_TOP = 14;
+    private static final int STACK_PAD = 4;
+    /** y of the label's glyphs inside a stacked row. */
+    private static final int STACK_LABEL_TOP = 5;
+
     private final RuleDefinition def;
     private final PvValueControl control;
     private final int baseline;
@@ -47,12 +66,17 @@ public class RuleRow extends PvWidget {
         this.control = control;
         this.baseline = baseline;
         this.editable = editable;
-        this.height = stacked() ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
+        this.height = stacked() ? stackedHeight() : PvTheme.ROW_H;
         this.tooltip = def.hint();
     }
 
     private boolean stacked() {
         return def.kind == RuleKind.MULTI || narrow;
+    }
+
+    /** Label band plus the control's own height plus the air under it; see {@link #STACK_CONTROL_TOP}. */
+    private int stackedHeight() {
+        return STACK_CONTROL_TOP + (control == null ? 0 : control.height) + STACK_PAD;
     }
 
     /**
@@ -66,7 +90,7 @@ public class RuleRow extends PvWidget {
         boolean next = def.kind != RuleKind.MULTI && width < NARROW_W;
         if (next != narrow) {
             narrow = next;
-            this.height = stacked() ? PvTheme.ROW_H_TALL : PvTheme.ROW_H;
+            this.height = stacked() ? stackedHeight() : PvTheme.ROW_H;
         }
     }
 
@@ -85,7 +109,7 @@ public class RuleRow extends PvWidget {
         control.width = Math.min(control.width, Math.max(24, width - 16));
         if (stacked()) {
             control.x = x + 8;
-            control.y = y + height - control.height - 6;
+            control.y = y + STACK_CONTROL_TOP;
             control.width = Math.max(24, width - 16);
         } else {
             control.x = x + width - control.width - 8;
@@ -122,7 +146,8 @@ public class RuleRow extends PvWidget {
         int labelX = x + 10;
 
         if (stacked()) {
-            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label(), width - 20), labelX, y + 6, labelColor);
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, def.label(), width - 20), labelX, y + STACK_LABEL_TOP,
+                    labelColor);
             if (control != null) {
                 syncControlFocus();
                 control.updateHover(mouseX, mouseY);
@@ -217,5 +242,16 @@ public class RuleRow extends PvWidget {
             }
         }
         return tooltip;
+    }
+
+    /**
+     * The control is drawn inline rather than added to the screen's root list, so nothing else would
+     * ever measure it — which is how a chips row sat two pixels over its own label with every check
+     * reporting clean. Exposing it here puts it in front of {@link com.leipishu.pvpocket.client.gui.PvAudit}
+     * like any other box.
+     */
+    @Override
+    public java.util.List<PvWidget> childrenForAudit() {
+        return control == null ? java.util.List.of() : java.util.List.of(control);
     }
 }

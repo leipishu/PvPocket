@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client;
 
 import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.client.gui.PvAuditHarness;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
@@ -144,6 +145,9 @@ public final class PvPocketClient implements ClientModInitializer {
         PossessedHandRenderer.register();
         SpectatorInput.register();
         BoundaryRenderer.register();
+        // No-op unless -Dpvpocket.audit=true: walks every screen at two canvas sizes and reports
+        // the rectangles that collide. See PvAudit.
+        PvAuditHarness.register();
 
         PvPocket.LOGGER.info("PvPocket client bootstrap complete");
     }

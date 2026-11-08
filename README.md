@@ -115,6 +115,7 @@ PvPocket/
 │   └── archive/               历史存档：方案草案、阶段记录、专项调研（非规范）
 ├── scripts/
 │   ├── dev-2clients.sh        开发联调：拉起 N 个客户端并自动连接
+│   ├── audit-ui.sh            界面遮挡审计：跑完所有界面，有遮挡就失败
 │   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem → 结构模板
 │   ├── colosseum.py           生成斗兽场（唯一一张不是下载来的图）
 │   ├── arena-verify.py        转换校验：以第三方读取器为参照逐块比对
@@ -144,6 +145,7 @@ PvPocket/
 | 脚本 | 给谁用 | 作用 |
 | --- | --- | --- |
 | `scripts/dev-2clients.sh` | 开发 | 拉起开发客户端并自动加入本地服务端 |
+| `scripts/audit-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
 | `scripts/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
 | `scripts/colosseum.py` | 加地图 | 生成斗兽场模板 |
 | `scripts/arena-verify.py` | 加地图 | 与第三方读取器逐块比对，验证转换正确 |

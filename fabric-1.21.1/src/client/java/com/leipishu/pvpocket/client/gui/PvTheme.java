@@ -29,7 +29,15 @@ public final class PvTheme {
     // Surfaces, darkest to lightest. The ladder is the whole depth model: there are no gradients
     // and no drop shadows on panels, so "raised" has to be spelled with one of these five values.
     public static final int PANEL = 0xF70A0A0B;
-    public static final int SIDEBAR = 0xFF121214;
+    /**
+     * The chrome: the title band and the sidebar column, drawn as one continuous surface.
+     *
+     * <p>It has to be a full step above {@link #PANEL}, not a nudge: the chrome and the content well
+     * meet along two straight edges with no line between them, and at 0x12 against 0x0A that step is
+     * 3% of luminance — which reads as a smudge on the panel rather than as a change of region. At
+     * 0x15 it is visible at a glance and still leaves room for {@link #CARD_ACTIVE} above it.</p>
+     */
+    public static final int SIDEBAR = 0xFF151519;
     public static final int CARD = 0xFF151517;
     public static final int CARD_HOVER = 0xFF1E1E21;
     public static final int CARD_ACTIVE = 0xFF26262B;

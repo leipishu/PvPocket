@@ -44,6 +44,22 @@ public abstract class PvScreen extends Screen {
     protected int panelW;
     protected int panelH;
 
+    /**
+     * The chrome: a title band across the top, optionally continued down the left as a sidebar.
+     *
+     * <p>Both are the same surface, so they are drawn as one L rather than as a card beside a card.
+     * The content well is then a second shape laid over the chrome, square where it meets the
+     * chrome and rounded at the panel's own bottom-right corner. Zero for either dimension means
+     * "this panel has no such band", which is how the match list keeps a header and no sidebar.</p>
+     *
+     * <p>There is deliberately no border anywhere in this arrangement. A 1px outline around a
+     * floating sidebar is what made it read as a card that had been dropped into the panel; with the
+     * outline gone the two surfaces have to separate by value alone, which is why
+     * {@code PvTheme.SIDEBAR} sits a full step above {@code PvTheme.PANEL}.</p>
+     */
+    protected int chromeW;
+    protected int chromeH;
+
     protected PvWidget focused;
     /** Activated by Enter when focus is not on a button. The panel's "yes, do it" action. */
     protected PvButton defaultButton;
@@ -94,12 +110,17 @@ public abstract class PvScreen extends Screen {
     }
 
     protected void drawPanelFrame(DrawContext ctx) {
-        PvDraw.roundPanel(ctx, panelX, panelY, panelW, panelH, PvTheme.RADIUS_PANEL,
-                PvTheme.BORDER, PvTheme.PANEL);
+        int r = PvTheme.RADIUS_PANEL;
+        // Chrome first, edge to edge: the title band and the sidebar are one surface, and the well
+        // is the shape cut out of it.
+        PvDraw.roundRect(ctx, panelX, panelY, panelW, panelH, r, PvTheme.SIDEBAR);
+        if (chromeW > 0 || chromeH > 0) {
+            PvDraw.roundRect(ctx, panelX + chromeW, panelY + chromeH,
+                    panelW - chromeW, panelH - chromeH, 0, 0, r, 0, PvTheme.PANEL);
+        }
         // The only light source in the system: one hairline along the inside of the top edge. It is
         // what separates a black panel from a hole in the screen.
-        PvDraw.hLine(ctx, panelX + PvTheme.RADIUS_PANEL + 1, panelY + 1,
-                panelW - PvTheme.RADIUS_PANEL * 2 - 2, PvTheme.HIGHLIGHT);
+        PvDraw.hLine(ctx, panelX + r + 1, panelY + 1, panelW - r * 2 - 2, PvTheme.HIGHLIGHT);
     }
 
     /** 0 at the frame the screen opens, 1 once the entrance has finished. */
@@ -111,6 +132,9 @@ public abstract class PvScreen extends Screen {
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
         cursorX = mouseX;
         cursorY = mouseY;
+        // Opens the measurement window before anything is drawn: text is recorded as it is painted,
+        // so a window that opened at the end of the frame would only ever see widget boxes.
+        PvAudit.begin(getClass().getSimpleName(), width, height);
         float d = PvAnim.dt(delta);
         // Reset on the first frame rather than in init(): init() also runs on resize, and replaying
         // the fade every time the window changes size would look like a flicker.
@@ -123,6 +147,10 @@ public abstract class PvScreen extends Screen {
 
         drawBackdrop(ctx);
         drawPanelFrame(ctx);
+        // Everything drawn from here to the modal layer is one surface: the panel's own text and
+        // every root widget are allowed to collide with each other in the audit, and nothing else
+        // is compared against them.
+        PvAudit.layer(PvAudit.CHROME_LAYER);
         drawContent(ctx, mouseX, mouseY, delta);
 
         // Item icons live at z = 150 in a depth-tested layer, so a scrim at z = 0 can never cover
@@ -137,11 +165,88 @@ public abstract class PvScreen extends Screen {
         if (overlay != null) {
             // Roots keep their hover state frozen while a modal is up: a button glowing underneath a
             // dialog is a button the player thinks they can press.
+            PvAudit.layer(PvAudit.OVERLAY_LAYER);
             overlay.updateHover(mouseX, mouseY);
             overlay.render(ctx, mouseX, mouseY, delta);
+            PvAudit.layer(PvAudit.CHROME_LAYER);
         }
         drawEntrance(ctx);
         drawTooltip(ctx, d);
+        auditFrame();
+    }
+
+    /**
+     * Feeds this frame's widget rectangles to {@link PvAudit} and runs the checks.
+     *
+     * <p>Called at the end of {@link #render} on purpose: the scroll panes lay their children out
+     * inside their own render pass, so anything measured earlier would be measuring last frame's
+     * scroll offset. Off unless the audit harness is running.</p>
+     */
+    private void auditFrame() {
+        if (!PvAudit.ON) {
+            return;
+        }
+        for (int i = 0; i < roots.size(); i++) {
+            auditWidget(roots.get(i), "root", "r" + i, null, PvAudit.CHROME_LAYER,
+                    panelX, panelY, panelW, panelH, true, true);
+        }
+        if (overlay != null) {
+            auditWidget(overlay, "overlay", "o", null, PvAudit.OVERLAY_LAYER,
+                    0, 0, width, height, true, true);
+        }
+        PvAudit.end();
+    }
+
+    /**
+     * @param laidOut whether this widget was actually rendered this frame. A scroll pane skips the
+     *                rows outside its viewport, and a skipped row never positions its inline control
+     *                — so descending into one measures a control still sitting at 0,0 at its
+     *                constructor size, which reads as "the control escapes the row" five times over.
+     *                The row's own box is still measured: an off-screen row that overlaps its
+     *                neighbour is a layout bug worth knowing about.
+     */
+    private static void auditWidget(PvWidget widget, String group, String id, String parent,
+                                    String layer, int clipX, int clipY, int clipW, int clipH,
+                                    boolean clipped, boolean laidOut) {
+        if (!widget.visible) {
+            return;
+        }
+        PvAudit.widget(id, widget.getClass().getSimpleName(), group, parent, layer,
+                widget.x, widget.y, widget.width, widget.height,
+                clipX, clipY, clipW, clipH, clipped);
+        if (!laidOut) {
+            return;
+        }
+        // A scroll pane's children leave the viewport by design — that is what scrolling is — so
+        // they are measured against the pane's rect for collisions but not for containment, and
+        // they are a surface of their own: a row half-scrolled under the status line is clipped,
+        // not overlapping it.
+        boolean scroll = widget instanceof PvScrollPane;
+        String childLayer = scroll ? PvAudit.paneLayer(widget) : layer;
+        List<PvWidget> children = widget.childrenForAudit();
+        for (int i = 0; i < children.size(); i++) {
+            PvWidget child = children.get(i);
+            boolean drawn = !scroll
+                    || (child.y + child.height >= widget.y && child.y <= widget.y + widget.height);
+            auditWidget(child, group + '>' + id, id + '.' + i, id, childLayer,
+                    widget.x, widget.y, widget.width, widget.height, !scroll, drawn);
+        }
+    }
+
+    /**
+     * How many distinct layouts the audit should visit.
+     *
+     * <p>A screen that only ever audits its opening state hides most of itself: the rule panel has
+     * eight pages and two dialogs, and every one of them is a separate arrangement of the same
+     * widgets. {@link PvAuditHarness} asks for this count and then calls {@link #auditVariant} for
+     * each index, so a page that overlaps something gets reported without a human clicking to it.</p>
+     */
+    public int auditVariantCount() {
+        return 1;
+    }
+
+    /** Puts the screen into one of the layouts counted by {@link #auditVariantCount}. */
+    public void auditVariant(int index) {
     }
 
     /**
@@ -243,10 +348,12 @@ public abstract class PvScreen extends Screen {
         PvDraw.roundPanel(ctx, tx, ty, boxW, boxH, PvTheme.RADIUS,
                 PvTheme.alpha(PvTheme.BORDER_STRONG, tipT),
                 PvTheme.alpha(PvTheme.TOOLTIP, tipT));
+        String layer = PvAudit.layer(PvAudit.TOOLTIP_LAYER);
         for (int i = 0; i < lines.size(); i++) {
             PvDraw.text(ctx, tr, lines.get(i), tx + 8, ty + 6 + i * 10,
                     PvTheme.alpha(PvTheme.TEXT_DIM, tipT));
         }
+        PvAudit.layer(layer);
     }
 
     // ------------------------------------------------------------------ input

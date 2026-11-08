@@ -90,8 +90,12 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 
 1280×720 窗口在 GUI scale 3 下就是 426×240。规范见 `docs/zh/04-visual.md`，以下是踩过的坑：
 
-- **`PvDraw.roundRect` 必须按行切分，不能按列**。按列会让中间行左右各漏 r 像素，表现为所有按钮和
-  滚动条两侧黑条；窄形状（2px/6px）中段直接消失。
+- **形状只走 `PvRaster`（SDF），不要自己写逐像素循环。** 覆盖率取「到边界的垂直距离」；不要再对
+  `0.5 − d` 做超采样——那等于把 1px 滤波平均成 1.5px，直边上会报 0.75 而真值是 1.0（实现期踩过）。
+  改完跑一次覆盖率自检（无洞、无重绘、误差 < 0.12）：
+  `java -cp build/classes/java/client com.leipishu.pvpocket.client.gui.PvRaster`。
+- **面板分区靠明度差，不靠描边。** 顶栏与侧栏是同一块 `SIDEBAR` 表面（`PvScreen.chromeW/chromeH`），
+  内容凹槽叠在上面，只有右下角跟面板圆角。分隔线只能画在凹槽内部，不许横穿侧栏。
 - **1px 的线一律用 `ctx.fill`**，不要用 `roundRect(..., h=1, radius=0)`。
 - **模态弹窗挂 `PvScreen.overlay`**，不要只 append 到 `roots`。`roots` 只决定「画在上面」，
   不决定「拦住下面的点击」。
@@ -101,8 +105,20 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   `PvWidget.onWidth()` 钩子，先算高度会让滚动范围永远是错的。
 - **`init()` 在窗口 resize 时也会跑**。选中的标签页、正在编辑的名册、已填的输入必须跨 `init()`
   保留，否则改一次窗口大小就丢一次工作。
-- 面板里加按钮前先算宽度：页脚一行在 426px 画布上只有 382px，`RuleScreen` 在评审方角色下已经用掉
-  386px。**放不下就放标题行**（`PvButton.chip`，16px 高）。
+- **侧栏是一条竖向预算。** 侧栏高 = 顶栏以下全部，`Tab 高 × 条目数 + 按钮高 × 个数 + 间距` 必须装得下；
+  装不下先换排布（`compact`：按钮整排移到凹槽下方），再减按钮，最后才是减字号。八项标签加三个按钮
+  在 190px 里只剩 12px 的 Tab，这已经是下限。侧栏宽要**同时**量 Tab 标签和按钮标签——英文的
+  `Accept & start` 比任何 Tab 都宽，只量 Tab 会把它截成 `Accept & st…`。
+- **两行制行高从控件算起**（`14 + 控件高 + 4`），不要从行底往上减：控件高度不一样时（chip 22、
+  步进器 20），从底部减会让控件压住标签最后两行像素。
+- **动效只动连续量**（位置、alpha、铺底浓度），**不要动绘制尺寸**。1.5px 的半径变化只能落在两个整数
+  上，阻尼再平滑也读成两级跳变——滑杆悬停曾经就是圆的半径从 5 跳到 7，看起来像卡顿。要「变大」就
+  在背后加一层光晕动它的 alpha。
+- **两端留够半径。** 滑杆轨道两端各要预留滑块半径（`KNOB_MAX`），否则滑块到最大值时压在读数上。
+  同理：控件宽度一律夹在行内，任何宽度下都不许越出本行。
+- **新控件要能被审计看到。** 内联绘制的控件（`RuleRow` 的 control 之类）必须由容器在
+  `childrenForAudit()` 里交出去，否则 `PvAudit` 完全不知道它存在——chips 压住标签两像素那次，
+  所有检查都报 clean。
 
 ### 4. 沙盒
 
@@ -124,6 +140,17 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 **编译通过不等于可用。** 规则类改动至少要在两端跑一局，服务端 journal
 （`runs/server/world/pvpocket/journal/*.jsonl`）里有 `ROUND_STARTED`、`RULES_ACCEPTED` 等事件，
 能直接回答「这一局按哪版规则打的」。注意 journal 里的 `=` 是 `\u003d`，`grep 'c.maxHealth='` 匹配不到。
+
+**改完界面先跑遮挡审计**，不要靠眼睛过六十个布局：
+
+```bash
+scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审计没跑完
+```
+
+它让开发客户端自己遍历 5 个界面 × 全部页面/弹窗 × 2 种画布（426×240 与 320×180），在真实渲染帧里
+记录控件盒子和文字，检查零尺寸、越出裁剪区、同层互压。**加新界面或新页面时，记得给
+`auditVariantCount()/auditVariant()` 补一个变体**，否则新页面不在审计范围内。
+`-Dpvpocket.audit=true` 才启用，`-PuiAudit` 会把两个开关都带上。
 
 界面自动化两条铁律：
 
