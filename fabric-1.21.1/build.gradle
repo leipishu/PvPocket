@@ -185,3 +185,16 @@ java {
 jar {
     inputs.property "archivesName", project.base.archivesName
 }
+
+// Self-checks that need no Minecraft runtime, only the compiled classes.
+//
+// `./gradlew statsCheck` — the stats files are the one thing here whose bugs are permanent (a
+// duplicated history row, a cap that drops the newest instead of the oldest), and checking them by
+// playing two hundred matches is not a test. Same shape as PvRaster's self-check, but wired into
+// Gradle so it is one command instead of a hand-built classpath.
+tasks.register("statsCheck", JavaExec) {
+    group = "verification"
+    description = "Runs the duel-stats self-check against a temporary directory."
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = "com.leipishu.pvpocket.stats.DuelStatsCheck"
+}

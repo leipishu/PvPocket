@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,7 +37,11 @@ public final class DuelStats {
     /** Bumped if a counter's meaning changes; the loader refuses nothing, but the field is evidence. */
     private static final int VERSION = 1;
 
-    /** How many finished series a player keeps. Beyond this the oldest are dropped. */
+    /**
+     * How many finished series a player keeps. This is the number the player is promised, and it is
+     * enforced on read: the file itself holds up to {@link #HISTORY_COMPACT_AT} rows between
+     * compactions, because rewriting it on every append would turn an O(1) append into an O(n) one.
+     */
     public static final int HISTORY_KEEP = 200;
     /** Rewrite the file down to {@link #HISTORY_KEEP} once it passes this. */
     private static final int HISTORY_COMPACT_AT = 250;
@@ -170,16 +175,24 @@ public final class DuelStats {
         return won;
     }
 
-    /** Newest first. */
+    /**
+     * Newest first, at most {@link #HISTORY_KEEP} rows.
+     *
+     * <p>The clamp is here rather than only in the compactor because the file is allowed to grow past
+     * the promised count before it is rewritten — so a reader that trusted the file would hand back
+     * 209 rows for a limit the panel promises is 200. The promise is what gets enforced; the file
+     * layout is an implementation detail.</p>
+     */
     public synchronized List<MatchRecord> history(String uuid, int limit) {
         List<MatchRecord> out = new ArrayList<>();
+        int cap = Math.min(limit, HISTORY_KEEP);
         Path file = historyFile(uuid);
         if (!Files.isRegularFile(file)) {
             return out;
         }
         try {
             List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-            for (int i = lines.size() - 1; i >= 0 && out.size() < limit; i--) {
+            for (int i = lines.size() - 1; i >= 0 && out.size() < cap; i--) {
                 String line = lines.get(i).trim();
                 if (line.isEmpty()) {
                     continue;
@@ -251,11 +264,37 @@ public final class DuelStats {
         Path file = historyFile(uuid);
         try {
             Files.createDirectories(file.getParent());
+            // A crash mid-write leaves a partial row with no terminator. Appending straight onto it
+            // glues the new record to the broken one, and then *both* are unreadable — the check for
+            // this is the one that found it. One byte of separation is the whole fix.
+            if (!endsWithNewline(file)) {
+                Files.writeString(file, System.lineSeparator(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            }
             Files.writeString(file, LINES.toJson(record) + System.lineSeparator(),
                     StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             compactIfLong(file);
         } catch (IOException e) {
             PvPocket.LOGGER.error("Cannot append history for {}", uuid, e);
+        }
+    }
+
+    /** True when the file is absent, empty, or already terminated. */
+    private static boolean endsWithNewline(Path file) {
+        if (!Files.isRegularFile(file)) {
+            return true;
+        }
+        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+            long length = raf.length();
+            if (length == 0L) {
+                return true;
+            }
+            raf.seek(length - 1L);
+            int last = raf.read();
+            return last == '\n' || last == '\r';
+        } catch (IOException e) {
+            // Unreadable: assume the worst and write the separator. A blank line is harmless.
+            return false;
         }
     }
 

@@ -33,8 +33,8 @@ public final class MatchRecord {
     /** Wall-clock length of the series. */
     public long duration;
     /**
-     * Per-round outcomes: {@code won,reason,seconds} separated by {@code ;}, where {@code won} is
-     * {@code 1} or {@code 0} from this record's own point of view.
+     * Per-round outcomes: {@code won,reason,milliseconds} separated by {@code ;}, where {@code won}
+     * is {@code 1} or {@code 0} from this record's own point of view.
      *
      * <p>Relative rather than an absolute side index because the record is written once per
      * participant: "did I win round 2" is the question every reader asks, and storing the side would
