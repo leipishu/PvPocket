@@ -2,6 +2,7 @@ package com.leipishu.pvpocket.client.gui.rule;
 
 import com.leipishu.pvpocket.arena.ArenaMap;
 import com.leipishu.pvpocket.arena.ArenaMaps;
+import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvChips;
 import com.leipishu.pvpocket.client.gui.PvCycle;
@@ -716,11 +717,13 @@ public class RuleScreen extends PvScreen {
 
         // The revision is a chip rather than loose accent text: at 12px of amber, a bare "v0" read as
         // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
+        // Drawn inline (right-anchored against the preset button) instead of as a PvBadge widget, but
+        // it takes its height and width from PvBadge so the two pills cannot drift apart.
         String version = "v" + payload.revision();
-        int versionW = tr.getWidth(version) + 12;
+        int versionW = PvBadge.widthOf(version);
         int versionX = presetButton.x - 6 - versionW;
-        int chipY = panelY + (HEADER_H - 14) / 2;
-        PvDraw.roundRect(ctx, versionX, chipY, versionW, 14, 3, PvTheme.ACCENT_SOFT);
+        int chipY = panelY + (HEADER_H - PvBadge.H) / 2;
+        PvDraw.roundRect(ctx, versionX, chipY, versionW, PvBadge.H, 3, PvTheme.ACCENT_SOFT);
         PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, chipY + 3, PvTheme.ACCENT);
 
         int subtitleMax = versionX - 8 - titleEnd;

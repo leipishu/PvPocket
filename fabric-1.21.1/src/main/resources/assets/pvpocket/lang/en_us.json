@@ -736,6 +736,7 @@
   "pvpocket.gui.home.settings.config": "Config",
   "pvpocket.gui.home.settings.appearance": "Appearance",
   "pvpocket.gui.home.settings.light": "Light theme",
+  "pvpocket.gui.home.beta": "beta",
   "pvpocket.gui.home.settings.motion": "Motion",
   "pvpocket.gui.home.settings.keys": "Keys",
   "pvpocket.gui.home.settings.key_home": "Open the home panel",

@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.home;
 
 import com.leipishu.pvpocket.client.ClientPrefs;
+import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvIconButton;
@@ -358,7 +359,10 @@ public class HomeScreen extends PvScreen {
         PvToggle light = new PvToggle(PvTheme.current() == PvTheme.Theme.LIGHT);
         light.onChange(value -> ClientPrefs.setTheme(value == 1
                 ? PvTheme.Theme.LIGHT : PvTheme.Theme.DARK));
-        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.light"), light, null));
+        // Tagged, not hidden: the light palette is complete enough to use and young enough to change.
+        // A badge says that without a second line of prose nobody reads.
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.light"), light, null,
+                new PvBadge(PvLang.str("pvpocket.gui.home.beta"))));
 
         PvToggle motion = new PvToggle(ClientPrefs.motion());
         motion.onChange(value -> ClientPrefs.setMotion(value == 1));

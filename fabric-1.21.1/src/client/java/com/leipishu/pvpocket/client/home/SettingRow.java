@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.home;
 
+import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
@@ -25,11 +26,18 @@ public class SettingRow extends PvWidget {
     private final String label;
     private final PvWidget control;
     private final String value;
+    /** Optional status pill drawn right after the label, e.g. "beta" on a feature that is new. */
+    private final PvBadge badge;
 
     public SettingRow(String label, PvWidget control, String value) {
+        this(label, control, value, null);
+    }
+
+    public SettingRow(String label, PvWidget control, String value, PvBadge badge) {
         this.label = label;
         this.control = control;
         this.value = value;
+        this.badge = badge;
         this.height = 24;
     }
 
@@ -57,7 +65,18 @@ public class SettingRow extends PvWidget {
             reserve = tr.getWidth(value) + 10;
             PvDraw.textRight(ctx, tr, value, x + width, textY, PvTheme.TEXT_DIM);
         }
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, width - reserve), x, textY, PvTheme.TEXT);
+        // The badge takes its room out of the label's budget before the label is fitted: a long
+        // translated label must truncate rather than run underneath the pill. It is then placed
+        // against the *fitted* width, not the raw one, for the same reason.
+        int badgeRoom = badge == null ? 0 : badge.width + 6;
+        String shown = PvDraw.fit(tr, label, width - reserve - badgeRoom);
+        PvDraw.text(ctx, tr, shown, x, textY, PvTheme.TEXT);
+        if (badge != null) {
+            badge.x = x + tr.getWidth(shown) + 6;
+            badge.y = y + (height - badge.height) / 2;
+            badge.visible = visible;
+            badge.render(ctx, mouseX, mouseY, delta);
+        }
     }
 
     @Override
@@ -78,7 +97,10 @@ public class SettingRow extends PvWidget {
 
     @Override
     public List<PvWidget> childrenForAudit() {
-        return control == null ? List.of() : List.of(control);
+        if (control == null) {
+            return badge == null ? List.of() : List.of(badge);
+        }
+        return badge == null ? List.of(control) : List.of(control, badge);
     }
 
     @Override
