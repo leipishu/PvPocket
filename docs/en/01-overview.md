@@ -72,6 +72,10 @@ protection, arena rebuild.
 | [05-usage](05-usage.md) | Deployment, commands, player flow, operations |
 | [06-maps](06-maps.md) | Map sources, conversion pipeline, licensing |
 
+Building, two-client testing, repository layout and commit conventions are in
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) at the repository root; hard rules and known traps for
+coding agents are in [`AGENTS.md`](../../AGENTS.md).
+
 History is in [`CHANGELOG.md`](../../CHANGELOG.md) at the repository root. Process documents are
 archived under [`../archive/`](../archive/) and **are not specifications**.
 

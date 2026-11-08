@@ -64,6 +64,9 @@ PvPocket（口袋决斗）是一个 Minecraft Fabric 1.21.1 模组，为生存�
 | [05-usage](05-usage.md) | 部署、指令、玩家操作、运维 |
 | [06-maps](06-maps.md) | 地图素材、转换流程、许可 |
 
+构建、联调、仓库结构与提交约定见根目录 [`CONTRIBUTING.md`](../../CONTRIBUTING.md)；给编码代理的
+硬约定与雷区见 [`AGENTS.md`](../../AGENTS.md)。
+
 变更历史见根目录 [`CHANGELOG.md`](../../CHANGELOG.md)。过程性文档在
 [`../archive/`](../archive/) 归档，**不作为规范**。
 

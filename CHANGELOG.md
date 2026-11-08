@@ -64,6 +64,16 @@
   的副本，所以「新控件忘了参与布局」这种盲区它看得见——上一轮 chips 压住标签两像素，就是因为内联
   绘制的控件没有交出去，所有检查都报 clean。
 
+### 仓库与文档
+
+- **README 改成模组介绍，工程流程独立成 `CONTRIBUTING.md`。** 此前的 README 把版本矩阵、构建、
+  开发联调、仓库结构、脚本表全部放在首页，第一屏读不到「这模组是干什么的」。现在 README 只讲
+  定位、特性、玩法、运行要求、安装与文档索引；构建、联调、目录树、脚本、验证、提交约定迁到
+  `CONTRIBUTING.md`。设计规范仍在 `docs/`，硬约定仍在 `AGENTS.md`，四者分工写进了
+  `CONTRIBUTING.md` 的「文档」一节。
+- **新增模组图标与 README 顶部 logo。** `assets/pvpocket/icon.png` 接进 `fabric.mod.json` 的
+  `icon` 字段（256×256），透明底的横版 logo 放 `docs/assets/logo.png` 供 README 居中显示。
+
 ---
 
 ## 2026-11-07

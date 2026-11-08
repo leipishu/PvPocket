@@ -1,6 +1,7 @@
 # AGENTS.md
 
-给在本仓库工作的编码代理。人类读者请从 [`README.md`](README.md) 开始。
+给在本仓库工作的编码代理。人类读者请从 [`README.md`](README.md) 开始，工程流程见
+[`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 这个文件只写**代码里读不出来、但踩错就要返工**的东西：命令在哪跑、哪些约定是硬性的、怎么验证。
 设计理由在 `docs/`，那里是规范；这里是指南。
@@ -133,7 +134,9 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 - `docs/zh/` 与 `docs/en/` 平行，六篇一一对应。**改一篇必须同步另一篇。**
 - 改动历史写 `CHANGELOG.md`，只记使用者可感知的变化与改变后续做法的决定，不记内部重构。
 - `docs/archive/` 是历史存档，不追改其中的旧路径与旧指令。
-- README 只做入口：定位、构建、联调、目录树、文档索引、脚本表、许可。技术细节写进 `docs/`。
+- README 只做模组介绍：定位、特性、玩法、运行要求、安装、文档索引、许可。
+- 工程流程（构建、联调、仓库结构、脚本、提交）在 `CONTRIBUTING.md`，本文件不重复。
+- 技术细节与设计理由写进 `docs/`，也不写进 README。
 
 ## 验证
 

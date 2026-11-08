@@ -1,10 +1,74 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="PvPocket" width="480">
+</p>
+
 # PvPocket（口袋决斗）
 
-在 SMP 生存服务器内提供一个与正常生存完全隔离的「决斗口袋」：玩家可以互相发起单挑，在独立场地中
-使用自定义配装进行多局对抗，可按对局开启 Legacy 1.8 战斗；每局结束状态完全重置，整个决斗不影响
-双方在生存模式下的任何数据。
+在 SMP 生存服务器里开一个与生存完全隔离的「决斗口袋」：几名玩家在独立场地中按谈妥的规则打多局，
+结束之后背包、经验、血量、位置全部还原，生存模式下的任何数据都不受影响。
 
 **两个人想打一场，三十秒内能开打，打完什么痕迹都不留。**
+
+## 它能做什么
+
+- **协商式规则**：七组共 40 项（39 项可配置 + 1 项只读的冲突提示），开局前双方在同一块面板上
+  逐条谈，全部同意才开打。规则带版本号，任何一方改了规则，之前收到的「同意」自动作废——
+  不存在「我以为是这个设置」。
+- **两种战斗模式**：现代（1.9+ 攻击冷却、盾牌格挡）与 Legacy 1.8（无攻击冷却、剑格挡、1.8 的
+  击退与伤害），逐场切换。
+- **多局赛制**：best-of-N、单局时间上限、超时判定；每局之间完整重置，比分累积到决出胜者。
+- **自定义配装**：武器、护甲、消耗品逐项配置。附魔按物品类型给——三叉戟的忠诚 / 激流 / 无三选一、
+  鞘翅的烟花飞行时长、弓的无限与箭矢数量、末影水晶配黑曜石、TNT 配打火石。配装可存成预设，
+  也能生成 5 分钟有效的分享码发给别人，对方导入后落盘到本地，下次不用再要码。
+- **观战**：自由视角，或把相机绑到某个选手身上，底部显示实时血量与装备。
+- **打完不留痕**：背包、经验、血量、饥饿、位置、游戏模式、状态效果全部还原，连掉在地上的物品都
+  算在内。决斗维度是独立维度，生存世界的地形不会被碰到。
+- **兜底**：掉线判负、滞留玩家保护、地形保护与复原、场地可重建。
+
+## 一场决斗长什么样
+
+1. 甲敲 `/pvpocket duel`，规则面板弹出，落在玩家页，默认两张队伍卡片。
+2. 把人放进卡片、拖滑杆调规则；乙在自己的面板上看到同一份草案。
+3. 双方各自配装，可以载入预设。
+4. 双方点「同意并开始」——规则与配装一起锁定，倒计时后传送进场。
+5. 打满设定的局数，胜者出现；几秒后所有人回到原位置，状态复原。
+
+面板被 Esc 关掉后用 `/pvpocket review` 重新打开。
+
+## 规则能调什么
+
+| 组 | 管什么 | 例子 |
+| --- | --- | --- |
+| A 对局结构 | 局数、胜负与时间 | 几局几胜、单局上限、超时判谁赢 |
+| B 参与者 | 人数、队伍与误伤 | 每队几人、最多几人、友伤开关 |
+| C 战斗 | 战斗模式与生存参数 | 现代 / 1.8、最大生命、自然回血、饥饿、摔落伤害、击退抗性 |
+| D 配装 | 进场物品与拾取 | 是否允许局间换装、拾取、合成、消耗品 |
+| E 场地 | 场地、边界与环境伤害 | 地图、尺寸、边界规则、时间、天气、环境伤害 |
+| F 方块 | 放置、破坏与爆炸 | 能否放置、地形保护、方块白名单、爆炸物 |
+| G 其他 | 珍珠、投降与显示 | 末影珍珠、投降、对手血量显示、聊天范围 |
+
+完整含义与每一条的实际效果见 [`docs/zh/02-rules.md`](docs/zh/02-rules.md)。
+
+## 运行要求
+
+| 项目 | 要求 |
+| --- | --- |
+| Minecraft | 1.21.1 |
+| Fabric Loader | 0.16.9 或更高 |
+| Fabric API | 0.116.17+1.21.1 |
+| Java | 21 |
+
+**服务端与客户端必须装同一个模组、同一个版本。** 两端协议是自定义 payload，版本不一致时表现为
+面板不出现或规则不生效，而不是一条明确的报错。
+
+## 安装
+
+1. 服务端 `mods/` 放 `pvpocket-*.jar` 与 [Fabric API](https://modrinth.com/mod/fabric-api)。
+2. 每个要参战的客户端也放同样两份——没有客户端就没有规则面板、配装编辑器和计分板。
+3. 首次启动会在存档下生成 `pvpocket/` 目录（`journal`、`homes.json`、`guard.json`）。5 张内置地图
+   在启动时逐 tick 贴好，约需 10 秒；这期间 `/pvpocket arena` 会显示「分区尚未布置」，此时无法开局。
+
+部署细节、权限、运维与排障见 [`docs/zh/05-usage.md`](docs/zh/05-usage.md)。
 
 ## 文档
 
@@ -12,149 +76,14 @@
 
 | 想知道 | 读 |
 | --- | --- |
-| 这是什么、为什么这么设计、从哪读起 | [`docs/zh/01-overview.md`](docs/zh/01-overview.md) |
-| 39 条规则的含义，哪些真正生效 | [`docs/zh/02-rules.md`](docs/zh/02-rules.md) |
-| 分层、状态机、协议、快照与恢复 | [`docs/zh/03-architecture.md`](docs/zh/03-architecture.md) |
-| 界面视觉规范（颜色、度量、状态、动效、文案） | [`docs/zh/04-visual.md`](docs/zh/04-visual.md) |
-| 部署、权限、玩家流程、指令、运维、排障 | [`docs/zh/05-usage.md`](docs/zh/05-usage.md) |
-| 地图来源与许可、转换流程、怎么加一张图 | [`docs/zh/06-maps.md`](docs/zh/06-maps.md) |
-| 每个版本改了什么 | [`CHANGELOG.md`](CHANGELOG.md) |
-| 让编码代理在本仓库干活（命令、硬约定、雷区） | [`AGENTS.md`](AGENTS.md) |
-| 设计草案与阶段记录（非规范） | [`docs/archive/`](docs/archive/README.md) |
+| 这是什么、四个核心决定、功能边界 | [`01 概览`](docs/zh/01-overview.md) |
+| 40 条规则的完整清单与含义 | [`02 规则`](docs/zh/02-rules.md) |
+| 部署、权限、玩家流程、指令、运维、排障 | [`05 使用`](docs/zh/05-usage.md) |
+| 每个版本改了什么 | [`CHANGELOG`](CHANGELOG.md) |
+| 要改代码、加地图、报问题 | [`CONTRIBUTING`](CONTRIBUTING.md) |
 
-视觉规范与地图的第三方许可另见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
-
-## 版本矩阵
-
-| 项目 | 版本 |
-| --- | --- |
-| Minecraft | 1.21.1 |
-| Fabric Loader | 0.16.9 |
-| Fabric API | 0.116.17+1.21.1 |
-| Yarn mappings | 1.21.1+build.3 |
-| Fabric Loom | 1.11.8 |
-| Gradle | 8.14.3 |
-| Java | 21 |
-
-模组 ID `pvpocket`，Java 包名 `com.leipishu.pvpocket`。
-
-## 构建
-
-前置条件：JDK 21。**1.21.1 要求 Java 21，JDK 17 无法运行客户端**。
-
-```bash
-cd fabric-1.21.1
-
-./gradlew build          # 产物在 fabric-1.21.1/build/libs/
-./gradlew runClient      # 开发客户端
-./gradlew runServer      # 专用服务端
-```
-
-`gradle.properties` 固定了 Gradle 守护进程使用的 JDK 路径（Loom 1.11 要求 JVM 21+）。换机器或接入
-CI 时改这一行，或删掉它改用环境变量：
-
-```bash
-JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
-```
-
-## 开发联调
-
-决斗至少需要两名玩家，所以开发环境配了四个客户端。**它们不能共用一个运行目录**：同一个目录下两个
-JVM 会抢 `logs/latest.log`（输的一方静默丢日志），`options.txt`、`saves`、资源索引也会互相覆盖。
-运行目录由 `build.gradle` 决定，全部在 `fabric-1.21.1/runs/` 下（不进版本库）：
-
-| 运行配置 | 目录 | 用户名 | 用途 |
-| --- | --- | --- | --- |
-| `runServer` | `runs/server/` | — | 共享服务端（存档与 `pvpocket/journal` 都在这里） |
-| `runClient` | `runs/client1/` | `Dev1` | 客户端 1 |
-| `runClient2` | `runs/client2/` | `Dev2` | 客户端 2 |
-| `runClient3` | `runs/client3/` | `Dev3` | 客户端 3，**只在测观战时需要** |
-| `runClient4` | `runs/client4/` | `Dev4` | 客户端 4，**只在测「同一张图不能开两场」时需要** |
-
-用户名也必须不同：开发客户端默认用操作系统用户名登录，两个客户端会变成同一个玩家，后加入的会把先
-加入的顶掉。
-
-五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`fabric-1.21.1 >
-Tasks > fabric > runClient` … `runServer`），不用开终端，也不用维护运行配置。客户端默认已经连到
-`localhost:25565` 且堆上限 1G，点开就是可玩状态：
-
-| 参数 | 默认 | 用途 |
-| --- | --- | --- |
-| `-PquickJoin=<host:port>` | `localhost:25565` | 连别的地址 |
-| `-PquickJoin=off` | — | 停在标题界面（服务端没起、只想看界面时） |
-| `-PclientHeap=<size>` | `1G` | 抬客户端堆上限 |
-| `-PdebugBlocking` | — | 强制本机玩家处于剑格挡状态，用来单独看格挡姿势（第一/第三人称），不必开一局经典决斗 |
-
-```bash
-# 终端 1：共享服务端，保持前台运行（这样控制台还能输入 stop / op / pvpocket）
-cd fabric-1.21.1 && ./gradlew runServer
-
-# 终端 2：等看到 "Done (...)" 后，拉起客户端并自动连接
-scripts/dev-2clients.sh                       # 两个客户端
-PVP_CLIENTS=3 scripts/dev-2clients.sh         # 三个，第三个用来看观战
-PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
-```
-
-脚本只是 `runClient` / `runClient2` / … 的批量包装，单独起某一个用任务名即可（`./gradlew runClient3`），
-在 IDEA 的 Gradle 面板里则是分别双击。
-
-三个 JVM 对一台开发机来说是重的，第三个客户端有时会在标题界面卡住不自动加入（`quickPlay` 没触发），
-关掉重开即可。服务端没起时客户端会停在「连接失败」，点「返回标题界面」再手动连——日常测试优先用
-上面的专用服务端。
-
-## 仓库结构
-
-仓库根目录只放文档与各平台工程，**每个「加载器 + 游戏版本」组合一个独立子目录**，各自拥有独立的
-Gradle 构建。这样后续增加 Forge / NeoForge 或 1.21.x 其他版本时不会互相污染。
-
-```
-PvPocket/
-├── docs/
-│   ├── zh/                    规范文档（中文）
-│   ├── en/                    规范文档（英文，与 zh 一一对应）
-│   └── archive/               历史存档：方案草案、阶段记录、专项调研（非规范）
-├── scripts/
-│   ├── dev-2clients.sh        开发联调：拉起 N 个客户端并自动连接
-│   ├── audit-ui.sh            界面遮挡审计：跑完所有界面，有遮挡就失败
-│   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem → 结构模板
-│   ├── colosseum.py           生成斗兽场（唯一一张不是下载来的图）
-│   ├── arena-verify.py        转换校验：以第三方读取器为参照逐块比对
-│   ├── arena-map.py           把场地存档渲染成俯视图，确认分区真的分开了
-│   ├── rcon.py                向开发服务端发 RCON 指令（脚本化测试用）
-│   └── agent/                 截图与按键脚本，供 AI Agent 做界面验证，普通开发不需要
-├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
-│   ├── build.gradle           五个 run 配置与运行目录都在这里
-│   ├── settings.gradle
-│   ├── gradle.properties
-│   ├── gradlew / gradlew.bat
-│   ├── runs/                  运行目录（客户端 1–4 + 服务端，不进版本库）
-│   ├── arena-src/             地图源素材（不进版本库，见 docs/zh/06-maps.md）
-│   └── src/
-│       ├── main/              common：服务端与客户端共用
-│       └── client/            客户端专用（split source set）
-├── CHANGELOG.md
-├── AGENTS.md                  给编码代理的说明：命令、硬约定、雷区
-├── LICENSE                    LGPL-3.0
-├── LICENSE-GPL-3.0.txt        LGPL-3.0 引用的 GPL-3.0 副本
-├── THIRD-PARTY-NOTICES.md
-└── .gitignore / .gitattributes
-```
-
-## 脚本
-
-| 脚本 | 给谁用 | 作用 |
-| --- | --- | --- |
-| `scripts/dev-2clients.sh` | 开发 | 拉起开发客户端并自动加入本地服务端 |
-| `scripts/audit-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
-| `scripts/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
-| `scripts/colosseum.py` | 加地图 | 生成斗兽场模板 |
-| `scripts/arena-verify.py` | 加地图 | 与第三方读取器逐块比对，验证转换正确 |
-| `scripts/arena-map.py` | 排查 | 渲染俯视图，检查分区边界 |
-| `scripts/rcon.py` | 自动化测试 | 从脚本以玩家身份执行指令 |
-| `scripts/agent/*.ps1` | AI Agent | 窗口截图、按键、鼠标点击；Windows + PowerShell |
-
-`scripts/agent/` 下的脚本假定本机有正在运行的开发客户端，且窗口标题含 `Minecraft`。它们不是给人
-手动执行的工具，删改前先确认没有别的自动化在引用。
+实现细节在 [`03 架构`](docs/zh/03-architecture.md)、[`04 视觉`](docs/zh/04-visual.md)、
+[`06 地图`](docs/zh/06-maps.md)，面向改代码的人。
 
 ## 许可
 
@@ -162,7 +91,6 @@ PvPocket/
 LGPL-3.0 引用 GPL-3.0 的条款，其副本见 [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt)。
 `fabric.mod.json` 中的 SPDX 标识为 `LGPL-3.0-only`。
 
-**内置地图不受此影响**：`data/pvpocket/structure/*.nbt` 中四张来自
-[zzuf-maps](https://github.com/zzufx/zzuf-maps)，按 **CC BY-SA 4.0** 分发；斗兽场由
-`scripts/colosseum.py` 生成，无第三方义务。署名与改动声明见
+**内置地图不受此影响**：五张地图中四张来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，按
+**CC BY-SA 4.0** 分发；斗兽场由 `scripts/colosseum.py` 生成，无第三方义务。署名与改动声明见
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
