@@ -73,6 +73,10 @@
   `CONTRIBUTING.md` 的「文档」一节。
 - **新增模组图标与 README 顶部 logo。** `assets/pvpocket/icon.png` 接进 `fabric.mod.json` 的
   `icon` 字段（256×256），透明底的横版 logo 放 `docs/assets/logo.png` 供 README 居中显示。
+- **README 与 CONTRIBUTING 提供英文版。** 英文放在 `docs/en/README.md` 与
+  `docs/en/CONTRIBUTING.md`，与 `docs/en/` 下六篇英文规范同级。两个中文文件顶部加了居中语言
+  切换（当前语言加粗、另一种是链接），英文版反向指回根目录。README 的标题与描述改为居中，
+  与顶部 logo 对齐。
 
 ---
 

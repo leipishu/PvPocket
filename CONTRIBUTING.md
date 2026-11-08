@@ -1,3 +1,7 @@
+<p align="center">
+  <strong>中文</strong> · <a href="docs/en/CONTRIBUTING.md">English</a>
+</p>
+
 # 贡献指南
 
 面向要改代码、加地图、报问题的人。**只想装来玩**请看 [README](README.md)，部署与玩家流程见
@@ -110,7 +114,7 @@ Gradle 构建。这样后续增加 Forge / NeoForge 或 1.21.x 其他版本时�
 PvPocket/
 ├── docs/
 │   ├── zh/                    规范文档（中文）
-│   ├── en/                    规范文档（英文，与 zh 一一对应）
+│   ├── en/                    规范文档（英文，与 zh 一一对应）；README.md 与 CONTRIBUTING.md 是英文入口
 │   ├── assets/                文档图片，logo.png 就是 README 顶部那张
 │   └── archive/               历史存档：方案草案、阶段记录、专项调研（非规范）
 ├── scripts/

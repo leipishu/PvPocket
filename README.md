@@ -1,13 +1,16 @@
 <p align="center">
+  <strong>中文</strong> · <a href="docs/en/README.md">English</a>
+</p>
+
+<p align="center">
   <img src="docs/assets/logo.png" alt="PvPocket" width="480">
 </p>
 
-# PvPocket（口袋决斗）
+<h1 align="center">PvPocket（口袋决斗）</h1>
 
-在 SMP 生存服务器里开一个与生存完全隔离的「决斗口袋」：几名玩家在独立场地中按谈妥的规则打多局，
-结束之后背包、经验、血量、位置全部还原，生存模式下的任何数据都不受影响。
+<p align="center">在 SMP 生存服务器里开一个与生存完全隔离的「决斗口袋」：几名玩家在独立场地中按谈妥的规则打多局，结束之后背包、经验、血量、位置全部还原，生存模式下的任何数据都不受影响。</p>
 
-**两个人想打一场，三十秒内能开打，打完什么痕迹都不留。**
+<p align="center"><strong>两个人想打一场，三十秒内能开打，打完什么痕迹都不留。</strong></p>
 
 ## 它能做什么
 
