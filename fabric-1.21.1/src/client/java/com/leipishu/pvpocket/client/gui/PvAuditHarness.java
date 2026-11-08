@@ -3,10 +3,15 @@ package com.leipishu.pvpocket.client.gui;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.home.HomeScreen;
+import com.leipishu.pvpocket.client.home.HomeState;
+import com.leipishu.pvpocket.client.preset.PresetStore;
 import com.leipishu.pvpocket.loadout.Loadout;
+import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
+import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.MinecraftClient;
@@ -110,6 +115,7 @@ public final class PvAuditHarness {
 
     private static void finish(MinecraftClient client) {
         finished = true;
+        clearPresets();
         int total = PvAudit.summary("layout audit");
         System.out.println("[pvaudit] " + (total == 0 ? "CLEAN" : "FOUND " + total + " overlap(s)"));
         if (Boolean.getBoolean("pvpocket.audit.exit")) {
@@ -121,6 +127,8 @@ public final class PvAuditHarness {
     // ------------------------------------------------------------------ the walk
 
     private static void build() {
+        homeData();
+        seedPresets();
         for (int[] size : SIZES) {
             // The reviewer role carries the three-button commit stack and the 还原 chip, which is
             // the arrangement most likely to run out of room; the draft role has a different stack
@@ -136,6 +144,12 @@ public final class PvAuditHarness {
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
             add("match/list", size, 0, () -> new MatchListScreen(matches()));
+            // One variant per page. The home panel is the only screen whose pages are reached by a
+            // tab strip inside the screen rather than by a payload, so the variant is what decides
+            // which page exists at all.
+            for (int variant = 0; variant < 5; variant++) {
+                add("home", size, variant, HomeScreen::new);
+            }
         }
     }
 
@@ -167,10 +181,69 @@ public final class PvAuditHarness {
     }
 
     /** Three rows, one of each interesting state: in progress, watching, and a full score line. */
+    private static final String MATCH_ROWS = String.join("\n",
+            "s1|arena_colosseum|ROUND_ACTIVE|2|7|1:0|1|0|Dev1:u1,Dev2:u2",
+            "s2|arena_deadwood|ROUND_SETTLED|3|5|2:1|5|1|Dev3:u3,Dev4:u4",
+            "s3|flat|WARMUP|1|3|0:0|0|0|Dev1:u1,Dev3:u3");
+
     private static MatchListPayload matches() {
-        return new MatchListPayload(String.join("\n",
-                "s1|arena_colosseum|ROUND_ACTIVE|2|7|1:0|1|0|Dev1:u1,Dev2:u2",
-                "s2|arena_deadwood|ROUND_SETTLED|3|5|2:1|5|1|Dev3:u3,Dev4:u4",
-                "s3|flat|WARMUP|1|3|0:0|0|0|Dev1:u1,Dev3:u3"));
+        return new MatchListPayload(MATCH_ROWS);
+    }
+
+    /**
+     * Fills the home panel's cache, so its pages are measured with content instead of with the
+     * "nothing here yet" line.
+     *
+     * <p>A screen audited only in its empty state hides every row it owns: the history cards, the
+     * round-dot strips, the four stat columns and the win strip do not exist until there is data.
+     * The numbers are arbitrary but shaped like real ones — three teams, a surrendered series, a
+     * series with rounds both won and lost — because that is what decides the widths.</p>
+     */
+    private static void homeData() {
+        long now = System.currentTimeMillis();
+        String history = String.join("\n",
+                "h1|" + (now - 600_000L) + "|arena_colosseum|modern|2|1|3|1|1||420000"
+                        + "|1,,90000;1,,120000;0,,210000|Dev2,Dev3|",
+                "h2|" + (now - 7_200_000L) + "|arena_deadwood|legacy|2|1|2|3|0|SURRENDER|610000"
+                        + "|1,,80000;0,,140000;0,,90000;0,,120000|Dev4|",
+                "h3|" + (now - 3_600_000_000L) + "|flat|modern|4|2|3|0|1||380000"
+                        + "|1,,60000;1,,70000;1,,50000|Dev2,Dev3|Dev4,Dev5");
+        HomeState.update(new HomeStatePayload(
+                "24,15,61,38,2840,42,19,4,7," + now,
+                history, MATCH_ROWS, HomeStatePayload.FLAG_HAS_STATS));
+    }
+
+    /** Names that say where they came from, in case a crashed run leaves them on disk. */
+    private static final String SEED_LOADOUT = "audit-loadout";
+    private static final String SEED_RULES = "audit-rules";
+    private static boolean seeded;
+
+    /**
+     * Two presets, so the preset page is measured with rows rather than with its empty state.
+     *
+     * <p>Only when the store is empty: a developer who already has presets gets their own audited,
+     * which is strictly better data. The two that are written here go through the ordinary store and
+     * therefore land in the dev run's config, so {@link #clearPresets} takes them back out.</p>
+     */
+    private static void seedPresets() {
+        if (PresetStore.get().count(PresetKind.LOADOUT) == 0
+                && PresetStore.get().put(PresetKind.LOADOUT, SEED_LOADOUT,
+                Loadout.defaultDuel().encode())) {
+            seeded = true;
+        }
+        if (PresetStore.get().count(PresetKind.RULES) == 0
+                && PresetStore.get().put(PresetKind.RULES, SEED_RULES,
+                DuelRules.defaults().encode())) {
+            seeded = true;
+        }
+    }
+
+    private static void clearPresets() {
+        if (!seeded) {
+            return;
+        }
+        seeded = false;
+        PresetStore.get().remove(PresetKind.LOADOUT, SEED_LOADOUT);
+        PresetStore.get().remove(PresetKind.RULES, SEED_RULES);
     }
 }

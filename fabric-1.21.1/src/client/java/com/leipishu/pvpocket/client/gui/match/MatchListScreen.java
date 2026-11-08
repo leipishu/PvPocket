@@ -95,7 +95,7 @@ public class MatchListScreen extends PvScreen {
          * is the answer that keeps the rest of the panel usable; throwing would turn a cosmetic
          * mismatch into a crash on a screen the player cannot close.</p>
          */
-        static List<Entry> parse(String encoded) {
+        public static List<Entry> parse(String encoded) {
             List<Entry> out = new ArrayList<>();
             if (encoded == null || encoded.isEmpty()) {
                 return out;

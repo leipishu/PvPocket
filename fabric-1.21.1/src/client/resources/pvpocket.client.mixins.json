@@ -3,6 +3,7 @@
   "package": "com.leipishu.pvpocket.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "HandledScreenAccessor",
     "InGameHudMixin",
     "ItemRendererMixin",
     "MinecraftClientMixin",

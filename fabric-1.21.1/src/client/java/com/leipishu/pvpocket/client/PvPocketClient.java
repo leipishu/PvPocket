@@ -2,9 +2,13 @@ package com.leipishu.pvpocket.client;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.PvAuditHarness;
+import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.home.HomeClient;
+import com.leipishu.pvpocket.client.home.HomeState;
+import com.leipishu.pvpocket.client.home.InventoryButton;
 import com.leipishu.pvpocket.client.preset.PresetShare;
 import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
@@ -17,6 +21,7 @@ import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.BlockingStatePayload;
 import com.leipishu.pvpocket.network.CombatStatePayload;
+import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
@@ -43,8 +48,21 @@ public final class PvPocketClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        // Before anything can draw: the palette is read at draw time now that its tokens are no
+        // longer compile-time constants, so loading the saved theme here is what decides whether the
+        // first panel the player opens is light or dark.
+        ClientPrefs.load();
+        PvTheme.apply(ClientPrefs.theme());
+
         ClientPlayNetworking.registerGlobalReceiver(CombatStatePayload.ID, (payload, context) -> {
             context.client().execute(() -> apply(payload));
+        });
+
+        // The home panel's snapshot. Not a reason to open a screen — the player may have closed the
+        // panel before the answer arrived — so it only refreshes the cache and lets an open panel
+        // repaint on its next frame.
+        ClientPlayNetworking.registerGlobalReceiver(HomeStatePayload.ID, (payload, context) -> {
+            context.client().execute(() -> HomeState.update(payload));
         });
 
         // Somebody else's block, so it can be drawn. Lands on the client thread because the render
@@ -137,6 +155,9 @@ public final class PvPocketClient implements ClientModInitializer {
             // The dialog is gone with the screen, and a listener left behind would take the next
             // server's answer and write it into a store the player is not looking at.
             PresetShare.listener(null);
+            // Stats and history belong to the server that sent them; keeping them across a server
+            // change would show one server's win rate on another server's panel.
+            HomeState.clear();
         });
 
         MatchHud.register();
@@ -144,6 +165,8 @@ public final class PvPocketClient implements ClientModInitializer {
         PossessionHud.register();
         PossessedHandRenderer.register();
         SpectatorInput.register();
+        HomeClient.register();
+        InventoryButton.register();
         BoundaryRenderer.register();
         // No-op unless -Dpvpocket.audit=true: walks every screen at two canvas sizes and reports
         // the rectangles that collide. See PvAudit.

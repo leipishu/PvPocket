@@ -67,6 +67,16 @@ public abstract class PvScreen extends Screen {
     protected int cursorY;
 
     /**
+     * The screen that opened this one, or {@code null} when it was opened from the game.
+     *
+     * <p>Only one level deep on purpose: every screen in this mod is reachable from the home screen
+     * in one step, so a stack would be machinery for a depth that does not exist. A screen pushed by
+     * the server (an invite, the match list) leaves this null — closing it returns to the game,
+     * because the player did not come from a menu and does not want to land in one.</p>
+     */
+    protected PvScreen parent;
+
+    /**
      * Modal layer. Drawn after every root, and given the mouse before any of them.
      *
      * <p>Separate from {@link #roots} rather than appended to it because both halves of "on top"
@@ -91,6 +101,24 @@ public abstract class PvScreen extends Screen {
     @Override
     public boolean shouldPause() {
         return false;
+    }
+
+    /**
+     * Closes back to whoever opened this screen.
+     *
+     * <p>Overridden here rather than in each screen because the default has to be "return to where I
+     * came from": a rule panel opened from the home screen that dumped the player into the world
+     * would make the home screen a one-way door, and every child screen would have to remember to
+     * override this to avoid it.</p>
+     */
+    @Override
+    public void close() {
+        MinecraftClient.getInstance().setScreen(parent);
+    }
+
+    /** Records where {@code close()} should return to. */
+    protected void setParent(PvScreen screen) {
+        this.parent = screen;
     }
 
     protected TextRenderer font() {

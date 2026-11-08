@@ -38,6 +38,20 @@ public final class SpectatorInput {
     private SpectatorInput() {
     }
 
+    /**
+     * Both spectator keys, for the settings page.
+     *
+     * <p>Handed out so the home screen can rebind them through the same vanilla mechanism the mod's
+     * own key uses. The alternative — a second copy of the binding in a mod-owned config — is the one
+     * arrangement that guarantees the two eventually disagree.</p>
+     */
+    public static java.util.List<KeyBinding> bindings() {
+        if (cycle == null || detach == null) {
+            return java.util.List.of();
+        }
+        return java.util.List.of(cycle, detach);
+    }
+
     public static void register() {
         cycle = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.pvpocket.cycle_spectator",
