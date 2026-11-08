@@ -29,6 +29,8 @@ public class HistoryRow extends PvWidget {
     /** Room a round dot needs, including its gap. */
     private static final int DOT_PITCH = 8;
     private static final int MAX_DOTS = 12;
+    /** Least the map line may claim before the round strip is dropped: enough for the map name. */
+    private static final int MIN_META = 56;
 
     private final HomeState.History record;
     private final java.util.List<HomeState.Round> rounds;
@@ -69,37 +71,52 @@ public class HistoryRow extends PvWidget {
         int line2 = y + 22;
 
         String score = record.myScore() + " : " + record.theirScore();
-        PvDraw.text(ctx, tr, score, textX, line1, PvTheme.TEXT);
+        // Everything on this line is chained off what came before it, so each run reports what it
+        // actually covered rather than what it would have covered at full size.
+        int scoreW = PvDraw.textFitLeft(ctx, tr, score, textX, line1, width / 2, PvTheme.TEXT);
 
         String chip = PvLang.str(record.won()
                 ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss");
         int chipW = tr.getWidth(chip) + 10;
-        int chipX = textX + tr.getWidth(score) + 8;
+        int chipX = textX + scoreW + 8;
         PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3,
                 record.won() ? PvTheme.ACCENT_SOFT : PvTheme.CARD_ACTIVE);
         PvDraw.text(ctx, tr, chip, chipX + 5, line1,
                 record.won() ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
 
-        // The round strip is measured first: it is right-aligned and fixed, so the map name gets
-        // whatever is left rather than the other way round.
-        int dots = Math.min(MAX_DOTS, rounds.size());
-        int dotsW = dots * DOT_PITCH;
-        int dotsX = x + width - 10 - dotsW;
-        drawDots(ctx, dotsX, line1 + 2);
-
-        int mapX = chipX + chipW + 8;
-        String meta = record.mapLabel()
-                + " · " + PvLang.str(record.mode().equals("legacy")
-                ? "pvpocket.gui.home.mode.legacy" : "pvpocket.gui.home.mode.modern")
-                + " · " + teamsLabel();
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, meta, Math.max(8, dotsX - 8 - mapX)), mapX, line1,
-                PvTheme.TEXT_DIM);
+        // The round strip used to be measured first and the map name got what was left, which on a
+        // 200px row left it eight pixels: "Colosseum · Modern · 1v1" cut to "Colo…". The strip is
+        // the most redundant thing on this line — the score already says who won — so it yields: the
+        // map line states what it needs to keep its words, and the strip takes whole dots out of the
+        // remainder. When there is no remainder it is not drawn at all.
+        String full = metaLine();
+        int metaX = chipX + chipW + 8;
+        int metaFull = x + width - 10 - metaX;
+        int metaRoom = Math.min(metaFull, Math.max(MIN_META, floorWidth(tr, full)));
+        int dots = Math.max(0, Math.min(Math.min(MAX_DOTS, rounds.size()),
+                (metaFull - metaRoom - 8) / DOT_PITCH));
+        int dotsX = x + width - 10 - dots * DOT_PITCH;
+        if (dots > 0) {
+            drawDots(ctx, dotsX, line1 + 2);
+        }
+        int mapRoom = Math.max(8, (dots > 0 ? dotsX - 8 : x + width - 10) - metaX);
+        // Rebuilt against the room it actually got, so the qualifiers are dropped one at a time
+        // instead of the whole line being cut in the middle.
+        String shown = metaLine(mapRoom);
+        boolean metaShort = !shown.equals(full) || PvDraw.willCut(tr, shown, mapRoom, 1);
+        PvDraw.textFitLeft(ctx, tr, shown, metaX, line1, mapRoom, PvTheme.TEXT_DIM);
 
         String who = record.opponents().isEmpty()
                 ? PvLang.str("pvpocket.gui.home.history.solo")
                 : PvLang.str("pvpocket.gui.home.history.vs", record.opponents());
         String second = HomeText.stamp(record.t()) + " · " + who;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, second, width - 20), textX, line2, PvTheme.TEXT_MUTED);
+        // Player names are unbounded, so this line is the one that has to give way first: it shrinks
+        // to the legibility floor and is cut only beyond it.
+        PvDraw.textFitLeft(ctx, tr, second, textX, line2, width - 20, PvTheme.TEXT_MUTED);
+        boolean secondCut = PvDraw.willCut(tr, second, width - 20, 1);
+        // Hovering restores whatever the row could not show: the qualifiers it dropped, or the end
+        // of the player names.
+        overflowTip(metaShort ? full : second, metaShort || secondCut);
     }
 
     /**
@@ -127,6 +144,50 @@ public class HistoryRow extends PvWidget {
             return perSide + "v" + perSide;
         }
         return record.teams() + "v" + record.teams();
+    }
+
+    private String metaLine() {
+        return record.mapLabel()
+                + " · " + PvLang.str(record.mode().equals("legacy")
+                ? "pvpocket.gui.home.mode.legacy" : "pvpocket.gui.home.mode.modern")
+                + " · " + teamsLabel();
+    }
+
+    /**
+     * The meta line, assembled from the parts that fit.
+     *
+     * <p>Dropping a qualifier beats cutting the whole string: "Colosseum · 1v1" names the row, while
+     * "Colosseum · Moder…" names half of it and nothing at all once the mode is the part that was cut.
+     * The map name is never dropped — it is what identifies the record.</p>
+     */
+    private String metaLine(int room) {
+        String map = record.mapLabel();
+        String teams = teamsLabel();
+        String full = metaLine();
+        if (fits(full, room)) {
+            return full;
+        }
+        String brief = map + " · " + teams;
+        return fits(brief, room) ? brief : map;
+    }
+
+    private boolean fits(String s, int room) {
+        return floorWidth(net.minecraft.client.MinecraftClient.getInstance().textRenderer, s) <= room;
+    }
+
+    /** Width a string needs at the legibility floor — the least room that still shows every word. */
+    private static int floorWidth(TextRenderer tr, String s) {
+        return Math.round(tr.getWidth(s) * PvDraw.MIN_TEXT_SCALE);
+    }
+
+    @Override
+    public String tooltipAt(int mouseX, int mouseY) {
+        if (!contains(mouseX, mouseY)) {
+            return null;
+        }
+        // The full map line beats "click to open": the row's own tooltip says what a click does,
+        // which the pointer already implies, while a shortened map line says nothing at all.
+        return overflow() != null ? overflow() : tooltip;
     }
 
     @Override

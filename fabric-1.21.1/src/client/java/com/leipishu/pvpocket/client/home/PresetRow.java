@@ -24,9 +24,15 @@ import net.minecraft.sound.SoundEvents;
 public class PresetRow extends PvWidget {
 
     private static final int H = 36;
-    private static final int BTN_W = 48;
+    /**
+     * Action sizes are sized to their words, not to the row: at 48 + 40 the two buttons plus their
+     * gaps took 112 of a 174px row, which left the timestamp line 54px for a 79px string. 44 and 36
+     * are still comfortable targets ("Start" is 34px, "More" is 30px) and give the text the 10px it
+     * was missing.
+     */
+    private static final int BTN_W = 44;
     private static final int BTN_H = 20;
-    private static final int MENU_W = 40;
+    private static final int MENU_W = 36;
 
     /** What the row asks the screen to do. Two verbs, so an interface beats two runnables. */
     public interface Listener {
@@ -70,12 +76,15 @@ public class PresetRow extends PvWidget {
         int textX = x + 10;
         int line1 = y + 5;
         int line2 = y + 18;
-        int textRoom = startX() - 8 - textX;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, preset.name(), textRoom), textX, line1, PvTheme.TEXT);
-        PvDraw.text(ctx, tr,
-                PvDraw.fit(tr, PvLang.str("pvpocket.gui.home.preset.saved", HomeText.relative(preset.savedAt())),
-                        textRoom),
-                textX, line2, PvTheme.TEXT_MUTED);
+        int textRoom = startX() - 6 - textX;
+        // A preset name is typed by the player, so its length is not ours to assume; the timestamp
+        // under it is generated and short. Both shrink before they are cut, and a name that was cut
+        // is readable in full on hover.
+        PvDraw.textFitLeft(ctx, tr, preset.name(), textX, line1, textRoom, PvTheme.TEXT);
+        PvDraw.textFitLeft(ctx, tr,
+                PvLang.str("pvpocket.gui.home.preset.saved", HomeText.relative(preset.savedAt())),
+                textX, line2, textRoom, PvTheme.TEXT_MUTED);
+        overflowTip(preset.name(), PvDraw.willCut(tr, preset.name(), textRoom, 1));
 
         boolean hotStart = inRect(mouseX, mouseY, startX(), y + (h - BTN_H) / 2, BTN_W, BTN_H);
         PvDraw.roundPanel(ctx, startX(), y + (h - BTN_H) / 2, BTN_W, BTN_H, PvTheme.RADIUS,

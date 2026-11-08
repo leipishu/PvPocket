@@ -138,6 +138,37 @@ width, so nothing can leave its own row at any width.
 MC's bitmap font at a non-integer scale such as 1.3× is resampled by GL and the strokes smear into
 grey edges — that is the main source of the "pixelated" look, and it is gone.
 
+**Text inside a fixed frame gives way in four steps: as written → shrunk → wrapped → cut.** This
+interface is built for two languages whose words differ in length by up to a factor of two, and every
+frame in it is measured from the short one. The ladder lives in `PvDraw`:
+
+| Step | Condition | Result |
+|---|---|---|
+| 1 | `natural ≤ frame` | drawn at 1.0× |
+| 2 | `max(0.75, frame/natural)` fits | drawn scaled, still one line |
+| 3 | 0.75× does not fit and the frame is tall enough for a second line | wrapped, trying 1.0/0.9/0.8/0.75 |
+| 4 | even wrapped it does not fit | cut at 0.75× with an ellipsis |
+
+- **0.75 is a floor, not a preference.** The body face is 8px tall; below three quarters the glyphs
+  stop resolving into letters at GUI scale 1, and a label nobody can read is worse than one that ends
+  in an ellipsis.
+- **Shrinking comes before wrapping.** A label that fits on one line at 0.9× stays on one line —
+  a second line breaks the one-row-per-item rhythm of every panel. Wrapping is only reached where a
+  single line would have to be cut.
+- **Two pixels of slack.** Landing within 2px of the floor is not a label that does not fit: `0.733`
+  and `0.75` are indistinguishable on screen, and turning `Accept & start` into `Accept & sta…` over
+  1.6px is pure loss.
+- Wrapping is only used where the **height allows** it: a 22px chip, a 24px row and a 20px button each
+  hold two lines (a 16px title-row chip holds one), and a hint sentence holds up to three with its
+  **height derived from the width** (`SettingRow.hint` computes it in `onWidth`).
+- Change the size when the size can change. The `PvCycle` label column, the `KeyBindRow` label column
+  and the history row's map name all give up something decorative first — arrow inset, round strip,
+  stage chip — before they touch the type.
+
+The audit reports shrunk and cut separately (`labels: N shrunk, M cut`). **Shrunk is the mechanism
+working; cut is the frame genuinely being too narrow** — the latter comes with the screen, the canvas
+and what the string needs at the floor. Fix the frame from that list, not the type size.
+
 ### 3.1 Rasterisation rules (anti-pixelation)
 
 Every shape goes through `PvRaster`: per-pixel coverage comes from a **signed distance field**, not

@@ -219,9 +219,10 @@ public class PvTabs extends PvWidget {
             // strip is 96px wide, so a caller that shrinks the strip would otherwise paint the label
             // straight over its own edge and into the content beside it. The dot column is reserved
             // even when the tab is clean, so a label never shifts sideways when it lights up.
-            PvDraw.text(ctx, tr,
-                    PvDraw.fit(tr, labels.get(i), tabWidth() - 10 - (DOT_R * 2 + 8)),
-                    tabLeft() + 10, textY, textColor);
+            // Shrinking before truncating matters most here: a tab is the only name a page has, and
+            // "Consumabl…" beside "Blocks" is a tab strip with one tab that looks broken.
+            PvDraw.textFitLeft(ctx, tr, labels.get(i), tabLeft() + 10, textY,
+                    tabWidth() - 10 - (DOT_R * 2 + 8), textColor);
             if (dirtyTest != null && dirtyTest.test(i)) {
                 PvDraw.dot(ctx, tabLeft() + tabWidth() - DOT_R - 6, ty + tabHeight / 2, DOT_R,
                         PvTheme.ACCENT);

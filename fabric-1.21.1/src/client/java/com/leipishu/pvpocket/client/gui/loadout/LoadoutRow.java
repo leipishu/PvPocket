@@ -124,9 +124,12 @@ public class LoadoutRow extends PvWidget {
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
 
         if (type == Type.HEADER) {
-            PvDraw.text(ctx, tr, label, x + 2, y + 5, PvTheme.TEXT_MUTED);
-            PvDraw.hLine(ctx, x + tr.getWidth(label) + 8, y + 9,
-                    Math.max(0, width - tr.getWidth(label) - 10), PvTheme.DIVIDER);
+            // The rule to the right of a section header is anchored to the drawn width, so a header
+            // that had to shrink does not leave the line starting under its last letter.
+            int headerW = PvDraw.textFitLeft(ctx, tr, label, x + 2, y + 5, width - 12,
+                    PvTheme.TEXT_MUTED);
+            PvDraw.hLine(ctx, x + headerW + 10, y + 9,
+                    Math.max(0, width - headerW - 12), PvTheme.DIVIDER);
             return;
         }
 
@@ -177,14 +180,23 @@ public class LoadoutRow extends PvWidget {
 
         int labelLeft = x + 28;
         if (detail != null && !detail.isEmpty()) {
-            int detailW = tr.getWidth(detail);
-            PvDraw.textRight(ctx, tr, detail, actionsLeft, textY,
+            // The detail is a generated tally ("x2 · Sharpness II") and the label is a material
+            // name; both can outgrow a 180px row, so the detail takes at most half of what is left
+            // and the label takes the rest.
+            int detailRoom = Math.max(24, (actionsLeft - labelLeft) / 2);
+            int detailW = PvDraw.fittedWidth(tr, detail, detailRoom);
+            PvDraw.textFitRight(ctx, tr, detail, actionsLeft, textY, detailRoom,
                     selected ? PvTheme.TEXT_DIM : PvTheme.TEXT_MUTED);
             actionsLeft -= detailW + 6;
         }
         int labelMax = actionsLeft - labelLeft;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, Math.max(0, labelMax)), labelLeft, textY,
+        // Two lines rather than one. The label is "kind + variant" — "Food Golden carrot" — and the
+        // column between the icon and the action words is 55px wide on the smallest canvas, where
+        // shrinking put 74% of the string in the frame and cut the rest. The row is 24px tall, so an
+        // 18px block costs nothing and the word survives.
+        PvDraw.textWrapLeft(ctx, tr, label, labelLeft, y, height, Math.max(0, labelMax), 2,
                 type == Type.KIND ? PvTheme.TEXT_DIM : PvTheme.TEXT);
+        overflowTip(label, PvDraw.willCut(tr, label, Math.max(0, labelMax), 2));
 
         if (type == Type.KIND) {
             PvDraw.plus(ctx, x + width - 10, y + height / 2, 3, 1,
@@ -232,10 +244,12 @@ public class LoadoutRow extends PvWidget {
 
     @Override
     public String tooltipAt(int mouseX, int mouseY) {
-        if (!visible || !contains(mouseX, mouseY) || tooltip == null) {
+        if (!visible || !contains(mouseX, mouseY)) {
             return null;
         }
-        return tooltip;
+        // A cut name outranks the standing hint: "click to edit" is discoverable, the end of a
+        // truncated material name is not.
+        return overflow() != null ? overflow() : tooltip;
     }
 
     public void tooltip(String tip) {

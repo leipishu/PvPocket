@@ -223,6 +223,238 @@ public final class PvDraw {
         text(ctx, tr, s, centerX - tr.getWidth(s) / 2, y, color);
     }
 
+    // -------------------------------------------------------------- shrink to fit
+
+    /**
+     * Smallest scale a label inside a fixed frame may be drawn at before it is truncated instead.
+     *
+     * <p>0.75 is the floor because the panel's body face is 8px tall: below three quarters the
+     * glyphs stop resolving into letters at GUI scale 1, and a label nobody can read is worse than
+     * one that ends in an ellipsis. Anything wider than {@code 1 / 0.75 ≈ 1.33×} its frame is not a
+     * sizing problem any more — it is a string that belongs in a wrapped paragraph, or a frame that
+     * has to give up some space.</p>
+     *
+     * <p>Why shrink at all: this interface is built for two languages whose words differ in length
+     * by up to a factor of two, and every frame in it is measured from the short one. Truncating is
+     * what those frames used to do, which is how a button row ended up reading
+     * {@code Copy res… / Acc… / Rej…}. Shrinking keeps the word.</p>
+     */
+    public static final float MIN_TEXT_SCALE = 0.75F;
+
+    /**
+     * How far short of the floor a single line may land before it is wrapped or cut instead.
+     *
+     * <p>Two pixels is the rounding distance, not a second tier: a frame 55px wide against a 75px
+     * label needs 0.733, and cutting "Accept & start" over 1.6px would trade a legible word for an
+     * ellipsis. Anything genuinely too wide misses by far more than this.</p>
+     */
+    private static final int FLOOR_SLACK = 2;
+
+    /** Height of the body face, and the leading between two lines of it. */
+    private static final int LINE_H = 8;
+    private static final int WRAP_PITCH = 10;
+
+    /** Scales tried for a multi-line label, widest first: full size beats a smaller two-liner. */
+    private static final float[] WRAP_SCALES = {1F, 0.9F, 0.8F, MIN_TEXT_SCALE};
+
+    /**
+     * A label measured against the space it has: the string to draw, at what scale, and how wide.
+     *
+     * <p>Three tiers, in this order, because each is worse than the one before it: draw it as
+     * written; draw it smaller but still legible; cut it. The third tier only happens when the label
+     * is more than a third wider than its frame — at that point shrinking has already lost the size
+     * hierarchy the design relies on.</p>
+     */
+    private record Fit(String text, float scale, int width) {
+    }
+
+    /** A label laid out over one or more lines, all at the same scale. */
+    private record Wrapped(List<String> lines, float scale, boolean cut) {
+    }
+
+    private static Fit measure(TextRenderer tr, String s, int maxWidth) {
+        int natural = tr.getWidth(s);
+        if (maxWidth <= 0 || s.isEmpty()) {
+            return new Fit("", 1F, 0);
+        }
+        if (natural <= maxWidth) {
+            return new Fit(s, 1F, natural);
+        }
+        float scale = (float) maxWidth / natural;
+        if (scale >= MIN_TEXT_SCALE) {
+            return new Fit(s, scale, maxWidth);
+        }
+        if (natural * MIN_TEXT_SCALE <= maxWidth + FLOOR_SLACK) {
+            // Within rounding distance of the floor: draw it at the exact scale, which lands on the
+            // frame edge, rather than turn the last word into an ellipsis over two pixels.
+            return new Fit(s, scale, maxWidth);
+        }
+        // At the floor and still too wide: cut, so that what is left still fits at the floor.
+        PvAudit.cut(s, maxWidth, natural);
+        String cut = fit(tr, s, (int) Math.floor(maxWidth / MIN_TEXT_SCALE));
+        return new Fit(cut, MIN_TEXT_SCALE, Math.max(1, Math.round(tr.getWidth(cut) * MIN_TEXT_SCALE)));
+    }
+
+    /**
+     * Draws {@code s} from {@code x}, shrinking it until it fits {@code maxWidth}. Returns the width
+     * actually covered, so a caller can lay out what comes after it.
+     */
+    public static int textFitLeft(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+                                  int maxWidth, int color) {
+        Fit fit = measure(tr, s, maxWidth);
+        drawScaled(ctx, tr, fit, x, y, color);
+        return fit.width;
+    }
+
+    /** Right-aligned variant: the run ends at {@code right} and grows leftwards into {@code maxWidth}. */
+    public static int textFitRight(DrawContext ctx, TextRenderer tr, String s, int right, int y,
+                                   int maxWidth, int color) {
+        Fit fit = measure(tr, s, maxWidth);
+        drawScaled(ctx, tr, fit, right - fit.width, y, color);
+        return fit.width;
+    }
+
+    /** Centred variant: the run is centred on {@code centerX} and may be at most {@code maxWidth} wide. */
+    public static int textFitCenter(DrawContext ctx, TextRenderer tr, String s, int centerX, int y,
+                                    int maxWidth, int color) {
+        Fit fit = measure(tr, s, maxWidth);
+        drawScaled(ctx, tr, fit, centerX - fit.width / 2, y, color);
+        return fit.width;
+    }
+
+    /** Width {@link #textFitLeft} would cover, without drawing anything. */
+    public static int fittedWidth(TextRenderer tr, String s, int maxWidth) {
+        return measure(tr, s, maxWidth).width;
+    }
+
+    // -------------------------------------------------------------- wrap when shrinking fails
+
+    /**
+     * Draws {@code s} inside a {@code maxWidth × boxH} frame, using up to {@code maxLines} lines.
+     *
+     * <p>The fourth tier, and the one that exists because shrinking is not always enough. A word
+     * only shrinks so far before it stops being a word; past that, a frame that is too narrow for one
+     * line is not necessarily too narrow for two. "Cycle spectator camera" is 121px on one line and
+     * 60px per line as "Cycle spectator / camera", so a 74px label column can hold it at full size
+     * instead of holding 75% of it and cutting the last word.</p>
+     *
+     * <p>Shrinking still comes first, though: a label that fits on one line at 0.85× stays on one
+     * line. Wrapping is only reached when a single line would have to be cut, which keeps the
+     * one-line rhythm of the panels intact everywhere the frame is merely a little tight.</p>
+     *
+     * @param top   top of the frame; the block is centred vertically in {@code boxH}
+     * @param boxH  height of the frame the label has to live in
+     * @return the width the block covered, i.e. its widest line, so a caller can anchor to it
+     */
+    public static int textWrapLeft(DrawContext ctx, TextRenderer tr, String s, int x, int top,
+                                   int boxH, int maxWidth, int maxLines, int color) {
+        return drawWrapped(ctx, tr, layout(tr, s, maxWidth, maxLines), x, top, boxH, false, color);
+    }
+
+    /** Centred variant of {@link #textWrapLeft}: the block is centred on {@code centerX}. */
+    public static int textWrapCenter(DrawContext ctx, TextRenderer tr, String s, int centerX,
+                                     int top, int boxH, int maxWidth, int maxLines, int color) {
+        return drawWrapped(ctx, tr, layout(tr, s, maxWidth, maxLines), centerX, top, boxH, true,
+                color);
+    }
+
+    /** Lines {@link #textWrapLeft} would draw, without drawing anything. */
+    public static int wrappedLines(TextRenderer tr, String s, int maxWidth, int maxLines) {
+        return layout(tr, s, maxWidth, maxLines).lines().size();
+    }
+    /** Height a wrapped block occupies: {@code n} lines of 8px with 2px leading between them. */
+    public static int wrappedHeight(int lines) {
+        return lines <= 0 ? 0 : lines * LINE_H + (lines - 1) * (WRAP_PITCH - LINE_H);
+    }
+
+    /**
+     * Whether {@code s} would lose text in a {@code maxWidth × maxLines} frame.
+     *
+     * <p>Asked before drawing so a container can attach the full string as a tooltip. Shrinking and
+     * wrapping are how a label stays whole; this is what to do with the ones that cannot — a 55px
+     * chip holding "Team wool" is a frame that fits, and a 55px chip holding a whole sentence is a
+     * label whose rest belongs somewhere the player can ask for it.</p>
+     */
+    public static boolean willCut(TextRenderer tr, String s, int maxWidth, int maxLines) {
+        return layout(tr, s, maxWidth, maxLines).cut();
+    }
+
+    private static Wrapped layout(TextRenderer tr, String s, int maxWidth, int maxLines) {
+        if (s == null || s.isEmpty() || maxWidth <= 0) {
+            return new Wrapped(List.of(""), 1F, false);
+        }
+        int natural = tr.getWidth(s);
+        if (maxLines <= 1 || natural <= maxWidth
+                || natural * MIN_TEXT_SCALE <= maxWidth + FLOOR_SLACK) {
+            // One line, shrunk if need be. The third test is the rounding slack: a label that lands
+            // within two pixels of the floor keeps its one-line rhythm instead of spending a second
+            // line on something that only needed a slightly wider frame.
+            Fit one = measure(tr, s, maxWidth);
+            boolean cut = natural > maxWidth && natural * MIN_TEXT_SCALE > maxWidth + FLOOR_SLACK;
+            return new Wrapped(List.of(one.text()), one.scale(), cut);
+        }
+        for (float scale : WRAP_SCALES) {
+            List<String> lines = wrap(tr, s, Math.max(1, (int) Math.floor(maxWidth / scale)));
+            if (lines.size() <= maxLines) {
+                return new Wrapped(lines, scale, false);
+            }
+        }
+        // More text than the frame holds even wrapped at the floor: keep what fits and say so.
+        int lineWidth = Math.max(1, (int) Math.floor(maxWidth / MIN_TEXT_SCALE));
+        List<String> all = wrap(tr, s, lineWidth);
+        PvAudit.cut(s, maxWidth * maxLines, natural);
+        List<String> kept = new ArrayList<>(all.subList(0, maxLines));
+        kept.set(maxLines - 1, fit(tr, kept.get(maxLines - 1) + "…", lineWidth));
+        return new Wrapped(kept, MIN_TEXT_SCALE, true);
+    }
+
+    private static int drawWrapped(DrawContext ctx, TextRenderer tr, Wrapped w, int origin,
+                                   int top, int boxH, boolean centred, int color) {
+        List<String> lines = w.lines();
+        int n = lines.size();
+        if (n > 1) {
+            PvAudit.wrapped();
+        }
+        // One line keeps the baseline every single-line label in the panel uses; two or more are
+        // centred as a block, which is what makes a wrapped pair read as one label.
+        int y = top + (boxH - wrappedHeight(n)) / 2 + (n == 1 ? 1 : 0);
+        int widest = 0;
+        for (String line : lines) {
+            Fit fit = new Fit(line, w.scale(), Math.max(1, Math.round(tr.getWidth(line) * w.scale())));
+            drawScaled(ctx, tr, fit, centred ? origin - fit.width() / 2 : origin, y, color);
+            widest = Math.max(widest, fit.width());
+            y += WRAP_PITCH;
+        }
+        return widest;
+    }
+
+    /**
+     * Draws one measured run, scaling the matrix when it had to shrink.
+     *
+     * <p>The audit is handed the <em>drawn</em> box, not the natural one: a shrunk label covers less
+     * than its text would at 1.0×, and recording the natural size would invent a collision with
+     * whatever sits beside it.</p>
+     */
+    private static void drawScaled(DrawContext ctx, TextRenderer tr, Fit fit, int x, int y, int color) {
+        if (fit.text.isEmpty()) {
+            return;
+        }
+        if (fit.scale >= 0.999F) {
+            text(ctx, tr, fit.text, x, y, color);
+            return;
+        }
+        PvAudit.shrunk();
+        if (PvAudit.ON) {
+            PvAudit.text(fit.text, x, y, fit.width,
+                    Math.max(1, Math.round(tr.fontHeight * fit.scale)));
+        }
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(x, y, 0);
+        ctx.getMatrices().scale(fit.scale, fit.scale, 1F);
+        ctx.drawText(tr, fit.text, 0, 0, color, false);
+        ctx.getMatrices().pop();
+    }
+
     /**
      * Panel title: the body face in bold, at 1.0 scale.
      *

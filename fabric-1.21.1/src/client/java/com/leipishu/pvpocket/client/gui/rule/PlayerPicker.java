@@ -104,14 +104,19 @@ public class PlayerPicker extends PvWidget {
         PvDraw.hLine(ctx, px + PvTheme.RADIUS_PANEL + 1, py + 1,
                 PANEL_W - PvTheme.RADIUS_PANEL * 2 - 2, PvTheme.alpha(PvTheme.HIGHLIGHT, appearT));
 
-        PvDraw.text(ctx, tr, PvLang.str(titleKey, teamNumber), px + 12, py + 10, PvTheme.TEXT);
+        // Title and count share one 200px line; the count is generated and short, the title is a
+        // translated sentence fragment, so the title takes what the count leaves.
         String count = PvLang.str("pvpocket.gui.roster.picker_count", candidates.size());
-        PvDraw.textRight(ctx, tr, count, px + PANEL_W - 12, py + 10, PvTheme.TEXT_MUTED);
+        int countW = PvDraw.fittedWidth(tr, count, PANEL_W / 2);
+        PvDraw.textFitLeft(ctx, tr, PvLang.str(titleKey, teamNumber), px + 12, py + 10,
+                PANEL_W - 24 - countW - 8, PvTheme.TEXT);
+        PvDraw.textFitRight(ctx, tr, count, px + PANEL_W - 12, py + 10, PANEL_W / 2,
+                PvTheme.TEXT_MUTED);
         PvDraw.hLine(ctx, px + 12, py + 26, PANEL_W - 24, PvTheme.DIVIDER);
 
         if (candidates.isEmpty()) {
-            PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.roster.picker_empty"),
-                    px + 12, py + HEAD_H, PvTheme.TEXT_MUTED);
+            PvDraw.textFitLeft(ctx, tr, PvLang.str("pvpocket.gui.roster.picker_empty"),
+                    px + 12, py + HEAD_H, PANEL_W - 24, PvTheme.TEXT_MUTED);
         } else {
             int listTop = py + HEAD_H;
             int listBottom = listTop + rowsVisible() * ROW_H;
@@ -129,8 +134,8 @@ public class PlayerPicker extends PvWidget {
                             PvTheme.CARD_HOVER);
                 }
                 PlayerSkinDrawer.draw(ctx, skinOf(entry[1]), px + 12, ry + (ROW_H - 14) / 2, 14);
-                PvDraw.text(ctx, tr, PvDraw.fit(tr, entry[0], PANEL_W - 90),
-                        px + 32, ry + (ROW_H - 8) / 2, PvTheme.TEXT);
+                PvDraw.textFitLeft(ctx, tr, entry[0], px + 32, ry + (ROW_H - 8) / 2,
+                        PANEL_W - 90, PvTheme.TEXT);
                 PvDraw.textRight(ctx, tr, PvLang.str("pvpocket.gui.roster.picker_add"),
                         px + PANEL_W - 14, ry + (ROW_H - 8) / 2,
                         hot ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);

@@ -42,6 +42,15 @@ public class MatchListScreen extends PvScreen {
     private static final int BTN_H = 22;
 
     /**
+     * Least width the map name keeps before the row drops what qualifies it.
+     *
+     * <p>48px is "Colosseum" at the legibility floor. The stage chip and the round number are
+     * measured against it, not the other way round — see the right-to-left budget in the row
+     * renderer.</p>
+     */
+    private static final int MIN_MAP_ROOM = 48;
+
+    /**
      * One row of the list, parsed from the payload's flat encoding.
      *
      * <p>{@code map} is a map id and {@code stage} is a session stage name — both identifiers rather
@@ -300,26 +309,37 @@ public class MatchListScreen extends PvScreen {
                 : null;
         int room = leftLimit - textX;
         int roundW = round == null ? 0 : tr.getWidth(round) + 6;
-        // The round number is the first thing to go: it qualifies the stage, while the stage and the
-        // map name are the row. Squeezing all three into a 178px card truncated the map to two
-        // letters and still ran the round through the score.
-        if (round != null && room - chipW - 8 - roundW < 24) {
+        // Right-to-left priority: the round number goes first (it qualifies the stage), then the
+        // stage chip itself (it qualifies the map), and the map name keeps a floor-sized minimum
+        // throughout. Squeezing all three into a 178px card truncated the map to two letters and
+        // still ran the round through the score; on the narrowest card the answer is to say where
+        // and who, and to leave the state to the accent bar on the leading edge.
+        if (round != null && room - chipW - 8 - roundW < MIN_MAP_ROOM) {
             round = null;
             roundW = 0;
         }
-        String map = PvDraw.fit(tr, entry.mapLabel(), Math.max(8, room - chipW - 8 - roundW));
-        PvDraw.text(ctx, tr, map, textX, line1, PvTheme.TEXT);
+        boolean stageChip = room - chipW - 8 >= MIN_MAP_ROOM;
+        if (!stageChip) {
+            chipW = 0;
+        }
+        // Shrunk rather than cut: the map name is the row's subject, and a 178px card in English is
+        // exactly where "arena_colosseum" became "arena_co…". The width the run actually covers is
+        // what the stage chip is anchored to, so the two cannot drift apart.
+        int mapW = PvDraw.textFitLeft(ctx, tr, entry.mapLabel(), textX, line1,
+                Math.max(MIN_MAP_ROOM, room - chipW - 8 - roundW), PvTheme.TEXT);
 
         // Stage chip, right after the map name so the eye reads "where, then what state". The live
         // colour is keyed on the stage constant, not on the rendered word: "in progress" is a
         // different string in every language and comparing against it broke the moment a second one
         // existed.
         int stageColor = "ROUND_ACTIVE".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
-        int chipX = textX + tr.getWidth(map) + 8;
-        PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3, PvTheme.alpha(stageColor, 0.14F));
-        PvDraw.text(ctx, tr, stage, chipX + 5, line1, stageColor);
+        int chipX = textX + mapW + 8;
+        if (stageChip) {
+            PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3, PvTheme.alpha(stageColor, 0.14F));
+            PvDraw.text(ctx, tr, stage, chipX + 5, line1, stageColor);
+        }
 
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, entry.playersLine(), leftLimit - textX), textX, line2,
+        PvDraw.textFitLeft(ctx, tr, entry.playersLine(), textX, line2, leftLimit - textX,
                 PvTheme.TEXT_DIM);
 
         // Score and spectator count right-aligned against the button, on one line centred in the

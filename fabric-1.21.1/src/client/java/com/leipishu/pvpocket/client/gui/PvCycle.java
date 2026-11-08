@@ -33,6 +33,8 @@ import java.util.function.IntPredicate;
 public class PvCycle extends PvValueControl {
 
     private static final int ARROW = 22;
+    /** The 24px control holds two lines of the 8px face between the arrows. */
+    private static final int MAX_LINES = 2;
 
     private final RuleDefinition def;
     /** Values to step over, or null when every choice is available. */
@@ -94,11 +96,15 @@ public class PvCycle extends PvValueControl {
         boolean taken = blocked(value);
         String label = def.format(value);
         int maxLabel = width - ARROW * 2 - 8;
-        String fitted = PvDraw.fit(tr, label, maxLabel);
         int textColor = !enabled ? PvTheme.TEXT_MUTED : taken ? PvTheme.ACCENT : PvTheme.TEXT;
-        int labelW = tr.getWidth(fitted);
+        // The arrows take fixed room at both ends, so the label has to give way: shrunk first, then
+        // wrapped between them, and cut only when two lines at the floor are not enough. A 107px
+        // control with 22px arrows leaves 55px for the label, which is "Golden / carrot" rather
+        // than "Golden car…".
         int cx = x + width / 2;
-        PvDraw.text(ctx, tr, fitted, cx - labelW / 2, y + (height - 8) / 2 + 1, textColor);
+        int labelW = PvDraw.textWrapCenter(ctx, tr, label, cx, y, height, maxLabel,
+                MAX_LINES, textColor);
+        overflowTip(label, PvDraw.willCut(tr, label, maxLabel, MAX_LINES));
 
         if (taken && enabled) {
             // A 3px marker in the accent colour: the same channel the text uses, so a colour-blind
@@ -117,7 +123,7 @@ public class PvCycle extends PvValueControl {
         if (enabled && blocked(value)) {
             return PvLang.str("pvpocket.gui.rule.map_busy_tooltip");
         }
-        return tooltip;
+        return overflow() != null ? overflow() : tooltip;
     }
 
     @Override

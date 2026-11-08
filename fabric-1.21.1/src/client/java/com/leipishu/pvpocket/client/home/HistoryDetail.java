@@ -84,7 +84,7 @@ public class HistoryDetail extends PvWidget {
                 + PvLang.str(record.mode().equals("legacy")
                 ? "pvpocket.gui.home.mode.legacy" : "pvpocket.gui.home.mode.modern")
                 + " · " + HomeText.stamp(record.t()) + " · " + HomeText.duration(record.duration());
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, meta, cw - 32), cx + 16, cy + 28, PvTheme.TEXT_DIM);
+        PvDraw.textFitLeft(ctx, tr, meta, cx + 16, cy + 28, cw - 32, PvTheme.TEXT_DIM);
 
         String score = record.myScore() + " : " + record.theirScore();
         PvDraw.title(ctx, tr, score, cx + 16, cy + 44, PvTheme.TEXT);
@@ -156,7 +156,8 @@ public class HistoryDetail extends PvWidget {
         String sides = record.teamMates().isEmpty()
                 ? PvLang.str("pvpocket.gui.home.history.solo")
                 : PvLang.str("pvpocket.gui.home.detail.sides", record.teamMates(), record.opponents());
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, sides, cw - 32), cx + 16, peopleY, PvTheme.TEXT_DIM);
+        // Both sides' names on one line: unbounded input in a 360px card.
+        PvDraw.textFitLeft(ctx, tr, sides, cx + 16, peopleY, cw - 32, PvTheme.TEXT_DIM);
 
         int by = cy + ch - 28;
         copy.x = cx + 16;

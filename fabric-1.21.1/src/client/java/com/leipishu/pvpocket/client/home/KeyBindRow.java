@@ -146,11 +146,16 @@ public class KeyBindRow extends PvWidget {
                 : binding.getBoundKeyLocalizedText().getString();
         int color = capturing == this ? PvTheme.ACCENT
                 : hot ? PvTheme.TEXT : PvTheme.TEXT_DIM;
-        PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, text, CAP_W - 8), capX + CAP_W / 2,
-                capY + (CAP_H - 8) / 2 + 1, color);
+        // The key cap is a fixed 92px box, and a bound key's name is whatever vanilla calls it
+        // ("Left Shift", "Mouse Button 4"), so it shrinks before it is cut.
+        PvDraw.textFitCenter(ctx, tr, text, capX + CAP_W / 2, capY + (CAP_H - 8) / 2 + 1,
+                CAP_W - 6, color);
 
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, capX - 8 - x), x,
-                y + (height - 8) / 2 + 1, PvTheme.TEXT);
+        // The label column is whatever the cap leaves, which on a 174px row is 74px: enough for
+        // "Cycle spectator / camera" over two lines, not enough for 91px on one. The row is 24px
+        // tall, so the second line costs nothing.
+        PvDraw.textWrapLeft(ctx, tr, label, x, y, height, capX - 8 - x, 2, PvTheme.TEXT);
+        overflowTip(label, PvDraw.willCut(tr, label, capX - 8 - x, 2));
     }
 
     @Override
@@ -164,7 +169,12 @@ public class KeyBindRow extends PvWidget {
 
     @Override
     public String tooltipAt(int mouseX, int mouseY) {
-        return contains(mouseX, mouseY)
-                ? PvLang.str("pvpocket.gui.home.settings.key_tip") : null;
+        if (!contains(mouseX, mouseY)) {
+            return null;
+        }
+        // A cut label outranks "click to rebind": the tip is discoverable by trying, the end of a
+        // truncated action name is not.
+        return overflow() != null ? overflow()
+                : PvLang.str("pvpocket.gui.home.settings.key_tip");
     }
 }

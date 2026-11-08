@@ -104,8 +104,16 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   不少控件是在 `render()` 里用坐标自己算悬停的（卡片行、步进器端帽、chip、输入框光标）。
 - **物品图标盖不住，只能不画。** `ctx.drawItem` 送到 `z=150` 的深度测试层，任何顺序的半透明遮罩
   都盖不住；弹窗存在时置 `PvDraw.itemsVisible = false`。
+- **框定控件里的文本走 `PvDraw.textFit*` / `textWrap*`，不要直接 `ctx.drawText`。** 阶梯是
+  原样 → 缩小（地板 `MIN_TEXT_SCALE = 0.75`）→ 换行 → 截断，差 2px 以内算放得下。任何写死宽度的
+  框（按钮、chip、cycle、步进器、行标签列）都必须过它，否则英文一定溢出——中文放得下不代表英文
+  放得下，而 `-PuiAudit` 默认跑中文，测英文要先把 `runs/client1/options.txt` 的 `lang` 改掉。
+- **尺寸能改就别靠缩小硬塞。** 装饰性的东西先让出去：`PvCycle` 的箭头内距、历史行的回合点阵、
+  对局行的阶段 chip，都是被让掉的一方。审计里的 `cut:` 清单说的是「这个框真的不够宽」，不是
+  「字太大」——照着清单改框。`shrunk` 计数则是机制在正常工作，不用管。
 - **`PvScrollPane` 的顺序是「宽度 → `onWidth()` → 高度」**。高度依赖宽度的控件必须走
-  `PvWidget.onWidth()` 钩子，先算高度会让滚动范围永远是错的。
+  `PvWidget.onWidth()` 钩子，先算高度会让滚动范围永远是错的。`SettingRow.hint` 就是这样拿到
+  行高的（提示句几行取决于宽度）。
 - **`init()` 在窗口 resize 时也会跑**。选中的标签页、正在编辑的名册、已填的输入必须跨 `init()`
   保留，否则改一次窗口大小就丢一次工作。
 - **侧栏是一条竖向预算。** 侧栏高 = 顶栏以下全部，`Tab 高 × 条目数 + 按钮高 × 个数 + 间距` 必须装得下；

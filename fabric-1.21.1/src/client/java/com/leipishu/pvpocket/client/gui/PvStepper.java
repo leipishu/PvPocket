@@ -110,8 +110,9 @@ public class PvStepper extends PvValueControl {
         int color = !enabled ? PvTheme.TEXT_MUTED
                 : focused ? PvTheme.ACCENT
                 : PvTheme.mix(PvTheme.TEXT, 0xFFFFFFFF, hoverT * 0.5F);
-        PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, readout, READOUT), centerX,
-                y + (height - 8) / 2 + 1, color);
+        // The readout sits between two fixed caps, so a long unit ("15 rounds" against "15 局")
+        // shrinks rather than running under them.
+        PvDraw.textFitCenter(ctx, tr, readout, centerX, y + (height - 8) / 2 + 1, READOUT, color);
 
         drawFocusRing(ctx, PvTheme.RADIUS);
     }

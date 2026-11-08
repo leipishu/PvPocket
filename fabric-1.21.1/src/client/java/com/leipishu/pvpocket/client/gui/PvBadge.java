@@ -60,6 +60,9 @@ public class PvBadge extends PvWidget {
         }
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
         PvDraw.roundRect(ctx, x, y, width, H, 3, fillColor);
-        PvDraw.textCenter(ctx, tr, label, x + width / 2, y + (H - 8) / 2 + 1, textColor);
+        // The pill's width comes from this same label, so it normally draws at 1.0×; the shrink is
+        // there for a caller that pinned the width to something narrower.
+        PvDraw.textFitCenter(ctx, tr, label, x + width / 2, y + (H - 8) / 2 + 1, width - PAD * 2,
+                textColor);
     }
 }

@@ -308,6 +308,16 @@ public class HomeScreen extends PvScreen {
     /** Height of one live-match row. Shared by the layout and the drawing of the row behind it. */
     private static final int LIVE_ROW_H = 30;
 
+    /**
+     * Least width a map name keeps before the row drops what qualifies it.
+     *
+     * <p>48px is "Colosseum" at the legibility floor, i.e. the narrowest frame that still names a
+     * map in either language. The stage chip, the round number and the round strip are all measured
+     * against it rather than the other way round: a row that says "Round 3/7" and cannot say where
+     * has said nothing.</p>
+     */
+    private static final int MIN_MAP_ROOM = 48;
+
     /** Where the live-match rows start: lower when the content well is tall enough for a heading. */
     private int liveTop() {
         return contentH() < 130 ? contentY() + 70 : contentY() + 94;
@@ -478,7 +488,7 @@ public class HomeScreen extends PvScreen {
             pane.add(new KeyBindRow(binding.getTranslationKey() == null ? "?"
                     : Text.translatable(binding.getTranslationKey()).getString(), binding));
         }
-        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.key_hint")));
+        pane.add(SettingRow.hint(PvLang.str("pvpocket.gui.home.settings.key_hint")));
 
         if (client.player != null) {
             pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.presets"), null,
@@ -573,9 +583,11 @@ public class HomeScreen extends PvScreen {
         int w = contentW();
         int h = contentH();
 
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, greeting(), w), x, y, PvTheme.TEXT);
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, PvLang.str("pvpocket.gui.home.quote." + QUOTE), w),
-                x, y + 14, PvTheme.TEXT_DIM);
+        // The greeting carries the player's name, so its length is not ours; the quote is a whole
+        // sentence. Both shrink before they are cut, which is what keeps a name readable.
+        PvDraw.textFitLeft(ctx, tr, greeting(), x, y, w, PvTheme.TEXT);
+        PvDraw.textFitLeft(ctx, tr, PvLang.str("pvpocket.gui.home.quote." + QUOTE), x, y + 14, w,
+                PvTheme.TEXT_DIM);
 
         List<MatchListScreen.Entry> matches = HomeState.matches();
         boolean tight = h < 130;
@@ -628,19 +640,25 @@ public class HomeScreen extends PvScreen {
         int room = btnX - 8 - textX;
 
         String score = entry.score();
-        PvDraw.text(ctx, tr, entry.mapLabel(), textX, line1, PvTheme.TEXT);
-        int chipX = textX + tr.getWidth(PvDraw.fit(tr, entry.mapLabel(), room / 2)) + 6;
+        // The stage chip is measured first and gives way first: it qualifies the map, while the map
+        // names the row. On a 130px card the chip left the name 26px, which is "Colum…"; below the
+        // threshold the chip is dropped and the name gets the whole line instead.
         String stage = entry.stageLabel();
         int chipW = tr.getWidth(stage) + 10;
+        boolean chip = room - 6 - chipW >= MIN_MAP_ROOM;
+        // The run reports what it covered, so the chip is anchored to the drawn width and a long map
+        // name can no longer run underneath it.
+        int mapW = PvDraw.textFitLeft(ctx, tr, entry.mapLabel(), textX, line1,
+                chip ? room - 6 - chipW : room, PvTheme.TEXT);
+        int chipX = textX + mapW + 6;
         int stageColor = "ROUND_ACTIVE".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
-        if (chipX + chipW < btnX - 8) {
+        if (chip && chipX + chipW < btnX - 8) {
             PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3,
                     PvTheme.alpha(stageColor, 0.14F));
             PvDraw.text(ctx, tr, stage, chipX + 5, line1, stageColor);
         }
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, entry.playersLine(), room), textX, line2,
-                PvTheme.TEXT_DIM);
-        PvDraw.textRight(ctx, tr, score, btnX - 10, y + (h - 8) / 2 + 1, PvTheme.TEXT);
+        PvDraw.textFitLeft(ctx, tr, entry.playersLine(), textX, line2, room, PvTheme.TEXT_DIM);
+        PvDraw.textFitRight(ctx, tr, score, btnX - 10, y + (h - 8) / 2 + 1, 64, PvTheme.TEXT);
     }
 
     private void drawStats(DrawContext ctx, TextRenderer tr) {
@@ -679,8 +697,10 @@ public class HomeScreen extends PvScreen {
             // is narrower than "1,820" plus its label.
             for (int i = 0; i < cards.length; i++) {
                 int cy = y + i * 17;
-                PvDraw.text(ctx, tr, cards[i][0], x, cy, PvTheme.TEXT_MUTED);
-                PvDraw.textRight(ctx, tr, cards[i][1], x + w, cy, PvTheme.TEXT);
+                int valueW = PvDraw.fittedWidth(tr, cards[i][1], w / 2);
+                PvDraw.textFitLeft(ctx, tr, cards[i][0], x, cy, w - valueW - 8,
+                        PvTheme.TEXT_MUTED);
+                PvDraw.textFitRight(ctx, tr, cards[i][1], x + w, cy, w / 2, PvTheme.TEXT);
             }
         }
         if (!any) {
@@ -692,7 +712,7 @@ public class HomeScreen extends PvScreen {
     private void drawStatCard(DrawContext ctx, TextRenderer tr, int x, int y, int w, int h,
                               String label, String value, boolean accent) {
         PvDraw.roundRect(ctx, x, y, w, h, PvTheme.RADIUS, PvTheme.CARD);
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, label, w - 16), x + 8, y + 7, PvTheme.TEXT_MUTED);
+        PvDraw.textFitLeft(ctx, tr, label, x + 8, y + 7, w - 16, PvTheme.TEXT_MUTED);
         PvDraw.title(ctx, tr, PvDraw.fit(tr, value, w - 16), x + 8, y + 21,
                 accent ? PvTheme.ACCENT : PvTheme.TEXT);
     }

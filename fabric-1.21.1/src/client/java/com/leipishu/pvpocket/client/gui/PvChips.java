@@ -24,6 +24,8 @@ public class PvChips extends PvValueControl {
 
     private static final int GAP = 4;
     private static final int H = 22;
+    /** A 22px chip holds two lines of the 8px face; a third would need a taller row. */
+    private static final int MAX_LINES = 2;
 
     private final RuleDefinition def;
     /** Chips that stay on no matter what; see {@link RuleCatalog#lockedBits}. */
@@ -96,13 +98,33 @@ public class PvChips extends PvValueControl {
             }
 
             PvDraw.roundRect(ctx, cx, y, cw, H, 3, fill);
-            String label = PvDraw.fit(tr, def.choiceLabel(i), cw - 10);
-            PvDraw.textCenter(ctx, tr, label, cx + cw / 2, y + (H - 8) / 2 + 1, textColor);
+            // Equal-width chips cannot grow for a longer word, so the label gives way instead:
+            // shrunk first, then wrapped onto a second line, and cut only when even two lines at the
+            // floor are not enough. "Respawn anchors" is 85px on one line and 33px per line as
+            // "Respawn / anchors", which is the difference between a 45px chip and a truncated one.
+            PvDraw.textWrapCenter(ctx, tr, def.choiceLabel(i), cx + cw / 2, y, H, cw - 10,
+                    MAX_LINES, textColor);
         }
 
         // The row is one tab stop, not one per chip: tabbing through five chips to reach the next
         // rule would make the panel feel like it is fighting the keyboard.
         drawFocusRing(ctx, 3);
+    }
+
+    @Override
+    public String tooltipAt(int mouseX, int mouseY) {
+        if (!visible || !contains(mouseX, mouseY)) {
+            return null;
+        }
+        int index = chipAt(mouseX);
+        if (index < 0) {
+            return null;
+        }
+        // Per chip, not per row: the tooltip names the one under the pointer, and only when that
+        // one had to be cut.
+        String label = def.choiceLabel(index);
+        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        return PvDraw.willCut(tr, label, chipWidth() - 10, MAX_LINES) ? label : null;
     }
 
     @Override

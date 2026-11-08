@@ -284,11 +284,13 @@ public class RosterBoard extends PvWidget {
         // The bar keeps the raw wool colour so it can be matched against a block on the floor.
         PvDraw.roundRect(ctx, cx + 1, cy + 1, cw - 2, 3, 1, PvTheme.team(team));
 
+        int capX = cx + cw - 6 - CAP;
         String title = PvLang.str("pvpocket.gui.roster.team", team + 1);
-        PvDraw.text(ctx, tr, title, cx + 8, cy + 7,
+        // The team header shares the top edge with the add/remove caps, so it is measured against
+        // what those leave rather than against the whole card.
+        PvDraw.textFitLeft(ctx, tr, title, cx + 8, cy + 7, capX - 8 - (cx + 8),
                 empty ? PvTheme.TEXT_MUTED : PvTheme.teamInk(team));
 
-        int capX = cx + cw - 6 - CAP;
         if (editable) {
             // Remove-team sits to the left of add-player, so the add button keeps the corner the
             // player is told to look for.
@@ -329,8 +331,11 @@ public class RosterBoard extends PvWidget {
         int textY = sy + (SLOT_H - 8) / 2;
         int nameColor = rejected ? PvTheme.TEXT_MUTED : PvTheme.TEXT;
         String name = member.name;
+        // Player names are the most variable text in the whole interface and the card is the
+        // narrowest frame that holds one, so this is where shrinking earns its keep: 16 characters
+        // at full size do not fit a 180px card next to a head and a remove mark.
         int nameMax = rowW - HEAD - 22;
-        PvDraw.text(ctx, tr, PvDraw.fit(tr, name, nameMax), rowX + HEAD + 5, textY, nameColor);
+        PvDraw.textFitLeft(ctx, tr, name, rowX + HEAD + 5, textY, nameMax, nameColor);
 
         if (editable) {
             PvDraw.textRight(ctx, tr, "x", rowX + rowW - 4, textY,

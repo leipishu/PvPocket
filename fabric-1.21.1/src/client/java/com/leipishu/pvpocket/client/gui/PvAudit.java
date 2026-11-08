@@ -70,6 +70,10 @@ public final class PvAudit {
     private static final Map<String, Integer> KINDS = new LinkedHashMap<>();
     private static final List<String> FINDINGS = new ArrayList<>();
     private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
+    /** Labels that had to shrink, wrap onto a second line, and the distinct strings that had to be cut. */
+    private static int SHRUNK;
+    private static int WRAPPED;
+    private static final java.util.Set<String> CUT_LABELS = new java.util.LinkedHashSet<>();
 
     private static String screen = "";
     private static int canvasW;
@@ -188,12 +192,23 @@ public final class PvAudit {
 
     /** A text run: {@code x} is its left edge, {@code w} what the font measured. */
     public static void text(String value, int x, int y, int w) {
+        text(value, x, y, w, TEXT_H);
+    }
+
+    /**
+     * Records a text run whose height is not the nominal line height.
+     *
+     * <p>Only shrunk labels use this: a label drawn at 0.8× is 7px tall, not 9. Recording the
+     * nominal height for it would make the box taller than the pixels, and the audit would then
+     * report a collision with whatever sits two pixels below a label that does not reach it.</p>
+     */
+    public static void text(String value, int x, int y, int w, int h) {
         if (!active || w <= 0 || value == null || value.isEmpty()) {
             return;
         }
         String label = value.length() > TEXT_LABEL ? value.substring(0, TEXT_LABEL) + "…" : value;
         BOXES.add(new Box("t" + BOXES.size(), '"' + label + '"', "text", null, layer,
-                x, y, w, TEXT_H, 0, 0, 0, 0, false, true));
+                x, y, w, h, 0, 0, 0, 0, false, true));
     }
 
     // ------------------------------------------------------------------ checking
@@ -306,11 +321,54 @@ public final class PvAudit {
         if (FINDINGS.isEmpty()) {
             System.out.println("[pvaudit]    clean");
         }
+        // Labels are a separate report from overlaps on purpose: a shrunk label is the system
+        // working (the word survived), and a cut one is the system giving up (the word did not fit
+        // even at the legibility floor). Neither is a geometry finding — a cut label is *inside* its
+        // frame by construction, which is exactly why nothing else would ever report it.
+        System.out.println("[pvaudit]    labels: " + SHRUNK + " shrunk, " + WRAPPED + " wrapped, "
+                + CUT_LABELS.size() + " cut");
+        for (String cut : CUT_LABELS) {
+            System.out.println("[pvaudit]    cut: \"" + cut + '"');
+        }
         int total = FINDINGS.size();
         FINDINGS.clear();
         KINDS.clear();
         SEEN.clear();
+        CUT_LABELS.clear();
+        SHRUNK = 0;
         return total;
+    }
+
+    /** One label drawn below 1.0× because its frame was narrower than the word. */
+    public static void shrunk() {
+        if (ON) {
+            SHRUNK++;
+        }
+    }
+
+    /** One label that needed a second line because shrinking alone would have cut it. */
+    public static void wrapped() {
+        if (ON) {
+            WRAPPED++;
+        }
+    }
+
+    /**
+     * One label that did not fit even at {@link PvDraw#MIN_TEXT_SCALE} and had to be cut.
+     *
+     * <p>The frame width is recorded with it: "this string was cut" is not actionable, "this string
+     * needed 84px and had 46px" says whether the frame is slightly too narrow or the row is simply
+     * out of room.</p>
+     */
+    public static void cut(String value, int maxWidth, int naturalWidth) {
+        if (ON && value != null && !value.isEmpty()) {
+            // The screen and the canvas go with it: the same string is cut on a 320x180 canvas and
+            // fits at 426x240, and a list that does not say which is which sends the reader looking
+            // at a layout that is already correct.
+            CUT_LABELS.add(value + "  [" + screen + ' ' + canvasW + 'x' + canvasH
+                    + ", frame " + maxWidth + "px, needs "
+                    + Math.round(naturalWidth * PvDraw.MIN_TEXT_SCALE) + "px at the floor]");
+        }
     }
 
     /** How many distinct findings have been recorded since the last {@link #summary}. */

@@ -38,6 +38,31 @@ public abstract class PvWidget {
     /** Shown on hover by the screen, drawn last so it is never clipped by a scroll pane. */
     public String tooltip;
 
+    /**
+     * The full text of a label this widget had to cut, or null.
+     *
+     * <p>The last resort for text that is genuinely too long for its frame: shrinking stops at the
+     * legibility floor and wrapping stops at the height the row has, so the remainder has to live
+     * somewhere the player can ask for it. Hovering is that place — the ellipsis says "there is
+     * more", and the tooltip says what.</p>
+     */
+    private String overflow;
+
+    /**
+     * Records whether a label was cut this pass, keeping the string to show if it was.
+     *
+     * <p>Called from {@code render} with the result of {@link PvDraw#willCut}, so a resize that
+     * makes the label fit again also clears the tooltip.</p>
+     */
+    protected void overflowTip(String full, boolean cut) {
+        this.overflow = cut ? full : null;
+    }
+
+    /** The overflow text, for widgets that answer {@link #tooltipAt} themselves. */
+    protected String overflow() {
+        return overflow;
+    }
+
     public boolean contains(double mx, double my) {
         return mx >= x && mx < x + width && my >= y && my < y + height;
     }
@@ -123,9 +148,15 @@ public abstract class PvWidget {
      *
      * <p>Asked of the tree rather than tracked as "the hovered widget" so that containers can
      * forward the question to their children and the screen only ever needs to walk its roots.</p>
+     *
+     * <p>A cut label outranks a standing hint: the hint is a nicety that is still there when the
+     * pointer moves, while the end of a truncated word is only readable through the tooltip.</p>
      */
     public String tooltipAt(int mouseX, int mouseY) {
-        return visible && tooltip != null && contains(mouseX, mouseY) ? tooltip : null;
+        if (!visible || !contains(mouseX, mouseY)) {
+            return null;
+        }
+        return overflow != null ? overflow : tooltip;
     }
 
     /** Keyboard activation (Enter / Space). No-op for widgets that cannot be activated. */

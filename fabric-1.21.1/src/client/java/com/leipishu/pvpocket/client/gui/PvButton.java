@@ -146,14 +146,17 @@ public class PvButton extends PvWidget {
             PvDraw.roundPanel(ctx, bx, by, bw, bh, PvTheme.RADIUS, border, fill);
         }
         drawFocusRing(ctx, PvTheme.RADIUS);
-        // Fitted, not trusted. A button is the one widget whose size callers set by hand — a fixed
-        // 44px default, a shared row, a chip measured from its own label — and in the first two
-        // cases the label can be wider than the box. Centred text that overflows by 6px does not
-        // read as "the button is too small", it reads as a label printed across the neighbour.
-        // Two pixels a side is enough inset for centred text, and it leaves the label the room a
-        // caller who sized the button from that same label expects.
-        PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, label, bw - 4), bx + bw / 2,
-                by + (bh - 8) / 2 + 1, textColor);
+        // Measured, then shrunk, then wrapped, then cut — in that order. A button is the one widget
+        // whose size callers set by hand, and in two of the three cases (a fixed 44px default, a row
+        // of equal buttons) the label can be wider than the box. Shrinking is what keeps the word:
+        // the same row of buttons used to read "Copy res… / Acc… / Rej…" in English, where the
+        // Chinese labels had fitted at full size. A 20px button then spends a second line rather
+        // than an ellipsis — "Accept & / start" at 55px — and only a label that needs more than two
+        // lines at the floor is truncated. A 16px title-row chip has no second line to spend.
+        PvDraw.textWrapCenter(ctx, tr, label, bx + bw / 2, by, bh, bw - 4,
+                height >= PvTheme.BTN_H ? 2 : 1, textColor);
+        // If even that was not enough, the rest of the word is one hover away.
+        overflowTip(label, PvDraw.willCut(tr, label, bw - 4, height >= PvTheme.BTN_H ? 2 : 1));
     }
 
     @Override
