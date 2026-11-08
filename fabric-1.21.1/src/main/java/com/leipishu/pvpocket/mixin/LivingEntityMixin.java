@@ -3,10 +3,12 @@ package com.leipishu.pvpocket.mixin;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.LegacyCombatValues;
 import com.leipishu.pvpocket.combat.LegacyKnockback;
+import com.leipishu.pvpocket.session.SessionManager;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.tag.DamageTypeTags;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -119,6 +121,29 @@ public abstract class LivingEntityMixin {
             if (player.isSprinting()) {
                 player.setSprinting(false);
             }
+        }
+    }
+
+    /**
+     * Career damage, counted where the final number exists.
+     *
+     * <p>{@code applyDamage} receives the amount <em>after</em> armour and <em>before</em> absorption
+     * and the health subtraction, which is the only point where "how hard did that hit land" is a
+     * single value. Earlier (in {@code damage}) armour is still to be applied; later (in
+     * {@code onDamaged}) the health has already moved and the amount would have to be reconstructed
+     * from a difference.</p>
+     *
+     * <p>Restricted to {@link ServerPlayerEntity} so the client's prediction never counts: the
+     * prediction runs the same method on the client's copy of the victim, and counting there would
+     * double every hit. The membership rules live in {@code SessionManager#noteDamage} — this hook
+     * stays one call so there is only one place to change what a duel hit is.</p>
+     */
+    @Inject(method = "applyDamage", at = @At("HEAD"))
+    private void pvpocket$recordDuelDamage(DamageSource source, float amount, CallbackInfo ci) {
+        LivingEntity self = (LivingEntity) (Object) this;
+        if (self instanceof ServerPlayerEntity victim
+                && source.getAttacker() instanceof ServerPlayerEntity attacker) {
+            SessionManager.noteDamage(victim, attacker, amount);
         }
     }
 }

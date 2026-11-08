@@ -13,6 +13,8 @@ import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
+import com.leipishu.pvpocket.network.HomeActionPayload;
+import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -21,6 +23,9 @@ import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.Rulebook;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
+import com.leipishu.pvpocket.stats.DuelStats;
+import com.leipishu.pvpocket.stats.MatchRecord;
+import com.leipishu.pvpocket.stats.PlayerStats;
 import com.leipishu.pvpocket.storage.HomePositions;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
@@ -185,6 +190,13 @@ public final class SessionManager {
      * spectatorship is a state somebody opted into, and this is the absence of every such state.</p>
      */
     private final ArenaGuard guard;
+    /**
+     * Lifetime counters and finished-match history.
+     *
+     * <p>Owned here rather than by a session because it outlives every session — the whole point of
+     * a career record is that it survives the match that produced it.</p>
+     */
+    private final DuelStats stats;
     private int sweepTimer;
 
     private SessionManager(MinecraftServer server) {
@@ -194,6 +206,7 @@ public final class SessionManager {
         this.spectators = new Spectators(this);
         this.homes = HomePositions.load(server);
         this.guard = ArenaGuard.load(this, server);
+        this.stats = new DuelStats(storage.root());
     }
 
     /** Package-private: {@link Spectators} needs the server for lookups and teleports. */
@@ -246,6 +259,9 @@ public final class SessionManager {
     // ------------------------------------------------------------------ startup / shutdown
 
     public void load() {
+        // Counters first: a session that finishes during the same tick as the first join would
+        // otherwise write into a store that has not read the file yet, and overwrite a career.
+        stats.load();
         try {
             storage.ensureLayout();
         } catch (IOException e) {
@@ -348,6 +364,7 @@ public final class SessionManager {
         // of the arena, so these are the positions they will be rescued to if the next boot finds
         // anybody still standing on a plot.
         homes.flush();
+        stats.flush();
     }
 
     // ------------------------------------------------------------------ guard / reset
@@ -1027,6 +1044,7 @@ public final class SessionManager {
         // path teleports people. The decision is recorded now so a crash between death and respawn
         // still leaves a journalled outcome.
         me.eliminated = true;
+        recordDeath(session, me, player);
         session.pendingWinner = me.uuid;
         session.pendingReason = "DEATH";
         session.pendingWinnerTeam = lastTeamStanding(session);
@@ -3316,6 +3334,11 @@ public final class SessionManager {
         }
         journal(session).append("ROUND_ENDED",
                 "round", session.round, "reason", reason, "winnerTeam", winnerTeam);
+        // Logged before the start time is dropped, and persisted with the session so a crash between
+        // this round and the end of the series still leaves the per-round detail behind.
+        long startedAt = roundStartedAt.getOrDefault(session.id, System.currentTimeMillis());
+        session.roundLog.add(new DuelSession.RoundLog(winnerTeam, reason,
+                Math.max(0L, System.currentTimeMillis() - startedAt)));
         if (winnerTeam >= 0) {
             session.addWin(winnerTeam);
         }
@@ -3364,6 +3387,318 @@ public final class SessionManager {
         finishSeries(session, seriesWinner);
     }
 
+    // ------------------------------------------------------------------ stats and history
+
+    /**
+     * Counts one death, and one kill for whoever landed the last hit when that was an opponent.
+     *
+     * <p>Kills are attributed at the moment the victim dies rather than from the damage stream: a
+     * player can be hit by four people and only one of them killed them, and the damage stream has
+     * no way to say which hit was the last. The victim's own side is excluded, which also covers the
+     * friendly-fire-allowed rule: a team kill is a death, never a kill.</p>
+     */
+    private void recordDeath(DuelSession session, Participant me, ServerPlayerEntity victim) {
+        stats.addDeath(me.uuid);
+        stats.name(me.uuid, me.name);
+        if (!(victim.getAttacker() instanceof ServerPlayerEntity killer)
+                || killer.getUuid().equals(victim.getUuid())) {
+            return;
+        }
+        Participant kp = session.participant(killer.getUuidAsString());
+        if (kp == null || kp.rejected || kp.teamIndex() == me.teamIndex()) {
+            return;
+        }
+        stats.addKill(kp.uuid);
+        stats.name(kp.uuid, kp.name);
+    }
+
+    /**
+     * Damage dealt to an opponent, called from the {@code applyDamage} hook.
+     *
+     * <p>Static and defensive because the hook runs for every living entity on the server: a mob
+     * hitting a zombie, a player on fire outside a duel, a client-side prediction. Everything that is
+     * not "two players, same live session, different sides" is dropped here rather than at the call
+     * site, so the mixin stays one line and the rule stays in one place.</p>
+     */
+    public static void noteDamage(ServerPlayerEntity victim, ServerPlayerEntity attacker,
+                                  float amount) {
+        SessionManager self = instance;
+        if (self == null || amount <= 0F || victim == null || attacker == null
+                || attacker.getUuid().equals(victim.getUuid())) {
+            return;
+        }
+        String sessionId = self.sessionByPlayer.get(victim.getUuid());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = self.sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+            return;
+        }
+        Participant v = session.participant(victim.getUuidAsString());
+        Participant a = session.participant(attacker.getUuidAsString());
+        if (v == null || a == null || v.rejected || a.rejected || v.teamIndex() == a.teamIndex()) {
+            return;
+        }
+        self.stats.addDamage(a.uuid, amount);
+    }
+
+    /**
+     * Writes one {@link MatchRecord} per participant at the end of a series.
+     *
+     * <p>Three exclusions, each for a different reason: a server stop is not a finished match, a
+     * series with no settled round is a failed start rather than a loss, and a declined invite is not
+     * a participant. Without the middle one, every aborted draft that reached the preparation window
+     * would count as a match somebody lost.</p>
+     */
+    private void recordSeries(DuelSession session, int winnerTeam) {
+        if (server.isStopping() || session.roundLog.isEmpty()) {
+            return;
+        }
+        List<Integer> sides = session.playingTeams();
+        if (sides.size() < 2) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String map = spectators.mapId(session);
+        String reason = session.seriesEndReason == null ? "" : session.seriesEndReason;
+
+        for (int side : sides) {
+            int myScore = session.wins(side);
+            int theirScore = 0;
+            for (int other : sides) {
+                if (other != side) {
+                    theirScore = Math.max(theirScore, session.wins(other));
+                }
+            }
+            String rounds = roundLine(session, side);
+            for (Participant p : session.activeMembers(side)) {
+                MatchRecord record = new MatchRecord();
+                record.id = session.id;
+                record.t = now;
+                record.map = map;
+                record.mode = session.mode;
+                record.teams = sides.size();
+                record.teamSize = session.activeMembers(side).size();
+                record.myScore = myScore;
+                record.theirScore = theirScore;
+                record.won = winnerTeam >= 0 && winnerTeam == side;
+                record.reason = reason;
+                record.duration = Math.max(0L, now - session.createdAt);
+                record.rounds = rounds;
+                record.opponents = namesOf(session.opponentsOf(p.uuid));
+                record.teamMates = namesOf(without(session.activeMembers(side), p.uuid));
+                stats.name(p.uuid, p.name);
+                stats.record(p.uuid, record);
+            }
+        }
+        // Flushed here as well as on shutdown: a match record is the one thing in this file a player
+        // expects to survive a crash, and it is written exactly once.
+        stats.flush();
+    }
+
+    /** {@code won,reason,ms} per settled round, with {@code won} relative to {@code side}. */
+    private static String roundLine(DuelSession session, int side) {
+        StringBuilder sb = new StringBuilder();
+        for (DuelSession.RoundLog round : session.roundLog) {
+            if (sb.length() > 0) {
+                sb.append(';');
+            }
+            sb.append(round.winner == side ? 1 : 0).append(',')
+                    .append(round.reason == null ? "" : round.reason).append(',')
+                    .append(round.ms);
+        }
+        return sb.toString();
+    }
+
+    private static String namesOf(List<Participant> participants) {
+        StringBuilder sb = new StringBuilder();
+        for (Participant p : participants) {
+            if (p.rejected) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(p.name);
+        }
+        return sb.toString();
+    }
+
+    private static List<Participant> without(List<Participant> participants, String uuid) {
+        List<Participant> out = new ArrayList<>(participants.size());
+        for (Participant p : participants) {
+            if (!p.uuid.equals(uuid)) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The home screen's snapshot: counters, recent history, live matches, and what the reader may do.
+     *
+     * <p>Built on demand rather than pushed, because the screen is opened by the player and nothing
+     * else needs this data. The history is capped at {@link #HOME_HISTORY} rows: the detail a row
+     * carries is small, but a payload is sent over a reliable channel and there is no reason to send
+     * two hundred rows to fill a list that shows three at a time.</p>
+     */
+    public void sendHomeState(ServerPlayerEntity player) {
+        String uuid = player.getUuidAsString();
+        PlayerStats s = stats.of(uuid);
+        stats.name(uuid, player.getName().getString());
+
+        int flags = 0;
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId != null) {
+            DuelSession live = sessions.get(sessionId);
+            if (live != null) {
+                flags |= live.stage == SessionStage.DRAFT
+                        ? HomeStatePayload.FLAG_DRAFT
+                        : HomeStatePayload.FLAG_IN_DUEL;
+            }
+        }
+        if (spectators.isWatching(player.getUuid())) {
+            flags |= HomeStatePayload.FLAG_SPECTATING;
+        }
+        if (s.matches > 0) {
+            flags |= HomeStatePayload.FLAG_HAS_STATS;
+        }
+
+        StringBuilder statLine = new StringBuilder()
+                .append(s.matches).append(',')
+                .append(s.wins).append(',')
+                .append(s.rounds).append(',')
+                .append(s.roundWins).append(',')
+                .append(Math.round(s.damage)).append(',')
+                .append(s.kills).append(',')
+                .append(s.deaths).append(',')
+                .append(s.streak).append(',')
+                .append(s.bestStreak).append(',')
+                .append(s.lastPlayed);
+
+        StringBuilder history = new StringBuilder();
+        for (MatchRecord record : stats.history(uuid, HOME_HISTORY)) {
+            if (history.length() > 0) {
+                history.append('\n');
+            }
+            history.append(record.id).append('|')
+                    .append(record.t).append('|')
+                    .append(record.map).append('|')
+                    .append(record.mode).append('|')
+                    .append(record.teams).append('|')
+                    .append(record.teamSize).append('|')
+                    .append(record.myScore).append('|')
+                    .append(record.theirScore).append('|')
+                    .append(record.won ? 1 : 0).append('|')
+                    .append(record.reason).append('|')
+                    .append(record.duration).append('|')
+                    .append(record.rounds).append('|')
+                    .append(record.opponents).append('|')
+                    .append(record.teamMates);
+        }
+
+        PvPocketNetworking.sendHomeState(player, new HomeStatePayload(
+                statLine.toString(), history.toString(), spectators.rowsFor(player), flags));
+    }
+
+    /** Rows of history one snapshot carries. The list shows three at a time. */
+    private static final int HOME_HISTORY = 30;
+
+    /**
+     * The home screen's primary action: open a draft, with an optional saved rule set or loadout.
+     *
+     * <p>All three actions end in {@link #openRoster}, on purpose. It already answers the three
+     * interesting cases — busy, spectator, arena not ready — and it already knows how to hand back a
+     * draft that is still open. A second entry point would have to answer all three again and would
+     * drift the moment one of them changed.</p>
+     */
+    public void onHomeAction(ServerPlayerEntity player, HomeActionPayload action) {
+        switch (action.action()) {
+            case HomeActionPayload.ACTION_OPEN_DUEL -> openRoster(player);
+            case HomeActionPayload.ACTION_DUEL_WITH_RULES -> {
+                openRoster(player);
+                applyPresetRules(player, action.arg());
+            }
+            case HomeActionPayload.ACTION_DUEL_WITH_LOADOUT -> {
+                openRoster(player);
+                applyPresetLoadout(player, action.arg());
+            }
+            default -> PvPocket.LOGGER.debug("Ignoring unknown home action {} from {}",
+                    action.action(), player.getName().getString());
+        }
+    }
+
+    /**
+     * Overwrites the draft's rule set with a saved one.
+     *
+     * <p>Applied after {@code openRoster} rather than by building the session here, because
+     * {@code openRoster} is the only path that also handles "you already have a draft". The rule set
+     * is validated by decoding it: a string that does not decode is dropped with a message, not
+     * applied as a pile of defaults that would look like a preset the player never saved.</p>
+     */
+    private void applyPresetRules(ServerPlayerEntity player, String encoded) {
+        DuelSession session = draftOf(player);
+        if (session == null || encoded == null || encoded.isEmpty()) {
+            return;
+        }
+        try {
+            DuelRules rules = DuelRules.decode(encoded);
+            applyRulesToSession(session, rules);
+            // Bumped like any other edit, so the panel's dirty marker and the "you agreed to v1"
+            // bookkeeping both see this as a change rather than as the state they arrived with.
+            session.rulesRevision++;
+            session.rulesAuthor = player.getUuidAsString();
+            persist(session);
+            journal(session).append("RULES_PRESET_APPLIED", "player", player.getName().getString(),
+                    "digest", session.rulesDigest);
+            PvPocket.LOGGER.info("Applied rule preset for {}", player.getName().getString());
+        } catch (RuntimeException e) {
+            PvPocket.LOGGER.warn("Dropping undecodable rule preset from {}",
+                    player.getName().getString(), e);
+            player.sendMessage(PvLang.t("pvpocket.msg.home.preset_broken")
+                    .formatted(Formatting.RED), false);
+        }
+    }
+
+    /** Replaces the caller's own loadout in the draft with a saved one. */
+    private void applyPresetLoadout(ServerPlayerEntity player, String encoded) {
+        DuelSession session = draftOf(player);
+        if (session == null || encoded == null || encoded.isEmpty()) {
+            return;
+        }
+        Participant me = session.participant(player.getUuidAsString());
+        if (me == null) {
+            return;
+        }
+        try {
+            Loadout loadout = Loadout.decode(encoded);
+            me.loadout = loadout.encode();
+            me.loadoutDigest = loadout.digest();
+            me.acceptedLoadoutRevision = -1;
+            session.loadoutRevision++;
+            persist(session);
+            journal(session).append("LOADOUT_PRESET_APPLIED",
+                    "player", player.getName().getString(), "digest", me.loadoutDigest);
+            PvPocket.LOGGER.info("Applied loadout preset for {}", player.getName().getString());
+        } catch (RuntimeException e) {
+            PvPocket.LOGGER.warn("Dropping undecodable loadout preset from {}",
+                    player.getName().getString(), e);
+            player.sendMessage(PvLang.t("pvpocket.msg.home.preset_broken")
+                    .formatted(Formatting.RED), false);
+        }
+    }
+
+    /** The caller's own session when it is still a draft, else null. */
+    private DuelSession draftOf(ServerPlayerEntity player) {
+        String sessionId = sessionByPlayer.get(player.getUuid());
+        if (sessionId == null) {
+            return null;
+        }
+        DuelSession session = sessions.get(sessionId);
+        return session != null && session.stage == SessionStage.DRAFT ? session : null;
+    }
+
     /**
      * Ends the series: restore everybody, put the terrain back, release the lease, archive.
      *
@@ -3393,6 +3728,10 @@ public final class SessionManager {
                 "rounds", session.round,
                 "maxRounds", session.maxRounds,
                 "winsNeeded", session.winsNeeded);
+
+        // Written while the region is still leased: the map id is read off the plot the players were
+        // actually standing in, and the lease is released a few lines below.
+        recordSeries(session, winnerTeam);
 
         transition(session, SessionStage.RESTORING);
 

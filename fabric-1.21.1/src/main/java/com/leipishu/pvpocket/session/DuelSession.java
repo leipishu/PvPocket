@@ -108,6 +108,35 @@ public final class DuelSession {
     public String arenaId = "arena-0";
 
     /**
+     * One entry per settled round, appended by {@code settle}.
+     *
+     * <p>Persisted with the session because the match record is written at the end of the series: a
+     * crash between the last round and {@code finishSeries} would otherwise leave a match whose
+     * score exists and whose round detail does not. The list is capped by {@link #maxRounds}, so it
+     * cannot grow without bound.</p>
+     */
+    public List<RoundLog> roundLog = new ArrayList<>();
+
+    /** The outcome of one round. Plain fields, like everything else that round-trips through Gson. */
+    public static final class RoundLog {
+        /** Side that took the round, or {@code -1} for a round nobody won. */
+        public int winner;
+        /** {@code DEATH}, {@code BOUNDARY}, {@code SURRENDER}, {@code TIMEOUT}, ... */
+        public String reason;
+        /** Length of the round in milliseconds. */
+        public long ms;
+
+        public RoundLog() {
+        }
+
+        public RoundLog(int winner, String reason, long ms) {
+            this.winner = winner;
+            this.reason = reason;
+            this.ms = ms;
+        }
+    }
+
+    /**
      * Set when a round outcome is decided but cannot be applied yet. Death is the main case: the
      * player is on the death screen and cannot be teleported, so the settle is deferred until
      * they respawn.

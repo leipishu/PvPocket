@@ -30,6 +30,9 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(PresetSharePayload.ID, PresetSharePayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(HomeRequestPayload.ID, HomeRequestPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(HomeActionPayload.ID, HomeActionPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(HomeStatePayload.ID, HomeStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
@@ -92,6 +95,51 @@ public final class PvPocketNetworking {
             ServerPlayerEntity player = context.player();
             context.server().execute(() -> onPresetShare(player, payload));
         });
+
+        ServerPlayNetworking.registerGlobalReceiver(HomeRequestPayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> {
+                SessionManager sessions = SessionManager.get();
+                if (sessions == null || !allowHomeRequest(player.getUuid())) {
+                    return;
+                }
+                sessions.sendHomeState(player);
+            });
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(HomeActionPayload.ID, (payload, context) -> {
+            ServerPlayerEntity player = context.player();
+            context.server().execute(() -> {
+                SessionManager sessions = SessionManager.get();
+                if (sessions != null) {
+                    sessions.onHomeAction(player, payload);
+                }
+            });
+        });
+    }
+
+    /**
+     * One snapshot per player per second.
+     *
+     * <p>Not a rate limit for its own sake: the home screen sends a request on open, and opening it
+     * by tapping a hotkey twice is a thing players do. Each answer walks the player's history file,
+     * so the second request in the same second would do the same disk read to produce a payload the
+     * client is about to overwrite.</p>
+     */
+    private static final java.util.Map<java.util.UUID, Long> HOME_REQUESTS = new java.util.HashMap<>();
+
+    private static boolean allowHomeRequest(java.util.UUID uuid) {
+        long now = System.currentTimeMillis();
+        Long last = HOME_REQUESTS.get(uuid);
+        if (last != null && now - last < 1000L) {
+            return false;
+        }
+        HOME_REQUESTS.put(uuid, now);
+        // Bounded: one entry per player who has ever opened the screen on this server.
+        if (HOME_REQUESTS.size() > 512) {
+            HOME_REQUESTS.entrySet().removeIf(e -> now - e.getValue() > 60_000L);
+        }
+        return true;
     }
 
     /**
@@ -199,8 +247,20 @@ public final class PvPocketNetworking {
         }
     }
 
-    /** Opens the loadout editor. Same {@code canSend} reasoning as {@link #openRules}. */
-    public static void openLoadout(ServerPlayerEntity player, LoadoutOpenPayload payload) {
+    /**
+     * Pushes the home screen's snapshot to one client.
+     *
+     * <p>Silent, unlike the panel openers: this is an answer to a request the player just made, and
+     * the interesting log line for "the screen is empty" is on the client side (did the request
+     * leave). A line per hotkey press would be noise.</p>
+     */
+    public static void sendHomeState(ServerPlayerEntity player, HomeStatePayload payload) {
+        if (ServerPlayNetworking.canSend(player, HomeStatePayload.ID)) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /** Opens the loadout editor. Same {@code canSend} reasoning as {@link #openRules}. */    public static void openLoadout(ServerPlayerEntity player, LoadoutOpenPayload payload) {
         boolean canSend = ServerPlayNetworking.canSend(player, LoadoutOpenPayload.ID);
         PvPocket.LOGGER.info("Loadout editor -> {} (canSend={}, session={})",
                 player.getName().getString(), canSend, payload.sessionId());

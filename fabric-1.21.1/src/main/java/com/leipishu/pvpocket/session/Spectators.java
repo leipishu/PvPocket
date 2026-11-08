@@ -141,6 +141,17 @@ final class Spectators {
      * that can never be entered is a row that teaches the player the button does not work.</p>
      */
     void openList(ServerPlayerEntity player) {
+        PvPocketNetworking.openMatchList(player, new MatchListPayload(rowsFor(player)));
+    }
+
+    /**
+     * The list as one encoded string, shared by the list panel and the home screen.
+     *
+     * <p>Extracted rather than duplicated: the home screen shows the same rows in a shorter form, and
+     * two builders would drift the moment a field is added — the failure would be a row the panel
+     * reads and the home screen does not, which looks like a home screen bug.</p>
+     */
+    String rowsFor(ServerPlayerEntity player) {
         StringBuilder sb = new StringBuilder();
         for (DuelSession session : sessions.allSessions()) {
             if (session.stage != SessionStage.ROUND_READY
@@ -171,7 +182,7 @@ final class Spectators {
                     .append(watchersOf(session.id).size()).append('|')
                     .append(playersField(session));
         }
-        PvPocketNetworking.openMatchList(player, new MatchListPayload(sb.toString()));
+        return sb.toString();
     }
 
     /**
@@ -184,7 +195,7 @@ final class Spectators {
      * <p>An id rather than a name because the payload is read by a client whose language this class
      * cannot know — the same reason the stage is sent as an enum name.</p>
      */
-    private static String mapId(DuelSession session) {
+    static String mapId(DuelSession session) {
         ArenaRegion region = ArenaManager.region(session.id);
         if (region != null) {
             return region.map.id;
