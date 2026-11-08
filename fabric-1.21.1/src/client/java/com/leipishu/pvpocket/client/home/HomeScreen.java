@@ -17,7 +17,6 @@ import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -233,7 +232,7 @@ public class HomeScreen extends PvScreen {
         boolean busy = HomeState.has(HomeStatePayload.FLAG_IN_DUEL);
         boolean watching = HomeState.has(HomeStatePayload.FLAG_SPECTATING);
         boolean draft = HomeState.has(HomeStatePayload.FLAG_DRAFT);
-        boolean online = ClientPlayNetworking.canSend(HomeStatePayload.ID);
+        boolean online = HomeClient.supported();
 
         String label;
         PvButton.Style style = PvButton.Style.PRIMARY;

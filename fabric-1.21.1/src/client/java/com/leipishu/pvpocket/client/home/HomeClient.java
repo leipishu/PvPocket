@@ -85,9 +85,17 @@ public final class HomeClient {
         }
     }
 
-    /** True when the server speaks the home protocol, used to disable actions that need it. */
+    /**
+     * True when the server speaks the home protocol, used to disable actions that need it.
+     *
+     * <p>Asked of the <b>request</b> channel, not the snapshot: {@code canSend} answers "is this
+     * channel declared in the direction I would be sending", and the snapshot only ever travels
+     * server-to-client — so asking about it returns false on every server, including a perfectly
+     * current one. That mistake showed up as a permanently greyed-out "start a duel" button on a
+     * server that answered the request in the same tick.</p>
+     */
     public static boolean supported() {
-        return ClientPlayNetworking.canSend(HomeStatePayload.ID);
+        return ClientPlayNetworking.canSend(HomeRequestPayload.ID);
     }
 
     /** Opens the screen if it is legal to, for the inventory button and for command aliases. */
