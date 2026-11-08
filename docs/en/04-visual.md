@@ -94,6 +94,15 @@ Two hard constraints:
 Light is not a different product: surfaces still step through five levels of luminance, the accent is
 still the same warm hue, and red still means only "this destroys something".
 
+The `Light theme` row on the Settings page carries a `beta` pill. **Labelled, not hidden** — the light
+palette is complete enough to use and young enough to change, and the pill says exactly that without a
+second line of prose nobody reads. The pill is `PvBadge`: 14px tall, 3px radius, `ACCENT_SOFT` fill
+with `ACCENT` text — the same definition as the `v0`/`v1` revision chip in the rule panel's title row
+(that one is drawn inline, right-anchored to a button, but takes its width and height from
+`PvBadge.widthOf()` and `PvBadge.H`, so the two pills cannot drift apart). The width is measured in the
+constructor and stored in the ordinary `width` field; measured on demand instead, the audit would see a
+zero-size control.
+
 ## 3. Shape and metrics
 
 | Item | Value | Notes |
