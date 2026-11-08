@@ -144,10 +144,12 @@ public final class PvAuditHarness {
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
             add("match/list", size, 0, () -> new MatchListScreen(matches()));
-            // One variant per page. The home panel is the only screen whose pages are reached by a
-            // tab strip inside the screen rather than by a payload, so the variant is what decides
-            // which page exists at all.
-            for (int variant = 0; variant < 5; variant++) {
+            // One variant per page, plus whatever dialogs the screen declares. The count is asked
+            // from the screen rather than written here: it was hardcoded at five, and the history
+            // detail dialog — the most crowded layout on the panel — was consequently never measured
+            // at all. A screen that grows a dialog can now say so in one place.
+            int homeVariants = new HomeScreen().auditVariantCount();
+            for (int variant = 0; variant < homeVariants; variant++) {
                 add("home", size, variant, HomeScreen::new);
             }
         }
@@ -198,19 +200,38 @@ public final class PvAuditHarness {
      * round-dot strips, the four stat columns and the win strip do not exist until there is data.
      * The numbers are arbitrary but shaped like real ones — three teams, a surrendered series, a
      * series with rounds both won and lost — because that is what decides the widths.</p>
+     *
+     * <p>Twelve records rather than three, cycling those same three shapes. Twelve is past one page
+     * at the default page size, which is the only way the audit ever sees the pager: the two arrows
+     * and the "2 / 3" counter do not exist on a single-page list, so a three-record fixture would
+     * leave the newest footer in the panel completely unmeasured.</p>
      */
     private static void homeData() {
         long now = System.currentTimeMillis();
-        String history = String.join("\n",
-                "h1|" + (now - 600_000L) + "|arena_colosseum|modern|2|1|3|1|1||420000"
-                        + "|1,,90000;1,,120000;0,,210000|Dev2,Dev3|",
-                "h2|" + (now - 7_200_000L) + "|arena_deadwood|legacy|2|1|2|3|0|SURRENDER|610000"
+        String[] shapes = {
+                // First, and therefore the newest record: twelve rounds, which is what makes the
+                // detail dialog's label column wide enough to matter. "第 12 局" is half again as
+                // wide as "第 1 局", and a label column that is assumed rather than measured puts
+                // the win/loss mark through the last digit — the bug this fixture exists to keep.
+                "arena_colosseum|modern|2|1|8|4|1||420000"
+                        + "|1,,90000;1,,120000;0,,210000;1,,80000;0,,95000;1,,70000"
+                        + ";1,,110000;0,,60000;1,,100000;1,,85000;0,,75000;1,,65000|Dev2,Dev3|",
+                "arena_deadwood|legacy|2|1|2|3|0|SURRENDER|610000"
                         + "|1,,80000;0,,140000;0,,90000;0,,120000|Dev4|",
-                "h3|" + (now - 3_600_000_000L) + "|flat|modern|4|2|3|0|1||380000"
-                        + "|1,,60000;1,,70000;1,,50000|Dev2,Dev3|Dev4,Dev5");
+                "flat|modern|4|2|3|0|1||380000|1,,60000;1,,70000;1,,50000|Dev2,Dev3|Dev4,Dev5",
+        };
+        StringBuilder history = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            if (i > 0) {
+                history.append('\n');
+            }
+            history.append('h').append(i).append('|')
+                    .append(now - 600_000L * (i + 1)).append('|')
+                    .append(shapes[i % shapes.length]);
+        }
         HomeState.update(new HomeStatePayload(
                 "24,15,61,38,2840,42,19,4,7," + now,
-                history, MATCH_ROWS, HomeStatePayload.FLAG_HAS_STATS));
+                history.toString(), MATCH_ROWS, HomeStatePayload.FLAG_HAS_STATS));
     }
 
     /** Names that say where they came from, in case a crashed run leaves them on disk. */

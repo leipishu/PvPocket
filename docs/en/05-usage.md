@@ -43,9 +43,9 @@ Five tabs:
 | --- | --- |
 | Home | Greeting, one random encouraging line, one primary action (start a duel / resume an open draft / surrender / stop spectating, depending on state), and the matches running right now — each with a way in |
 | Stats | Matches, win rate, total damage, KD, rounds won, best streak, plus the last ten results as squares |
-| History | Recent series: score, win/loss, map, mode, team size, per-round outcomes; open one for the round-by-round detail and a one-line result to copy |
+| History | Recent series: score, win/loss, map, mode, team size, per-round outcomes; open one for the round-by-round detail and a one-line result to copy; paged at the bottom, with the page size set in Settings |
 | Presets | The loadouts and rule sets on this machine: start from one, share, import, delete |
-| Settings | Version, licence, config path, light/dark theme, motion toggle, key rebinding |
+| Settings | Version, licence, config path, light/dark theme, motion toggle, history rows per page, key rebinding |
 
 The top bar carries the date, weekday and time.
 

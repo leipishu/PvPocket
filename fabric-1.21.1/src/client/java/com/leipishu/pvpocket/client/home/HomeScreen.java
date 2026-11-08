@@ -7,6 +7,7 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvIconButton;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvScrollPane;
+import com.leipishu.pvpocket.client.gui.PvStepper;
 import com.leipishu.pvpocket.client.gui.PvTabs;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
@@ -68,8 +69,20 @@ public class HomeScreen extends PvScreen {
     private static final int CLOSE = 16;
     /** Horizontal inset of the content well's contents. */
     private static final int PAD = 14;
+    /** Band at the bottom of the history page holding the range and the pager. */
+    private static final int FOOTER_H = 22;
+    /** Square size of the two pager arrows. */
+    private static final int PAGER_BTN = 16;
 
     private int page;
+    /**
+     * Which history page is on screen, zero-based.
+     *
+     * <p>A field rather than something derived from the scroll offset: the list is paginated
+     * precisely so that the pane does <em>not</em> scroll, and the page has to survive a window
+     * resize — {@code init()} runs again on resize and rebuilds the page from scratch.</p>
+     */
+    private int historyPage;
     private PvTabs tabs;
     private PvScrollPane pane;
     /** Widgets belonging to the current page, removed on every rebuild. */
@@ -174,6 +187,23 @@ public class HomeScreen extends PvScreen {
         return panelH - HEADER_H - 24;
     }
 
+    /**
+     * Height of the history list: the well minus the footer band, when there is a footer.
+     *
+     * <p>Empty history draws a centred message instead of a list, and a message with a pager under
+     * it would offer to turn a page of nothing. So the band is reserved only when there is something
+     * to paginate — decided from whether the list is empty, never from whether it currently spans
+     * more than one page, because that would make the pane height depend on the page size and the
+     * page size depend on the pane height.</p>
+     */
+    private int historyListH() {
+        return contentH() - (HomeState.history().isEmpty() ? 0 : FOOTER_H);
+    }
+
+    private int footerY() {
+        return contentY() + historyListH();
+    }
+
     // ------------------------------------------------------------------ pages
 
     private void buildPage() {
@@ -202,7 +232,7 @@ public class HomeScreen extends PvScreen {
         pane.x = contentX();
         pane.y = contentY();
         pane.width = contentW();
-        pane.height = contentH();
+        pane.height = page == PAGE_HISTORY ? historyListH() : contentH();
         switch (page) {
             case PAGE_HISTORY -> buildHistory();
             case PAGE_PRESETS -> buildPresets();
@@ -315,11 +345,64 @@ public class HomeScreen extends PvScreen {
         return button;
     }
 
+    /**
+     * The current page of the history list, plus the two arrows that move between pages.
+     *
+     * <p>The page size is exactly what the setting says, not "whatever fits": a page that silently
+     * showed seven rows when ten were asked for would make the setting look broken, and the pane
+     * scrolls a page taller than the viewport the same way any long list does. What the setting
+     * controls is how many records one page holds, and that has to stay true or the number in the
+     * settings page means nothing.</p>
+     */
     private void buildHistory() {
         List<HomeState.History> records = HomeState.history();
-        for (HomeState.History record : records) {
+        int size = ClientPrefs.historyPageSize();
+        int pages = pagesOf(records.size(), size);
+        // Clamped here rather than at every caller: a new match, a smaller page size and a window
+        // resize can each leave the stored page past the end, and a blank page with live arrows is
+        // the worst of the three ways to find out.
+        historyPage = Math.max(0, Math.min(historyPage, pages - 1));
+
+        int from = historyPage * size;
+        int to = Math.min(records.size(), from + size);
+        for (int i = from; i < to; i++) {
+            HomeState.History record = records.get(i);
             pane.add(new HistoryRow(record, () -> openDetail(record)));
         }
+        if (pages <= 1) {
+            return;
+        }
+        // Two root widgets rather than a hit rectangle drawn into the footer: they are what the
+        // audit measures, what Tab reaches, and what the shared hover/press animation drives.
+        PvIconButton next = new PvIconButton(PvIconButton.Glyph.CHEVRON, PAGER_BTN,
+                () -> turnPage(1));
+        next.direction = 1;
+        next.x = contentX() + contentW() - PAGER_BTN;
+        next.y = footerY() + (FOOTER_H - PAGER_BTN) / 2;
+        next.enabled = historyPage < pages - 1;
+        next.tooltip = PvLang.str("pvpocket.gui.home.history.next");
+        add(next);
+
+        PvIconButton prev = new PvIconButton(PvIconButton.Glyph.CHEVRON, PAGER_BTN,
+                () -> turnPage(-1));
+        prev.direction = -1;
+        prev.x = next.x - 4 - PAGER_BTN;
+        prev.y = next.y;
+        prev.enabled = historyPage > 0;
+        prev.tooltip = PvLang.str("pvpocket.gui.home.history.prev");
+        add(prev);
+    }
+
+    private static int pagesOf(int total, int size) {
+        return Math.max(1, (total + Math.max(1, size) - 1) / Math.max(1, size));
+    }
+
+    private void turnPage(int delta) {
+        historyPage += delta;
+        // A rebuild, not a scroll: the rows of the new page do not exist until the pane is filled,
+        // and rebuild() already resets the pane's scroll offset, which is what "turn to page 2"
+        // means for a list whose first row has to be at the top.
+        buildPage();
     }
 
     private void buildPresets() {
@@ -368,6 +451,24 @@ public class HomeScreen extends PvScreen {
         motion.onChange(value -> ClientPrefs.setMotion(value == 1));
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.motion"), motion, null));
 
+        // Its own section rather than a third line under "appearance": how many records a page holds
+        // is about the data, and burying it under a heading about colours is how a setting ends up
+        // existing without anyone finding it.
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.tab.history")));
+        PvStepper perPage = new PvStepper(ClientPrefs.HISTORY_PAGE_MIN,
+                ClientPrefs.HISTORY_PAGE_MAX, ClientPrefs.HISTORY_PAGE_STEP,
+                ClientPrefs.historyPageSize());
+        perPage.onChange(value -> {
+            ClientPrefs.setHistoryPageSize(value);
+            // Back to the first page: the rows the old page started at no longer line up with the
+            // new page boundaries, and landing halfway through a list after changing its page size
+            // reads as the list having lost its place.
+            historyPage = 0;
+        });
+        perPage.tooltip = PvLang.str("pvpocket.gui.home.settings.history_page_hint");
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.history_page"), perPage,
+                null));
+
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.keys")));
         if (HomeClient.homeKey() != null) {
             pane.add(new KeyBindRow(PvLang.str("pvpocket.gui.home.settings.key_home"),
@@ -412,10 +513,13 @@ public class HomeScreen extends PvScreen {
             case PAGE_OVERVIEW -> drawOverview(ctx, tr, mouseX, mouseY);
             case PAGE_STATS -> drawStats(ctx, tr);
             case PAGE_HISTORY -> {
-                if (HomeState.history().isEmpty()) {
+                List<HomeState.History> records = HomeState.history();
+                if (records.isEmpty()) {
                     drawEmpty(ctx, tr, PvLang.str(HomeState.loaded()
                             ? "pvpocket.gui.home.history.empty"
                             : "pvpocket.gui.home.loading"));
+                } else {
+                    drawHistoryFooter(ctx, tr, records.size());
                 }
             }
             default -> {
@@ -622,6 +726,42 @@ public class HomeScreen extends PvScreen {
                 contentY() + 16, PvTheme.TEXT_MUTED);
     }
 
+    /**
+     * The band under the history list: which records are on screen, and where the pager is.
+     *
+     * <p>Only text is drawn here. The arrows are root widgets created by {@link #buildHistory} —
+     * a widget rebuilt every frame cannot hold a hover animation, cannot take a click without
+     * racing the next rebuild, and is invisible to the layout audit.</p>
+     *
+     * <p>The range is measured against what the arrows and the page counter leave, rather than
+     * being right-aligned against the panel edge: on the smallest canvas the well is 200px wide, and
+     * "1–10 of 27" plus "2 / 3" plus two arrows is already most of it.</p>
+     */
+    private void drawHistoryFooter(DrawContext ctx, TextRenderer tr, int total) {
+        int x = contentX();
+        int w = contentW();
+        int y = footerY();
+        int size = ClientPrefs.historyPageSize();
+        int pages = pagesOf(total, size);
+        int from = historyPage * size;
+        int to = Math.min(total, from + size);
+
+        PvDraw.hLine(ctx, x, y, w, PvTheme.DIVIDER);
+        int textY = y + (FOOTER_H - 8) / 2 + 1;
+
+        String counter = pages > 1
+                ? PvLang.str("pvpocket.gui.home.history.page", historyPage + 1, pages) : null;
+        int arrowsW = pages > 1 ? PAGER_BTN * 2 + 4 : 0;
+        int counterW = counter == null ? 0 : tr.getWidth(counter) + 10;
+
+        String range = PvLang.str("pvpocket.gui.home.history.range", from + 1, to, total);
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, range, w - arrowsW - counterW), x, textY,
+                PvTheme.TEXT_MUTED);
+        if (counter != null) {
+            PvDraw.textRight(ctx, tr, counter, x + w - arrowsW - 8, textY, PvTheme.TEXT_DIM);
+        }
+    }
+
     private String greeting() {
         MinecraftClient client = MinecraftClient.getInstance();
         String name = client.player == null ? "" : client.player.getGameProfile().getName();
@@ -699,9 +839,18 @@ public class HomeScreen extends PvScreen {
 
     // ------------------------------------------------------------------ audit
 
+    /**
+     * One layout per tab, plus one with the history detail dialog open.
+     *
+     * <p>The dialog is its own arrangement of its own widgets and is not a tab, so walking only the
+     * five tabs would leave the most crowded layout on this screen — a card with two columns of
+     * rounds, a verdict chip and two buttons — measured by nobody. It is also where the "第 10 局"
+     * label used to run into the result beside it, which is precisely the kind of thing an audit is
+     * for.</p>
+     */
     @Override
     public int auditVariantCount() {
-        return PAGE_COUNT;
+        return PAGE_COUNT + 1;
     }
 
     @Override
@@ -709,8 +858,11 @@ public class HomeScreen extends PvScreen {
         if (tabs == null) {
             return;
         }
-        tabs.select(Math.max(0, Math.min(PAGE_COUNT - 1, index)));
+        tabs.select(Math.min(index, PAGE_COUNT - 1));
         page = tabs.selected();
         buildPage();
+        if (index >= PAGE_COUNT && !HomeState.history().isEmpty()) {
+            openDetail(HomeState.history().get(0));
+        }
     }
 }

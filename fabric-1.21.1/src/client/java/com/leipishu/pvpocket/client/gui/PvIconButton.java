@@ -39,6 +39,20 @@ public class PvIconButton extends PvWidget {
         this.height = size;
     }
 
+    /**
+     * A disabled icon button does not hover.
+     *
+     * <p>The pager is why: on the first page the "previous" arrow is disabled, and a button that
+     * lights up under the pointer while refusing the click is the interface promising something it
+     * will not do. Damping the highlight on {@code enabled} rather than skipping the fill also
+     * means the glow fades out if the control is disabled while the pointer is on it, instead of
+     * snapping off.</p>
+     */
+    @Override
+    public void updateHover(int mouseX, int mouseY) {
+        hovered = enabled && visible && contains(mouseX, mouseY);
+    }
+
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {

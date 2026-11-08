@@ -100,23 +100,55 @@ public class HistoryDetail extends PvWidget {
         PvDraw.hLine(ctx, cx + 16, cy + 60, cw - 32, PvTheme.DIVIDER);
 
         int colW = (cw - 32 - 12) / 2;
-        for (int i = 0; i < rounds.size(); i++) {
-            int col = i / PER_COLUMN;
-            int row = i % PER_COLUMN;
-            if (col > 1) {
-                break;
-            }
+        // The round list is the only part of this card whose height is not fixed, so it is the part
+        // that has to be measured against what is left: title, meta line, score, two dividers, the
+        // sides line and the button row are all pinned to the card, and on the smallest canvas
+        // (320x180, where the card is 160 tall) a fixed eight rows per column ran straight through
+        // the sides line and the buttons. Two columns of what fits, and a count of the rest.
+        int listTop = cy + 68;
+        int listBottom = cy + ch - 52 - 8;
+        int rowsPerColumn = Math.max(1, Math.min(PER_COLUMN, (listBottom - listTop) / ROW_H));
+        int capacity = rowsPerColumn * 2;
+        boolean truncated = rounds.size() > capacity;
+        // When it does not all fit, the last slot says how much is missing instead of being spent on
+        // a round: a detail view that silently drops the last four rounds of a series is worse than
+        // one that admits to it.
+        int shown = truncated ? capacity - 1 : rounds.size();
+        // The label column is measured, not assumed. "Round 10" is half again as wide as "Round 1",
+        // and a fixed 34px offset put the result straight through the last digit on the tenth round —
+        // which is exactly the round a long series reaches.
+        int labelW = 0;
+        for (int i = 0; i < shown; i++) {
+            labelW = Math.max(labelW, tr.getWidth(PvLang.str("pvpocket.gui.home.detail.round", i + 1)));
+        }
+        for (int i = 0; i < shown; i++) {
+            int col = i / rowsPerColumn;
+            int row = i % rowsPerColumn;
             HomeState.Round round = rounds.get(i);
             int rx = cx + 16 + col * (colW + 12);
-            int ry = cy + 68 + row * ROW_H;
+            int ry = listTop + row * ROW_H;
             String label = PvLang.str("pvpocket.gui.home.detail.round", i + 1);
             PvDraw.text(ctx, tr, label, rx, ry, PvTheme.TEXT_MUTED);
-            PvDraw.text(ctx, tr, PvLang.str(round.won()
-                            ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss"),
-                    rx + 34, ry, round.won() ? PvTheme.ACCENT : PvTheme.TEXT_DIM);
-            PvDraw.textRight(ctx, tr, reasonLabel(round.reason()) + "  "
-                            + HomeText.duration(round.ms()),
-                    rx + colW, ry, PvTheme.TEXT_MUTED);
+            String result = PvLang.str(round.won()
+                    ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss");
+            int resultX = rx + labelW + 6;
+            PvDraw.text(ctx, tr, result, resultX, ry,
+                    round.won() ? PvTheme.ACCENT : PvTheme.TEXT_DIM);
+            // The reason is clipped to what is left rather than right-aligned over the result: two
+            // strings drawn towards each other from opposite edges overlap in the middle, and which
+            // round that happens on depends on the language.
+            String tail = reasonLabel(round.reason()) + "  " + HomeText.duration(round.ms());
+            int tailRoom = rx + colW - (resultX + tr.getWidth(result)) - 6;
+            if (tailRoom > 8) {
+                PvDraw.textRight(ctx, tr, PvDraw.fit(tr, tail, tailRoom), rx + colW, ry,
+                        PvTheme.TEXT_MUTED);
+            }
+        }
+        if (truncated) {
+            int rx = cx + 16 + (shown / rowsPerColumn) * (colW + 12);
+            int ry = listTop + (shown % rowsPerColumn) * ROW_H;
+            PvDraw.text(ctx, tr, PvDraw.fit(tr, PvLang.str("pvpocket.gui.home.detail.more",
+                    rounds.size() - shown), colW), rx, ry, PvTheme.TEXT_MUTED);
         }
 
         int peopleY = cy + ch - 52;

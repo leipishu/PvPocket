@@ -30,16 +30,31 @@ public final class ClientPrefs {
             .disableHtmlEscaping()
             .create();
 
+    /**
+     * Bounds of the history page size, and the value a file that predates the setting gets.
+     *
+     * <p>Ten is the default because it is the largest round number that still shows more than one
+     * page on a typical list without making the pager decorative. Five is the floor: below that the
+     * footer is taller than the list it paginates.</p>
+     */
+    public static final int HISTORY_PAGE_MIN = 5;
+    public static final int HISTORY_PAGE_MAX = 30;
+    public static final int HISTORY_PAGE_STEP = 5;
+    public static final int DEFAULT_HISTORY_PAGE = 10;
+
     /** On-disk shape. Public fields, no adapters, tolerant of missing keys. */
     private static final class File_ {
         int version = 1;
         String theme = "dark";
         boolean motion = true;
+        /** Rows per page on the history list. Zero in a file written before the field existed. */
+        int historyPageSize = DEFAULT_HISTORY_PAGE;
     }
 
     private static boolean loaded;
     private static PvTheme.Theme theme = PvTheme.Theme.DARK;
     private static boolean motion = true;
+    private static int historyPageSize = DEFAULT_HISTORY_PAGE;
 
     private ClientPrefs() {
     }
@@ -62,6 +77,7 @@ public final class ClientPrefs {
                     theme = "light".equalsIgnoreCase(parsed.theme)
                             ? PvTheme.Theme.LIGHT : PvTheme.Theme.DARK;
                     motion = parsed.motion;
+                    historyPageSize = clampPage(parsed.historyPageSize);
                 }
             } catch (Exception e) {
                 // A bad preference file costs a theme, not a launch.
@@ -92,10 +108,36 @@ public final class ClientPrefs {
         save();
     }
 
+    /** Rows per page on the history list, always within {@link #HISTORY_PAGE_MIN}..{@link #HISTORY_PAGE_MAX}. */
+    public static int historyPageSize() {
+        return historyPageSize;
+    }
+
+    public static void setHistoryPageSize(int value) {
+        historyPageSize = clampPage(value);
+        save();
+    }
+
+    /**
+     * Snaps a value onto the allowed range, with zero meaning "not in the file".
+     *
+     * <p>Gson leaves a field it cannot find at its initialiser, so a missing key is already handled;
+     * this covers the other two cases — a file hand-edited to something absurd, and a value written
+     * by a future build with a wider range — and both have to survive a downgrade without leaving
+     * the list paginating in fifths of a row.</p>
+     */
+    private static int clampPage(int raw) {
+        if (raw <= 0) {
+            return DEFAULT_HISTORY_PAGE;
+        }
+        return Math.max(HISTORY_PAGE_MIN, Math.min(HISTORY_PAGE_MAX, raw));
+    }
+
     private static void save() {
         File_ out = new File_();
         out.theme = theme == PvTheme.Theme.LIGHT ? "light" : "dark";
         out.motion = motion;
+        out.historyPageSize = historyPageSize;
         try {
             Files.createDirectories(file().getParent());
             PvPocketStorage.writeAtomically(file(),

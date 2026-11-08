@@ -7,6 +7,8 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.sound.SoundEvents;
 
+import java.util.function.IntFunction;
+
 /**
  * Numeric stepper: {@code [−]  3 局  [+]}.
  *
@@ -17,6 +19,10 @@ import net.minecraft.sound.SoundEvents;
  *
  * <p>The whole widget is a hit target for the arrows' row, but only the two end caps change the
  * value: clicking the middle does nothing rather than guessing which way the player meant.</p>
+ *
+ * <p>Two constructors, one shape: a rule's own bounds and unit, or a raw range with no unit for a
+ * client-side setting. The second exists so that a preference that never travels to the server does
+ * not have to pretend to be a rule to get a stepper.</p>
  */
 public class PvStepper extends PvValueControl {
 
@@ -25,13 +31,36 @@ public class PvStepper extends PvValueControl {
     private static final int READOUT = 64;
     private static final int WIDTH = 104;
 
-    private final RuleDefinition def;
+    private final int min;
+    private final int max;
+    private final int stepSize;
+    private final IntFunction<String> format;
     /** Which cap the pointer is over: -1 none, 0 minus, 1 plus. */
     private int hotCap = -1;
 
     public PvStepper(RuleDefinition def, int value) {
-        this.def = def;
-        this.value = def.clamp(value);
+        this(def.min, def.max, Math.max(1, def.step), def::format, def.clamp(value));
+    }
+
+    /**
+     * A stepper for a plain integer setting that is not a rule.
+     *
+     * <p>Same widget rather than a second copy of the cap drawing: the two differ only in where the
+     * bounds and the readout text come from, and a duplicated control is a control that gets the
+     * next visual fix in one place and not the other. Client preferences (the history page size)
+     * are the first caller — they have no {@link RuleDefinition} because they never travel to the
+     * server.</p>
+     */
+    public PvStepper(int min, int max, int step, int value) {
+        this(min, max, step, Integer::toString, value);
+    }
+
+    private PvStepper(int min, int max, int step, IntFunction<String> format, int value) {
+        this.min = min;
+        this.max = max;
+        this.stepSize = Math.max(1, step);
+        this.format = format;
+        this.value = Math.max(min, Math.min(max, value));
         this.width = WIDTH;
         this.height = 20;
     }
@@ -76,7 +105,7 @@ public class PvStepper extends PvValueControl {
         drawCap(ctx, minusX(), hotCap == 0, false);
         drawCap(ctx, plusX(), hotCap == 1, true);
 
-        String readout = def.format(value);
+        String readout = format.apply(value);
         int centerX = x + width / 2;
         int color = !enabled ? PvTheme.TEXT_MUTED
                 : focused ? PvTheme.ACCENT
@@ -128,7 +157,7 @@ public class PvStepper extends PvValueControl {
     }
 
     private void step(int direction) {
-        int next = def.clamp(value + direction * Math.max(1, def.step));
+        int next = Math.max(min, Math.min(max, value + direction * stepSize));
         if (next != value) {
             value = next;
             emit();

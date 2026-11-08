@@ -124,12 +124,26 @@ public class PvScrollPane extends PvWidget {
         // The rows are a surface of their own for the layout audit: what the viewport cuts off is
         // clipped, not overlapping the status line underneath.
         String layer = PvAudit.layer(PvAudit.paneLayer(this));
+        boolean blocked = PvScreen.modalPointer();
+        // A row is either under the pointer or it is not, and "not" has to be a coordinate outside
+        // it rather than a cleared flag: rows compute their own hover from the numbers render()
+        // receives (an inline "remove", a stepper cap, a chip), so a cleared updateHover() still
+        // left those lit — behind a scrim, or half-scrolled out of the viewport.
+        int px = blocked ? -1 : mouseX;
+        int py = blocked ? -1 : mouseY;
         for (PvWidget child : children) {
-            if (child.y + child.height < y || child.y > y + height) {
-                continue;
+            boolean outside = child.y + child.height < y || child.y > y + height;
+            if (blocked || outside) {
+                child.updateHover(-1, -1);
+                // A clipped row is skipped outright; a row behind a scrim still has to be drawn,
+                // because the whole point of the scrim is that the panel is visible under it.
+                if (!blocked) {
+                    continue;
+                }
+            } else {
+                child.updateHover(px, py);
             }
-            child.updateHover(mouseX, mouseY);
-            child.render(ctx, mouseX, mouseY, delta);
+            child.render(ctx, px, py, delta);
         }
         PvAudit.layer(layer);
         ctx.disableScissor();
@@ -149,7 +163,7 @@ public class PvScrollPane extends PvWidget {
 
         barT = PvAnim.damp(barT, maxScroll() > 0 ? 1F : 0F, d, 0.1F);
         if (barT > 0.01F) {
-            renderScrollbar(ctx, mouseX, mouseY);
+            renderScrollbar(ctx, px, py);
         }
     }
 

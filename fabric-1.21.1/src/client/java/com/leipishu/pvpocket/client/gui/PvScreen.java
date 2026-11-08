@@ -87,6 +87,22 @@ public abstract class PvScreen extends Screen {
      */
     protected PvWidget overlay;
 
+    /**
+     * Whether any screen currently owns the pointer with a modal layer.
+     *
+     * <p>Static because the widgets that need to know cannot reach the screen instance: a scroll
+     * pane is constructed by whoever builds the page, long before there is a screen to ask, and it
+     * re-renders itself inside its own pass rather than through the screen's root loop. The client
+     * is single-threaded and only one screen renders at a time, so one flag is enough — it is
+     * recomputed at the top of every frame and cleared when the screen closes.</p>
+     */
+    private static boolean modalPointer;
+
+    /** See {@link #modalPointer}. */
+    public static boolean modalPointer() {
+        return modalPointer;
+    }
+
     private boolean started;
     private float openT;
     private String tipKey;
@@ -113,7 +129,23 @@ public abstract class PvScreen extends Screen {
      */
     @Override
     public void close() {
+        modalPointer = false;
         MinecraftClient.getInstance().setScreen(parent);
+    }
+
+    /**
+     * Clears the modal flag when the screen goes away.
+     *
+     * <p>Not every screen leaves through {@link #close()} — the server can push a screen over this
+     * one, and the game can replace it outright — so the flag is cleared here as well. It is
+     * recomputed on the next frame regardless, but between the two the flag is read by panes that
+     * belong to the *outgoing* screen, and a frame of "everything is un-hoverable" is cheaper to
+     * avoid than to explain.</p>
+     */
+    @Override
+    public void removed() {
+        modalPointer = false;
+        super.removed();
     }
 
     /** Records where {@code close()} should return to. */
@@ -160,6 +192,10 @@ public abstract class PvScreen extends Screen {
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
         cursorX = mouseX;
         cursorY = mouseY;
+        // Recomputed every frame rather than tracked at the call sites: setOverlay/dismissOverlay
+        // are only two of the ways the layer changes (a dialog can hide itself), and a stale true
+        // would leave every scroll pane in the mod permanently un-hoverable.
+        modalPointer = hasOverlay();
         // Opens the measurement window before anything is drawn: text is recorded as it is painted,
         // so a window that opened at the end of the frame would only ever see widget boxes.
         PvAudit.begin(getClass().getSimpleName(), width, height);
@@ -179,20 +215,29 @@ public abstract class PvScreen extends Screen {
         // every root widget are allowed to collide with each other in the audit, and nothing else
         // is compared against them.
         PvAudit.layer(PvAudit.CHROME_LAYER);
-        drawContent(ctx, mouseX, mouseY, delta);
+        // The pointer as far as the panel is concerned. A modal is a scrim: nothing beneath it is
+        // under the cursor, and "nothing" has to be expressed as a coordinate outside every widget,
+        // because plenty of widgets work out their own hover from the numbers handed to render()
+        // rather than from updateHover() — a card that highlights its row, a stepper that lights the
+        // cap under the pointer, a text field that places its caret. Clearing updateHover() alone
+        // left all of those lit behind an open dialog.
+        int px = overlay == null ? mouseX : -1;
+        int py = overlay == null ? mouseY : -1;
+        drawContent(ctx, px, py, delta);
 
         // Item icons live at z = 150 in a depth-tested layer, so a scrim at z = 0 can never cover
         // them (see PvDraw.itemsVisible). While a modal is up the panel underneath is dimmed, and
         // dimmed-with-icons-poking-through is worse than dimmed-and-flat.
         PvDraw.itemsVisible = overlay == null;
         for (PvWidget widget : roots) {
-            widget.updateHover(mouseX, mouseY);
-            widget.render(ctx, mouseX, mouseY, delta);
+            // Cleared, not frozen. A widget left glowing from the frame before the dialog opened is
+            // a widget the player thinks they can still press; freezing the previous state was the
+            // same mistake in slower motion.
+            widget.updateHover(px, py);
+            widget.render(ctx, px, py, delta);
         }
         PvDraw.itemsVisible = true;
         if (overlay != null) {
-            // Roots keep their hover state frozen while a modal is up: a button glowing underneath a
-            // dialog is a button the player thinks they can press.
             PvAudit.layer(PvAudit.OVERLAY_LAYER);
             overlay.updateHover(mouseX, mouseY);
             overlay.render(ctx, mouseX, mouseY, delta);
@@ -337,13 +382,17 @@ public abstract class PvScreen extends Screen {
     private void drawTooltip(DrawContext ctx, float d) {
         String tip = null;
         if (hasOverlay()) {
+            // The modal is the only thing under the pointer. Walking the roots as well was how a
+            // background row's hint appeared on top of an open dialog — the overlay's own tooltip
+            // was null, so the loop below found one behind the scrim.
             tip = overlay.tooltipAt(cursorX, cursorY);
-        }
-        for (PvWidget widget : roots) {
-            if (tip != null) {
-                break;
+        } else {
+            for (PvWidget widget : roots) {
+                if (tip != null) {
+                    break;
+                }
+                tip = widget.tooltipAt(cursorX, cursorY);
             }
-            tip = widget.tooltipAt(cursorX, cursorY);
         }
         if (tip == null) {
             tipKey = null;

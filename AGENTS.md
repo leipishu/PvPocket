@@ -99,7 +99,9 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   内容凹槽叠在上面，只有右下角跟面板圆角。分隔线只能画在凹槽内部，不许横穿侧栏。
 - **1px 的线一律用 `ctx.fill`**，不要用 `roundRect(..., h=1, radius=0)`。
 - **模态弹窗挂 `PvScreen.overlay`**，不要只 append 到 `roots`。`roots` 只决定「画在上面」，
-  不决定「拦住下面的点击」。
+  不决定「拦住下面的点击」。弹窗存在时它**独占指针**：`PvScreen.render` 交给下面那层的坐标是
+  `-1,-1`，滚动区通过 `PvScreen.modalPointer()` 拿到同一个事实——只清 `updateHover()` 不够，
+  不少控件是在 `render()` 里用坐标自己算悬停的（卡片行、步进器端帽、chip、输入框光标）。
 - **物品图标盖不住，只能不画。** `ctx.drawItem` 送到 `z=150` 的深度测试层，任何顺序的半透明遮罩
   都盖不住；弹窗存在时置 `PvDraw.itemsVisible = false`。
 - **`PvScrollPane` 的顺序是「宽度 → `onWidth()` → 高度」**。高度依赖宽度的控件必须走
