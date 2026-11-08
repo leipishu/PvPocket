@@ -120,8 +120,22 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 - **新控件要能被审计看到。** 内联绘制的控件（`RuleRow` 的 control 之类）必须由容器在
   `childrenForAudit()` 里交出去，否则 `PvAudit` 完全不知道它存在——chips 压住标签两像素那次，
   所有检查都报 clean。
+- **控件在布局期创建，不要在 `render` 里 `add()`。** 渲染里加一个控件就是每帧加一个：审计抓到过
+  三份 "Watch" 叠在同一个像素上，而画面上只是文字比平时粗一点。
+- **`PvTheme` 的颜色令牌不能是 `static final`。** javac 会把 `static final int` 内联进调用点，
+  改值对已编译的 282 处引用无效——没有运行时换肤。亮色主题见 `docs/zh/04-visual.md` §2.5，
+  强调色必须压深（白底上 `#F5A524` 只有 1.9:1，而它被当文字用）。
 
-### 4. 沙盒
+### 4. 协议方向
+
+**判断「服务端支不支持某个功能」要问上行通道。** `canSend` 问的是「我能不能往这个通道发」；
+下行包（如 `HomeStatePayload`）问它恒为 false。踩过一次：按钮永远灰着，而服务端在同一 tick
+就回了快照。
+
+主页面是唯一由客户端主动请求的界面（`HomeRequestPayload` → `HomeStatePayload`），
+其余都是服务端推的。新增这类「客户端想要才要」的数据，照这个形状做，不要改成推送。
+
+### 5. 沙盒
 
 决斗维度内聊天只放行 `/pvpocket` 根字面量（白名单，不是黑名单）；任何人不得自行切游戏模式
 （命令层 + `ServerPlayerInteractionManager.changeGameMode` 两层），但控制台/RCON 发起的放行，
@@ -129,7 +143,7 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 
 钩子必须挂在 `CommandManager.execute`，不是 `executeWithPrefix`——玩家聊天指令直接调前者。
 
-### 5. 文档
+### 6. 文档
 
 - `docs/zh/` 与 `docs/en/` 平行，六篇一一对应。**改一篇必须同步另一篇。**
 - 改动历史写 `CHANGELOG.md`，只记使用者可感知的变化与改变后续做法的决定，不记内部重构。
@@ -150,10 +164,22 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审计没跑完
 ```
 
-它让开发客户端自己遍历 5 个界面 × 全部页面/弹窗 × 2 种画布（426×240 与 320×180），在真实渲染帧里
+它让开发客户端自己遍历 6 个界面 × 全部页面/弹窗 × 2 种画布（426×240 与 320×180），在真实渲染帧里
 记录控件盒子和文字，检查零尺寸、越出裁剪区、同层互压。**加新界面或新页面时，记得给
 `auditVariantCount()/auditVariant()` 补一个变体**，否则新页面不在审计范围内。
 `-Dpvpocket.audit=true` 才启用，`-PuiAudit` 会把两个开关都带上。
+
+审计测的是几何，不是内容：页面上一个控件都没有时它照样报 clean。主页面和预设页的数据是
+`PvAuditHarness` 自己塞进去的（`homeData()` / `seedPresets()`），所以别把它们删了。
+
+不需要 Minecraft 运行时的逻辑用自检类验证，一条命令：
+
+```bash
+./gradlew statsCheck          # 统计文件的幂等、上限、跨重启、坏行容错
+```
+
+统计文件是**唯一一类 bug 会永久留下**的东西：重复的历史行、丢错端的上限，都不会当场报错，
+只会让某个玩家的记录永远错下去。改 `DuelStats` 必须跑它。
 
 界面自动化两条铁律：
 

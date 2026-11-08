@@ -97,6 +97,8 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | C→S | `LoadoutSubmitPayload` | 提交配装 |
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
 | C→S | `PresetSharePayload` | 发布 / 取用分享码 |
+| C→S | `HomeRequestPayload` | 「给我一份主页面快照」 |
+| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |
@@ -105,6 +107,19 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | S→C | `SpectateStatePayload` / `PossessPayload` | 观战条 / 附身目标快捷栏 |
 | S→C | `CombatStatePayload` | 战斗模式与格挡状态镜像 |
 | S→C | `PresetShareResultPayload` | 分享码的结果：状态码 + 预设内容 |
+| S→C | `HomeStatePayload` | 主页面快照：生涯计数、历史、进行中对局、状态位 |
+
+**主页面是唯一由客户端主动要求打开的界面**，其余界面都是服务端推过来的。它因此自带一对
+请求/应答：`HomeRequestPayload`（空包）→ `HomeStatePayload`。快照不推送，只在玩家打开面板
+时现算——没有别人需要这份数据，推它只是白烧带宽。快照里的计数、历史、进行中对局都是扁平的
+`|` 分隔串，解析在客户端；理由与分享码相同：服务端没有语言，也不该决定面板长什么样。
+
+**判断「服务端是否支持主页面协议」要问上行通道。** `canSend` 问的是「我能不能往这个通道发」，
+而 `HomeStatePayload` 只走下行，问它恒为 false——表现是按钮永远灰着，哪怕服务端在同一 tick
+就回了快照。问 `HomeRequestPayload` 才是对的。
+
+上行包一律在服务端 `server.execute(...)` 里处理，确保跑在主线程上。主页面请求额外做了节流
+（每玩家 1 秒一次，表上限 512 条），因为它是唯一一个客户端可以无限催的包。
 
 `PacketCodec.tuple` 最多 6 个分量，超过就得把字段收进嵌套 record（`RulesOpenPayload` 的
 `Details` 就是这么来的）。
@@ -145,7 +160,32 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | `journal/<session>.log` | `<world>/pvpocket/` | 会话逐条事件，用于崩溃对账与排障 |
 | `homes.json` | 同上 | 进入决斗维度前的位置，掉线兜底 |
 | `guard.json` | 同上 | 滞留保护的按玩家豁免名单 |
+| `stats/stats.json` | 同上 | 每个玩家的生涯计数，整文件重写 |
+| `history/<uuid>.jsonl` | 同上 | 每个玩家一场一行的历史，追加写 |
 | `presets.json` | `config/pvpocket/`（**客户端**） | 玩家的配装与规则预设 |
+| `client.json` | 同上 | 主题与动效开关（**不含按键**，按键在原版 `options.txt`） |
+
+**两个统计文件，因为写入模式不同。** 计数每挨一刀就变，所以留在内存、在系列赛结束/断线/关服时
+刷盘——每刀一次磁盘写等于每半秒一次；历史是追加的，一人一个文件读的时候一次顺序读到底，
+共享文件则每次追加都要重写所有人的记录。
+
+历史上限是**读时**执行的 200 场：文件在压实阈值（250 行）之前允许长到 250，追加才是 O(1)，
+但 `history()` 只交回最新 200 条——承诺是 200，文件布局是实现细节。压实会**保留最新**的 200 行，
+丢掉最旧的。
+
+追加前会先确认文件以换行结尾：崩溃留下的半行如果不补分隔符，下一条记录会被粘在它后面，
+两条一起变成废行。
+
+采集点：
+
+| 数值 | 位置 | 理由 |
+| --- | --- | --- |
+| 伤害 | `LivingEntity#applyDamage` 的 HEAD | 此处已过护甲、未过吸收，是「实际打出去的伤害」；且双方都必须在同一场 `ROUND_ACTIVE` 里、不是队友 |
+| 击杀 | 死亡时读 `ServerPlayerEntity#getAttacker()` | 摔死、自爆、环境杀不计给任何人 |
+| 小局 | `settle` 时追加一条 `RoundLog` | `winner` 存的是阵营序号，写进 `MatchRecord` 时换算成「我这边赢没赢」 |
+
+`MatchRecord` 是**一人一条**，不是一场一条：同一个系列赛里每个参与者各写一份，各自带着自己一侧的
+比分与自己的对手名单。共享一条的话，读的人得先被告诉自己是哪一边。
 
 `presets.json` 是唯一一个不在世界存档里的文件，也**只有客户端读写**。配装和规则是玩家跨服务器
 携带的东西，跟着存档走意味着换一个服务器就要重建一遍；服务端从不读它，用预设时走的是普通的

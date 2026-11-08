@@ -172,7 +172,7 @@ before changing or deleting them.
 
 ## Verification
 
-**Compiling is not the same as working.** Pick from these four by the scope of the change:
+**Compiling is not the same as working.** Pick from these five by the scope of the change:
 
 1. **Compile**: `./gradlew compileJava compileClientJava`.
 2. **Play a match**: changes to rules, sessions, loadouts or networking need a full match on both
@@ -182,10 +182,13 @@ before changing or deleting them.
    `grep 'c.maxHealth='` finds nothing.
 3. **UI audit**: run `scripts/audit-ui.sh` after touching a GUI (about two minutes; exit code `0` is
    clean, `1` means occlusion, `2` means the audit did not finish). It makes the development client
-   walk five screens × every page and dialog × two canvas sizes, recording widget boxes and text in
+   walk six screens × every page and dialog × two canvas sizes, recording widget boxes and text in
    real rendered frames. **When adding a screen or page, add a variant to
    `auditVariantCount()/auditVariant()`**, otherwise the new page is not covered.
-4. **Language files**: after editing `zh_cn.json` / `en_us.json`, run the key-set and placeholder
+4. **Data self-check**: run `./gradlew statsCheck` after touching `stats/DuelStats`. The stats files
+   are the one place where a bug is permanent — a duplicated history row, a cap that drops the wrong
+   end — and neither fails anything visibly; it just leaves one player's record wrong forever.
+5. **Language files**: after editing `zh_cn.json` / `en_us.json`, run the key-set and placeholder
    check (the command is in [`AGENTS.md`](../../AGENTS.md) under "Localisation").
 
 Two rules for UI automation; breaking them produces false conclusions. Capture with

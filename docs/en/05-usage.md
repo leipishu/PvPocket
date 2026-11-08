@@ -9,7 +9,7 @@
 1. Fabric Loader 0.16.9+, Minecraft 1.21.1, Java 21.
 2. Put `pvpocket-*.jar` and [Fabric API](https://modrinth.com/mod/fabric-api) in `mods/`.
 3. The first start creates a `pvpocket/` directory in the world save (`journal`, `homes.json`,
-   `guard.json`).
+   `guard.json`, `stats`, `history`).
 4. The duel dimension loads and pre-stamps at server start; five maps take about 10 seconds, one per
    tick. Until then `/pvpocket arena` reports "gallery not stamped" and no duel can start.
 
@@ -26,10 +26,49 @@ scoreboard.
 
 ## 2. Player flow
 
+### The home panel
+
+Two entry points, equivalent:
+
+- The `B` key (rebindable on the panel's Settings page; the change is written straight into the
+  vanilla key bindings, so it shows up — and can be undone — in the vanilla Controls screen)
+- The "Duel" button to the left of the inventory
+
+The key only fires when **no screen is open**. That is deliberate: pressing `B` over an open rule
+draft would bury it, and the draft's unsent edits are not recoverable by closing the panel again.
+
+Five tabs:
+
+| Tab | Contents |
+| --- | --- |
+| Home | Greeting, one random encouraging line, one primary action (start a duel / resume an open draft / surrender / stop spectating, depending on state), and the matches running right now — each with a way in |
+| Stats | Matches, win rate, total damage, KD, rounds won, best streak, plus the last ten results as squares |
+| History | Recent series: score, win/loss, map, mode, team size, per-round outcomes; open one for the round-by-round detail and a one-line result to copy |
+| Presets | The loadouts and rule sets on this machine: start from one, share, import, delete |
+| Settings | Version, licence, config path, light/dark theme, motion toggle, key rebinding |
+
+The top bar carries the date, weekday and time.
+
+**The numbers belong to this server.** Career counters and history live in the **world save**, under
+`pvpocket/stats` and `pvpocket/history`, and the panel clears the moment you disconnect. That is
+intentional: two servers' win rates are not comparable.
+
+What the numbers mean:
+
+- **Total damage** is health dealt, after armour and before absorption. A 20-point hit on somebody
+  with 3 health left counts as 20, not 3 — otherwise the total would depend on how the last hit
+  landed rather than on how hard it hit.
+- **Kills** are attributed to the attacker at the moment of death. Falling, self-damage and
+  environment kills count for nobody; so do kills inside your own side.
+- **Rounds won** counts each round's winner, summed across every series.
+- **Best streak** is a high-water mark: a loss resets the current streak, never the best one.
+- History keeps the newest 200 series per player; the lifetime counters are never trimmed.
+
 ### Starting a duel
 
-1. A: `/pvpocket duel` → the rule panel opens on the **players page** (the first tab). It holds two
-   team cards by default, each with `b.teamSize` slots, and a strip of that side's wool colour on top.
+1. A: press "Start a duel" on the home panel, or `/pvpocket duel` → the rule panel opens on the
+   **players page** (the first tab). It holds two team cards by default, each with `b.teamSize` slots,
+   and a strip of that side's wool colour on top.
 2. A: press the `+` in a card's corner and pick people out of the dialog; "+ Add team" under the cards
    takes it up to four. An empty card does not play, and at least two sides need somebody before the
    invite can go out. Sides do not have to be the same size.
@@ -48,14 +87,18 @@ Closing it while the draft is still open cancels the invite.
 
 ### Presets and share codes
 
-The right end of the title row holds a "Presets" link, one on the rule panel and one in the loadout
-editor. It opens the list of presets on this machine. Loadouts and rule sets are stored separately
-and are never interchangeable.
+Three places open the preset list: the home panel's Presets tab, the "Presets" link at the right end
+of the rule panel's title row, and the same link in the loadout editor. Loadouts and rule sets are
+stored separately and are never interchangeable.
 
 - **Save** names the current state and writes it to `config/pvpocket/presets.json`. A name that is
   already taken is overwritten.
 - **Load** puts a preset back into the panel. It **does not submit anything** — a rule set still
   needs "Send invite", a loadout still needs "Save loadout".
+- **Start from a preset**: every row on the home panel's Presets tab has "Start". A rule preset opens
+  a draft with those rules applied; a loadout preset opens a draft and swaps the loadout on your side.
+  The invite still goes out the normal way.
+- **Delete** lives behind "More" on the same row and takes two presses.
 - **Share** asks the server for a six-character code, valid for five minutes, and copies it to the
   clipboard.
 - **Import** takes somebody else's code. The preset **lands in the local file immediately**; the code
@@ -94,6 +137,10 @@ Spectating is allowed by default; the challenger can turn it off in rule group B
 
 The command surface is deliberately narrow: **anything the rule panel can do has no command**.
 Propose, accept and reject exist only as panel buttons.
+
+The home panel does not replace the commands. Everything it does — starting a duel, starting from a
+preset, watching, leaving — is still reachable as a command, because the console and RCON have no
+client and scripts and operators can only speak commands.
 
 | Command | Purpose |
 | --- | --- |
@@ -161,6 +208,9 @@ able to rescue a stuck player.
 | Symptom | Look at |
 | --- | --- |
 | Panel does not appear | Server log line `Rules panel -> <player> (canSend=…)`; `false` means the client never declared the channel (version mismatch) |
+| The home panel's button is grey | The server never declared the home protocol (version mismatch). The button's tooltip says so |
+| Stats stay empty | They start with the first *finished* series; a match in progress is not counted until it settles |
+| The numbers vanished after switching servers | Expected. They belong to the world save, not to the account |
 | Start refused, "arena is rebuilding" | The previous `arena reset` has not finished stamping; wait until `/pvpocket arena` shows the full map count |
 | Start refused, "in use by another duel" | One map, one duel; pick another |
 | Player stuck in the duel dimension | `/pvpocket guard false`, teleport them out manually, or wait five seconds for the automatic ejection |

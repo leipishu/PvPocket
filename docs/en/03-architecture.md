@@ -104,6 +104,8 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `LoadoutSubmitPayload` | Submit a loadout |
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |
 | C→S | `PresetSharePayload` | Publish / fetch a share code |
+| C→S | `HomeRequestPayload` | "Give me a home-panel snapshot" |
+| C→S | `HomeActionPayload` | Start a duel / start from a rule preset / start from a loadout preset |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | Rule panel open / close |
 | S→C | `LoadoutOpenPayload` | Loadout editor open |
 | S→C | `MatchListPayload` | Match list |
@@ -112,6 +114,23 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | S→C | `SpectateStatePayload` / `PossessPayload` | Spectator bar / possessed hotbar |
 | S→C | `CombatStatePayload` | Combat mode and blocking mirror |
 | S→C | `PresetShareResultPayload` | Share-code outcome: a status code plus the preset body |
+| S→C | `HomeStatePayload` | Home snapshot: career counters, history, live matches, state flags |
+
+**The home panel is the only screen the client asks for**; every other screen is pushed by the
+server. It therefore carries its own request/response pair: `HomeRequestPayload` (empty) →
+`HomeStatePayload`. The snapshot is built on demand rather than pushed, because nothing else needs
+this data — pushing it would burn bandwidth for nobody. Counters, history and live matches all
+travel as flat `|`-separated strings and are parsed on the client, for the same reason as share
+codes: the server has no language and should not decide what the panel looks like.
+
+**"Does this server speak the home protocol" must be asked of the outbound channel.** `canSend`
+answers "may I send on this channel", and `HomeStatePayload` only ever travels server-to-client, so
+asking about it returns false everywhere — which shows up as a permanently greyed-out button on a
+server that answered the request in the same tick. `HomeRequestPayload` is the right question.
+
+Every inbound payload is handled inside `server.execute(...)` so it runs on the main thread. Home
+requests are additionally throttled (one per player per second, table capped at 512 entries),
+because it is the one payload a client can send without limit.
 
 `PacketCodec.tuple` tops out at six components; beyond that fields move into a nested record (which
 is where `RulesOpenPayload.Details` comes from).
@@ -155,7 +174,34 @@ the mod's own switches go through `Sandbox.changeGameMode` with a `try/finally` 
 | `journal/<session>.log` | `<world>/pvpocket/` | Per-session event stream for reconciliation and diagnosis |
 | `homes.json` | same | Pre-entry positions, disconnect recovery |
 | `guard.json` | same | Per-player exemptions from the stray-player guard |
+| `stats/stats.json` | same | Career counters per player, rewritten whole |
+| `history/<uuid>.jsonl` | same | One line per finished series per player, appended |
 | `presets.json` | `config/pvpocket/` (**client**) | The player's loadout and rule presets |
+| `client.json` | same | Theme and motion preference (**not** key bindings — those live in vanilla `options.txt`) |
+
+**Two stats files, because there are two write patterns.** Counters change on every hit, so they are
+held in memory and flushed at series end, on disconnect and on shutdown — a write per hit is a disk
+write per half second of combat. History is append-only, one file per player, read straight through
+in one sequential pass; a shared file would rewrite everybody's records on every append.
+
+The 200-series cap is enforced **on read**: the file may grow to 250 rows before it is compacted, so
+an append stays O(1), but `history()` hands back only the newest 200 — the promise is 200, the file
+layout is an implementation detail. Compaction keeps the newest 200 rows and drops the oldest.
+
+Before appending, the file is checked for a trailing newline. A crash can leave a partial row with no
+terminator; without the separator the next record is glued onto it and *both* become unreadable.
+
+Where the numbers come from:
+
+| Value | Hook | Why |
+| --- | --- | --- |
+| Damage | HEAD of `LivingEntity#applyDamage` | Already past armour, before absorption — "damage actually dealt". Both sides must also be in the same `ROUND_ACTIVE` and not on the same side |
+| Kills | `ServerPlayerEntity#getAttacker()` at death | Falling, self-damage and environment kills count for nobody |
+| Rounds | A `RoundLog` appended in `settle` | The winner is stored as a side index and converted to "did my side win this one" when it is written into `MatchRecord` |
+
+`MatchRecord` is **one per player**, not one per series: every participant gets their own record with
+their own side's score and their own list of opponents. A shared record would force every reader to
+be told which side it was on.
 
 `presets.json` is the one file that does not live in the world save, and the only one the client
 reads and writes. A loadout or a rule set is something a player carries between servers; keeping it

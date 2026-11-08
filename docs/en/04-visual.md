@@ -75,6 +75,25 @@ within their own hue, never across hues.
 `LIVE` is the one deliberately non-brand colour. It appears only in the HUD, to separate "live /
 match point" from accent; panels never use green.
 
+### 2.5 Light theme
+
+The home panel's Settings page can switch to light. Light is **not the five greys inverted** — it is a
+full parallel palette in `PvTheme.apply(Theme)`, with token names in one-to-one correspondence.
+
+Two hard constraints:
+
+- **Colour tokens must not be `static final`.** javac inlines `static final int` into every call site,
+  so changing the value in `PvTheme` has no effect on the 282 references already compiled in: no
+  runtime theming, only a recompile. Colour fields are therefore mutable `static int`. Metrics
+  (radii, row heights) and `MOTION` are mutable too.
+- **The accent has to be darkened in the light theme.** `ACCENT #F5A524` is 1.9:1 on white, and it is
+  used as text in 38 places (version chip, win chip, focus labels). Light uses `#FFB26A00` (about
+  4.6:1); dark keeps the original. `teamInk` blends toward black for the same reason — team colours
+  otherwise smear into white.
+
+Light is not a different product: surfaces still step through five levels of luminance, the accent is
+still the same warm hue, and red still means only "this destroys something".
+
 ## 3. Shape and metrics
 
 | Item | Value | Notes |
