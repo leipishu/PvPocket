@@ -17,6 +17,7 @@ import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
+import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
@@ -3137,7 +3138,7 @@ public final class SessionManager {
                     "screens", region.screenCount(),
                     "top", ArenaManager.prepareWallTop(region));
             broadcastHud(session, true);
-            broadcastBounds(session, true, ArenaBoundsPayload.MODE_PREPARE);
+            broadcastBounds(session, true);
             for (Participant p : session.participants) {
                 ServerPlayerEntity player = online(p);
                 if (player != null) {
@@ -3966,21 +3967,50 @@ public final class SessionManager {
         ArenaBoundsPayload payload = !active || region == null
                 ? ArenaBoundsPayload.hidden()
                 : boundsOf(region, mode);
+        PrepareScreensPayload screens = screensOf(session);
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendBounds(player, payload);
+                PvPocketNetworking.sendScreens(player, screens);
             }
         }
         for (ServerPlayerEntity watcher : spectators.watchersOf(session.id)) {
             PvPocketNetworking.sendBounds(watcher, payload);
+            PvPocketNetworking.sendScreens(watcher, screens);
         }
         // One line per round boundary, mirroring the "Rules panel ->" line. If the curtain ever fails
         // to appear, the first question is whether the client was told about the plot at all, and
         // this answers it without a debugger.
-        PvPocket.LOGGER.info("Arena bounds {} for session {} ({}, mode {})",
+        PvPocket.LOGGER.info("Arena bounds {} for session {} ({}, mode {}, screens {})",
                 active ? "pushed" : "cleared", session.id,
-                region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ), mode);
+                region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ), mode,
+                screens.screens().size());
+    }
+
+    /**
+     * The screens standing in front of the sides right now, or none.
+     *
+     * <p>Derived from the stage rather than stored, so there is one answer to "is a screen up". The
+     * blocks and this payload are built from the same plane list at the same moment; a client that
+     * reconnected mid-countdown gets the payload from the stage alone, which is the case that a
+     * cached field would have got wrong.</p>
+     */
+    private static PrepareScreensPayload screensOf(DuelSession session) {
+        ArenaRegion region = ArenaManager.region(session.id);
+        if (region == null || session.stage != SessionStage.ROUND_READY) {
+            return PrepareScreensPayload.none();
+        }
+        List<ArenaManager.Screen> planes = ArenaManager.prepareScreens(region, session.teamCount);
+        if (planes.isEmpty()) {
+            return PrepareScreensPayload.none();
+        }
+        List<PrepareScreensPayload.Screen> out = new ArrayList<>(planes.size());
+        for (ArenaManager.Screen plane : planes) {
+            out.add(new PrepareScreensPayload.Screen(plane.alongZ(), plane.plane(),
+                    plane.from(), plane.to(), plane.floorY(), plane.height()));
+        }
+        return new PrepareScreensPayload(List.copyOf(out));
     }
 
     /**
@@ -3991,18 +4021,13 @@ public final class SessionManager {
      * so a curtain on the box would be drawn behind ten rows of seating.</p>
      */
     private static ArenaBoundsPayload boundsOf(ArenaRegion region, int mode) {
-        // The preparation wall is a real thing with a real height, so the client is told that
-        // height and starts at the wall's own bottom block. A rule boundary is an abstraction and
-        // gets a nominal height the client is free to grow past the camera.
-        boolean solid = mode == ArenaBoundsPayload.MODE_PREPARE;
-        double floor = solid ? ArenaRegion.PLATFORM_Y : ArenaRegion.SURFACE_Y;
-        double height = solid
-                ? ArenaManager.prepareWallTop(region) - ArenaRegion.PLATFORM_Y
-                : BOUNDARY_CURTAIN_HEIGHT;
+        // Always the rule's own numbers. The preparation window used to override them with the
+        // barrier ring's real height and paint the curtain white; that is now the screens' job, and
+        // the boundary keeps behaving like a boundary for the whole match.
         return new ArenaBoundsPayload(true,
                 region.pitMinX(), region.pitMinZ(),
                 region.pitMaxX() + 1.0D, region.pitMaxZ() + 1.0D,
-                floor, height, mode);
+                ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT, mode);
     }
 
     private void broadcastHud(DuelSession session, boolean active) {
@@ -4074,6 +4099,7 @@ public final class SessionManager {
         if (session == null || session.stage.isTerminal()) {
             PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
             PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
+            PvPocketNetworking.sendScreens(player, PrepareScreensPayload.none());
             return;
         }
         PvPocketNetworking.sendHud(player,
@@ -4092,20 +4118,21 @@ public final class SessionManager {
         } else {
             PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
         }
+        // Screens are not gated on the stage here: screensOf already answers "none" for anything
+        // that is not the countdown, so the reconnect path cannot drift from the broadcast path.
+        PvPocketNetworking.sendScreens(player, screensOf(session));
     }
 
     /**
      * Which colour the curtain should be right now.
      *
-     * <p>During the preparation window the answer is neither rule: the wall is a real barrier ring
-     * and the client paints it white. Deriving this in one place keeps the three call sites —
-     * round start, round activation, reconnect — from drifting apart, which is how a client ends up
-     * drawing a red boundary over a white wall.</p>
+     * <p>Always the rule. The preparation window used to be its own mode — white and solid, because
+     * a real barrier ring stood at those coordinates — but that made the boundary look like a
+     * different object for five seconds and hid the colour that tells you which rule is in force.
+     * The solid white belongs to the screens in front of the sides, which are not the boundary and
+     * now travel in their own payload.</p>
      */
     private static int boundsMode(DuelSession session) {
-        if (session.stage == SessionStage.ROUND_READY) {
-            return ArenaBoundsPayload.MODE_PREPARE;
-        }
         return DuelRules.decode(session.rules).get("e.boundary");
     }
 
@@ -4122,6 +4149,7 @@ public final class SessionManager {
         PvPocketNetworking.sendBounds(player, region == null
                 ? ArenaBoundsPayload.hidden()
                 : boundsOf(region, boundsMode(session)));
+        PvPocketNetworking.sendScreens(player, screensOf(session));
     }
 
     /**
@@ -4135,6 +4163,7 @@ public final class SessionManager {
     void clearSpectatorView(ServerPlayerEntity player) {
         PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
         PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
+        PvPocketNetworking.sendScreens(player, PrepareScreensPayload.none());
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
+import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
@@ -34,16 +35,18 @@ import org.joml.Matrix4f;
  *       {@link #SEGMENT}-block pieces and each piece fades on its own distance, so the boundary
  *       appears a few blocks at a time as you walk towards it. It also cuts the fill rate: only the
  *       pieces near the camera produce vertices at all.</li>
- *   <li><b>Coloured by the rule.</b> {@code e.boundary = 拉回} is blue, {@code 判负} is red. Two rules
- *       that behave completely differently should not look the same — and the colour is the fastest
- *       way to confirm from inside the fight that the rule you set is the rule in force.</li>
- *   <li><b>White and solid during preparation.</b> For those seconds the boundary is not a rule, it
- *       is a real barrier ring. The curtain is drawn white, to its actual height, with a hard top
- *       edge — so what you see is exactly the wall you are bumping into.</li>
- *   <li><b>It grows with you (except when it is solid).</b> The height the server sends is a minimum;
- *       the curtain always reaches a couple of blocks above the camera. Standing on the ground that
- *       changes nothing — climbing a tower and finding the boundary has ended below your feet is the
- *       failure this avoids. A solid wall does not grow: its height is a fact about the world.</li>
+ *   <li><b>Coloured by the rule, always.</b> {@code e.boundary = 拉回} is blue, {@code 判负} is red.
+ *       Two rules that behave completely differently should not look the same — and the colour is
+ *       the fastest way to confirm from inside the fight that the rule you set is the rule in force.
+ *       The countdown does not change it: the boundary is still the boundary while the sides are
+ *       held apart.</li>
+ *   <li><b>It grows with you.</b> The height the server sends is a minimum; the curtain always
+ *       reaches a couple of blocks above the camera. Standing on the ground that changes nothing —
+ *       climbing a tower and finding the boundary has ended below your feet is the failure this
+ *       avoids.</li>
+ *   <li><b>The preparation screens are drawn here too, and they are the white solid ones.</b> One
+ *       plane in front of each side, near-opaque, at its real height with a hard top edge, because
+ *       that wall has a top and is backed by real barrier blocks. See {@link #drawScreens}.</li>
  * </ul>
  *
  * <p>Geometry goes through {@link RenderLayer#getDebugQuads()}, which is the vanilla layer for exactly
@@ -80,6 +83,11 @@ public final class BoundaryRenderer {
     private static final float SOLID_BASE_ALPHA = 0.88F;
     private static final float SOLID_BODY_ALPHA = 0.55F;
 
+    /** The preparation screens' colour: white, very slightly blue so it does not read as fog. */
+    private static final float SOLID_R = 0.93F;
+    private static final float SOLID_G = 0.95F;
+    private static final float SOLID_B = 1.00F;
+
     /**
      * How far above the camera the curtain always reaches.
      *
@@ -104,7 +112,10 @@ public final class BoundaryRenderer {
     }
 
     private static void render(WorldRenderContext context) {
-        if (!ArenaBounds.active()) {
+        // Either overlay is worth drawing on its own: the screens exist only during the countdown,
+        // when the bounds are always up as well, but a client that lost the bounds packet must not
+        // also lose the wall it is standing behind.
+        if (!ArenaBounds.active() && PrepareScreens.get().isEmpty()) {
             return;
         }
         ClientWorld world = context.world();
@@ -124,20 +135,41 @@ public final class BoundaryRenderer {
             return;
         }
 
-        ArenaBoundsPayload bounds = ArenaBounds.get();
         Vec3d cam = context.camera().getPos();
-        boolean solid = bounds.solid();
+        matrices.push();
+        // Vertices are sent in world coordinates, so the camera has to be cancelled out here. Vanilla
+        // does the same thing when it draws the debug frustum.
+        matrices.translate(-cam.x, -cam.y, -cam.z);
+        Matrix4f matrix = matrices.peek().getPositionMatrix();
+        VertexConsumer vc = consumers.getBuffer(RenderLayer.getDebugQuads());
 
-        // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round),
-        // white for the preparation wall (neither rule is running yet).
+        if (ArenaBounds.active()) {
+            drawBoundary(vc, matrix, cam, ArenaBounds.get());
+        }
+        // Independent of the bounds on purpose: the screens are not the boundary, and a client that
+        // somehow got the screens without the plot outline should still see the wall it is standing
+        // behind rather than walk into nothing.
+        drawScreens(vc, matrix, cam);
+
+        matrices.pop();
+    }
+
+    /**
+     * The boundary itself: four edges, in the colour of whichever rule is in force.
+     *
+     * <p>It used to turn white and solid during the countdown, because a real barrier ring stood at
+     * these coordinates for those seconds. That made the boundary look like a different object for
+     * five seconds — and hid the one colour that answers "is this a push-back arena or a forfeit
+     * one" exactly when the player is standing still and could read it. The solid white moved to
+     * {@link #drawScreens}, which is the thing that actually becomes solid.</p>
+     */
+    private static void drawBoundary(VertexConsumer vc, Matrix4f matrix, Vec3d cam,
+                                     ArenaBoundsPayload bounds) {
+        // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round).
         float r;
         float g;
         float b;
-        if (solid) {
-            r = 0.93F;
-            g = 0.95F;
-            b = 1.00F;
-        } else if (bounds.mode() == ArenaBoundsPayload.MODE_PUSH_BACK) {
+        if (bounds.mode() == ArenaBoundsPayload.MODE_PUSH_BACK) {
             r = 0.36F;
             g = 0.61F;
             b = 1.00F;
@@ -147,39 +179,66 @@ public final class BoundaryRenderer {
             b = 0.43F;
         }
 
-        matrices.push();
-        // Vertices are sent in world coordinates, so the camera has to be cancelled out here. Vanilla
-        // does the same thing when it draws the debug frustum.
-        matrices.translate(-cam.x, -cam.y, -cam.z);
-        Matrix4f matrix = matrices.peek().getPositionMatrix();
-        VertexConsumer vc = consumers.getBuffer(RenderLayer.getDebugQuads());
-
         double yLow = bounds.floorY();
-        // A solid wall does not grow with the camera: its height is the height of the barrier ring,
-        // and drawing it taller would promise a wall that is not there. A rule boundary does grow,
-        // because it has no physical height to be honest about.
-        double yHigh = solid
-                ? bounds.floorY() + bounds.height()
-                : Math.max(bounds.floorY() + bounds.height(),
-                        Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
+        // A rule boundary has no physical height to be honest about, so it grows with the camera:
+        // standing on a tower and finding the curtain has ended below your feet is the failure this
+        // avoids.
+        double yHigh = Math.max(bounds.floorY() + bounds.height(),
+                Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
         double bandTop = Math.min(yLow + BASE_BAND, yHigh);
-        double fadeStart = solid ? yHigh : Math.max(bandTop, yHigh - TOP_FADE);
-        float baseAlpha = solid ? SOLID_BASE_ALPHA : BASE_ALPHA;
-        float bodyAlpha = solid ? SOLID_BODY_ALPHA : CURTAIN_ALPHA;
+        double fadeStart = Math.max(bandTop, yHigh - TOP_FADE);
 
         // Four edges. Each is culled and faded per segment, not per edge: standing two blocks from
         // the west wall but five hundred blocks north of the plot would pass a whole-edge distance
         // test and then draw a wall nobody is near.
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x0(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, BASE_ALPHA, CURTAIN_ALPHA);
         drawEdge(vc, matrix, cam, bounds.x1(), bounds.z0(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, BASE_ALPHA, CURTAIN_ALPHA);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x1(), bounds.z0(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, BASE_ALPHA, CURTAIN_ALPHA);
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z1(), bounds.x1(), bounds.z1(),
-                yLow, bandTop, fadeStart, yHigh, r, g, b, baseAlpha, bodyAlpha);
+                yLow, bandTop, fadeStart, yHigh, r, g, b, BASE_ALPHA, CURTAIN_ALPHA);
+    }
 
-        matrices.pop();
+    /**
+     * The screens standing in front of each side during the countdown, painted solid white.
+     *
+     * <p>This is the treatment the boundary used to get: near-opaque, its real height, and a hard
+     * top edge instead of a soft one — the wall has an actual top, so the drawing should say where
+     * it is. The blocks behind it are {@code barrier}, so what you see and what you bump into are
+     * the same plane.</p>
+     *
+     * <p>Same distance fade as the boundary, for the same reason: a screen spans the whole fight
+     * area, and drawing all of it at full strength would fill the view with white from any angle.
+     * The piece in front of you is always within full strength.</p>
+     */
+    private static void drawScreens(VertexConsumer vc, Matrix4f matrix, Vec3d cam) {
+        for (PrepareScreensPayload.Screen screen : PrepareScreens.get()) {
+            double px;
+            double pz;
+            double qx;
+            double qz;
+            if (screen.alongZ()) {
+                // A plane at a constant Z, spanning X.
+                px = screen.from();
+                pz = screen.plane();
+                qx = screen.to();
+                qz = screen.plane();
+            } else {
+                px = screen.plane();
+                pz = screen.from();
+                qx = screen.plane();
+                qz = screen.to();
+            }
+            double yLow = screen.floorY();
+            double yHigh = screen.floorY() + screen.height();
+            double bandTop = Math.min(yLow + BASE_BAND, yHigh);
+            // fadeStart == yHigh means "no soft top": drawEdge skips the fading band when the two are
+            // equal, which is exactly the hard edge a real wall has.
+            drawEdge(vc, matrix, cam, px, pz, qx, qz, yLow, bandTop, yHigh, yHigh,
+                    SOLID_R, SOLID_G, SOLID_B, SOLID_BASE_ALPHA, SOLID_BODY_ALPHA);
+        }
     }
 
     private static void drawEdge(VertexConsumer vc, Matrix4f matrix, Vec3d cam,

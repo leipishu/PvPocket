@@ -111,13 +111,14 @@ public final class ArenaRegion {
     /**
      * Blocks the preparation screens wrote, so teardown can be exact.
      *
-     * <p>The ring around the plot is made of {@code barrier}, a block no map contains, which is what
-     * lets its removal be a scan-and-clear. The screens are white glass — a block a map plausibly
-     * does contain — so "clear every white glass in the pit" would punch holes in the build. These
-     * are the positions that were air before the screen was raised, and nothing else.</p>
+     * <p>The ring around the plot is cleared by scanning its own coordinates for {@code barrier},
+     * which is safe because no map contains that block. The screens sit <em>inside</em> the fight
+     * area, where a map is free to use barrier for its own invisible walls — so the same scan would
+     * open a hole in the build. These are the positions that were air before the screen was raised,
+     * and nothing else.</p>
      *
      * <p>In memory only, like the deviation set: a crash loses the list, and the next lease's
-     * {@link #reset} clears the cell to air anyway, which removes any orphaned glass with it.</p>
+     * {@link #reset} clears the cell to air anyway, which removes any orphaned barrier with it.</p>
      */
     private final LongOpenHashSet screens = new LongOpenHashSet();
 
@@ -191,7 +192,7 @@ public final class ArenaRegion {
     }
 
     /**
-     * Removes every screen block that is still white glass.
+     * Removes every screen block that is still barrier.
      *
      * <p>Checked against the block rather than assumed: a player who broke one during the countdown
      * (protection off) leaves air there, and writing air over air is a pointless block update.</p>
@@ -200,14 +201,14 @@ public final class ArenaRegion {
         if (screens.isEmpty()) {
             return 0;
         }
-        BlockState glass = Blocks.WHITE_STAINED_GLASS.getDefaultState();
+        BlockState barrier = Blocks.BARRIER.getDefaultState();
         BlockState air = Blocks.AIR.getDefaultState();
         long[] keys = screens.toLongArray();
         screens.clear();
         int removed = 0;
         for (long key : keys) {
             BlockPos pos = BlockPos.fromLong(key);
-            if (world.getBlockState(pos) == glass) {
+            if (world.getBlockState(pos) == barrier) {
                 world.setBlockState(pos, air, Block.NOTIFY_LISTENERS);
                 removed++;
             }

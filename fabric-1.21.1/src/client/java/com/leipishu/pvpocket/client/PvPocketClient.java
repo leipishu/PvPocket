@@ -16,6 +16,7 @@ import com.leipishu.pvpocket.client.render.PossessedHandRenderer;
 import com.leipishu.pvpocket.client.hud.SpectatorHud;
 import com.leipishu.pvpocket.client.render.ArenaBounds;
 import com.leipishu.pvpocket.client.render.BoundaryRenderer;
+import com.leipishu.pvpocket.client.render.PrepareScreens;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
@@ -26,6 +27,7 @@ import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.PossessPayload;
+import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -117,6 +119,10 @@ public final class PvPocketClient implements ClientModInitializer {
             context.client().execute(() -> ArenaBounds.update(payload));
         });
 
+        ClientPlayNetworking.registerGlobalReceiver(PrepareScreensPayload.ID, (payload, context) -> {
+            context.client().execute(() -> PrepareScreens.update(payload));
+        });
+
         // The match list always opens a fresh screen rather than patching an open one. Refresh is
         // implemented by asking the server again, so a payload arriving while the panel is open
         // means the list genuinely changed — and rebuilding it is the only way to get the row
@@ -150,6 +156,7 @@ public final class PvPocketClient implements ClientModInitializer {
             clearPendingState();
             MatchHud.clear();
             ArenaBounds.clear();
+            PrepareScreens.clear();
             SpectatorHud.clear();
             PossessionHud.clear();
             // The dialog is gone with the screen, and a listener left behind would take the next

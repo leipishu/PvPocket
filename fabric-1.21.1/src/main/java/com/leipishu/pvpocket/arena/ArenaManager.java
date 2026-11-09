@@ -373,15 +373,20 @@ public final class ArenaManager {
      * boundary the countdown rule can never see. So for the preparation window the wall is made of
      * {@code minecraft:barrier}: invisible, unbreakable, unobtainable, and solid to the engine.</p>
      *
-     * <p>It sits one block <em>outside</em> the fight area, which puts it exactly where the white
-     * curtain is drawn. That is the whole trick: the player bumps into something invisible at the
-     * same place the client is painting a wall, so the two agree without the server having to send
-     * anything per frame.</p>
+     * <p>It sits one block <em>outside</em> the fight area, which puts it just behind where the
+     * boundary curtain is drawn. That is the whole trick: the player bumps into something invisible
+     * at the same place the client is painting a wall, so the two agree without the server having to
+     * send anything per frame.</p>
      *
      * <p>Barrier rather than glass so nothing has to be cleaned out of the player's inventory and
      * nothing appears in the world to look at once the round starts. {@link #removePrepareWall} only
      * clears blocks that are still barrier, so a map that happens to have its own barrier blocks at
      * the same coordinates keeps them.</p>
+     *
+     * <p>The screens between the sides are built here too, from the same material — see
+     * {@link #prepareScreens}. They are the half of this barrier the player can <em>see</em>: the
+     * client paints them solid white from the planes this class reports, which is why the blocks
+     * themselves can stay invisible.</p>
      *
      * <p>Recording is suppressed: the wall is outside the plot box, but {@code regionAt} matches on
      * the plot box and a wall at {@code pitMinX - 1} can still fall inside it on a map with no
@@ -425,54 +430,49 @@ public final class ArenaManager {
     private static final int SCREEN_GAP = 4;
 
     /**
-     * How tall a screen is, in blocks above the pad.
+     * One preparation screen: a vertical plane one block thick, spanning the fight area.
      *
-     * <p>Four is above head height by more than a jump: the point is that nobody can close the
-     * distance before the countdown ends. It is deliberately shorter than the ring, which reaches
-     * {@link #prepareWallTop} because it has to stop a player who is already moving at the edge; a
-     * screen that tall in front of each side would just be a wall of glass in the camera.</p>
+     * <p>Sent to the client verbatim, so the white wall it paints and the barrier blocks the server
+     * stands in the world are the same object. Deriving the plane twice — once here, once on the
+     * client from pads and insets — is how a wall ends up drawn a block away from the thing you are
+     * bumping into.</p>
      */
-    private static final int SCREEN_HEIGHT = 4;
+    public record Screen(boolean alongZ, int plane, int from, int to, int floorY, int height) {
+    }
 
     /**
-     * How far below the pad a screen's bottom edge follows the ground, in blocks.
+     * Where each side's screen would stand, without touching the world.
      *
-     * <p>A step down of one or two blocks is ordinary terrain; a drop of more than three inside a
-     * fight area is a pit, and a pit is not a way past the screen — falling into it is. Bounding the
-     * search keeps the cost at one block read per layer per column instead of a scan to the floor of
-     * the dimension.</p>
-     */
-    private static final int SCREEN_DROP = 3;
-
-    /**
-     * Raises one white screen in front of each side, spanning the width of the fight area.
+     * <p>One method for both jobs: {@link #buildScreens} stands barrier blocks on these planes and
+     * the session sends the same list to the client to paint. The client cannot compute them itself
+     * — the pads come from a ring search over the stamped map — so the server is the only place the
+     * answer exists.</p>
      *
-     * <p>The ring around the plot already stops anyone leaving, so the screens exist for the other
-     * half of the same promise: the countdown is a promise that the fight has not started, and a
-     * side that can walk up to its opponent during it has started the fight. Each screen is a plane
-     * perpendicular to that side's facing, one block thick, from {@code pitMin} to {@code pitMax} on
-     * the perpendicular axis — so it reaches both edges and there is no way around it.</p>
-     *
-     * <p>White stained glass rather than barrier: barrier is invisible, and a promise nobody can see
-     * is not a promise. Glass is also see-through, which matters more — the countdown is when both
-     * sides look at each other's loadout, and an opaque wall would hide exactly that.</p>
-     *
-     * <p>Only air is written over. A screen that overwrote the map would not be undone by
-     * {@link ArenaRegion#clearScreens} writing air, so it would carve a one-block slot through
-     * whatever it crossed. Skipping non-air leaves the screen ragged where it meets terrain — on the
-     * colosseum the sand is narrower than the pit at the screen's distance, so the ends stop at the
-     * first step of the seating. That is the honest failure: the direct line is still blocked and
-     * the map is untouched, and the ring outside the pit is what stops anyone walking the long way
-     * round.</p>
-     *
-     * <p>Sides that cannot be screened are skipped rather than clamped onto the centre line: on a
+     * <p>Sides that cannot be screened are dropped rather than clamped onto the centre line: on a
      * plot barely wider than the two pads there is no room for a screen that is not also a wall in
      * the middle of the fight, and half a screen would be worse than none.</p>
      */
-    private static int buildScreens(ServerWorld world, ArenaRegion region, int sides) {
-        BlockState glass = Blocks.WHITE_STAINED_GLASS.getDefaultState();
-        int placed = 0;
+    public static List<Screen> prepareScreens(ArenaRegion region, int sides) {
+        if (region == null) {
+            return List.of();
+        }
         int count = Math.min(sides, ArenaRegion.PAD_COUNT);
+        if (count <= 0) {
+            return List.of();
+        }
+        List<Screen> screens = new ArrayList<>(count);
+        // Footed one block below the lowest pad, not at the plot floor. The floor is where the flat
+        // arena's platform is, but a downloaded map floats: its floor is tens of blocks under the
+        // surface, and a screen anchored there would be a wall hanging into the void — thousands of
+        // invisible blocks per round, and a white sheet visible from outside the island. One block
+        // below the pad keeps the foot at the players' own level, which is the only level that has
+        // to be blocked.
+        int floor = Integer.MAX_VALUE;
+        for (int i = 0; i < count; i++) {
+            floor = Math.min(floor, region.spawnY(i));
+        }
+        floor -= 1;
+        int height = prepareWallTop(region) + 1 - floor;
         for (int side = 0; side < count; side++) {
             boolean alongZ = region.padAlongZ(side);
             int pad = alongZ ? region.spawnZ(side) : region.spawnX(side);
@@ -491,27 +491,37 @@ public final class ArenaManager {
             }
             int from = alongZ ? region.pitMinX() : region.pitMinZ();
             int to = alongZ ? region.pitMaxX() : region.pitMaxZ();
-            int base = region.spawnY(side);
-            for (int c = from; c <= to; c++) {
-                int x = alongZ ? c : plane;
-                int z = alongZ ? plane : c;
-                // The bottom follows a dip for a few blocks. Anchored at the pad's own height, a
-                // screen over ground four blocks lower would hang with a gap underneath, and a gap
-                // under a wall is a door. Stops at the first solid block so the flat plot does not
-                // grow a pane hanging under its platform.
-                int bottom = base;
-                for (int d = 1; d <= SCREEN_DROP; d++) {
-                    if (!world.getBlockState(new BlockPos(x, base - d, z)).isAir()) {
-                        break;
-                    }
-                    bottom = base - d;
-                }
-                for (int y = bottom; y < base + SCREEN_HEIGHT; y++) {
-                    BlockPos pos = new BlockPos(x, y, z);
+            screens.add(new Screen(alongZ, plane, from, to, floor, height));
+        }
+        return screens;
+    }
+
+    /**
+     * Stands the barrier blocks a screen needs, on the planes {@link #prepareScreens} reports.
+     *
+     * <p>Barrier, not glass: the wall the player sees is painted by the client from the same plane,
+     * so the block only has to be solid. That also keeps the world looking empty the instant the
+     * round goes live, which is when the drawn wall disappears.</p>
+     *
+     * <p>Only air is written over. Overwriting the map would not be undone by
+     * {@link ArenaRegion#clearScreens} writing air, so it would carve a one-block slot through
+     * whatever the plane crossed. Skipping non-air leaves the screen solid where it matters — the
+     * direct line — and the map untouched.</p>
+     */
+    private static int buildScreens(ServerWorld world, ArenaRegion region, int sides) {
+        BlockState barrier = Blocks.BARRIER.getDefaultState();
+        int placed = 0;
+        for (Screen screen : prepareScreens(region, sides)) {
+            int top = screen.floorY() + screen.height() - 1;
+            for (int y = screen.floorY(); y <= top; y++) {
+                for (int c = screen.from(); c <= screen.to(); c++) {
+                    BlockPos pos = screen.alongZ()
+                            ? new BlockPos(c, y, screen.plane())
+                            : new BlockPos(screen.plane(), y, c);
                     if (!world.getBlockState(pos).isAir()) {
                         continue;
                     }
-                    world.setBlockState(pos, glass, Block.NOTIFY_LISTENERS);
+                    world.setBlockState(pos, barrier, Block.NOTIFY_LISTENERS);
                     region.trackScreen(pos);
                     placed++;
                 }
