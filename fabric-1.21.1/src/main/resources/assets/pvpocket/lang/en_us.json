@@ -743,6 +743,8 @@
   "pvpocket.gui.home.settings.light": "Light theme",
   "pvpocket.gui.home.beta": "beta",
   "pvpocket.gui.home.settings.motion": "Motion",
+  "pvpocket.gui.home.settings.hud_scale": "Scoreboard size",
+  "pvpocket.gui.home.settings.hud_scale_hint": "How large the match scoreboard at the top of the screen is drawn. 100% is the default.",
   "pvpocket.gui.home.settings.history_page": "Rows per page",
   "pvpocket.gui.home.settings.history_page_hint": "How many records one history page holds before it paginates.",
   "pvpocket.gui.home.settings.keys": "Keys",

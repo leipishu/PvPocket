@@ -55,7 +55,14 @@ public class PvStepper extends PvValueControl {
         this(min, max, step, Integer::toString, value);
     }
 
-    private PvStepper(int min, int max, int step, IntFunction<String> format, int value) {
+    /**
+     * A stepper whose readout is not the bare number.
+     *
+     * <p>For settings where the step is an index rather than a quantity: "2" says nothing about a
+     * scoreboard that is 90% size, while "90%" says everything and needs no unit string to translate.
+     * </p>
+     */
+    public PvStepper(int min, int max, int step, IntFunction<String> format, int value) {
         this.min = min;
         this.max = max;
         this.stepSize = Math.max(1, step);

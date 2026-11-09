@@ -42,6 +42,25 @@ public final class ClientPrefs {
     public static final int HISTORY_PAGE_STEP = 5;
     public static final int DEFAULT_HISTORY_PAGE = 10;
 
+    /**
+     * Four sizes for the match scoreboard, from smallest to largest.
+     *
+     * <p>The third step is what the HUD was drawn at before the setting existed, so the default
+     * changes nothing for anyone who never opens the settings page. The steps are not evenly spaced
+     * on purpose: a player who moves one notch down wants the bar out of the way, not a 5% nudge,
+     * while the largest step is bounded by the fact that the bar sits over the middle of the screen
+     * — at 1.5× a two-side bar covers a fifth of a 2× GUI view, and the thing it covers is the fight.
+     * </p>
+     *
+     * <p>Nothing smaller than 0.75×: that is the panel's own legibility floor ({@code
+     * PvDraw.MIN_TEXT_SCALE}), and a scoreboard whose numbers cannot be read has no reason to exist.
+     * </p>
+     */
+    public static final int HUD_SCALE_MIN = 1;
+    public static final int HUD_SCALE_MAX = 4;
+    public static final int DEFAULT_HUD_SCALE = 3;
+    private static final float[] HUD_SCALE_FACTORS = {0.75F, 0.9F, 1.0F, 1.2F};
+
     /** On-disk shape. Public fields, no adapters, tolerant of missing keys. */
     private static final class File_ {
         int version = 1;
@@ -49,12 +68,15 @@ public final class ClientPrefs {
         boolean motion = true;
         /** Rows per page on the history list. Zero in a file written before the field existed. */
         int historyPageSize = DEFAULT_HISTORY_PAGE;
+        /** Scoreboard size step, 1..4. Zero in a file written before the field existed. */
+        int hudScale = DEFAULT_HUD_SCALE;
     }
 
     private static boolean loaded;
     private static PvTheme.Theme theme = PvTheme.Theme.DARK;
     private static boolean motion = true;
     private static int historyPageSize = DEFAULT_HISTORY_PAGE;
+    private static int hudScale = DEFAULT_HUD_SCALE;
 
     private ClientPrefs() {
     }
@@ -78,6 +100,7 @@ public final class ClientPrefs {
                             ? PvTheme.Theme.LIGHT : PvTheme.Theme.DARK;
                     motion = parsed.motion;
                     historyPageSize = clampPage(parsed.historyPageSize);
+                    hudScale = clampHudScale(parsed.hudScale);
                 }
             } catch (Exception e) {
                 // A bad preference file costs a theme, not a launch.
@@ -133,11 +156,40 @@ public final class ClientPrefs {
         return Math.max(HISTORY_PAGE_MIN, Math.min(HISTORY_PAGE_MAX, raw));
     }
 
+    /** Scoreboard size step, always within {@link #HUD_SCALE_MIN}..{@link #HUD_SCALE_MAX}. */
+    public static int hudScale() {
+        return hudScale;
+    }
+
+    public static void setHudScale(int value) {
+        hudScale = clampHudScale(value);
+        save();
+    }
+
+    /** The multiplier the HUD draws itself at — what {@link #hudScale()} means on screen. */
+    public static float hudScaleFactor() {
+        return HUD_SCALE_FACTORS[clampHudScale(hudScale) - HUD_SCALE_MIN];
+    }
+
+    /** The same step as a percentage, for the readout. 100% is the default and the old size. */
+    public static int hudScalePercent(int step) {
+        return Math.round(HUD_SCALE_FACTORS[clampHudScale(step) - HUD_SCALE_MIN] * 100F);
+    }
+
+    /** Same contract as {@link #clampPage}: zero means the field was not in the file. */
+    private static int clampHudScale(int raw) {
+        if (raw <= 0) {
+            return DEFAULT_HUD_SCALE;
+        }
+        return Math.max(HUD_SCALE_MIN, Math.min(HUD_SCALE_MAX, raw));
+    }
+
     private static void save() {
         File_ out = new File_();
         out.theme = theme == PvTheme.Theme.LIGHT ? "light" : "dark";
         out.motion = motion;
         out.historyPageSize = historyPageSize;
+        out.hudScale = hudScale;
         try {
             Files.createDirectories(file().getParent());
             PvPocketStorage.writeAtomically(file(),

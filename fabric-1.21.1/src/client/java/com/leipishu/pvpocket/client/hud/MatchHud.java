@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.hud;
 
+import com.leipishu.pvpocket.client.ClientPrefs;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -51,6 +52,11 @@ import java.util.UUID;
  * of this bar covered a third of the view at 2× GUI scale; at this size four rows cost about as much
  * as the old two-side bar did. The numbers and the round counter survive the shrink because they are
  * 8px text either way — what was removed is padding, not information.</p>
+ *
+ * <p>That size is the default, not the law: {@code ClientPrefs.hudScale()} scales the whole assembly
+ * between 0.75× and 1.2×, because "too small to read from a distance" and "in the way of my crosshair"
+ * are both things a player can be right about and neither is something this class can decide for them.
+ * </p>
  */
 @Environment(EnvType.CLIENT)
 public final class MatchHud implements HudRenderCallback {
@@ -137,18 +143,36 @@ public final class MatchHud implements HudRenderCallback {
         TextRenderer tr = client.textRenderer;
         int screenW = client.getWindow().getScaledWidth();
 
-        if (teams.size() == 2) {
-            drawHeadToHead(ctx, client, tr, payload, teams, scores, screenW);
-        } else {
-            drawStacked(ctx, client, tr, payload, teams, scores, screenW);
+        // The bar is scaled as a whole — frame, heads and text — because a scoreboard that keeps its
+        // frame and shrinks only the numbers has not changed size, it has just become harder to read.
+        // The pivot is the centre of the top edge: every step then stays centred and stays pinned to
+        // the same 3px gap below the screen edge, instead of creeping outward from a corner.
+        float scale = ClientPrefs.hudScaleFactor();
+        // Width the bar may use, in its own pixels. At 1.2× a fifth less of the screen is available,
+        // and the "drop the names" fallback has to know that before it decides — measuring against
+        // the raw screen width would let the enlarged bar run off both edges at once.
+        int room = (int) Math.floor((screenW - 8) / scale);
+        int centreX = screenW / 2;
+
+        ctx.getMatrices().push();
+        if (scale != 1F) {
+            ctx.getMatrices().translate(centreX, TOP, 0);
+            ctx.getMatrices().scale(scale, scale, 1F);
+            ctx.getMatrices().translate(-centreX, -TOP, 0);
         }
+        if (teams.size() == 2) {
+            drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room);
+        } else {
+            drawStacked(ctx, client, tr, payload, teams, scores, centreX);
+        }
+        ctx.getMatrices().pop();
     }
 
     // ------------------------------------------------------------------ two sides
 
     private void drawHeadToHead(DrawContext ctx, MinecraftClient client, TextRenderer tr,
                                 MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                                int screenW) {
+                                int centreX, int room) {
         List<Row> left = teams.get(0);
         List<Row> right = teams.get(1);
         if (left.isEmpty() && right.isEmpty()) {
@@ -162,12 +186,12 @@ public final class MatchHud implements HudRenderCallback {
         // and dropping a whole side would be worse than dropping the labels.
         boolean names = true;
         Layout layout = measure(tr, left, right, payload, leftScore, rightScore, names);
-        if (layout.width() > screenW - 8) {
+        if (layout.width() > room) {
             names = false;
             layout = measure(tr, left, right, payload, leftScore, rightScore, names);
         }
 
-        int barX = (screenW - layout.width()) / 2;
+        int barX = centreX - layout.width() / 2;
         int barY = TOP;
         PvDraw.shadow(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS,
@@ -211,14 +235,14 @@ public final class MatchHud implements HudRenderCallback {
      */
     private void drawStacked(DrawContext ctx, MinecraftClient client, TextRenderer tr,
                              MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                             int screenW) {
+                             int centreX) {
         int rows = teams.size();
         int headerH = 11;
         int headsW = 4 * (HEAD + 2);
         int scoreW = tr.getWidth("00") + 6;
         int width = PAD_X * 2 + STRIP_W + 4 + headsW + BLOCK_GAP + scoreW;
         int height = PAD_Y * 2 + headerH + rows * ROW_H;
-        int barX = (screenW - width) / 2;
+        int barX = centreX - width / 2;
         int barY = TOP;
 
         PvDraw.shadow(ctx, barX, barY, width, height, PvTheme.RADIUS);

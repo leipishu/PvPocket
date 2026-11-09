@@ -743,6 +743,8 @@
   "pvpocket.gui.home.settings.light": "亮色界面",
   "pvpocket.gui.home.beta": "beta",
   "pvpocket.gui.home.settings.motion": "动效",
+  "pvpocket.gui.home.settings.hud_scale": "比分板大小",
+  "pvpocket.gui.home.settings.hud_scale_hint": "对局时屏幕顶部比分板的显示大小。100% 是默认值。",
   "pvpocket.gui.home.settings.history_page": "每页记录数",
   "pvpocket.gui.home.settings.history_page_hint": "历史页面每页显示多少条记录，超出后翻页。",
   "pvpocket.gui.home.settings.keys": "按键",

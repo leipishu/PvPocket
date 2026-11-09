@@ -461,6 +461,15 @@ public class HomeScreen extends PvScreen {
         motion.onChange(value -> ClientPrefs.setMotion(value == 1));
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.motion"), motion, null));
 
+        // The one appearance setting whose effect is not on this page: the scoreboard is drawn by the
+        // HUD, over the fight. It lives here rather than in a separate display screen because four
+        // steps do not deserve a screen, and a stepper is the whole UI.
+        PvStepper hudScale = new PvStepper(ClientPrefs.HUD_SCALE_MIN, ClientPrefs.HUD_SCALE_MAX, 1,
+                step -> ClientPrefs.hudScalePercent(step) + "%", ClientPrefs.hudScale());
+        hudScale.onChange(ClientPrefs::setHudScale);
+        hudScale.tooltip = PvLang.str("pvpocket.gui.home.settings.hud_scale_hint");
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.hud_scale"), hudScale, null));
+
         // Its own section rather than a third line under "appearance": how many records a page holds
         // is about the data, and burying it under a heading about colours is how a setting ends up
         // existing without anyone finding it.

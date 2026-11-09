@@ -138,6 +138,12 @@ width, so nothing can leave its own row at any width.
 MC's bitmap font at a non-integer scale such as 1.3× is resampled by GL and the strokes smear into
 grey edges — that is the main source of the "pixelated" look, and it is gone.
 
+The exception is the **match scoreboard**. It is not part of a panel but floats over the world, and
+it scales as a whole in four steps (75% / 90% / 100% / 120%) that the player picks in Settings. The
+reason is different in kind: it is not a typographic decision but a trade between covering the view
+and being too small to read, and only the person sitting at that screen knows which way to move it.
+Type inside the panels never follows it.
+
 **Text inside a fixed frame gives way in four steps: as written → shrunk → wrapped → cut.** This
 interface is built for two languages whose words differ in length by up to a factor of two, and every
 frame in it is measured from the short one. The ladder lives in `PvDraw`:
