@@ -12,19 +12,8 @@
 
 <p align="center"><strong>Two people want a fight, it starts in thirty seconds, and it leaves no trace.</strong></p>
 
-> **Replace the vanilla font. It is the single biggest improvement to how this mod looks, and it
-> matters most for Chinese.**
->
-> Every panel here is drawn in code and every glyph comes from whatever font the client is using.
-> Vanilla draws Chinese with unifont, a 16×16 bitmap squeezed into a 9px line height, which leaves
-> each stroke as a half-transparent grey edge; English is an 8px bitmap that the narrow frames scale
-> to 0.75–0.95×, and every one of those scales is a resample. A TrueType resource pack with both
-> scripts (Source Han Sans, Noto Sans SC, or similar) makes the same panel markedly sharper — the
-> dense tables in the rules panel most of all.
->
-> Nothing has to be configured on the mod side: drop the pack in `resourcepacks/` and enable it in
-> game. Panel titles do not use vanilla `§l` bold — hierarchy comes from colour and position — so
-> swapping the font cannot blur them.
+> [!TIP]
+> For a better ui appearance, it is strongly recommended to use resourcepacks/mods to replace the original pixel-style fonts.
 
 ## What it does
 
