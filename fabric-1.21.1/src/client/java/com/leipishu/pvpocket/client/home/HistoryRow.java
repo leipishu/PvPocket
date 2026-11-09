@@ -102,7 +102,7 @@ public class HistoryRow extends PvWidget {
         int mapRoom = Math.max(8, (dots > 0 ? dotsX - 8 : x + width - 10) - metaX);
         // Rebuilt against the room it actually got, so the qualifiers are dropped one at a time
         // instead of the whole line being cut in the middle.
-        String shown = metaLine(mapRoom);
+        String shown = metaLine(full, mapRoom);
         boolean metaShort = !shown.equals(full) || PvDraw.willCut(tr, shown, mapRoom, 1);
         PvDraw.textFitLeft(ctx, tr, shown, metaX, line1, mapRoom, PvTheme.TEXT_DIM);
 
@@ -160,10 +160,9 @@ public class HistoryRow extends PvWidget {
      * "Colosseum · Moder…" names half of it and nothing at all once the mode is the part that was cut.
      * The map name is never dropped — it is what identifies the record.</p>
      */
-    private String metaLine(int room) {
+    private String metaLine(String full, int room) {
         String map = record.mapLabel();
         String teams = teamsLabel();
-        String full = metaLine();
         if (fits(full, room)) {
             return full;
         }

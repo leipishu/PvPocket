@@ -194,13 +194,18 @@ stroke coverage cov = clamp(|[d−0.5, d+0.5] ∩ [−t, 0]|, 0, 1)
 - **Do not supersample `0.5 − d`.** That ramp *is* the pixel's box filter; averaging four of them
   inside one pixel averages four 1px filters into a 1.5px one, which reported 0.75 on a straight edge
   where the truth is 1.0. That was a real bug during implementation.
-- **The row structure is unchanged.** Each row is still scanned from both ends to the first fully
-  covered pixel, the run between them is one `fill`, and the boundary pixels are drawn one by one.
-  The draw-call count therefore matches the row-split version it replaces (about three spans per
-  row); only the alpha on the boundary pixels changed.
+- **A row is at most three spans, not one per pixel.** Each row is scanned from both ends to the
+  first fully covered pixel, the run between them is one `fill`, and the boundary pixels are merged
+  into runs of equal colour. The merge is a correctness matter, not a nicety: the stroke band of
+  `roundPanel` runs the full width of the top and bottom rows (the whole row sits inside `[−t, 0]`),
+  so emitting pixel by pixel gave 300 spans for a single row of a 300px card — 1,686 `fill` calls
+  for one 300×38 row, and a scrolling list spent every frame building quads instead of drawing. The
+  band is now located by distance first and merged by colour: 202 spans for the same card, against
+  66 for `roundRect`. Measured: 93µs → 29µs.
 - **One pixel, one draw.** The three spans of a row are disjoint, and the boundary scan hands each
-  pixel to exactly one emitter. `PvRaster.main` checks it: zero hole pixels, zero double-drawn
-  pixels, and within 0.12 of an 8×8 reference area. Run it after touching `PvRaster`:
+  pixel to exactly one emitter. `PvRaster.main` checks it, once for `roundedRect` and once for
+  `roundPanel`: zero hole pixels, zero double-drawn pixels, within 0.12 of an 8×8 reference area,
+  and pure fill colour well inside the border. Run it after touching `PvRaster`:
   `java -cp build/classes/java/client com.leipishu.pvpocket.client.gui.PvRaster`.
 - **The stroke is inset, not centred.** A 1px stroke owns the outermost pixel (`[−t, 0]`), matching
   the "draw the border, then fill one pixel in" pair it replaces. A centred 1px stroke covers only

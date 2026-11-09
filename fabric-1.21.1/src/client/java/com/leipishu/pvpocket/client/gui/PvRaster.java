@@ -148,33 +148,71 @@ public final class PvRaster {
             // A pixel is pure fill once its whole extent is more than the border's depth inside.
             double solid = -(t + 0.75D);
 
-            int i = i0;
-            while (i < i1) {
+            // The right edge is located first, by distance alone, so the flat middle span knows where
+            // it stops; the left pass then emits runs and stops at the first solid pixel, which is
+            // where that middle begins. Each edge pixel is therefore measured once, not twice.
+            int rightStart = i1;
+            while (rightStart > i0
+                    && sd(rightStart - 0.5D + x - cx, j + 0.5D + y - cy, hw, hh, r, r, r, r) > solid) {
+                rightStart--;
+            }
+
+            // Runs, not pixels. Along a straight edge every pixel of a row sits at the same distance,
+            // so they all come out the same colour: shading each one separately produced one fill
+            // call per pixel — 1,686 of them for a 380px panel row, against 66 for the same
+            // rectangle without a border — and a scrolling list of such panels spent more time
+            // emitting quads than drawing them. Only the corners, where the distance really does
+            // change from pixel to pixel, still emit one span each.
+            int leftEnd = i0;
+            int from = i0;
+            int color = 0;
+            double lastD = Double.NaN;
+            while (leftEnd < rightStart) {
+                double d = sd(leftEnd + 0.5D + x - cx, j + 0.5D + y - cy, hw, hh, r, r, r, r);
+                if (d <= solid) {
+                    break;
+                }
+                // Identical distance means an identical blend; recomputing it is the same answer at
+                // the price of a colour mix, and along a straight edge that is the whole row.
+                int argb = d == lastD ? color : shade(fill, border, t, d);
+                lastD = d;
+                if (leftEnd > from && argb == color) {
+                    leftEnd++;
+                    continue;
+                }
+                if (leftEnd > from && (color >>> 24) != 0) {
+                    sink.span(x + from, y + j, x + leftEnd, color);
+                }
+                from = leftEnd;
+                color = argb;
+                leftEnd++;
+            }
+            if (leftEnd > from && (color >>> 24) != 0) {
+                sink.span(x + from, y + j, x + leftEnd, color);
+            }
+
+            if (rightStart > leftEnd) {
+                sink.span(x + leftEnd, y + j, x + rightStart, fill);
+            }
+
+            from = rightStart;
+            color = 0;
+            lastD = Double.NaN;
+            for (int i = rightStart; i < i1; i++) {
                 double d = sd(i + 0.5D + x - cx, j + 0.5D + y - cy, hw, hh, r, r, r, r);
-                if (d <= solid) {
-                    break;
+                int argb = d == lastD ? color : shade(fill, border, t, d);
+                lastD = d;
+                if (i > from && argb == color) {
+                    continue;
                 }
-                int argb = shade(fill, border, t, i, j, x, y, cx, cy, hw, hh, r);
-                if ((argb >>> 24) != 0) {
-                    sink.span(x + i, y + j, x + i + 1, argb);
+                if (i > from && (color >>> 24) != 0) {
+                    sink.span(x + from, y + j, x + i, color);
                 }
-                i++;
+                from = i;
+                color = argb;
             }
-            int runStart = i;
-            int k = i1 - 1;
-            while (k >= runStart) {
-                double d = sd(k + 0.5D + x - cx, j + 0.5D + y - cy, hw, hh, r, r, r, r);
-                if (d <= solid) {
-                    break;
-                }
-                int argb = shade(fill, border, t, k, j, x, y, cx, cy, hw, hh, r);
-                if ((argb >>> 24) != 0) {
-                    sink.span(x + k, y + j, x + k + 1, argb);
-                }
-                k--;
-            }
-            if (k + 1 > runStart) {
-                sink.span(x + runStart, y + j, x + k + 1, fill);
+            if (i1 > from && (color >>> 24) != 0) {
+                sink.span(x + from, y + j, x + i1, color);
             }
         }
     }
@@ -287,9 +325,7 @@ public final class PvRaster {
     }
 
     /** The composited colour of one boundary pixel of a bordered panel. */
-    private static int shade(int fill, int border, double t, int i, int j, int x, int y,
-                             double cx, double cy, double hw, double hh, double r) {
-        double d = sd(x + i + 0.5D - cx, y + j + 0.5D - cy, hw, hh, r, r, r, r);
+    private static int shade(int fill, int border, double t, double d) {
         double fs = cover(d);
         if (fs <= EMPTY) {
             return 0;
@@ -345,6 +381,7 @@ public final class PvRaster {
             for (int w = 2 * r + 1; w <= 2 * r + 30; w += 7) {
                 for (int h = 2 * r + 1; h <= 2 * r + 30; h += 5) {
                     failures += check(w, h, r);
+                    failures += checkPanel(w, h, r);
                     cases++;
                 }
             }
@@ -355,6 +392,72 @@ public final class PvRaster {
         if (failures != 0) {
             System.exit(1);
         }
+    }
+
+    /**
+     * The same check for a bordered panel.
+     *
+     * <p>The panel path shades a band instead of breaking at the first covered pixel, so it is the
+     * one that can emit a pixel twice or leave a hole in the middle of a straight edge — and it did,
+     * at a rate of one fill call per pixel, until the runs were merged. Checking it separately is
+     * what keeps that from coming back.</p>
+     */
+    private static int checkPanel(int w, int h, int r) {
+        final int pad = 2;
+        final int bw = w + pad * 2;
+        final int bh = h + pad * 2;
+        final int fill = 0xFF204060;
+        final int border = 0xFFA0B0C0;
+        int[] hits = new int[bw * bh];
+        int[] argbs = new int[bw * bh];
+        roundedPanel(pad, pad, w, h, r, 1, border, fill, (x0, y, x1, argb) -> {
+            for (int i = x0; i < x1; i++) {
+                int idx = y * bw + i;
+                hits[idx]++;
+                argbs[idx] = argb;
+            }
+        });
+
+        double hw = w / 2D;
+        double hh = h / 2D;
+        double cx = pad + hw;
+        double cy = pad + hh;
+        int bad = 0;
+        String first = null;
+        for (int y = 0; y < bh; y++) {
+            for (int x = 0; x < bw; x++) {
+                double ref = 0D;
+                for (int sy = 0; sy < 8; sy++) {
+                    for (int sx = 0; sx < 8; sx++) {
+                        if (sd(x + (sx + 0.5D) / 8D - cx, y + (sy + 0.5D) / 8D - cy,
+                                hw, hh, r, r, r, r) < 0D) {
+                            ref += 1D;
+                        }
+                    }
+                }
+                ref /= 64D;
+                int idx = y * bw + x;
+                double d = sd(x + 0.5D - cx, y + 0.5D - cy, hw, hh, r, r, r, r);
+                if (hits[idx] > 1) {
+                    bad++;
+                } else if (ref > 0.05D && hits[idx] == 0) {
+                    bad++;
+                } else if (hits[idx] == 1 && Math.abs((argbs[idx] >>> 24) / 255D - ref) > 0.12D) {
+                    bad++;
+                } else if (hits[idx] == 1 && ref > 0.99D && d < -1.75D && argbs[idx] != fill) {
+                    // Well inside the border: the fill has to come out exactly, not blended.
+                    bad++;
+                }
+                if (bad == 1 && first == null) {
+                    first = "at " + x + "," + y + " ref=" + Math.round(ref * 100) / 100D
+                            + " hits=" + hits[idx] + " a=" + (argbs[idx] >>> 24) / 255D;
+                }
+            }
+        }
+        if (bad != 0) {
+            System.out.println("  panel " + w + "x" + h + " r" + r + ": " + bad + " bad pixels " + first);
+        }
+        return bad;
     }
 
     private static int check(int w, int h, int r) {
