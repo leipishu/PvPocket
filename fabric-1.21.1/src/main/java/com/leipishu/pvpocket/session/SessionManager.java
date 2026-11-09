@@ -3129,9 +3129,12 @@ public final class SessionManager {
             // The wall is real for the length of the preparation window. Invulnerability already
             // stops anyone landing a hit, so the only thing a player can usefully do in these
             // seconds is wander out and be somewhere strange when the round goes live — which is
-            // exactly what a solid ring prevents and a walk-through curtain does not.
-            int wall = ArenaManager.buildPrepareWall(arenaWorld, region);
+            // exactly what a solid ring prevents and a walk-through curtain does not. The ring stops
+            // them leaving; the screens raised in front of each side stop them meeting, which is the
+            // other half of "the fight has not started yet".
+            int wall = ArenaManager.buildPrepareWall(arenaWorld, region, session.teamCount);
             journal(session).append("PREPARE_WALL_BUILT", "blocks", wall,
+                    "screens", region.screenCount(),
                     "top", ArenaManager.prepareWallTop(region));
             broadcastHud(session, true);
             broadcastBounds(session, true, ArenaBoundsPayload.MODE_PREPARE);

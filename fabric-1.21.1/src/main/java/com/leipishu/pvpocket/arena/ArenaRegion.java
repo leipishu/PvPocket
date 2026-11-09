@@ -109,6 +109,19 @@ public final class ArenaRegion {
     private final LongOpenHashSet changed = new LongOpenHashSet();
 
     /**
+     * Blocks the preparation screens wrote, so teardown can be exact.
+     *
+     * <p>The ring around the plot is made of {@code barrier}, a block no map contains, which is what
+     * lets its removal be a scan-and-clear. The screens are white glass — a block a map plausibly
+     * does contain — so "clear every white glass in the pit" would punch holes in the build. These
+     * are the positions that were air before the screen was raised, and nothing else.</p>
+     *
+     * <p>In memory only, like the deviation set: a crash loses the list, and the next lease's
+     * {@link #reset} clears the cell to air anyway, which removes any orphaned glass with it.</p>
+     */
+    private final LongOpenHashSet screens = new LongOpenHashSet();
+
+    /**
      * Non-air blocks of the stamped map, keyed by plot-relative position.
      *
      * <p>Empty for the flat plot. Rebuilt on every lease, never persisted: the map is the source of
@@ -165,6 +178,41 @@ public final class ArenaRegion {
         this.protectTerrain = protectTerrain;
         this.allowBreakOwn = allowBreakOwn;
         changed.clear();
+        screens.clear();
+    }
+
+    /** Records one block of a preparation screen, so {@link #clearScreens} can take it back. */
+    public void trackScreen(BlockPos pos) {
+        screens.add(pos.asLong());
+    }
+
+    public int screenCount() {
+        return screens.size();
+    }
+
+    /**
+     * Removes every screen block that is still white glass.
+     *
+     * <p>Checked against the block rather than assumed: a player who broke one during the countdown
+     * (protection off) leaves air there, and writing air over air is a pointless block update.</p>
+     */
+    public int clearScreens(ServerWorld world) {
+        if (screens.isEmpty()) {
+            return 0;
+        }
+        BlockState glass = Blocks.WHITE_STAINED_GLASS.getDefaultState();
+        BlockState air = Blocks.AIR.getDefaultState();
+        long[] keys = screens.toLongArray();
+        screens.clear();
+        int removed = 0;
+        for (long key : keys) {
+            BlockPos pos = BlockPos.fromLong(key);
+            if (world.getBlockState(pos) == glass) {
+                world.setBlockState(pos, air, Block.NOTIFY_LISTENERS);
+                removed++;
+            }
+        }
+        return removed;
     }
 
     /**
@@ -460,13 +508,24 @@ public final class ArenaRegion {
      * first.</p>
      */
     public float spawnYaw(int spawnIndex) {
-        boolean mapAlongZ = !map.isFlat() && map.alongZ;
-        boolean padAlongZ = spawnIndex >= 2 ? !mapAlongZ : mapAlongZ;
-        if (padAlongZ) {
+        if (padAlongZ(spawnIndex)) {
             // yaw 0 is +Z (south), 180 is -Z (north).
             return spawnIndex % 2 == 0 ? 0.0F : 180.0F;
         }
         return spawnIndex % 2 == 0 ? -90.0F : 90.0F;
+    }
+
+    /**
+     * True when this side faces along Z, i.e. the two ends of its axis are north and south.
+     *
+     * <p>Split out of {@link #spawnYaw} because the preparation screen needs the same fact to know
+     * which way it should be a plane: a side that faces along Z is screened by a wall at a constant
+     * Z spanning X, and vice versa. Deriving it twice — once from the yaw, once from the map — is
+     * how a screen ends up drawn along the axis the players are standing on.</p>
+     */
+    public boolean padAlongZ(int spawnIndex) {
+        boolean mapAlongZ = !map.isFlat() && map.alongZ;
+        return spawnIndex >= 2 ? !mapAlongZ : mapAlongZ;
     }
 
     /** Horizontal containment. Vertical is only checked downwards — see {@link #contains(BlockPos)}. */
@@ -618,6 +677,7 @@ public final class ArenaRegion {
             }
         }
         changed.clear();
+        screens.clear();
         template.clear();
         padsResolved = false;
         padY[0] = SURFACE_Y;

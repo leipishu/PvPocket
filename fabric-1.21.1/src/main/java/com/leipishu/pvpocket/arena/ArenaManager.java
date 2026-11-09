@@ -388,11 +388,11 @@ public final class ArenaManager {
      * inset — and a barrier block filed as "the player placed this" would make the whole ring
      * unbreakable-but-tracked and would be reverted into existence at the next settle.</p>
      */
-    public static int buildPrepareWall(ServerWorld world, ArenaRegion region) {
+    public static int buildPrepareWall(ServerWorld world, ArenaRegion region, int sides) {
         if (world == null || region == null) {
             return 0;
         }
-        return suppressRecording(() -> {
+        int ring = suppressRecording(() -> {
             BlockState barrier = Blocks.BARRIER.getDefaultState();
             int x0 = region.pitMinX() - 1;
             int x1 = region.pitMaxX() + 1;
@@ -412,14 +412,126 @@ public final class ArenaManager {
             }
             return placed;
         });
+        return ring + suppressRecording(() -> buildScreens(world, region, sides));
     }
 
-    /** Tears the preparation wall down. Only barrier blocks are removed. */
+    /**
+     * How far in front of a side's pad its screen stands, in blocks.
+     *
+     * <p>Far enough that the side has room to spread out and read the panel, close enough that the
+     * two screens do not meet in the middle on the smallest legal plot. Four also leaves the
+     * knockback of the first exchange somewhere to go once the screens come down.</p>
+     */
+    private static final int SCREEN_GAP = 4;
+
+    /**
+     * How tall a screen is, in blocks above the pad.
+     *
+     * <p>Four is above head height by more than a jump: the point is that nobody can close the
+     * distance before the countdown ends. It is deliberately shorter than the ring, which reaches
+     * {@link #prepareWallTop} because it has to stop a player who is already moving at the edge; a
+     * screen that tall in front of each side would just be a wall of glass in the camera.</p>
+     */
+    private static final int SCREEN_HEIGHT = 4;
+
+    /**
+     * How far below the pad a screen's bottom edge follows the ground, in blocks.
+     *
+     * <p>A step down of one or two blocks is ordinary terrain; a drop of more than three inside a
+     * fight area is a pit, and a pit is not a way past the screen — falling into it is. Bounding the
+     * search keeps the cost at one block read per layer per column instead of a scan to the floor of
+     * the dimension.</p>
+     */
+    private static final int SCREEN_DROP = 3;
+
+    /**
+     * Raises one white screen in front of each side, spanning the width of the fight area.
+     *
+     * <p>The ring around the plot already stops anyone leaving, so the screens exist for the other
+     * half of the same promise: the countdown is a promise that the fight has not started, and a
+     * side that can walk up to its opponent during it has started the fight. Each screen is a plane
+     * perpendicular to that side's facing, one block thick, from {@code pitMin} to {@code pitMax} on
+     * the perpendicular axis — so it reaches both edges and there is no way around it.</p>
+     *
+     * <p>White stained glass rather than barrier: barrier is invisible, and a promise nobody can see
+     * is not a promise. Glass is also see-through, which matters more — the countdown is when both
+     * sides look at each other's loadout, and an opaque wall would hide exactly that.</p>
+     *
+     * <p>Only air is written over. A screen that overwrote the map would not be undone by
+     * {@link ArenaRegion#clearScreens} writing air, so it would carve a one-block slot through
+     * whatever it crossed. Skipping non-air leaves the screen ragged where it meets terrain — on the
+     * colosseum the sand is narrower than the pit at the screen's distance, so the ends stop at the
+     * first step of the seating. That is the honest failure: the direct line is still blocked and
+     * the map is untouched, and the ring outside the pit is what stops anyone walking the long way
+     * round.</p>
+     *
+     * <p>Sides that cannot be screened are skipped rather than clamped onto the centre line: on a
+     * plot barely wider than the two pads there is no room for a screen that is not also a wall in
+     * the middle of the fight, and half a screen would be worse than none.</p>
+     */
+    private static int buildScreens(ServerWorld world, ArenaRegion region, int sides) {
+        BlockState glass = Blocks.WHITE_STAINED_GLASS.getDefaultState();
+        int placed = 0;
+        int count = Math.min(sides, ArenaRegion.PAD_COUNT);
+        for (int side = 0; side < count; side++) {
+            boolean alongZ = region.padAlongZ(side);
+            int pad = alongZ ? region.spawnZ(side) : region.spawnX(side);
+            int centre = alongZ ? region.centerZ() : region.centerX();
+            int dir = pad <= centre ? 1 : -1;
+            int plane = pad + dir * SCREEN_GAP;
+            // Must stay on this side's half, or the screens of two opposing sides land on each
+            // other and the middle of the arena is sealed instead of open.
+            if (dir > 0 ? plane > centre - 1 : plane < centre + 1) {
+                continue;
+            }
+            int lo = alongZ ? region.pitMinZ() : region.pitMinX();
+            int hi = alongZ ? region.pitMaxZ() : region.pitMaxX();
+            if (plane < lo || plane > hi) {
+                continue;
+            }
+            int from = alongZ ? region.pitMinX() : region.pitMinZ();
+            int to = alongZ ? region.pitMaxX() : region.pitMaxZ();
+            int base = region.spawnY(side);
+            for (int c = from; c <= to; c++) {
+                int x = alongZ ? c : plane;
+                int z = alongZ ? plane : c;
+                // The bottom follows a dip for a few blocks. Anchored at the pad's own height, a
+                // screen over ground four blocks lower would hang with a gap underneath, and a gap
+                // under a wall is a door. Stops at the first solid block so the flat plot does not
+                // grow a pane hanging under its platform.
+                int bottom = base;
+                for (int d = 1; d <= SCREEN_DROP; d++) {
+                    if (!world.getBlockState(new BlockPos(x, base - d, z)).isAir()) {
+                        break;
+                    }
+                    bottom = base - d;
+                }
+                for (int y = bottom; y < base + SCREEN_HEIGHT; y++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    if (!world.getBlockState(pos).isAir()) {
+                        continue;
+                    }
+                    world.setBlockState(pos, glass, Block.NOTIFY_LISTENERS);
+                    region.trackScreen(pos);
+                    placed++;
+                }
+            }
+        }
+        return placed;
+    }
+
+    /**
+     * Tears the preparation barrier down: the ring, then every screen block still standing.
+     *
+     * <p>Only barrier blocks are removed from the ring, so a map that happens to have its own
+     * barriers at the same coordinates keeps them. The screens are removed from the recorded
+     * position list instead — see {@link ArenaRegion#clearScreens} for why a scan would be wrong.</p>
+     */
     public static int removePrepareWall(ServerWorld world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
-        return suppressRecording(() -> {
+        int ring = suppressRecording(() -> {
             BlockState air = Blocks.AIR.getDefaultState();
             BlockState barrier = Blocks.BARRIER.getDefaultState();
             int x0 = region.pitMinX() - 1;
@@ -440,6 +552,7 @@ public final class ArenaManager {
             }
             return removed;
         });
+        return ring + suppressRecording(() -> region.clearScreens(world));
     }
 
     private static int clearIfBarrier(ServerWorld world, int x, int y, int z,
