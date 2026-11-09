@@ -130,8 +130,6 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 - **不要用 `Formatting.BOLD` 给标题加重。** 原版粗体是同一字形右移一像素再画一遍，内置位图字体有
   手做的粗体表，TrueType 资源包没有——而这个界面就是给换过字体的玩家排的版。层级靠颜色（`TEXT`
   对 `TEXT_DIM`）和位置（页眉带分隔线）。`PvDraw.title()` 已经删了，标题就是普通 `PvDraw.text`。
-- **唯一的位图是主页顶栏字标**（`assets/pvpocket/textures/gui/logo.png`，121×20 逻辑像素，
-  纹理 3 倍预缩）。它是画不是控件，所以不进文字排版；不要拉伸、不要非整数倍缩放——1px 描边会糊。
 - **新控件要能被审计看到。** 内联绘制的控件（`RuleRow` 的 control 之类）必须由容器在
   `childrenForAudit()` 里交出去，否则 `PvAudit` 完全不知道它存在——chips 压住标签两像素那次，
   所有检查都报 clean。

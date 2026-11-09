@@ -144,12 +144,6 @@ header band with a divider under it. MC's bitmap font at a non-integer scale suc
 by GL and the strokes smear into grey edges — that is the main source of the "pixelated" look, and it
 is gone too.
 
-The one bitmap is the wordmark in the home header (`assets/pvpocket/textures/gui/logo.png`): it is
-art, not a widget, so it is not typeset. 20px tall in a 30px band, 121px wide, with the texture
-pre-reduced to 3× (363×60) so that at GUI scale 3 one texel lands on one physical pixel. Do not
-stretch it to the band and do not scale it by a non-integer factor: the letters carry a 1px outline,
-and any such factor turns that outline into a grey smear.
-
 The exception is the **match scoreboard**. It is not part of a panel but floats over the world, and
 it scales as a whole in four steps (75% / 90% / 100% / 120%) that the player picks in Settings. The
 reason is different in kind: it is not a typographic decision but a trade between covering the view
@@ -451,4 +445,4 @@ layout is still visible to it.
 | v0.6.2 | Fixed v0.6.1's axis error: `roundRect` split by rows instead of columns, eliminating the undrawn side stripes on every component and the vanished middle of narrow shapes (2px markers, 6px scrollbars) |
 | v0.7 | Rasterisation moved to a signed distance field (`PvRaster`): coverage comes from the perpendicular distance rather than a single-axis inset, so arcs and small radii (dots, knobs, toggle tracks, scrollbars) stop stair-stepping; strokes became inset distance bands composited in one pass; panels became two surfaces — chrome and well — with the title band and sidebar continuous and stroke-free, the header cut to 30px and its second row removed, commit buttons stacked in the sidebar, and the footer band dropped |
 | v0.7.1 | The sidebar's selection marker is gone (selection is the fill alone); its width is derived from tab *and* button labels, ceiling raised to 100; when the vertical budget fails the buttons move to a row under the well; two-line row height is derived from the control, so the control no longer covers the label; the slider track reserves the knob's radius at both ends, so the knob at maximum no longer covers the read-out; slider hover animates the halo's alpha instead of the dot's radius; the overlap audit (`scripts/audit-ui.sh`) is now an acceptance item |
-| v0.7.2 | Bold removed everywhere: vanilla `§l` under a TrueType resource pack is "the same glyph drawn twice, one pixel apart", so title hierarchy now comes from colour and position and `PvDraw.title()` is gone; the home header draws a wordmark bitmap (121×20, texture pre-reduced to 3×); the match scoreboard scales in four steps (75/90/100/120%) |
+| v0.7.2 | Bold removed everywhere: vanilla `§l` under a TrueType resource pack is "the same glyph drawn twice, one pixel apart", so title hierarchy now comes from colour and position and `PvDraw.title()` is gone; the match scoreboard scales in four steps (75/90/100/120%) |

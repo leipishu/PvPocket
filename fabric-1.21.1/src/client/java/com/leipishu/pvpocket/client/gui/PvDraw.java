@@ -2,7 +2,6 @@ package com.leipishu.pvpocket.client.gui;
 
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,8 +11,7 @@ import java.util.List;
  *
  * <p>Everything is drawn from code — no nine-patch textures, no vanilla widget skins. That means
  * the look survives any GUI scale and any resource pack, and there is no asset to get wrong at
- * 1×/2×/3×/4×. The one exception is the header wordmark, which is a bitmap because it is a piece of
- * art rather than a widget: see {@link #image}.</p>
+ * 1×/2×/3×/4×.</p>
  *
  * <h2>Why nothing is bold any more</h2>
  *
@@ -464,21 +462,7 @@ public final class PvDraw {
         ctx.getMatrices().pop();
     }
 
-    // ------------------------------------------------------------------ images
-
-    /**
-     * Draws a texture at its own resolution, scaled to {@code w × h} logical pixels.
-     *
-     * <p>The header wordmark is the only bitmap in the interface, and it is deliberately not a
-     * nine-patch or an atlas sprite: it is one fixed piece of art at one fixed size, and a whole
-     * sprite registration would buy nothing but a second place for the size to be wrong. The
-     * texture ships pre-reduced to three times its drawn width, so the most common GUI scale
-     * renders it one texel per physical pixel.</p>
-     */
-    public static void image(DrawContext ctx, Identifier id, int x, int y, int w, int h,
-                             int texW, int texH) {
-        ctx.drawTexture(id, x, y, 0, 0, w, h, texW, texH);
-    }
+    // ------------------------------------------------------------------ strings
 
     /** Clips text to {@code maxWidth}, appending an ellipsis when it had to be cut. */
     public static String fit(TextRenderer tr, String s, int maxWidth) {
