@@ -216,5 +216,6 @@ able to rescue a stuck player.
 | Player stuck in the duel dimension | `/pvpocket guard false`, teleport them out manually, or wait five seconds for the automatic ejection |
 | Surrender does nothing | "Allow surrender" is off in rule group G |
 | Player lost items | Find the session's `SNAPSHOT_TAKEN` / `RESTORED` sequence in `pvpocket/journal/` |
+| The text in the panels looks smeared, Chinese especially | Not the mod — it is the client's font. Vanilla draws Chinese with a 16×16 bitmap squeezed into a 9px line height; install a TrueType resource pack covering both scripts. See the note at the top of the [`README`](README.md) |
 
 Logs: server `<world>/logs/latest.log`; dev clients `fabric-1.21.1/build/devlogs/client*.out`.

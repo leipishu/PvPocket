@@ -97,7 +97,7 @@ public class PresetActionOverlay extends PvWidget {
                 PvTheme.BORDER, PvTheme.PANEL);
 
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-        PvDraw.title(ctx, tr, PvDraw.fit(tr, preset.name(), CARD_W - 32), cx + 16, cy + 12,
+        PvDraw.text(ctx, tr, PvDraw.fit(tr, preset.name(), CARD_W - 32), cx + 16, cy + 12,
                 PvTheme.TEXT);
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.preset.kind", preset.kind().label()),
                 cx + 16, cy + 28, PvTheme.TEXT_MUTED);
@@ -139,7 +139,7 @@ public class PresetActionOverlay extends PvWidget {
                 close.y = cy + CARD_H - 16 - BTN_H;
                 PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.preset.share_hint"),
                         cx + 16, rowY, PvTheme.TEXT_DIM);
-                PvDraw.title(ctx, tr, status.isEmpty()
+                PvDraw.text(ctx, tr, status.isEmpty()
                                 ? PvLang.str("pvpocket.gui.home.preset.share_wait") : status,
                         cx + 16, rowY + 18, PvTheme.ACCENT);
                 close.render(ctx, mouseX, mouseY, delta);

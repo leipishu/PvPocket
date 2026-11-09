@@ -2,8 +2,7 @@ package com.leipishu.pvpocket.client.gui;
 
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.util.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +12,17 @@ import java.util.List;
  *
  * <p>Everything is drawn from code — no nine-patch textures, no vanilla widget skins. That means
  * the look survives any GUI scale and any resource pack, and there is no asset to get wrong at
- * 1×/2×/3×/4×.</p>
+ * 1×/2×/3×/4×. The one exception is the header wordmark, which is a bitmap because it is a piece of
+ * art rather than a widget: see {@link #image}.</p>
+ *
+ * <h2>Why nothing is bold any more</h2>
+ *
+ * <p>Vanilla's {@code §l} is not a typeface weight, it is a second draw of the same glyph shifted one
+ * pixel right. The bundled bitmap font has a hand-made bold sheet, so it looks right; a resource
+ * pack's TrueType font does not, and the same code that reads as "heavier" on the default font reads
+ * as "smeared" on the font most players install. Since the whole interface is laid out for players
+ * who replace the font, hierarchy here comes from colour and from position instead: a title is
+ * {@code TEXT} on a band with a divider under it, and the body below is {@code TEXT_DIM}.</p>
  *
  * <h2>Why the rounded rectangles are anti-aliased</h2>
  *
@@ -455,27 +464,20 @@ public final class PvDraw {
         ctx.getMatrices().pop();
     }
 
+    // ------------------------------------------------------------------ images
+
     /**
-     * Panel title: the body face in bold, at 1.0 scale.
+     * Draws a texture at its own resolution, scaled to {@code w × h} logical pixels.
      *
-     * <p>It used to be the same face at 1.3×, which is a bitmap font pushed through a GL scale — the
-     * glyph pixels stop landing on the screen grid and the result reads as a low-resolution texture
-     * stretched up. Bold at native size is the only way to get a heavier title without that blur;
-     * hierarchy then comes from weight and colour rather than from size.</p>
+     * <p>The header wordmark is the only bitmap in the interface, and it is deliberately not a
+     * nine-patch or an atlas sprite: it is one fixed piece of art at one fixed size, and a whole
+     * sprite registration would buy nothing but a second place for the size to be wrong. The
+     * texture ships pre-reduced to three times its drawn width, so the most common GUI scale
+     * renders it one texel per physical pixel.</p>
      */
-    public static void title(DrawContext ctx, TextRenderer tr, String s, int x, int y, int color) {
-        if (PvAudit.ON) {
-            PvAudit.text(s, x, y, titleWidth(tr, s));
-        }
-        ctx.drawText(tr, titleText(s), x, y, color, false);
-    }
-
-    public static int titleWidth(TextRenderer tr, String s) {
-        return tr.getWidth(titleText(s));
-    }
-
-    private static Text titleText(String s) {
-        return Text.literal(s).formatted(Formatting.BOLD);
+    public static void image(DrawContext ctx, Identifier id, int x, int y, int w, int h,
+                             int texW, int texH) {
+        ctx.drawTexture(id, x, y, 0, 0, w, h, texW, texH);
     }
 
     /** Clips text to {@code maxWidth}, appending an ellipsis when it had to be cut. */

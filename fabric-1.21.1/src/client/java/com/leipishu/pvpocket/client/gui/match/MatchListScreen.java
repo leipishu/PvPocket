@@ -228,7 +228,7 @@ public class MatchListScreen extends PvScreen {
         TextRenderer tr = font();
         float d = PvAnim.dt(delta);
 
-        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 11,
+        PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 11,
                 PvTheme.TEXT);
         // The count shares the title row now that the band is one line: it is a modifier of the
         // title ("duels: 3"), not a second subject, and the rule under it went with the second row.

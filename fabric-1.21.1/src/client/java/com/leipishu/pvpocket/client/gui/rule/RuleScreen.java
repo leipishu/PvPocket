@@ -690,9 +690,9 @@ public class RuleScreen extends PvScreen {
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
         String title = PvLang.str("pvpocket.gui.rule.title");
-        PvDraw.title(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
+        PvDraw.text(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
 
-        int titleEnd = panelX + 14 + PvDraw.titleWidth(tr, title) + 10;
+        int titleEnd = panelX + 14 + tr.getWidth(title) + 10;
         // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
         // "who am I fighting", but in a 2v2 the question that actually needs answering before
         // agreeing is "who is on my side" — and the sides are drawn by hand now, so the invite order

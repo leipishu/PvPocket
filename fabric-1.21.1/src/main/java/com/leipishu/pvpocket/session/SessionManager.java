@@ -1313,8 +1313,11 @@ public final class SessionManager {
      */
     private static void announceBoundary(ServerPlayerEntity player, int second) {
         player.networkHandler.sendPacket(new TitleFadeS2CPacket(0, 22, 4));
+        // Not bold: vanilla bold is a second draw of the same glyph shifted one pixel, which the
+        // bundled bitmap font has a hand-made sheet for but a resource pack's TrueType font does
+        // not — the number reads as smeared at the four-times scale a title is drawn at.
         player.networkHandler.sendPacket(new TitleS2CPacket(
-                Text.literal(String.valueOf(second)).formatted(Formatting.RED, Formatting.BOLD)));
+                Text.literal(String.valueOf(second)).formatted(Formatting.RED)));
     }
 
     /**

@@ -349,8 +349,8 @@ public class LoadoutScreen extends PvScreen {
         TextRenderer tr = font();
 
         String title = PvLang.str("pvpocket.gui.loadout.title");
-        PvDraw.title(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
-        int titleEnd = panelX + 14 + PvDraw.titleWidth(tr, title) + 10;
+        PvDraw.text(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
+        int titleEnd = panelX + 14 + tr.getWidth(title) + 10;
 
         String subtitle = isPersonal()
                 ? PvLang.str("pvpocket.gui.loadout.subtitle.personal")

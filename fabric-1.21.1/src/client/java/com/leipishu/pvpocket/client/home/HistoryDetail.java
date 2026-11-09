@@ -77,7 +77,7 @@ public class HistoryDetail extends PvWidget {
                 PvTheme.BORDER, PvTheme.PANEL);
 
         TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.home.detail.title"), cx + 16, cy + 12,
+        PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.detail.title"), cx + 16, cy + 12,
                 PvTheme.TEXT);
 
         String meta = record.mapLabel() + " · "
@@ -87,11 +87,11 @@ public class HistoryDetail extends PvWidget {
         PvDraw.textFitLeft(ctx, tr, meta, cx + 16, cy + 28, cw - 32, PvTheme.TEXT_DIM);
 
         String score = record.myScore() + " : " + record.theirScore();
-        PvDraw.title(ctx, tr, score, cx + 16, cy + 44, PvTheme.TEXT);
+        PvDraw.text(ctx, tr, score, cx + 16, cy + 44, PvTheme.TEXT);
         String verdict = PvLang.str(record.won()
                 ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss");
         int verdictW = tr.getWidth(verdict) + 10;
-        int verdictX = cx + 16 + PvDraw.titleWidth(tr, score) + 8;
+        int verdictX = cx + 16 + tr.getWidth(score) + 8;
         PvDraw.roundRect(ctx, verdictX, cy + 42, verdictW, 12, 3,
                 record.won() ? PvTheme.ACCENT_SOFT : PvTheme.CARD_ACTIVE);
         PvDraw.text(ctx, tr, verdict, verdictX + 5, cy + 44,

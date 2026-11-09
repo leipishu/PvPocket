@@ -26,6 +26,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.PlayerSkinDrawer;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -73,6 +74,21 @@ public class HomeScreen extends PvScreen {
     private static final int FOOTER_H = 22;
     /** Square size of the two pager arrows. */
     private static final int PAGER_BTN = 16;
+
+    /**
+     * The header wordmark: one fixed piece of art, at one fixed size.
+     *
+     * <p>20px tall in a 30px band. It is not stretched to the band and not scaled by the panel: the
+     * letters are pixel art with a 1px outline, and any factor other than an integer multiple of the
+     * texture's own grid turns that outline into a grey smear. The texture is three times the drawn
+     * width, which is exactly one texel per physical pixel at GUI scale 3 — the scale the 426×240
+     * canvas assumes.</p>
+     */
+    private static final Identifier LOGO = Identifier.of("pvpocket", "textures/gui/logo.png");
+    private static final int LOGO_W = 121;
+    private static final int LOGO_H = 20;
+    private static final int LOGO_TEX_W = 363;
+    private static final int LOGO_TEX_H = 60;
 
     private int page;
     /**
@@ -547,14 +563,19 @@ public class HomeScreen extends PvScreen {
     }
 
     private void drawHeader(DrawContext ctx, TextRenderer tr) {
-        PvDraw.title(ctx, tr, PvLang.str("pvpocket.gui.home.title"), panelX + 16, panelY + 11,
-                PvTheme.TEXT);
+        // The wordmark instead of a title string: it is the one thing in this interface that has to
+        // look the same in every language and on every font, and it is art rather than a label, so
+        // it is drawn rather than typeset. The texture is pre-reduced to 3× the drawn size, which is
+        // one texel per physical pixel at the GUI scale this layout is designed against.
+        PvDraw.image(ctx, LOGO, panelX + 16, panelY + (HEADER_H - LOGO_H) / 2,
+                LOGO_W, LOGO_H, LOGO_TEX_W, LOGO_TEX_H);
         // The clock lives in the header rather than on the overview page: it is ambient information,
         // and on a 166px-tall content well a line of its own costs a sixth of the page.
         String when = HomeText.date() + " · " + HomeText.clock();
         int right = panelX + panelW - 8 - CLOSE - 10;
-        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, when, right - panelX - 140), right,
-                panelY + 11, PvTheme.TEXT_MUTED);
+        int room = right - (panelX + 16 + LOGO_W) - 12;
+        PvDraw.textRight(ctx, tr, PvDraw.fit(tr, when, room), right, panelY + 11,
+                PvTheme.TEXT_MUTED);
     }
 
     private void drawIdentity(DrawContext ctx, TextRenderer tr) {
@@ -722,7 +743,7 @@ public class HomeScreen extends PvScreen {
                               String label, String value, boolean accent) {
         PvDraw.roundRect(ctx, x, y, w, h, PvTheme.RADIUS, PvTheme.CARD);
         PvDraw.textFitLeft(ctx, tr, label, x + 8, y + 7, w - 16, PvTheme.TEXT_MUTED);
-        PvDraw.title(ctx, tr, PvDraw.fit(tr, value, w - 16), x + 8, y + 21,
+        PvDraw.textFitLeft(ctx, tr, value, x + 8, y + 21, w - 16,
                 accent ? PvTheme.ACCENT : PvTheme.TEXT);
     }
 
