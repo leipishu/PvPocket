@@ -160,23 +160,34 @@ public final class MatchHud implements HudRenderCallback {
             ctx.getMatrices().scale(scale, scale, 1F);
             ctx.getMatrices().translate(-centreX, -TOP, 0);
         }
+        Bar bar = null;
         if (teams.size() == 2) {
-            drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room);
+            bar = drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room);
         } else {
             drawStacked(ctx, client, tr, payload, teams, scores, centreX);
         }
         ctx.getMatrices().pop();
+        // The team strips are drawn after the matrix comes back off: they are the one part of the bar
+        // whose geometry is a fixed number of pixels rather than a share of the layout, so they are
+        // computed from the panel's on-screen rectangle instead of being scaled with it.
+        if (bar != null) {
+            drawTeamStrips(ctx, bar, scale, centreX);
+        }
     }
 
     // ------------------------------------------------------------------ two sides
 
-    private void drawHeadToHead(DrawContext ctx, MinecraftClient client, TextRenderer tr,
-                                MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                                int centreX, int room) {
+    /** A panel rectangle in layout coordinates, handed back so the strips can be placed after scaling. */
+    private record Bar(int x, int y, int w, int h) {
+    }
+
+    private Bar drawHeadToHead(DrawContext ctx, MinecraftClient client, TextRenderer tr,
+                               MatchHudPayload payload, List<List<Row>> teams, int[] scores,
+                               int centreX, int room) {
         List<Row> left = teams.get(0);
         List<Row> right = teams.get(1);
         if (left.isEmpty() && right.isEmpty()) {
-            return;
+            return null;
         }
         int leftScore = scoreOf(scores, 0);
         int rightScore = scoreOf(scores, 1);
@@ -198,14 +209,9 @@ public final class MatchHud implements HudRenderCallback {
                 PvTheme.alpha(PvTheme.BORDER, appearT),
                 PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
-        // Wool strips on the outer edges: the same colour the cards in the rule panel and the blocks
-        // in the arena use, so "which side is red" is one fact rather than three. A strip rather than
-        // a tinted panel because a tint over a 94%-opaque surface is invisible, while 2px of raw wool
-        // still reads at a glance — and it costs nothing on a bar whose whole problem is area.
-        int stripH = layout.height() - 2;
-        PvDraw.rect(ctx, barX + 1, barY + 1, STRIP_W, stripH, PvTheme.team(0));
-        PvDraw.rect(ctx, barX + layout.width() - 1 - STRIP_W, barY + 1, STRIP_W, stripH,
-                PvTheme.team(1));
+        // Wool strips are drawn by drawTeamStrips once the matrix is back to screen space: their width
+        // and inset are pixels, not shares of the layout, so scaling them with the bar would leave a
+        // 0.75px gap at the smallest step and a 1.2px one at the largest.
 
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
                 leftScore, payload.winsNeeded(), payload.showHealth());
@@ -222,6 +228,42 @@ public final class MatchHud implements HudRenderCallback {
         PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
         PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP + layout.centreW()
                 + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
+        return new Bar(barX, barY, layout.width(), layout.height());
+    }
+
+    /**
+     * The two wool strips on the outer edges of a two-side bar.
+     *
+     * <p>Same colour the cards in the rule panel and the blocks in the arena use, so "which side is
+     * red" is one fact rather than three. A strip rather than a tinted panel because a tint over a
+     * 94%-opaque surface is invisible, while 2px of raw wool still reads at a glance — and it costs
+     * nothing on a bar whose whole problem is area.</p>
+     *
+     * <p>Drawn in screen space, from the panel's own rectangle mapped through the same pivot the bar
+     * was scaled about. The strips are the only part of the bar specified in absolute pixels — one
+     * pixel inside the edge, two wide — and drawing them inside the scaled matrix turned that into
+     * 0.75px and 1.5px at the smallest step: a hairline gap on one size, an overlap on another, and a
+     * strip whose width depended on which side of the screen it was on. Mapping the rectangle instead
+     * keeps the strip flush at every step, which is the whole point of a marker that says "this edge
+     * is red".</p>
+     *
+     * <p>The corners follow the panel's radius so the strip's ends do not sit as square nubs on a
+     * pill. The rasteriser clamps a radius to half the shape's width, so on a 2px strip this comes
+     * out as a one-pixel softening — which is exactly the point: a real arc there would eat the
+     * strip, and no arc leaves the corners sticking out of the silhouette.</p>
+     */
+    private static void drawTeamStrips(DrawContext ctx, Bar bar, float scale, int centreX) {
+        int left = Math.round(centreX + (bar.x() - centreX) * scale);
+        int right = Math.round(centreX + (bar.x() + bar.w() - centreX) * scale);
+        int top = Math.round(TOP + (bar.y() - TOP) * scale);
+        int bottom = Math.round(TOP + (bar.y() + bar.h() - TOP) * scale);
+        int stripH = Math.max(1, bottom - top - 2);
+        // One less than the panel's own radius: the strip sits a pixel inside the edge, so its corner
+        // arc has to be a pixel tighter to stay inside the silhouette.
+        int r = Math.max(1, Math.round(PvTheme.RADIUS * scale) - 1);
+        PvDraw.roundRect(ctx, left + 1, top + 1, STRIP_W, stripH, r, 0, 0, r, PvTheme.team(0));
+        PvDraw.roundRect(ctx, right - 1 - STRIP_W, top + 1, STRIP_W, stripH, 0, r, r, 0,
+                PvTheme.team(1));
     }
 
     // ------------------------------------------------------------------ three or four sides
