@@ -1547,7 +1547,22 @@ public final class SessionManager {
                 }
                 Participant p = new Participant(uuid.toString(), player.getName().getString(),
                         team, member);
-                seedLoadout(p);
+                // A roster rebuild changes who plays, not what they bring. 发送邀请 re-runs this
+                // method over the same uuids, and seeding every participant from the saved book
+                // here threw away a loadout edited in the panel moments earlier — the round then
+                // handed out the previous items, which is indistinguishable from "the switch I
+                // just flipped does nothing". Only genuinely new participants get seeded.
+                Participant previous = session.participant(uuid.toString());
+                if (previous != null && previous.loadout != null) {
+                    p.loadout = previous.loadout;
+                    p.loadoutDigest = previous.loadoutDigest;
+                    p.pendingLoadout = previous.pendingLoadout;
+                    p.pendingLoadoutDigest = previous.pendingLoadoutDigest;
+                    p.acceptedLoadoutRevision = previous.acceptedLoadoutRevision;
+                    p.agreedLoadoutDigest = previous.agreedLoadoutDigest;
+                } else {
+                    seedLoadout(p);
+                }
                 built.add(p);
             }
         }
@@ -1570,6 +1585,10 @@ public final class SessionManager {
      * invited, and the other side should see what <em>they</em> configured rather than what the
      * proposer happens to carry. {@code d.loadoutScope} "每队统一" is applied later, at freeze
      * time, so this is always the personal set.</p>
+     *
+     * <p><b>Only for newcomers.</b> This seeds a participant that has never existed; a rebuild of
+     * the roster must carry the existing record's loadout over instead, because the panel's loadout
+     * editor writes into the participant and not into this book — see {@link #submitRoster}.</p>
      */
     private void seedLoadout(Participant p) {
         Loadout seed = loadouts.get(UUID.fromString(p.uuid));
@@ -2552,10 +2571,13 @@ public final class SessionManager {
      * source of truth: this is the pass that actually decides whether a loadout becomes items. A
      * rejected loadout leaves the previous one untouched rather than half-applying.</p>
      *
-     * <p>An empty session id means "the personal loadout". It is saved to the book <em>and</em>, if
-     * the player happens to be in a session that has not started, mirrored onto their participant —
-     * otherwise a player who edits from the command line during a negotiation would be told "saved"
-     * while the duel still carries the old one.</p>
+     * <p><b>Either entry point writes both places.</b> An empty session id means "the personal
+     * loadout": it is saved to the book and, if the player happens to be in a session that has not
+     * started, mirrored onto their participant. A non-empty one is the panel opened from a duel, and
+     * that path writes the book as well — the two used to be separate, which made the difference
+     * between them invisible and made every 禁止丢弃 switch flipped during a negotiation come back at
+     * the next invite. There is one loadout per player; the session merely holds the copy that was
+     * agreed to.</p>
      */
     public void onLoadoutSubmit(ServerPlayerEntity player, String sessionId, String encoded) {
         if (sessionId == null || sessionId.isEmpty()) {
@@ -2590,6 +2612,11 @@ public final class SessionManager {
         String before = combinedLoadoutDigest(session);
         p.loadout = loadout.encode();
         p.loadoutDigest = loadout.digest();
+        // The book is written too, so that "my loadout" means one thing wherever the panel was
+        // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
+        // load-bearing in a way nothing on screen said: every switch flipped here came back the
+        // way it was at the next invite, because seedLoadout() re-reads this book.
+        loadouts.put(player.getUuid(), loadout);
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
                 "digest", p.loadoutDigest,

@@ -127,6 +127,10 @@ line at the foot reads "unsaved".
 pressing Escape again on the question stays in the panel. Escape used to leave outright and save
 nothing, while looking exactly like it had saved.
 
+**There is one loadout per player.** The panel opens from the home screen and from a duel's rule panel,
+and both save the same thing: the next match and the next invite both start from it. A change takes
+effect at the moment you press Save loadout, and stays in effect after that.
+
 ### Locked loadout items
 
 The last row of every entry in the loadout editor is **No dropping**, and it is **on by default**. While
