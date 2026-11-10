@@ -191,6 +191,21 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 - 工程流程（构建、联调、仓库结构、脚本、提交）在 `CONTRIBUTING.md`，本文件不重复。
 - 技术细节与设计理由写进 `docs/`，也不写进 README。
 
+### 8. 性能
+
+- **稳态 tick 已经不用管，别去优化读路径。** 唯一真贵的是贴图，而贴图的瓶颈是**逐方块的调色板
+  写入**：按 chunk 分块 + `BlockPos.Mutable` 实测 4560ms 对原 4577ms（噪声内），再加「跳过空
+  section」4446ms 且斗兽场反而变慢；空格子纯读 320 万次就要 1300ms。`BlockPos` 的分配量早被
+  JIT 逃逸分析消掉，`Mutable` 一点用都没有。
+- **`regionAt` 只在「未抑制记录」的写入上被调用**（`recordingSuppressed > 0` 在它之前就 return，
+  贴图与清格子根本不经过它），每局几百到几千次，线性扫描最多 16 次矩形比较。网格除法换来的
+  收益测不出来，而地块溢出分区时 26% 的查询仍要走兜底——别再改。
+- 判断瓶颈看这两行日志，不要凭感觉：
+  `Stamped …; clear {} ms, build {} ms, capture {} ms` 与 `Vacated cell … in {} ms`。
+- 真要再压贴图，方向是**减少写入量**（平地改尺寸会触发整格重贴），不是加速读写。
+- `sweepMobs` 已有 `BY_SESSION.isEmpty()` 早退；`SessionJournal.append` 每条 flush 是「先写日志
+  再改状态」的崩溃恢复顺序，不要为了性能动。
+
 ## 验证
 
 **编译通过不等于可用。** 规则类改动至少要在两端跑一局，服务端 journal
