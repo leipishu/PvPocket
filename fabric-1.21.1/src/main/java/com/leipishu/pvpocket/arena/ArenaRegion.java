@@ -648,7 +648,12 @@ public final class ArenaRegion {
      * other. Since cells are the unit that gets handed between maps, cells are the unit that gets
      * cleared.</p>
      *
-     * <p>It also clears {@link #BUFFER} blocks past the cell on every side, because that is where
+     * <p>And the plot, when it is bigger than the cell: a plot may now spill into the gap on both
+     * sides, so the volume to clear is the <em>union</em> of the two rectangles. Clearing only the
+     * cell would leave the outer ring of a previous 224-wide flat arena standing in the gap, outside
+     * everything that gets re-stamped.</p>
+     *
+     * <p>It also clears {@link #BUFFER} blocks past that union on every side, because that is where
      * the barrier shelf lives — a cell handed to a smaller map would otherwise keep the previous
      * map's shelf sticking out into the gap.</p>
      *
@@ -658,10 +663,10 @@ public final class ArenaRegion {
     public int reset(ServerWorld world, int clearSizeY) {
         int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getTopY() - 1);
         int restored = 0;
-        int fromX = cellMinX - BUFFER;
-        int toX = cellMinX + cellSizeX + BUFFER;
-        int fromZ = cellMinZ - BUFFER;
-        int toZ = cellMinZ + cellSizeZ + BUFFER;
+        int fromX = Math.min(cellMinX, minX) - BUFFER;
+        int toX = Math.max(cellMinX + cellSizeX, maxX() + 1) + BUFFER;
+        int fromZ = Math.min(cellMinZ, minZ) - BUFFER;
+        int toZ = Math.max(cellMinZ + cellSizeZ, maxZ() + 1) + BUFFER;
         for (int y = FLOOR_Y; y <= top; y++) {
             // Flat baseline, not the map baseline: the point of a reset is to erase whatever the
             // previous lease left behind, and restoring it to the *current* map would leave the old

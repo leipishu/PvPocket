@@ -11,6 +11,7 @@ import com.leipishu.pvpocket.loadout.WeaponFlag;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -73,7 +74,18 @@ public final class PvPocketCommands {
                 // Operator-only: this destroys terrain and ends other people's matches.
                 .then(CommandManager.literal("reset")
                         .requires(source -> source.hasPermissionLevel(3))
-                        .executes(PvPocketCommands::arenaReset)));
+                        .executes(PvPocketCommands::arenaReset))
+                // Operator-only: this decides how many duels the server can run at once, and it
+                // writes to the world's saved layout.
+                .then(CommandManager.literal("copy")
+                        .requires(source -> source.hasPermissionLevel(3))
+                        .then(CommandManager.argument("map", StringArgumentType.word())
+                                .suggests(PvPocketCommands::suggestMaps)
+                                .executes(ctx -> arenaCopy(ctx, 1))
+                                .then(CommandManager.argument("count",
+                                                IntegerArgumentType.integer(1, 8))
+                                        .executes(ctx -> arenaCopy(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "count")))))));
         root.then(CommandManager.literal("guard")
                 // Operator-only, because the flag is the one way to stay in the sandbox on purpose.
                 .requires(source -> source.hasPermissionLevel(2))
@@ -119,6 +131,7 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket status", "pvpocket.command.help.status");
         helpLine(source, "/pvpocket arena", "pvpocket.command.help.arena");
         helpLine(source, "/pvpocket arena reset", "pvpocket.command.help.arena_reset");
+        helpLine(source, "/pvpocket arena copy <map> [count]", "pvpocket.command.help.arena_copy");
         helpLine(source, "/pvpocket guard <true|false>", "pvpocket.command.help.guard");
         helpLine(source, "/pvpocket list", "pvpocket.command.help.list");
         helpLine(source, "/pvpocket spectate <prefix>", "pvpocket.command.help.spectate");
@@ -214,6 +227,85 @@ public final class PvPocketCommands {
                     .formatted(Formatting.GRAY), false);
         }
         return 1;
+    }
+
+    /**
+     * Suggests the map ids for {@code /pvpocket arena copy}.
+     *
+     * <p>Ids rather than display names: the argument is a token the dispatcher matches, and a
+     * translated name would be a different token in every language. The name is shown next to the
+     * id in the feedback so the operator can see which one they picked.</p>
+     */
+    private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
+            suggestMaps(CommandContext<ServerCommandSource> ctx,
+                        com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
+        String rest = builder.getRemainingLowerCase();
+        for (var map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            if (map.id.toLowerCase(java.util.Locale.ROOT).startsWith(rest)) {
+                builder.suggest(map.id);
+            }
+        }
+        return builder.buildFuture();
+    }
+
+    /**
+     * {@code /pvpocket arena copy <map> [count]} — gives a map more cells.
+     *
+     * <p>This is the answer to "the server has more rooms than maps". A cell is a whole arena of the
+     * dimension, and a map only owns as many as it was given, so a busy evening on four flat rooms
+     * runs out at four unless somebody says otherwise. Copies are made here rather than on demand
+     * because the number of concurrent duels is a capacity decision — an operator who has planned
+     * for two colosseums wants the third pair turned away with a clear message, not quietly
+     * squeezed into the gap next to a running fight.</p>
+     *
+     * <p>Each copy is a real cell with its own coordinates, recorded in {@code pvpocket/arena.json},
+     * so it survives a restart and can be visited with {@code /tp}. That is the whole point of
+     * copying the structure rather than re-pasting it somewhere: the copy is the same build at a
+     * stable address.</p>
+     */
+    private static int arenaCopy(CommandContext<ServerCommandSource> ctx, int count) {
+        ServerCommandSource source = ctx.getSource();
+        String id = StringArgumentType.getString(ctx, "map");
+        com.leipishu.pvpocket.arena.ArenaMap map = null;
+        for (var candidate : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            if (candidate.id.equalsIgnoreCase(id)) {
+                map = candidate;
+                break;
+            }
+        }
+        if (map == null) {
+            source.sendError(PvLang.t("pvpocket.command.arena.copy_unknown", id));
+            return 0;
+        }
+        // Loop variables are not effectively final, and the feedback below is a lazy supplier — it
+        // is built now and rendered later, so it may only capture constants.
+        final com.leipishu.pvpocket.arena.ArenaMap chosen = map;
+        int made = 0;
+        for (int i = 0; i < count; i++) {
+            int slot = com.leipishu.pvpocket.arena.ArenaManager.addCopy(source.getServer(), chosen);
+            if (slot < 0) {
+                break;
+            }
+            made++;
+            final int[] centre = com.leipishu.pvpocket.arena.ArenaManager.cellCentre(slot);
+            final var region = com.leipishu.pvpocket.arena.ArenaManager.regionAtSlot(slot);
+            // Two lines, not one: "reserved" and "built" are different promises. A flat copy has no
+            // blocks until a duel asks for a size, and an operator who flew there expecting a
+            // platform would think the command had failed.
+            if (region == null) {
+                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.copy_reserved",
+                        chosen.labelText(), centre[0], centre[1]), false);
+            } else {
+                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.copy_built",
+                        chosen.labelText(), region.id, centre[0], centre[1]), false);
+            }
+        }
+        if (made == 0) {
+            source.sendError(PvLang.t("pvpocket.command.arena.copy_full",
+                    com.leipishu.pvpocket.arena.ArenaManager.slotCount()));
+            return 0;
+        }
+        return made;
     }
 
     /**

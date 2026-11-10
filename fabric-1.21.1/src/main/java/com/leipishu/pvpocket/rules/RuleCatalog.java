@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.rules;
 
+import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMaps;
 
 import java.util.ArrayList;
@@ -77,12 +78,12 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("d.allowConsumables", RuleGroup.D, true));
 
         // E. 场地
-        // 上限跟 ArenaManager.MAX_SIZE_XZ 对齐，也就是一个分区的内部边长 160。每张地图固定占一个
-        // 分区（CELL 160 + GAP 96，中心距 256），分区之间留 96 格空地，两张图不会连成一片。最大的
-        // 地图是 147 格宽的斗兽场，128 的老上限会把它裁掉一圈看台，被裁掉的部分会被判成「场外」。
-        add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, 16, 160, 8, 48));
-        add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, 16, 160, 8, 48));
-        add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, 8, 96, 4, 32));
+        // 上限直接取 ArenaManager.MAX_SIZE_XZ：一个分区内部 160 格，但地块是居中摆放的，允许它往两侧
+        // 的空地里溢出，只要不碰到邻居。224 = 中心距 256 − 32，两张最大地块之间仍留 32 格。最大的
+        // 内置地图是 147 格宽的斗兽场，128 的老上限会把它裁掉一圈看台，被裁掉的部分会被判成「场外」。
+        add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8, 48));
+        add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8, 48));
+        add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, 8, ArenaManager.MAX_SIZE_Y, 4, 32));
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, 0, ArenaMaps.labelKeys()));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, 1, choices("e.boundary", 2)));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, 1, choices("e.timeOfDay", 5)));

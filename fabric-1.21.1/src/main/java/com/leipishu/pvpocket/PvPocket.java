@@ -48,6 +48,11 @@ public final class PvPocket implements ModInitializer {
             boolean ready = com.leipishu.pvpocket.arena.ArenaManager.isReady(server);
             LOGGER.info("PvPocket session manager ready (arena world available: {})", ready);
             if (ready) {
+                // The copy layout has to be read before the gallery is filled: it is what says which
+                // extra cells each map owns, and a slot number is a stable address that must not
+                // change between restarts. Loading after the warm-up would leave the copies pointing
+                // at nothing until the second start.
+                com.leipishu.pvpocket.arena.ArenaManager.loadLayout(server);
                 // Each map owns one cell of the duel dimension and stays stamped there between
                 // duels, so "select the colosseum" means "teleport to the colosseum's coordinates"
                 // rather than "paste a colosseum at the origin". Filling the gallery here means the

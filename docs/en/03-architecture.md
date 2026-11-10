@@ -79,10 +79,13 @@ Game mode is restored through `setGameMode(GameMode, GameMode)` (the playerdata 
 ## 5. Dimension and cells
 
 Every map sits in its own cell of the `pvpocket:arena` dimension; `ArenaManager.CELLS` defines 16
-cells, 16 blocks apart. Choosing a map is a teleport to fixed coordinates.
+cells of 160 blocks square, 256 apart from centre to centre, which leaves 96 blocks of empty space
+between neighbours. Choosing a map is a teleport to fixed coordinates.
 
-- **Lease**: a duel claims one cell based on `e.template` and records the session id. A map can only
-  be leased once at a time.
+- **Lease**: a duel claims one cell based on `e.template` and records the session id. A map can be
+  leased as many times as it owns cells — its *home* is its index in `ArenaMaps.ALL`, extra cells
+  (copies) are recorded in `pvpocket/arena.json` and handed out by `/pvpocket arena copy`. A copy's
+  cell number is an address and does not move across restarts.
 - **Terrain protection**: blocks changed during the round are recorded in `ArenaRegion`'s change set
   and restored in batches at the end.
 - **Rebuild**: `/pvpocket arena reset` aborts every session, ejects everyone, clears the dimension and

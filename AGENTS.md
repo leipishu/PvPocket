@@ -87,7 +87,24 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 控制台/RCON 没有客户端（`arena`、`guard`、`loadout give`）、按 id 找一场（`spectate <前缀>`）、
 只读诊断（`status`、`loadout`）、GUI 通道失效时的兜底。
 
-### 3. 界面（画布只有 426×240）
+`arena copy` 是唯一一条「面板不该做」的反例：它改的是**容量**，不是某人这一局的设置。运维为两个
+斗兽场规划过，第三场就该被一句明确的话拒掉，而不是面板上顺手点出来把邻居格子挤了。
+
+### 3. 场地分区与副本
+
+- **`ArenaMaps.ALL` 的索引就是地图的「家」，永久不变。** 副本的格子编号存在
+  `<world>/pvpocket/arena.json`，编号即地址——不要改成「取第一个空位」，那会让每份副本在
+  有人加副本的瞬间集体搬家。
+- **一张图能同时开几场 = 它有几个分区。** `busyMapMask` 的位含义是「该图所有分区都被租用」，
+  不是「有人在打这张图」。
+- **地块可以溢出分区。** 上限是 `MAX_SIZE_XZ = PITCH − MIN_ARENA_GAP`，不是 `CELL`。所以
+  `ArenaRegion.reset()` 清的是**分区与地块的并集**，只清分区会把大地图的外圈留在空地里。
+- **启动预热只贴每张图的第一份。** 副本是容量不是展品。
+- **准备期的 barrier 环只写空气**（`standIfAir`）。斗兽场的战斗区内缩，环正好压在沙地与看台之间
+  唯一的讲台墙上，无条件写入会把那格挖成空气，而写入被 `suppressRecording` 包着，`revertRegion`
+  也补不回来——每局都在同一位置留一条沟。
+
+### 4. 界面（画布只有 426×240）
 
 1280×720 窗口在 GUI scale 3 下就是 426×240。规范见 `docs/zh/04-visual.md`，以下是踩过的坑：
 
@@ -139,7 +156,7 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   改值对已编译的 282 处引用无效——没有运行时换肤。亮色主题见 `docs/zh/04-visual.md` §2.5，
   强调色必须压深（白底上 `#F5A524` 只有 1.9:1，而它被当文字用）。
 
-### 4. 协议方向
+### 5. 协议方向
 
 **判断「服务端支不支持某个功能」要问上行通道。** `canSend` 问的是「我能不能往这个通道发」；
 下行包（如 `HomeStatePayload`）问它恒为 false。踩过一次：按钮永远灰着，而服务端在同一 tick
@@ -148,7 +165,7 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 主页面是唯一由客户端主动请求的界面（`HomeRequestPayload` → `HomeStatePayload`），
 其余都是服务端推的。新增这类「客户端想要才要」的数据，照这个形状做，不要改成推送。
 
-### 5. 沙盒
+### 6. 沙盒
 
 决斗维度内聊天只放行 `/pvpocket` 根字面量（白名单，不是黑名单）；任何人不得自行切游戏模式
 （命令层 + `ServerPlayerInteractionManager.changeGameMode` 两层），但控制台/RCON 发起的放行，
@@ -156,7 +173,7 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 
 钩子必须挂在 `CommandManager.execute`，不是 `executeWithPrefix`——玩家聊天指令直接调前者。
 
-### 6. 文档
+### 7. 文档
 
 - `docs/zh/` 与 `docs/en/` 平行，六篇一一对应。**改一篇必须同步另一篇。**
 - 改动历史写 `CHANGELOG.md`，只记使用者可感知的变化与改变后续做法的决定，不记内部重构。

@@ -94,8 +94,8 @@ what the panel shows.
 
 **Arena** — Arena, boundary, hazards
 
-- **Arena length (X)** — `e.sizeX` · int 16–160 · default 48 blocks. Plot size along X. Taken over by the map's own size once one is picked.
-- **Arena width (Z)** — `e.sizeZ` · int 16–160 · default 48 blocks. Plot size along Z. Taken over by the map's own size once one is picked.
+- **Arena length (X)** — `e.sizeX` · int 16–224 · default 48 blocks. Plot size along X. Taken over by the map's own size once one is picked.
+- **Arena width (Z)** — `e.sizeZ` · int 16–224 · default 48 blocks. Plot size along Z. Taken over by the map's own size once one is picked.
 - **Arena height (Y)** — `e.sizeY` · int 8–96 · default 32 blocks. Plot size along Y, which is how much vertical room there is to build in. Taken over by the map's own size once one is picked.
 - **Arena map** — `e.template` · choice · default Flat · Flat / Fun House / Sky Island / Dark Nebula / Deadwood / Colosseum. Flat is a floating platform whose size is the length and width below; the rest are built-in maps, and picking one makes the plot follow the map's bounding box. Every arena floats in the void, so leaving the plot means falling into it. A map can only host one duel at a time; maps in use are marked and skipped.
 - **Boundary rule** — `e.boundary` · choice · default Push back · Push back / Countdown forfeit. Push back: stepping out puts you back at the nearest point inside. Forfeit: stepping out starts a five-second countdown, and still being outside when it ends loses the round. A translucent curtain marks all four edges (blue = push back, red = forfeit); you can walk through it, it grows with your height, and only the stretch near you is drawn. Maps with an inner pit (the colosseum) ring the fighting floor only, not the seating.

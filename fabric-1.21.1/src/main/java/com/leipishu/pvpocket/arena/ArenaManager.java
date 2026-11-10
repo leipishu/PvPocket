@@ -2,6 +2,8 @@ package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.i18n.PvLang;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -17,11 +19,16 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.WorldSavePath;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,16 +60,23 @@ public final class ArenaManager {
     /** Walkable surface; the flat generator puts bedrock at 0 and stone at 1..2. */
     public static final int SURFACE_Y = ArenaRegion.SURFACE_Y;
 
-    /** Grid shape. One cell per map, plus spares for a second simultaneous duel on the same map. */
+    /**
+     * Grid shape. The first {@code ArenaMaps.ALL.size()} cells are the maps' own addresses; the rest
+     * are the pool that {@link #addCopy} hands out when a map needs a second, third or fourth cell.
+     */
     public static final int COLS = 4;
     public static final int ROWS = 4;
 
     /**
-     * Interior size of one cell, and the largest plot the rule panel may request.
+     * Interior size of one cell.
      *
      * <p>A cell is the unit the dimension is divided into, and the unit that gets cleared when a
      * map is stamped. It is deliberately larger than most maps: the cell has to be able to hold the
      * biggest one (the colosseum, 147x119) without its walls crossing into the neighbour.</p>
+     *
+     * <p>It is no longer the largest plot a duel may ask for — see {@link #MAX_SIZE_XZ}. A plot may
+     * spill past its own cell into the gap, which is what keeps the flat arena's ceiling from being
+     * tied to the colosseum's width.</p>
      */
     public static final int CELL = 160;
 
@@ -81,7 +95,31 @@ public final class ArenaManager {
     /** Distance from the pitch origin to the corner of a cell's interior. */
     public static final int MARGIN = (PITCH - CELL) / 2;
 
-    public static final int MAX_SIZE_XZ = CELL;
+    /**
+     * Closest two maximum-size plots may come to each other, in blocks.
+     *
+     * <p>Exactly both plots' {@link ArenaRegion#BUFFER} shelves (8 each) plus 16 blocks of clear
+     * gap. The shelves must not touch: a shared shelf would let a player knocked off one arena walk
+     * straight onto the other's floor, which is the whole reason the buffer exists. The remaining 16
+     * is what keeps the two barrier rings from reading as one continuous wall. Narrower and the two
+     * arenas stop being two places; wider and the flat arena's ceiling drops for no benefit.</p>
+     */
+    private static final int MIN_ARENA_GAP = 32;
+
+    /**
+     * Largest plot the rule panel may request.
+     *
+     * <p>Not the cell size. A plot is centred in its cell, so a plot wider than the cell spills into
+     * the gap on both sides — and the gap is exactly where a plot is allowed to go, because nothing
+     * else is ever stamped there. The only hard limit is the neighbour: at {@code PITCH - 32} two
+     * maximum plots still leave {@link #MIN_ARENA_GAP} between them.</p>
+     *
+     * <p>Raised from {@code CELL} so the flat arena is not capped by the colosseum. The flat plot is
+     * the one map whose size the players choose, so its ceiling is the grid's, not the widest shipped
+     * build's; 224 is 40% more side than the old 160 and the panel's slider now reaches it.</p>
+     */
+    public static final int MAX_SIZE_XZ = PITCH - MIN_ARENA_GAP;
+
     /**
      * Tallest plot the rule panel may request.
      *
@@ -91,6 +129,7 @@ public final class ArenaManager {
      * {@code SURFACE_Y + 2} leaves comfortably clear.</p>
      */
     public static final int MAX_SIZE_Y = 96;
+
 
     private static final int SLOTS = COLS * ROWS;
 
@@ -106,6 +145,261 @@ public final class ArenaManager {
     /** Session id -> leased plot. LinkedHashMap so iteration order is stable for logs. */
     private static final Map<String, ArenaRegion> BY_SESSION = new LinkedHashMap<>();
     private static final boolean[] USED = new boolean[SLOTS];
+
+    // ------------------------------------------------------------------ copies
+
+    /**
+     * How many cells each map gets on a fresh install, its own address included.
+     *
+     * <p>Only two maps are here, and both for the same reason: they are the ones a busy server runs
+     * out of first. The flat plot is the default map — a server that has not customised anything
+     * runs every duel on it — and the colosseum is the one people ask for by name. One copy of each
+     * means the second duel on that map has to be turned away; four and two respectively cover an
+     * evening of several concurrent rooms without asking an operator to think about it.</p>
+     *
+     * <p>Every other map keeps one cell. Copies are capacity, not decoration: each one costs a cell
+     * of the grid, and the grid is what a server actually runs out of.</p>
+     */
+    private static final Map<String, Integer> DEFAULT_COPIES = Map.of(
+            "flat", 4,
+            "arena_colosseum", 2);
+
+    /**
+     * The cells handed out beyond a map's own address, keyed by map id, in the order they were added.
+     *
+     * <p>This map is the record the copies live in: slot numbers are stable addresses, so the third
+     * copy of the flat plot is always the same coordinates, across restarts and across a reset. It
+     * is persisted to {@code pvpocket/arena.json} for exactly that reason — re-deriving the layout
+     * from "the first free cell" would move every copy the moment somebody added one.</p>
+     */
+    private static final Map<String, List<Integer>> EXTRA = new LinkedHashMap<>();
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    /** On-disk shape of {@code arena.json}. A record so Gson needs no reflection on private fields. */
+    private record LayoutFile(int version, Map<String, List<Integer>> extra) {
+    }
+
+    /**
+     * Reads the copy layout, seeding the defaults on a world that has none.
+     *
+     * <p>Called once per server start, before {@link #beginWarmUp}. A missing file is the normal
+     * first-run case and the normal upgrade case: both should end up with the default copies, and
+     * the file is written so the next start reads the same slots instead of allocating them
+     * again.</p>
+     */
+    public static void loadLayout(MinecraftServer server) {
+        EXTRA.clear();
+        Path file = layoutFile(server);
+        boolean rewrite = false;
+        if (Files.exists(file)) {
+            try {
+                LayoutFile parsed = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8),
+                        LayoutFile.class);
+                if (parsed != null && parsed.extra() != null) {
+                    for (Map.Entry<String, List<Integer>> entry : parsed.extra().entrySet()) {
+                        if (entry.getValue() != null) {
+                            EXTRA.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+                        }
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                // Losing this file costs the extra cells, not the maps: every map still has its own
+                // address, which is derived from its index and cannot be lost. Re-seed and carry on.
+                PvPocket.LOGGER.warn("Could not read {}; copy layout falls back to defaults", file, e);
+                EXTRA.clear();
+                rewrite = true;
+            }
+        } else {
+            rewrite = true;
+        }
+        rewrite |= seedDefaults();
+        rewrite |= sanitise();
+        if (rewrite) {
+            saveLayout(server);
+        }
+        PvPocket.LOGGER.info("Arena layout: {} cells assigned across {} map(s)",
+                totalAssigned(), ArenaMaps.ALL.size());
+    }
+
+    /** Gives every map without an entry its default extra cells. Returns true when it changed. */
+    private static boolean seedDefaults() {
+        boolean changed = false;
+        for (ArenaMap map : ArenaMaps.ALL) {
+            if (EXTRA.containsKey(map.id)) {
+                continue;
+            }
+            int want = DEFAULT_COPIES.getOrDefault(map.id, 1) - 1;
+            List<Integer> slots = new ArrayList<>(Math.max(0, want));
+            for (int i = 0; i < want; i++) {
+                int slot = spareSlot(slots);
+                if (slot < 0) {
+                    PvPocket.LOGGER.warn("Grid full; {} gets {} copy/copies instead of {}",
+                            map.id, slots.size() + 1, want + 1);
+                    break;
+                }
+                slots.add(slot);
+            }
+            EXTRA.put(map.id, slots);
+            changed = true;
+        }
+        return changed;
+    }
+
+    /**
+     * Drops duplicate, out-of-range and home-slot collisions from the loaded layout.
+     *
+     * <p>A hand-edited or half-written file must not be able to point two maps at one cell — that is
+     * two arenas stamped on top of each other, which is the bug the whole slot scheme exists to
+     * prevent. Returns true when anything had to be dropped.</p>
+     */
+    private static boolean sanitise() {
+        boolean changed = false;
+        boolean[] taken = new boolean[SLOTS];
+        // Home addresses are fixed, so they claim their cells first.
+        for (int i = 0; i < ArenaMaps.ALL.size() && i < SLOTS; i++) {
+            taken[i] = true;
+        }
+        for (Map.Entry<String, List<Integer>> entry : EXTRA.entrySet()) {
+            List<Integer> kept = new ArrayList<>(entry.getValue().size());
+            for (Integer slot : entry.getValue()) {
+                if (slot == null || slot < ArenaMaps.ALL.size() || slot >= SLOTS || taken[slot]) {
+                    changed = true;
+                    continue;
+                }
+                taken[slot] = true;
+                kept.add(slot);
+            }
+            entry.setValue(kept);
+        }
+        return changed;
+    }
+
+    private static void saveLayout(MinecraftServer server) {
+        Path file = layoutFile(server);
+        try {
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, GSON.toJson(new LayoutFile(1, EXTRA)), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            PvPocket.LOGGER.warn("Could not write {}; the copy layout will not survive a restart",
+                    file, e);
+        }
+    }
+
+    private static Path layoutFile(MinecraftServer server) {
+        return server.getSavePath(WorldSavePath.ROOT).resolve("pvpocket").resolve("arena.json");
+    }
+
+    private static int totalAssigned() {
+        int total = 0;
+        for (ArenaMap map : ArenaMaps.ALL) {
+            total += copiesOf(map);
+        }
+        return total;
+    }
+
+    /** How many cells a map owns, its own address included. */
+    public static int copiesOf(ArenaMap map) {
+        List<Integer> extra = EXTRA.get(map.id);
+        return 1 + (extra == null ? 0 : extra.size());
+    }
+
+    /**
+     * Every cell a map owns, its own address first.
+     *
+     * <p>The address is {@code ArenaMaps.ALL.indexOf(map)} and never moves; the extra copies are
+     * whatever {@link #EXTRA} recorded. Returning them as one array is what lets {@link #allocate}
+     * stop caring which is which.</p>
+     */
+    public static int[] slotsOf(ArenaMap map) {
+        int home = homeSlot(map);
+        if (home < 0) {
+            return new int[0];
+        }
+        List<Integer> extra = EXTRA.get(map.id);
+        int n = 1 + (extra == null ? 0 : extra.size());
+        int[] out = new int[n];
+        out[0] = home;
+        for (int i = 1; i < n; i++) {
+            out[i] = extra.get(i - 1);
+        }
+        return out;
+    }
+
+    /** The map that owns a cell, or null for a cell no map has been given. */
+    private static ArenaMap mapOfSlot(int slot) {
+        if (slot < 0) {
+            return null;
+        }
+        if (slot < ArenaMaps.ALL.size()) {
+            return ArenaMaps.ALL.get(slot);
+        }
+        for (Map.Entry<String, List<Integer>> entry : EXTRA.entrySet()) {
+            if (entry.getValue().contains(slot)) {
+                for (ArenaMap map : ArenaMaps.ALL) {
+                    if (map.id.equals(entry.getKey())) {
+                        return map;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Hands a map one more cell, persists the layout, and builds it.
+     *
+     * <p>Operator-only, and the one way to raise the number of duels a server can run at once. The
+     * cell is recorded before it is built: a stamp that fails halfway leaves a reserved address,
+     * which is recoverable, while a built cell nobody recorded would be erased by the next map that
+     * gets it.</p>
+     *
+     * <p>A flat copy is reserved but not built — its platform is cut to whatever size the rules ask
+     * for, so there is nothing to paste yet. It is stamped by the first lease that lands on it.</p>
+     *
+     * @return the cell the copy was given, or -1 when the grid has no spare cell left
+     */
+    public static int addCopy(MinecraftServer server, ArenaMap map) {
+        if (map == null) {
+            return -1;
+        }
+        int slot = spareSlot(EXTRA.getOrDefault(map.id, List.of()));
+        if (slot < 0) {
+            return -1;
+        }
+        EXTRA.computeIfAbsent(map.id, key -> new ArrayList<>()).add(slot);
+        saveLayout(server);
+        if (!map.isFlat()) {
+            stamp(server, slot, map, clampSize(map.sizeX, MAX_SIZE_XZ),
+                    clampSize(map.sizeY, MAX_SIZE_Y), clampSize(map.sizeZ, MAX_SIZE_XZ),
+                    false, false);
+        }
+        return slot;
+    }
+
+    /** The centre of a cell, for reporting where a copy lives. */
+    public static int[] cellCentre(int slot) {
+        return new int[]{cellMinX(slot) + CELL / 2, cellMinZ(slot) + CELL / 2};
+    }
+
+    /** The plot stamped into a cell, or null when nothing is built there yet. */
+    public static ArenaRegion regionAtSlot(int slot) {
+        return slot >= 0 && slot < SLOTS ? CELLS[slot] : null;
+    }
+
+    /** First cell past the map addresses that no map owns and no session holds. */
+    private static int spareSlot(List<Integer> alreadyTaken) {
+        for (int slot = ArenaMaps.ALL.size(); slot < SLOTS; slot++) {
+            if (USED[slot] || alreadyTaken.contains(slot)) {
+                continue;
+            }
+            if (mapOfSlot(slot) != null) {
+                continue;
+            }
+            return slot;
+        }
+        return -1;
+    }
 
     /**
      * While non-zero, block writes are not recorded as plot deviations.
@@ -139,16 +433,22 @@ public final class ArenaManager {
      * cover the whole build, otherwise the boundary test would declare a player standing on the
      * stands as having left the arena.</p>
      *
-     * <p><b>Every map has a fixed address.</b> The cell is chosen from the map's index in
+     * <p><b>Every map has a fixed address.</b> The first cell of a map is chosen from its index in
      * {@link ArenaMaps#ALL}, not from "whichever cell is free": the first version took the first
      * free slot, so a server that runs one duel at a time pasted every map into slot 0, one on top
      * of the previous. Because the plot is centred by its own size, the new map landed inside the
      * old one and both were visible at once. Taking the map's own cell means the colosseum is always
      * at the colosseum's coordinates.</p>
      *
+     * <p><b>Copies are the capacity, not an overflow.</b> A map owns one cell per copy, recorded in
+     * {@link #EXTRA}; this takes the first of them that nobody is standing in. When every copy is
+     * leased the map is full and the caller must be told so — silently stamping a fifth flat arena
+     * into somebody else's cell is how two duels end up in one place. The number of copies is an
+     * operator decision ({@code /pvpocket arena copy}), not something a busy evening can raise on
+     * its own.</p>
+     *
      * <p>A cell that already holds the requested map is reused as-is — the map stays stamped between
-     * duels, so a round only has to undo the previous round's edits. A second simultaneous duel on
-     * the same map takes a spare cell and gets its own copy.</p>
+     * duels, so a round only has to undo the previous round's edits.</p>
      *
      * <p>Returns null when no cell is available, which the caller must treat as "cannot start"
      * rather than as a soft failure — silently reusing a busy plot would teleport two duels into
@@ -163,9 +463,12 @@ public final class ArenaManager {
         int sz = chosen.isFlat() ? clampSize(sizeZ, MAX_SIZE_XZ) : clampSize(chosen.sizeZ, MAX_SIZE_XZ);
         int sy = chosen.isFlat() ? clampSize(sizeY, MAX_SIZE_Y) : clampSize(chosen.sizeY, MAX_SIZE_Y);
 
-        int slot = homeSlot(chosen);
-        if (slot < 0 || USED[slot]) {
-            slot = freeSlot();
+        int slot = -1;
+        for (int candidate : slotsOf(chosen)) {
+            if (!USED[candidate]) {
+                slot = candidate;
+                break;
+            }
         }
         if (slot < 0) {
             return null;
@@ -383,6 +686,14 @@ public final class ArenaManager {
      * clears blocks that are still barrier, so a map that happens to have its own barrier blocks at
      * the same coordinates keeps them.</p>
      *
+     * <p><b>Only air is written over.</b> The ring runs one block outside the fight area, and on a
+     * map whose fight area is inset — the colosseum — that line lands on the single block of podium
+     * wall between the sand and the seating. Overwriting it put a one-block trench around the whole
+     * arena: the barrier is cleared to air afterwards, and because the write happened with recording
+     * suppressed, {@link #revertRegion} could not put the map back either. The trench then survived
+     * every later round in that cell, which is how it came to look like a hole in the map. A solid
+     * map block is already an obstacle, so the ring has nothing to add there.</p>
+     *
      * <p>The screens between the sides are built here too, from the same material — see
      * {@link #prepareScreens}. They are the half of this barrier the player can <em>see</em>: the
      * client paints them solid white from the planes this class reports, which is why the blocks
@@ -407,17 +718,34 @@ public final class ArenaManager {
             int placed = 0;
             for (int y = ArenaRegion.PLATFORM_Y; y <= top; y++) {
                 for (int x = x0; x <= x1; x++) {
-                    placed += setIfDifferent(world, x, y, z0, barrier);
-                    placed += setIfDifferent(world, x, y, z1, barrier);
+                    placed += standIfAir(world, x, y, z0, barrier);
+                    placed += standIfAir(world, x, y, z1, barrier);
                 }
                 for (int z = z0 + 1; z < z1; z++) {
-                    placed += setIfDifferent(world, x0, y, z, barrier);
-                    placed += setIfDifferent(world, x1, y, z, barrier);
+                    placed += standIfAir(world, x0, y, z, barrier);
+                    placed += standIfAir(world, x1, y, z, barrier);
                 }
             }
             return placed;
         });
         return ring + suppressRecording(() -> buildScreens(world, region, sides));
+    }
+
+    /**
+     * Writes barrier only where there is nothing, so the ring can never carve a map.
+     *
+     * <p>Not tracked, unlike the screens: the ring's teardown is a barrier scan, which is safe
+     * because the converter strips {@code barrier} out of every shipped template. The screens sit
+     * further inside the fight area, where a map is free to use that block for its own invisible
+     * walls, which is why those are tracked by coordinate instead.</p>
+     */
+    private static int standIfAir(ServerWorld world, int x, int y, int z, BlockState barrier) {
+        BlockPos pos = new BlockPos(x, y, z);
+        if (!world.getBlockState(pos).isAir()) {
+            return 0;
+        }
+        world.setBlockState(pos, barrier, Block.NOTIFY_LISTENERS);
+        return 1;
     }
 
     /**
@@ -581,11 +909,17 @@ public final class ArenaManager {
     private static long warmUpStarted;
 
     /**
-     * Queues the gallery fill: every map gets stamped into its own cell, one per tick.
+     * Queues the gallery fill: the first copy of every map gets stamped into its own cell, one per
+     * tick.
      *
      * <p>Without this the cells only fill in as maps get played, and an operator flying around
      * before the first duel sees an empty plain — which is what made the stacking bug hard to see in
      * the first place.</p>
+     *
+     * <p>Only the <em>first</em> copy of each map. Extra copies are capacity: an operator who asked
+     * for a second colosseum wants the ability to run two colosseum duels, not two colosseums to
+     * look at, and pre-stamping them would double both the startup freeze and the disk the dimension
+     * takes. A copy is built the first time somebody is sent to it.</p>
      *
      * <p>Spread over ticks rather than done in one go on purpose. A single stamp is a cell-sized
      * clear (160x160x~40 reads) plus tens of thousands of block writes, and the colosseum alone is
@@ -648,22 +982,6 @@ public final class ArenaManager {
     private static int homeSlot(ArenaMap map) {
         int index = ArenaMaps.ALL.indexOf(map);
         return index >= 0 && index < SLOTS ? index : -1;
-    }
-
-    /** First free cell, preferring the spares so an overflow duel does not erase an exhibit. */
-    private static int freeSlot() {
-        int homes = Math.min(ArenaMaps.ALL.size(), SLOTS);
-        for (int i = homes; i < SLOTS; i++) {
-            if (!USED[i]) {
-                return i;
-            }
-        }
-        for (int i = 0; i < homes; i++) {
-            if (!USED[i]) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     private static int cellMinX(int slot) {
@@ -732,19 +1050,26 @@ public final class ArenaManager {
      * and a set of up to sixteen booleans is one integer. {@code exceptSessionId} lets a session
      * re-open its own panel without seeing its own plot as taken.</p>
      *
-     * <p>Keyed on the map, not on the cell. Two duels on the same map in two different cells is
-     * exactly what this exists to prevent — the second pair would be fighting on a copy of the same
-     * terrain with no way for either side to tell which one they were told about.</p>
+     * <p>Keyed on the map, not on the cell, and that is still right: a map with four copies may
+     * host four duels at once, but a fifth has to wait. So the bit means "every copy of this map is
+     * leased", not "somebody is playing this map" — the panel greys a map out exactly when pressing
+     * it would be refused.</p>
      */
     public static int busyMapMask(String exceptSessionId) {
-        int mask = 0;
+        int[] leased = new int[ArenaMaps.ALL.size()];
         for (Map.Entry<String, ArenaRegion> entry : BY_SESSION.entrySet()) {
             if (entry.getKey().equals(exceptSessionId)) {
                 continue;
             }
             int index = ArenaMaps.ALL.indexOf(entry.getValue().map);
-            if (index >= 0 && index < Integer.SIZE) {
-                mask |= 1 << index;
+            if (index >= 0 && index < leased.length) {
+                leased[index]++;
+            }
+        }
+        int mask = 0;
+        for (int i = 0; i < leased.length && i < Integer.SIZE; i++) {
+            if (leased[i] > 0 && leased[i] >= copiesOf(ArenaMaps.ALL.get(i))) {
+                mask |= 1 << i;
             }
         }
         return mask;
@@ -794,11 +1119,11 @@ public final class ArenaManager {
      * Erases the cells the gallery fill will <em>not</em> re-stamp, so a hard reset really empties
      * the dimension.
      *
-     * <p>The gallery fill skips two kinds of cell by design: the flat plot, which is built at
-     * whatever size the rules ask for and therefore cannot be pre-stamped, and any cell a second
-     * duel overflowed into that has no map of its own. Re-stamping an exhibit clears its cell as a
-     * side effect, so those need nothing here — doing them twice would double the cost of the one
-     * operation that already blocks the server for several seconds.</p>
+     * <p>The gallery fill skips three kinds of cell by design: the flat plot, which is built at
+     * whatever size the rules ask for and therefore cannot be pre-stamped, any extra copy of a map
+     * (those are built on first use, not at startup), and any cell no map owns. Re-stamping an
+     * exhibit clears its cell as a side effect, so those need nothing here — doing them twice would
+     * double the cost of the one operation that already blocks the server for several seconds.</p>
      *
      * <p>Called <em>before</em> {@link #clearAll()}: the regions are what know how tall the debris
      * in their cell can be.</p>
@@ -812,8 +1137,8 @@ public final class ArenaManager {
         }
         int cleared = 0;
         for (int slot = 0; slot < SLOTS; slot++) {
-            ArenaMap home = slot < ArenaMaps.ALL.size() ? ArenaMaps.ALL.get(slot) : null;
-            if (home != null && !home.isFlat()) {
+            boolean restamped = slot < ArenaMaps.ALL.size() && !ArenaMaps.ALL.get(slot).isFlat();
+            if (restamped) {
                 continue;
             }
             ArenaRegion region = CELLS[slot];

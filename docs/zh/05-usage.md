@@ -22,6 +22,7 @@
 | 绝大多数 `/pvpocket` 子指令 | 无（任何玩家） |
 | `/pvpocket guard <bool>` | OP 等级 2 |
 | `/pvpocket arena reset` | OP 等级 3 |
+| `/pvpocket arena copy <map> [count]` | OP 等级 3 |
 
 ## 2. 玩家流程
 
@@ -138,6 +139,7 @@
 | `/pvpocket loadout reset` | 清空个人配装，回到默认预设 |
 | `/pvpocket arena` | 场地分区占用、变更数、进行中的对局 |
 | `/pvpocket arena reset` | 强制结束所有对局并重建整个场地维度（OP 3） |
+| `/pvpocket arena copy <map> [count]` | 给某张地图多分几个场地分区，让更多房间能同时开打（OP 3） |
 | `/pvpocket guard <true\|false>` | 开关「滞留决斗维度自动移出」，按玩家记录（OP 2） |
 
 对局面板最多显示 6 场，超出的部分会提示用 `/pvpocket spectate <id>` 进入。
@@ -170,6 +172,21 @@
 它会：强踢所有观战者 → `abort` 所有进行中的对局（不是结算，不颁奖）→ 送走所有还留在维度里的人
 → 清空维度 → 逐 tick 重贴全部地图。执行期间会向全服播报，因为服务器会静默几秒，
 没有提示的话读起来像崩溃。重建完成前无法开新局。
+
+### 场地不够用
+
+一张地图同时只能开「它拥有的分区数」场决斗，多出来的开局请求会被拒、面板上那张图会灰掉。
+默认平坦图 4 份、斗兽场 2 份、其余 1 份。要加：
+
+```bash
+/pvpocket arena copy flat 2            # 再给平坦图两份
+/pvpocket arena copy arena_colosseum   # 不写数量就是一份
+```
+
+副本拿到的是**固定格子编号**，记在 `<world>/pvpocket/arena.json`，重启也不会挪，
+所以可以用 `/tp` 记住位置。非平坦地图的副本在下命令时就贴好；平坦图的副本只占位，
+第一场落在它上面的决斗才按规则尺寸铺地。网格一共 16 个格子，满了就只能换更大的维度。
+细节见 [`06-maps.md`](06-maps.md#5-场地分区与副本)。
 
 ### 沙盒规则
 

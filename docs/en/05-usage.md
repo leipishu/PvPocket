@@ -23,6 +23,7 @@ scoreboard.
 | Most `/pvpocket` subcommands | Nothing (any player) |
 | `/pvpocket guard <bool>` | OP level 2 |
 | `/pvpocket arena reset` | OP level 3 |
+| `/pvpocket arena copy <map> [count]` | OP level 3 |
 
 ## 2. Player flow
 
@@ -160,6 +161,7 @@ client and scripts and operators can only speak commands.
 | `/pvpocket loadout reset` | Clear the personal loadout, back to the default preset |
 | `/pvpocket arena` | Cell occupancy, change counts, live sessions |
 | `/pvpocket arena reset` | Abort every session and rebuild the dimension (OP 3) |
+| `/pvpocket arena copy <map> [count]` | Give a map more plots so more rooms run at once (OP 3) |
 | `/pvpocket guard <true\|false>` | Toggle automatic ejection of stray players, per player (OP 2) |
 
 The match list shows at most six matches; beyond that it points at `/pvpocket spectate <id>`.
@@ -196,6 +198,23 @@ It ejects every spectator → `abort`s every live session (not settle: no reward
 sends out anyone still in the dimension → clears it → re-stamps every map one tick at a time. The
 whole server is notified because it goes quiet for a few seconds, and silence with no explanation
 reads as a crash. No new duel can start until it finishes.
+
+### Not enough plots
+
+A map can only run as many duels at once as it owns plots; anything beyond that is refused and the
+map is greyed out in the panel. Defaults are four for the flat plot, two for the colosseum, one for
+everything else. To add more:
+
+```bash
+/pvpocket arena copy flat 2            # two more flat plots
+/pvpocket arena copy arena_colosseum   # no count means one
+```
+
+A copy gets a **fixed cell number**, recorded in `<world>/pvpocket/arena.json`, and it does not move
+across restarts — so `/tp` to it and the spot stays valid. Copies of a non-flat map are pasted when
+the command runs; copies of a flat map only reserve a cell and are paved by the first duel that
+lands on one. The grid holds 16 cells; when it is full the dimension has to grow. Details in
+[`06-maps.md`](06-maps.md#5-plots-and-copies).
 
 ### Sandbox rules
 

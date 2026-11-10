@@ -111,7 +111,67 @@ The generator's `A_ARENA = 50` and `A_OUT` set the ratio between fighting area a
 changing them changes the shape. **After changing them you must update the inset parameters on
 `ArenaMaps.COLOSSEUM`** (23 / 19), or the boundary curtain lands behind the stands.
 
-## 5. Adding a map
+Only **one block** of podium wall separates the sand from the first row of stands, and the
+preparation barrier ring is drawn exactly one block outside the fighting area. That ring used to be
+written unconditionally, so every round dug the podium wall out to air at the same spot, and the
+teardown could only turn it back into air (the write is wrapped in `suppressRecording`, so
+`revertRegion` cannot restore it either). The ring now only writes over **air**: a solid block is
+already an obstacle and the ring has nothing to add there. A save that was already dug out heals on
+the next restart or `arena reset`, both of which re-paste the template.
+
+## 5. Plots and copies
+
+The duel dimension is void, carved into a 4×4 grid. Each cell is 160 blocks square and cell centres
+are 256 apart, which leaves 96 blocks of empty space between cells so two maps never grow into one
+another. A map owns one cell by its index in `ArenaMaps.ALL` — that index is its *home*, and it
+never moves.
+
+A map may own more than one cell. **Copies are capacity**: a duel leases one cell, and a map with
+every cell leased is full — the panel greys it out. Each extra copy is one more duel of that map
+running at the same time.
+
+| Map | Default copies |
+| --- | --- |
+| `flat` | 4 |
+| `arena_colosseum` | 2 |
+| everything else | 1 |
+
+The defaults only decide the initial layout of a **fresh save**. To change the count (operator only,
+permission level 3):
+
+```bash
+/pvpocket arena copy flat 2            # two more flat plots
+/pvpocket arena copy arena_colosseum   # no count means one
+```
+
+The cell numbers of the copies are recorded in `<save>/pvpocket/arena.json`, and **the number is the
+address**: the third flat plot is always the same coordinates, across restarts, across
+`arena reset`, and across map changes. That is the whole reason to copy a structure instead of
+pasting a fresh one per round — an operator can `/tp` to a remembered spot and find the scene.
+
+- Copies of a non-flat map are **pasted when the command runs**, so you can fly over and look.
+- Copies of a flat map **reserve a cell without paving it**: their platform size comes from the
+  rules (16–224) and is not decided until somebody needs it. The first duel that lands on one paves
+  it.
+- `arena reset` returns **every** copy to the reserved state: it clears the dimension and re-stamps
+  only the first copy of each map, so a copy is re-pasted by the first duel that lands on it. Cell
+  numbers do not change, so a `/tp` spot stays valid.
+
+The grid holds 16 cells. The six built-in maps take one each, leaving ten for copies. When it is
+full, `copy` refuses and reports the cell count — that means the dimension needs to be bigger, not
+that more copies should be forced in.
+
+**A plot may spill out of its cell.** The plot is centred in the cell, so a plot wider than the cell
+reaches into the gap on both sides; the hard limit is "must not touch the neighbour", i.e.
+`MAX_SIZE_XZ = 256 − 32 = 224`. That is why `ArenaRegion.reset()` clears the **union** of cell and
+plot: clearing only the cell would leave the outer ring of a previous 224-wide flat arena standing
+in the gap.
+
+The startup warm-up stamps only the **first** copy of each map. Copies are capacity, not exhibits:
+pre-stamping them all would double both the startup stall and the disk the dimension takes, and
+nobody flies out to look at an empty copy.
+
+## 6. Adding a map
 
 1. **Check the licence first.** Shipping inside the jar is redistribution, so all-rights-reserved
    work cannot be included.
@@ -123,7 +183,7 @@ changing them changes the shape. **After changing them you must update the inset
 5. Add one `pvpocket.map.<id>` entry to each of the two language files.
 6. Update the table and change notes in `THIRD-PARTY-NOTICES.md`.
 
-## 6. Related scripts
+## 7. Related scripts
 
 | Script | Purpose |
 | --- | --- |
