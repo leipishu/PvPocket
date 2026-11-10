@@ -164,6 +164,17 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 - **`PvTheme` 的颜色令牌不能是 `static final`。** javac 会把 `static final int` 内联进调用点，
   改值对已编译的 282 处引用无效——没有运行时换肤。亮色主题见 `docs/zh/04-visual.md` §2.5，
   强调色必须压深（白底上 `#F5A524` 只有 1.9:1，而它被当文字用）。
+- **导出海报 = 同帧重画 + `ctx.draw()` 冲刷 + 截帧缓冲**，不是把面板放大。`SeriesResultScreen.drawPoster`
+  临时把 `panelX/Y/W/H` 换成整个视口再跑一遍 `drawPanelFrame + drawContent`，然后
+  `ScreenshotRecorder.takeScreenshot(framebuffer)` 写 PNG。这样分辨率跟着窗口与 GUI 缩放走、字号仍是
+  1.0×，位图字体不会在非整数缩放下重采样；海报也比面板高（15 局在 320×180 上只放得下 6 局）。
+  **必须先 `ctx.draw()`**，否则截到的是海报之前的帧。
+- **整屏绘制要 overfill，`rect(-2, -2, w + 4, h + 4)`。** GUI 逻辑像素 = 帧缓冲 / scale **向下取整**
+  （1280/3 = 426，426×3 = 1278），最后 `scale − 1` 列物理像素没有任何逻辑像素覆盖，海报右边会留一条世界。
+- **审计里想抓某一帧必须等淡入结束。** `setScreen` 后的第一帧还在淡入，单帧钩子截到的是暗影；
+  用倒计时（等 2~3 帧）再抓。同一秒内的两次导出会互相覆盖文件名，加序号。
+- **结算卡片是「每人一份」。** `SeriesResultPayload` 带 `mySide`，胜负与「你」取决于收件人，
+  不要改成一份广播再让客户端猜。
 
 ### 5. 协议方向
 

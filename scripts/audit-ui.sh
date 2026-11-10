@@ -24,7 +24,7 @@ VERBOSE="${1:-}"
 cd "$PROJECT" || { echo "[audit] 找不到 $PROJECT"; exit 1; }
 mkdir -p "$LOGS"
 
-# 60 个布局 × 3 帧 ≈ 10 秒，加上客户端启动与资源加载，两分钟足够；超时说明 harness 没跑完。
+# 82 个布局 × 3 帧 ≈ 15 秒，加上客户端启动与资源加载，两分钟足够；超时说明 harness 没跑完。
 LIMIT=""
 if command -v timeout >/dev/null 2>&1; then
     LIMIT="timeout 300"

@@ -136,7 +136,9 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 「玩家想看」两件事绑死，以后加一个开关就得动协议。
 
 `PacketCodec.tuple` 最多 6 个分量，超过就得把字段收进嵌套 record（`RulesOpenPayload` 的
-`Details` 就是这么来的）。
+`Details` 就是这么来的）。**列表更长的数据用扁平字符串**：`SeriesResultPayload` 只有三个字段，
+里面是 `|` 与换行分隔的行——一局小局有三个属性、一方有不定长的名单，写成 record 列表就要嵌套
+两层再配一个长度前缀，而这三段字符串的读法在服务端与客户端各只有一处。
 
 上行包一律在服务端 `server.execute(...)` 里处理，确保跑在主线程上。
 

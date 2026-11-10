@@ -418,7 +418,7 @@ This is the hard constraint added in this revision; it ranks with colour and rad
 
 ## 7. Acceptance checklist
 
-- [ ] `scripts/audit-ui.sh` passes: 60 layouts (5 screens × every page and dialog × 2 canvases) with
+- [ ] `scripts/audit-ui.sh` passes: 82 layouts (6 screens × every page and dialog × 2 canvases) with
       zero findings
 - [ ] Screenshots at GUI scale 1 / 2 / 3 / 4: no truncation, no overlap, nothing out of bounds
 - [ ] No visible stair-stepping on corners at scale 2 and above; no darker stripes above or below a

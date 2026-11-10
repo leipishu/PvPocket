@@ -139,7 +139,10 @@ requests are additionally throttled (one per player per second, table capped at 
 because it is the one payload a client can send without limit.
 
 `PacketCodec.tuple` tops out at six components; beyond that fields move into a nested record (which
-is where `RulesOpenPayload.Details` comes from).
+is where `RulesOpenPayload.Details` comes from). **Longer lists go in as flat strings**:
+`SeriesResultPayload` has three fields, each holding `|`- and newline-separated rows — a round has
+three attributes and a side has a variable-length roster, so a list-of-records encoding would need two
+levels of nesting plus a length prefix, while each of the three strings is parsed in exactly one place.
 
 **The result card is one per participant, not one per series.** `SeriesResultPayload` carries a
 `mySide`, because the perspective is the whole message: which score row is highlighted, which rounds
