@@ -60,12 +60,20 @@ public final class LoadoutLock {
     }
 
     /**
-     * Re-applies the current loadout's 禁止丢弃 to everything the player is carrying.
+     * Takes 禁止丢弃 back off the stacks this loadout no longer locks.
      *
      * <p>Called after a loadout is saved, on both the personal and the in-session path. Without it the
      * switch only affects the next grant, which is indistinguishable from "the switch does not
      * work" — that is exactly how it was reported: turn it off, press Q on the sword in hand, and
      * the sword still refuses to leave.</p>
+     *
+     * <p><b>Removal only, and that asymmetry is deliberate.</b> Adding a mark needs an answer to
+     * "is this stack the row's item?", and outside a granted round the answer is unknowable: a player
+     * saving their personal loadout in the lobby may be carrying an ordinary iron sword in the slot
+     * the loadout assigns to its sword, and stamping that one would make a survival item
+     * undroppable — outside a duel, with no way to undo it short of a reset. The switch turning
+     * <em>on</em> is already covered where it can be: {@code LoadoutBuilder.grant} stamps every stack
+     * it builds, and a round always starts with a grant.</p>
      *
      * <p>Only stacks that already carry our fingerprint are touched. A vanilla sword picked up off
      * the ground has no fingerprint, so it can never become locked by accident; and the decision for
@@ -73,6 +81,9 @@ public final class LoadoutLock {
      * granting the same item are handled without ambiguity (any row that still locks wins).</p>
      */
     public static void restamp(PlayerEntity player, Loadout loadout) {
+        if (loadout == null) {
+            return;
+        }
         boolean changed = false;
         for (int i = 0; i < player.getInventory().size(); i++) {
             ItemStack stack = player.getInventory().getStack(i);

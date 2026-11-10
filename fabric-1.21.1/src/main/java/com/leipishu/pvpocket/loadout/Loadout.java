@@ -118,6 +118,24 @@ public final class Loadout {
     }
 
     /**
+     * How many rows carry 禁止丢弃.
+     *
+     * <p>Journalled next to {@code LOADOUT_APPLIED}. The digest alone cannot answer "did my switch
+     * reach the round": it changes for any edit, so it says the loadout is a different document
+     * without saying whether the lock came with it. A number that goes 6 → 5 the moment the switch is
+     * turned off makes that answer readable at a glance.</p>
+     */
+    public int lockedCount() {
+        int count = 0;
+        for (LoadoutEntry entry : entries) {
+            if (entry.noDrop) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
      * The same loadout with every shield taken out.
      *
      * <p>1.8 has no shields, and leaving one in the offhand is not cosmetic: vanilla raises it on

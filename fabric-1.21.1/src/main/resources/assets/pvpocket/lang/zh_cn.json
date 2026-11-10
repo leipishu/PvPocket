@@ -579,6 +579,7 @@
   "pvpocket.msg.loadout.saved_personal": "配装已保存（%s 项 · %s，%s）。",
   "pvpocket.msg.loadout.personal_only": "仅保存为个人配装",
   "pvpocket.msg.loadout.mirrored": "已同步到当前决斗",
+  "pvpocket.msg.loadout.series_locked": "本场对局仍用开打前约定的配装，改动从下一场起生效",
   "pvpocket.msg.loadout.reset_personal": "个人配装已清空，下次发起决斗将使用默认预设。",
   "pvpocket.msg.loadout.reset_personal_preset": "个人配装已清空并回到默认预设（%s 项）。",
   "pvpocket.msg.loadout.swap_locked": "本次决斗不允许局间更换配装，已打开你的个人配装。",

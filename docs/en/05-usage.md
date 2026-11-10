@@ -131,6 +131,13 @@ nothing, while looking exactly like it had saved.
 and both save the same thing: the next match and the next invite both start from it. A change takes
 effect at the moment you press Save loadout, and stays in effect after that.
 
+**A loadout edited after a series has started does not enter that series.** Saving it writes the
+personal book and nothing else, and the confirmation says so: "this series keeps the loadout it
+started with; the change applies from the next one". That is deliberate — the loadout is one of the
+terms both sides agreed to before the first round, so changing it mid-series changes the terms, and it
+lands only when the next round hands out items (with `d.allowSwapBetweenRounds` on, it instead goes
+through "a swap needs both sides to agree").
+
 ### Locked loadout items
 
 The last row of every entry in the loadout editor is **No dropping**, and it is **on by default**. While

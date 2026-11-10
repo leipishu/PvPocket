@@ -2586,10 +2586,16 @@ public final class SessionManager {
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage.isTerminal()) {
+            // Recorded, not just said in chat. "My edit did nothing" is the report this whole path
+            // keeps generating, and until now a refusal left no trace at all: the journal had a
+            // LOADOUT_SAVED for every save that worked and silence for every one that did not, so a
+            // refused save was indistinguishable from a client that never pressed the button.
+            rejectSubmit(session, player, "session_gone", sessionId);
             fail(player, "pvpocket.msg.loadout.ended");
             return;
         }
         if (!session.isParticipant(player.getUuidAsString())) {
+            rejectSubmit(session, player, "not_participant", sessionId);
             fail(player, "pvpocket.msg.loadout.not_participant");
             return;
         }
@@ -2602,11 +2608,13 @@ public final class SessionManager {
         Loadout loadout = Loadout.decode(encoded);
         List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
+            rejectSubmit(session, player, "invalid", problems.get(0).getString());
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
         }
         Participant p = session.participant(player.getUuidAsString());
         if (p == null) {
+            rejectSubmit(session, player, "no_participant_record", player.getUuidAsString());
             return;
         }
         String before = combinedLoadoutDigest(session);
@@ -2656,10 +2664,12 @@ public final class SessionManager {
             return;
         }
         if (!session.rulebook().allowSwapBetweenRounds()) {
+            rejectSubmit(session, player, "swap_locked", "d.allowSwapBetweenRounds=0");
             fail(player, "pvpocket.msg.loadout.swap_locked");
             return;
         }
         if (session.stage != SessionStage.ROUND_READY && session.stage != SessionStage.ROUND_ACTIVE) {
+            rejectSubmit(session, player, "frozen", session.stage.name());
             fail(player, "pvpocket.msg.loadout.frozen");
             return;
         }
@@ -2880,6 +2890,13 @@ public final class SessionManager {
                 noteLoadoutChanged(session, p, before);
                 mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
+        } else if (seriesSessionOf(player.getUuid()) != null) {
+            // A running series keeps the set it agreed to, so this save cannot reach the items in
+            // the player's hand. Saying so is not optional: the panel is the same one that edits a
+            // duel's loadout, and a player who flips 禁止丢弃 between rounds otherwise concludes the
+            // switch is broken — the sword stays locked for the rest of the match, and nothing on
+            // screen ever said why.
+            mirrored = PvLang.t("pvpocket.msg.loadout.series_locked");
         }
         // Restamped against the loadout that will actually be granted, not the one just saved: a
         // series that has already started keeps fighting with the loadout it agreed to, and marking
@@ -3056,6 +3073,15 @@ public final class SessionManager {
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
+            // Last chance to notice a participant that never got a loadout. startRound() treats a
+            // null one as the default preset, which is the right answer for a player who has never
+            // opened the editor and the wrong answer for one whose set was lost on the way here —
+            // and the two look identical from the outside, so it is journalled.
+            if (p.loadout == null) {
+                seedLoadout(p);
+                journal(session).append("LOADOUT_SEEDED_AT_FREEZE",
+                        "player", p.name, "digest", p.loadoutDigest);
+            }
             PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
             Path file = storage.snapshotFile(session.id, p.uuid);
             try {
@@ -3177,8 +3203,14 @@ public final class SessionManager {
             }
             int granted = LoadoutBuilder.grant(player, loadout, p.teamIndex());
             p.loadoutApplied = true;
+            // The digest of the loadout that actually became items, not the participant's recorded
+            // one. Those differ whenever this branch rewrites the set — a legacy round strips
+            // shields, 每队统一 takes a team-mate's — and logging the recorded digest made the
+            // journal agree with LOADOUT_SAVED by construction, which is exactly the evidence a
+            // "my loadout change did nothing" report needs to be able to contradict.
             journal(session).append("LOADOUT_APPLIED", "player", p.name,
-                    "digest", p.loadoutDigest, "items", granted, "round", session.round);
+                    "digest", loadout.digest(), "items", granted,
+                    "locked", loadout.lockedCount(), "round", session.round);
             // The client mirrors the rule set to predict movement and to hide the attack cooldown
             // indicator, so it has to be told which mode this round runs before the first hit.
             PvPocketNetworking.sendState(player);
@@ -4583,6 +4615,29 @@ public final class SessionManager {
     /** Package-private: the spectator layer writes its own lines into the same journal. */
     SessionJournal journal(DuelSession session) {
         return journals.computeIfAbsent(session.id, id -> new SessionJournal(storage.journalFile(id)));
+    }
+
+    /**
+     * Records a loadout that arrived and was not applied.
+     *
+     * <p>The counterpart of {@code LOADOUT_SAVED}, and the one line that was missing. A player who
+     * edits their set and is then handed the default one has no way to tell "the panel never sent
+     * it" from "the server threw it away", and neither did the journal: every successful save wrote
+     * a line and every refused one wrote nothing, which reads exactly like a client that never
+     * pressed 保存. The reason is journalled rather than the sentence, so the file stays parseable
+     * when the language changes.</p>
+     *
+     * <p>{@code session} is null when the id named a session that no longer exists — there is no
+     * journal to write to then, so the reason goes to the log only.</p>
+     */
+    private void rejectSubmit(DuelSession session, ServerPlayerEntity player, String reason, String detail) {
+        String name = player.getName().getString();
+        PvPocket.LOGGER.info("Loadout submit refused for {}: {} ({})", name, reason, detail);
+        if (session != null) {
+            journal(session).append("LOADOUT_REJECTED",
+                    "player", name, "reason", reason, "detail", detail,
+                    "stage", session.stage.name());
+        }
     }
 
     ServerPlayerEntity online(Participant p) {
