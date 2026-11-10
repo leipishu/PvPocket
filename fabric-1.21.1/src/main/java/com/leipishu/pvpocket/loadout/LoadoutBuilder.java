@@ -134,10 +134,14 @@ public final class LoadoutBuilder {
      * <p>Written here rather than in {@link #grant} so the two other ways a loadout becomes items —
      * {@code /pvpocket loadout give} and the companion stacks — cannot drift: every stack the builder
      * returns has been through this, or it has no lock because the entry asked for none.</p>
+     *
+     * <p>The mark carries the entry's fingerprint rather than a bare {@code true}, which is what lets
+     * {@link LoadoutLock#restamp} take the lock back off a stack when the player turns the switch off
+     * after the item was already handed out.</p>
      */
     private static ItemStack lockIfNeeded(ItemStack stack, LoadoutEntry entry) {
         if (entry.noDrop) {
-            LoadoutLock.mark(stack);
+            LoadoutLock.mark(stack, entry.fingerprint());
         }
         return stack;
     }

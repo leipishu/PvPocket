@@ -1,6 +1,8 @@
 package com.leipishu.pvpocket.client.gui.loadout;
 
+import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.PvButton;
+import com.leipishu.pvpocket.client.gui.PvConfirm;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvLayout;
 import com.leipishu.pvpocket.client.gui.PvScreen;
@@ -77,6 +79,14 @@ public class LoadoutScreen extends PvScreen {
     private ItemKind.Page page = ItemKind.Page.WEAPON;
     /** Index into {@link Loadout#entries}, not into the visible page. -1 means nothing selected. */
     private int selected = -1;
+    /**
+     * Per entry: does this line differ from the loadout the panel was opened with?
+     *
+     * <p>Rebuilt by {@link #rebuildList} rather than compared at draw time, because the same answer
+     * is asked three times — the row's accent bar, the page tab's dot, and the tab strip's own
+     * predicate — and the comparison is a string encode of every entry.</p>
+     */
+    private boolean[] entryDirty = new boolean[0];
 
     private PvTabs tabs;
     private PvScrollPane listPane;
@@ -126,6 +136,10 @@ public class LoadoutScreen extends PvScreen {
         tabs.x = panelX;
         tabs.y = panelY + HEADER_H;
         tabs.width = chromeW;
+        // The dot answers "which page did I change" without making the player walk all four pages.
+        // Without it the only sign of an unsaved edit was a sentence at the foot of the panel, and
+        // the page holding the change looked exactly like the three that did not.
+        tabs.dirtyTest(this::pageDirty);
         tabs.onChange(() -> {
             page = PAGES.get(tabs.selected());
             selected = -1;
@@ -170,6 +184,7 @@ public class LoadoutScreen extends PvScreen {
         if (listPane == null) {
             return;
         }
+        refreshDirty();
         listPane.clear();
         listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.added")));
 
@@ -186,6 +201,7 @@ public class LoadoutScreen extends PvScreen {
             LoadoutRow row = new LoadoutRow(LoadoutRow.Type.ENTRY, entryLabel(entry), entryDetail(entry),
                     iconOf(entry), selected == i,
                     () -> edit(index), () -> edit(index), () -> remove(index));
+            row.dirty(index < entryDirty.length && entryDirty[index]);
             row.tooltip(PvLang.str("pvpocket.gui.loadout.tooltip.row"));
             listPane.add(row);
         }
@@ -240,11 +256,19 @@ public class LoadoutScreen extends PvScreen {
         editor.listener(new LoadoutEditor.Listener() {
             @Override
             public void onConfirm(LoadoutEntry draft) {
+                // Compared before the copy, so "I changed it and changed it back" reports itself as
+                // no change instead of claiming an update. The row's accent bar and this sentence
+                // have to agree: a bar that says "differs" over a line that says "updated" is the
+                // pair of half-truths that made the editor look unreliable.
+                boolean changed = !entry.encode().equals(draft.encode());
                 entry.copyFrom(draft);
                 selected = index;
                 note = PvLang.str(isNew
-                        ? "pvpocket.gui.loadout.note.added"
-                        : "pvpocket.gui.loadout.note.edited", draft.kind.labelText());
+                                ? "pvpocket.gui.loadout.note.added"
+                                : changed
+                                        ? "pvpocket.gui.loadout.note.edited"
+                                        : "pvpocket.gui.loadout.note.unchanged",
+                        draft.kind.labelText());
                 setOverlay(null);
                 rebuildList();
             }
@@ -327,7 +351,7 @@ public class LoadoutScreen extends PvScreen {
         int chipY = panelY + panelH - STATUS_H + (STATUS_H - PvButton.CHIP_H) / 2;
         int right = panelX + panelW - 12;
         backButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.back"),
-                PvButton.Style.GHOST, this::back);
+                PvButton.Style.GHOST, this::requestBack);
         backButton.size(font().getWidth(backButton.label()) + 16, PvButton.CHIP_H);
         backButton.x = right - backButton.width;
         backButton.y = chipY;
@@ -475,6 +499,47 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
+     * Recomputes which lines differ from the saved loadout.
+     *
+     * <p>A bag difference, not an index-by-index compare: adding and removing entries shifts every
+     * index after the change, and comparing position by position would paint the whole list as
+     * edited after one deletion. Comparing the encodings answers the question the bar actually asks —
+     * "is there a line in this list that is not in the saved one" — and a value that was changed and
+     * then changed back produces the same string, so the bar goes away again.</p>
+     */
+    private void refreshDirty() {
+        int size = loadout.entries.size();
+        entryDirty = new boolean[size];
+        java.util.Map<String, Integer> budget = new java.util.HashMap<>();
+        for (LoadoutEntry entry : baseline.entries) {
+            budget.merge(entry.encode(), 1, Integer::sum);
+        }
+        for (int i = 0; i < size; i++) {
+            String key = loadout.entries.get(i).encode();
+            Integer left = budget.get(key);
+            if (left != null && left > 0) {
+                budget.put(key, left - 1);
+            } else {
+                entryDirty[i] = true;
+            }
+        }
+    }
+
+    /** Asked once per tab per frame by {@link PvTabs#dirtyTest}. */
+    private boolean pageDirty(int pageIndex) {
+        if (pageIndex < 0 || pageIndex >= PAGES.size()) {
+            return false;
+        }
+        ItemKind.Page target = PAGES.get(pageIndex);
+        for (int i = 0; i < entryDirty.length && i < loadout.entries.size(); i++) {
+            if (entryDirty[i] && loadout.entries.get(i).kind.page == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The preset dialog, opened over this screen.
      *
      * <p>The snapshot is the live loadout, unsaved changes included — a player who has just moved
@@ -519,10 +584,54 @@ public class LoadoutScreen extends PvScreen {
             return;
         }
         loadout.autoAssignSlots();
-        if (ClientPlayNetworking.canSend(LoadoutSubmitPayload.ID)) {
-            ClientPlayNetworking.send(new LoadoutSubmitPayload(payload.sessionId(), loadout.encode()));
+        if (!ClientPlayNetworking.canSend(LoadoutSubmitPayload.ID)) {
+            // Staying on the panel is the whole point: this used to fall through to back() and look
+            // exactly like a save. The player walked away believing the change had landed, and the
+            // next round handed out the previous loadout — which reads as "the switch does nothing".
+            note = PvLang.str("pvpocket.gui.loadout.note.no_channel");
+            PvPocket.LOGGER.warn("Loadout submit: channel {} is not open on this client",
+                    LoadoutSubmitPayload.ID.id());
+            return;
         }
+        ClientPlayNetworking.send(new LoadoutSubmitPayload(payload.sessionId(), loadout.encode()));
+        PvPocket.LOGGER.info("Loadout submit -> {} ({} items, digest {})",
+                isPersonal() ? "personal" : payload.sessionId(), loadout.size(), loadout.digest());
         back();
+    }
+
+    /**
+     * Leaves the panel, asking first when there is something to lose.
+     *
+     * <p>Esc and 返回 both used to leave unconditionally, and the only warning was a status line that
+     * said 未保存 — which is a description, not a question. A player who edited three rows and pressed
+     * Esc had no way to know whether the edit had been saved, and the panel then reopened showing the
+     * old values. Asking is cheap; losing the work is not.</p>
+     */
+    private void requestBack() {
+        if (!isDirty()) {
+            back();
+            return;
+        }
+        setOverlay(discardConfirm());
+    }
+
+    /** The "you have unsaved changes" question, over this panel. */
+    private PvConfirm discardConfirm() {
+        return new PvConfirm(
+                PvLang.str("pvpocket.gui.loadout.discard.title"),
+                PvLang.str("pvpocket.gui.loadout.discard.body"),
+                PvLang.str("pvpocket.gui.loadout.discard.note"),
+                PvTheme.TEXT_MUTED,
+                PvLang.str("pvpocket.gui.loadout.discard.save"), PvButton.Style.PRIMARY,
+                PvLang.str("pvpocket.gui.loadout.discard.discard"),
+                () -> {
+                    setOverlay(null);
+                    submit();
+                },
+                () -> {
+                    setOverlay(null);
+                    back();
+                });
     }
 
     /** Returns to the rule panel. Never cancels the negotiation — that is the 取消 button's job. */
@@ -530,9 +639,10 @@ public class LoadoutScreen extends PvScreen {
         MinecraftClient.getInstance().setScreen(parent);
     }
 
+    /** Esc and 返回 both go through {@link #requestBack}; only a clean panel leaves immediately. */
     @Override
     public void close() {
-        back();
+        requestBack();
     }
 
     public String sessionId() {
@@ -541,10 +651,10 @@ public class LoadoutScreen extends PvScreen {
 
     // ------------------------------------------------------------------ audit
 
-    /** Four pages, the item dialog, and the preset dialog. See {@link PvScreen#auditVariantCount()}. */
+    /** Four pages, the item dialog, the preset dialog, and the discard question. */
     @Override
     public int auditVariantCount() {
-        return 6;
+        return 7;
     }
 
     @Override
@@ -562,6 +672,10 @@ public class LoadoutScreen extends PvScreen {
                 rebuildList();
             }
             openEditor(0, false);
+            return;
+        }
+        if (index == PAGES.size() + 1) {
+            setOverlay(discardConfirm());
             return;
         }
         openPresets();

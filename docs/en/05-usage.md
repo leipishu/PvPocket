@@ -115,6 +115,18 @@ Presets live on the client, not on the server: change servers and they are still
 is a temporary thing held in memory and swept after five minutes; case, spaces and dashes in a typed
 code make no difference.
 
+### The loadout panel is a draft
+
+Editing a loadout takes effect only when you say so: every step in the panel — add an item, change a
+number, remove a line — changes a draft, and Save loadout is what sends it to the server. The panel
+says so in three places: the accent bar on the left edge of a line means that line differs from what
+is saved, a dot on one of the four page tabs means that page holds an unsaved change, and the status
+line at the foot reads "unsaved".
+
+**Leaving with unsaved changes asks first** ("Save and leave" / "Discard"), from both Escape and Back;
+pressing Escape again on the question stays in the panel. Escape used to leave outright and save
+nothing, while looking exactly like it had saved.
+
 ### Locked loadout items
 
 The last row of every entry in the loadout editor is **No dropping**, and it is **on by default**. While
@@ -132,6 +144,11 @@ be dropped" in chat.
   edge of the window rather than a stray keypress, and blocking it would be blocking "moving items".
 - Turned off, the entry behaves exactly like any other. The switch is saved with the loadout and
   travels with it in share codes.
+- **Turn it off and press Save loadout, and the sword already in your hand drops right away.** The
+  lock is a mark stamped on the stack when the items are handed out, so saving re-stamps everything
+  this mod granted against the new loadout — otherwise the change would only take effect at the next
+  grant, which looks exactly like a switch that does nothing. Flipping the switch without saving
+  changes nothing at all: the panel is a draft, and a draft never reaches the server.
 
 ### Spectating
 

@@ -47,6 +47,8 @@ public class LoadoutRow extends PvWidget {
     private final Runnable onRemove;
 
     private boolean pressed;
+    private boolean dirty;
+    private float dirtyT;
 
     public LoadoutRow(Type type, String label, String detail, ItemStack icon,
                       boolean selected, Runnable onClick, Runnable onRemove) {
@@ -67,6 +69,19 @@ public class LoadoutRow extends PvWidget {
         if (type == Type.HEADER) {
             this.enabled = false;
         }
+    }
+
+    /**
+     * Marks this line as differing from the saved loadout.
+     *
+     * <p>Separate from {@code selected} on purpose, and drawn differently. The row used to spend its
+     * accent bar on "this is the row you last edited", which is why a change made and then taken back
+     * still showed a bar: the bar was never about the change. Selection is the card behind the row;
+     * the bar means "this line differs from what is saved", the same thing it means on a rule row.</p>
+     */
+    public LoadoutRow dirty(boolean dirty) {
+        this.dirty = dirty;
+        return this;
     }
 
     @Override
@@ -136,10 +151,13 @@ public class LoadoutRow extends PvWidget {
         if (selected) {
             PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS, PvTheme.BORDER_STRONG,
                     PvTheme.CARD_ACTIVE);
-            PvDraw.roundRect(ctx, x + 1, y + 6, 2, height - 12, 1, PvTheme.ACCENT);
         } else if (hoverT > 0.01F) {
             PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS,
                     PvTheme.alpha(PvTheme.CARD_HOVER, hoverT));
+        }
+        dirtyT = PvAnim.damp(dirtyT, dirty ? 1F : 0F, d, 0.07F);
+        if (dirtyT > 0.01F) {
+            PvDraw.roundRect(ctx, x + 1, y + 6, 2, height - 12, 1, PvTheme.alpha(PvTheme.ACCENT, dirtyT));
         }
         drawFocusRing(ctx, PvTheme.RADIUS);
 

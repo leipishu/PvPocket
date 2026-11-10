@@ -100,6 +100,19 @@ public final class LoadoutEntry {
     }
 
     /**
+     * A stable name for "what this row grants", used to find the row again from a granted stack.
+     *
+     * <p>The lock travels on the stack (see {@code LoadoutLock}), and the stack outlives the row that
+     * produced it: it can be moved, split, put in a chest. When the player turns 禁止丢弃 off, the
+     * sword already in their hand has to lose its mark, and the only thing that connects the two is
+     * this string — so it is written into the mark and read back. It deliberately excludes the
+     * numbers: a damage slider change must not orphan the stack.</p>
+     */
+    public String fingerprint() {
+        return kind.id + '|' + material.id + '|' + variant + '|' + tridentStyle.id;
+    }
+
+    /**
      * A detached duplicate, for editors that edit a draft and only commit on confirm.
      *
      * <p>The loadout editor is modal: 取消 has to leave the entry exactly as it was, and the field

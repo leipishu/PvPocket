@@ -378,6 +378,22 @@ public final class Loadout {
                 .replace("%25", "%");
     }
 
+    /**
+     * Whether any row that produced {@code fingerprint} still asks for 禁止丢弃.
+     *
+     * <p>Read by {@link LoadoutLock#restamp} after a save. Two rows can grant the same item with
+     * different settings; taking the stricter answer means a stack is only unlocked when every row
+     * that could have produced it says it may be dropped.</p>
+     */
+    public boolean locks(String fingerprint) {
+        for (LoadoutEntry entry : entries) {
+            if (entry.noDrop && entry.fingerprint().equals(fingerprint)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Same construction as the rule digest, so the two fingerprints are comparable in logs. */
     public String digest() {
         try {

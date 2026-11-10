@@ -4,6 +4,7 @@ import com.leipishu.pvpocket.client.ClientPrefs;
 import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvButtonGroup;
+import com.leipishu.pvpocket.client.gui.PvConfirm;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvIconButton;
 import com.leipishu.pvpocket.client.gui.PvScreen;
@@ -1006,11 +1007,14 @@ public class HomeScreen extends PvScreen {
      */
     private void askReset() {
         HomeState.Arena arena = HomeState.arena();
-        setOverlay(new ConfirmOverlay(
+        setOverlay(new PvConfirm(
                 PvLang.str("pvpocket.gui.home.admin.reset_confirm_title"),
                 PvLang.str("pvpocket.gui.home.admin.reset_confirm_body", arena.leased()),
                 PvLang.str("pvpocket.gui.home.admin.reset_confirm_note"),
+                PvTheme.DANGER,
                 PvLang.str("pvpocket.gui.home.admin.reset"),
+                PvButton.Style.DANGER,
+                PvLang.str("pvpocket.gui.home.admin.cancel"),
                 this::doReset, this::dismissOverlay));
     }
 

@@ -12,6 +12,7 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
+import com.leipishu.pvpocket.loadout.LoadoutLock;
 import com.leipishu.pvpocket.mixin.PlayerManagerInvoker;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.HomeActionPayload;
@@ -2596,6 +2597,11 @@ public final class SessionManager {
                 "summary", loadout.name);
         persist(session);
         noteLoadoutChanged(session, p, before);
+        // The stacks this player is already carrying were built from the previous loadout, so a
+        // 禁止丢弃 switch flipped just now has to be re-applied to them — see LoadoutLock.restamp.
+        LoadoutLock.restamp(player, loadout);
+        PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {})",
+                p.name, session.id, loadout.size(), p.loadoutDigest);
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved",
                         loadout.size(), p.loadoutDigest)
                 .formatted(Formatting.GREEN), false);
@@ -2819,7 +2825,8 @@ public final class SessionManager {
     }
 
     /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
-    private void submitPersonal(ServerPlayerEntity player, String encoded) {        Loadout loadout = Loadout.decode(encoded);
+    private void submitPersonal(ServerPlayerEntity player, String encoded) {
+        Loadout loadout = Loadout.decode(encoded);
         List<Text> problems = loadout.validate();
         if (!problems.isEmpty()) {
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
@@ -2847,6 +2854,12 @@ public final class SessionManager {
                 mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
         }
+        // Restamped against the loadout that will actually be granted, not the one just saved: a
+        // series that has already started keeps fighting with the loadout it agreed to, and marking
+        // the player's sword droppable against a document the round does not read would be a lie.
+        LoadoutLock.restamp(player, loadoutFor(player));
+        PvPocket.LOGGER.info("Personal loadout saved for {} ({} items, digest {})",
+                player.getName().getString(), loadout.size(), loadout.digest());
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_personal",
                         loadout.size(), loadout.digest(), mirrored)
                 .formatted(Formatting.GREEN), false);
@@ -2864,6 +2877,10 @@ public final class SessionManager {
         loadouts.clear(player.getUuid());
         DuelSession session = findOpenSession(player.getUuid());
         if (session == null || !session.stage.isPreFreeze()) {
+            // The cleared book no longer describes anything the player is holding, so the 禁止丢弃
+            // marks come off too — a reset that leaves the old lock in place is a reset that only
+            // half happened.
+            LoadoutLock.restamp(player, loadoutFor(player));
             player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal")
                     .formatted(Formatting.GREEN), false);
             return;
@@ -2879,6 +2896,7 @@ public final class SessionManager {
         journal(session).append("LOADOUT_RESET", "player", p.name, "digest", p.loadoutDigest);
         persist(session);
         noteLoadoutChanged(session, p, before);
+        LoadoutLock.restamp(player, fallback);
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal_preset",
                         fallback.size())
                 .formatted(Formatting.GREEN), false);

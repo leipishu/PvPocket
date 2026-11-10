@@ -140,7 +140,7 @@ public final class PvAuditHarness {
             for (int variant = 0; variant < 11; variant++) {
                 add("rules/draft", size, variant, () -> new RuleScreen(draft()));
             }
-            for (int variant = 0; variant < 6; variant++) {
+            for (int variant = 0; variant < 7; variant++) {
                 add("loadout/duel", size, variant, () -> new LoadoutScreen(duelLoadout(), null));
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
