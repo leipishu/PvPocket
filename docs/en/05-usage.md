@@ -138,6 +138,17 @@ terms both sides agreed to before the first round, so changing it mid-series cha
 lands only when the next round hands out items (with `d.allowSwapBetweenRounds` on, it instead goes
 through "a swap needs both sides to agree").
 
+**With "one set each", the other side fights with their own set.** The panel draws a loadout, but
+nothing on it says whose set it is or whether it was ever configured. So before the first round the
+server checks: anyone with no file under `world/pvpocket/loadouts/` has never pressed 保存配装, and
+the other players are told once, in chat, that they are fighting the default set. A truly mirrored
+match needs both sides to save once; "one set per side" only unifies as far as a side.
+
+**An Infinity bow still gets one arrow on entry.** Infinity never uses the arrow up, but vanilla
+refuses to draw unless the inventory holds at least one — granting none made the bow unable to shoot
+at all. The arrow row turns into a read-only "Infinity · 1" chip while the flag is on, because the
+count has no meaning then.
+
 ### Locked loadout items
 
 The last row of every entry in the loadout editor is **No dropping**, and it is **on by default**. While

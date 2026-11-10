@@ -2560,8 +2560,19 @@ public final class SessionManager {
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
+        // "每队统一" means the side has one set, so the panel has to show that one rather than
+        // whatever this particular player happens to carry. Showing their own made every team-mate
+        // but the first edit a document the round never reads — the switch appeared to do nothing.
+        String encoded = p.loadout;
+        if (session.stage.isPreFreeze() && session.rulebook().unifiedLoadout()) {
+            List<Participant> mates = session.activeMembers(p.teamIndex());
+            Participant source = mates.isEmpty() ? p : mates.get(0);
+            if (source.loadout != null) {
+                encoded = source.loadout;
+            }
+        }
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
-                session.id, p.loadout, role, otherName(session, player.getUuidAsString())));
+                session.id, encoded, role, otherName(session, player.getUuidAsString())));
     }
 
     /**
@@ -2618,28 +2629,54 @@ public final class SessionManager {
             return;
         }
         String before = combinedLoadoutDigest(session);
-        p.loadout = loadout.encode();
-        p.loadoutDigest = loadout.digest();
-        // The book is written too, so that "my loadout" means one thing wherever the panel was
-        // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
-        // load-bearing in a way nothing on screen said: every switch flipped here came back the
-        // way it was at the next invite, because seedLoadout() re-reads this book.
-        loadouts.put(player.getUuid(), loadout);
+        // "每队统一": the set belongs to the side, not to whoever pressed 保存. Writing only the
+        // submitter's participant left the other members on their own copies, which the round then
+        // ignored — the second team-mate's edits were silently dropped every time.
+        boolean unified = session.rulebook().unifiedLoadout();
+        List<Participant> targets = unified ? session.activeMembers(p.teamIndex()) : List.of(p);
+        if (targets.isEmpty()) {
+            targets = List.of(p);
+        }
+        for (Participant target : targets) {
+            target.loadout = loadout.encode();
+            target.loadoutDigest = loadout.digest();
+        }
+        if (unified) {
+            // The personal book is deliberately left alone. It is what this player brings to the
+            // *next* match, and a team-mate's choices are not theirs to carry home.
+        } else {
+            // The book is written too, so that "my loadout" means one thing wherever the panel was
+            // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
+            // load-bearing in a way nothing on screen said: every switch flipped here came back the
+            // way it was at the next invite, because seedLoadout() re-reads this book.
+            loadouts.put(player.getUuid(), loadout);
+        }
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
                 "digest", p.loadoutDigest,
                 "items", loadout.size(),
-                "summary", loadout.name);
+                "summary", loadout.name,
+                "scope", unified ? "team" : "player");
         persist(session);
         noteLoadoutChanged(session, p, before);
         // The stacks this player is already carrying were built from the previous loadout, so a
         // 禁止丢弃 switch flipped just now has to be re-applied to them — see LoadoutLock.restamp.
-        LoadoutLock.restamp(player, loadout);
-        PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {})",
-                p.name, session.id, loadout.size(), p.loadoutDigest);
+        // Every member of the side when unified: one save now describes all of their items.
+        for (Participant target : targets) {
+            ServerPlayerEntity holder = online(target);
+            if (holder != null) {
+                LoadoutLock.restamp(holder, loadout);
+            }
+        }
+        PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {}, scope {})",
+                p.name, session.id, loadout.size(), p.loadoutDigest, unified ? "team" : "player");
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved",
                         loadout.size(), p.loadoutDigest)
                 .formatted(Formatting.GREEN), false);
+        if (unified) {
+            player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_team", targets.size())
+                    .formatted(Formatting.GOLD), false);
+        }
     }
 
     /**
@@ -3082,6 +3119,23 @@ public final class SessionManager {
                 journal(session).append("LOADOUT_SEEDED_AT_FREEZE",
                         "player", p.name, "digest", p.loadoutDigest);
             }
+            // A player who has never pressed 保存配装 fights with the preset. The panel cannot show
+            // that — it draws a set either way — so the other side is told once, here, before the
+            // first round: "his items are different" is otherwise only discoverable by being hit by
+            // them, and the natural conclusion is that the loadout system is broken.
+            if (!loadouts.hasSaved(UUID.fromString(p.uuid))) {
+                journal(session).append("LOADOUT_NEVER_SAVED", "player", p.name);
+                for (Participant other : session.participants) {
+                    if (other.uuid.equals(p.uuid) || other.rejected) {
+                        continue;
+                    }
+                    ServerPlayerEntity told = online(other);
+                    if (told != null) {
+                        told.sendMessage(PvLang.t("pvpocket.msg.loadout.opponent_default", p.name)
+                                .formatted(Formatting.GRAY), false);
+                    }
+                }
+            }
             PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
             Path file = storage.snapshotFile(session.id, p.uuid);
             try {
@@ -3115,7 +3169,7 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             p.eliminated = false;
         }
-        boolean unified = rules.get("d.loadoutScope") == 1;
+        boolean unified = session.rulebook().unifiedLoadout();
         int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
@@ -3183,7 +3237,10 @@ public final class SessionManager {
             // set the team gets when somebody leaves and rejoins.
             Loadout loadout;
             if (unified) {
-                List<Participant> mates = session.teamMembers(p.teamIndex());
+                // Active members, not every member: a declined invite stays on the record so the
+                // journal and the panel can name them, and taking the side's set from somebody who
+                // said no would hand the whole side a loadout nobody playing ever configured.
+                List<Participant> mates = session.activeMembers(p.teamIndex());
                 Participant source = mates.isEmpty() ? p : mates.get(0);
                 loadout = source.loadout == null ? Loadout.defaultDuel() : Loadout.decode(source.loadout);
             } else {

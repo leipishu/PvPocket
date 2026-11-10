@@ -163,8 +163,12 @@ Where each one is read:
   `ServerLivingEntityEvents.ALLOW_DAMAGE` and leaves a `FRIENDLY_FIRE_BLOCKED` journal line. Only a
   direct attacker is blocked (melee, arrows, tridents, TNT), not the fire a team-mate set — the same
   line vanilla draws for its own team checks.
-- **`d.loadoutScope`** — with "one set per side", every member is given the loadout of the side's
-  first participant.
+- **`d.loadoutScope`** — with "one set per side", the set belongs to the *side*, not to a person:
+  any member who opens the loadout panel sees and saves that one set, and saving it applies to every
+  member of the side (their personal book is left alone — that is what they bring to the next match).
+  The round grants the set of the side's first **active** member, not of `teamMembers`'s first:
+  somebody who declined an invite stays on the record, and taking their set would dress the whole
+  side in a loadout nobody playing ever configured.
 - **`c.fallDamage` / `e.hazard`** — both live in the same `ALLOW_DAMAGE` handler, keyed on the
   `DamageSource`. Fall damage needs both switches on (they are both off-switches, so either one
   turns it off); lava and void are one bit each in `e.hazard`, and its "none" chip turns all three

@@ -84,16 +84,26 @@ public final class LoadoutBuilder {
     /**
      * The second stack an entry brings, or {@link ItemStack#EMPTY} for the kinds that bring one.
      *
-     * <p>Arrows for a bow (unless it has Infinity), obsidian for an end crystal, flint and steel for
-     * TNT. One method because the three are one shape: the entry is a single decision, the grant is
-     * two stacks, and the count is the field the editor shows. {@link #grant} needs the same answer
-     * when it has to find a free slot for it, so it must not be written twice.</p>
+     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT. One method because
+     * the three are one shape: the entry is a single decision, the grant is two stacks, and the count
+     * is the field the editor shows. {@link #grant} needs the same answer when it has to find a free
+     * slot for it, so it must not be written twice.</p>
+     *
+     * <p><b>An Infinity bow still gets exactly one arrow.</b> It used to get none, on the reasoning
+     * that Infinity means the arrow is never consumed — but vanilla refuses to draw at all unless the
+     * inventory holds at least one arrow, so a bow granted without any is a bow that cannot shoot.
+     * One is the whole of what it needs: the enchantment keeps it there. The count field is ignored
+     * for that case rather than clamped, because "32 arrows" and "one arrow" are the same thing to a
+     * bow with Infinity and the editor has no business asking.</p>
      */
     private static ItemStack companionStack(LoadoutEntry entry) {
-        if (entry.companionCount <= 0 || !entry.kind.hasCompanion()) {
+        if (!entry.kind.hasCompanion()) {
             return ItemStack.EMPTY;
         }
         if (entry.kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY)) {
+            return lockIfNeeded(new ItemStack(Items.ARROW, 1), entry);
+        }
+        if (entry.companionCount <= 0) {
             return ItemStack.EMPTY;
         }
         Item item = switch (entry.kind) {

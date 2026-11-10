@@ -112,16 +112,29 @@ public final class LoadoutFields {
         }
 
         if (kind.hasCompanion()) {
-            // One field, three meanings: the label names the item that actually arrives, so the
-            // player reads "obsidian" rather than a generic word they have to translate themselves.
-            // Step 1 for TNT because one flint and steel is all it takes; steps of 8 for stacks you
-            // bring by the handful.
-            int step = kind == ItemKind.TNT ? 1 : 8;
-            out.add(new Field(
-                    RuleDefinition.intRange(companionFieldId(kind), RuleGroup.D,
-                            0, LoadoutCatalog.COMPANION_MAX, step, entry.companionCount),
-                    () -> entry.companionCount,
-                    v -> entry.companionCount = v));
+            if (kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY)) {
+                // An Infinity bow is always granted exactly one arrow — vanilla refuses to draw
+                // without one in the inventory, and the enchantment is what keeps it from being
+                // used up. Leaving the count field here would promise thirty-two arrows and deliver
+                // one, so the row becomes a read-only chip while the flag is on.
+                out.add(new Field(
+                        RuleDefinition.fixed("lo.arrows_infinity", RuleGroup.D,
+                                "pvpocket.rule.lo.arrows_infinity.value"),
+                        () -> 1,
+                        v -> {
+                        }));
+            } else {
+                // One field, three meanings: the label names the item that actually arrives, so the
+                // player reads "obsidian" rather than a generic word they have to translate
+                // themselves. Step 1 for TNT because one flint and steel is all it takes; steps of 8
+                // for stacks you bring by the handful.
+                int step = kind == ItemKind.TNT ? 1 : 8;
+                out.add(new Field(
+                        RuleDefinition.intRange(companionFieldId(kind), RuleGroup.D,
+                                0, LoadoutCatalog.COMPANION_MAX, step, entry.companionCount),
+                        () -> entry.companionCount,
+                        v -> entry.companionCount = v));
+            }
         }
 
         switch (kind) {
