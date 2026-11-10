@@ -123,6 +123,7 @@ python scripts/colosseum.py --out fabric-1.21.1/src/main/resources/data/pvpocket
 ```bash
 /pvpocket arena copy flat 2            # 再给平坦图两份
 /pvpocket arena copy arena_colosseum   # 不写数量就是一份
+/pvpocket arena remove flat            # 收回一份
 ```
 
 副本的格子编号记在 `<存档>/pvpocket/arena.json`，**编号就是地址**：第三份平坦图
@@ -134,6 +135,15 @@ python scripts/colosseum.py --out fabric-1.21.1/src/main/resources/data/pvpocket
   没有确定的大小。第一场落在它上面的决斗会把它铺出来。
 - `arena reset` 把**所有**副本退回「已占位、未铺地」：它清空维度后只重贴每张图的第一份，
   副本由第一场落在它上面的决斗重贴。格子编号不变，所以 `/tp` 记的位置依然有效。
+
+**`remove` 是 `copy` 的逆操作，而且没有下限。** 它从最后加的那份收起，其余副本的地址
+因此不会动；收掉的那一格会被清回虚空并还给网格。正在对局中的格子会被跳过——拆掉它等于
+把里面的人扔进虚空——全都在打就拒绝，等这一场结束。
+
+收到 0 份是合法状态：这张图从规则面板里消失，`allocate` 也拿不到格子。`arena.json` 里
+用 `noHome` 记这件事，因为「家」是从 `ArenaMaps.ALL` 的索引推出来的，没法凭空抹掉。
+再按一次「复制」它会**回到自己原来的地址**，而不是网格末尾的新格子——地址是运维记在
+纸上的东西，不能因为删过一次就搬走。
 
 网格一共 16 个格子，6 张内置图各占一个，剩下 10 个留给副本。满了以后 `copy` 会拒绝并
 报出格子总数——那说明该换更大的维度，而不是继续加副本。

@@ -3682,6 +3682,11 @@ public final class SessionManager {
                     addArenaCopy(player, action.arg());
                 }
             }
+            case HomeActionPayload.ACTION_ARENA_REMOVE -> {
+                if (requireOperator(player, "remove")) {
+                    removeArenaCopy(player, action.arg());
+                }
+            }
             case HomeActionPayload.ACTION_ARENA_RESET -> {
                 if (requireOperator(player, "reset")) {
                     resetArenaFromPanel(player);
@@ -3724,13 +3729,7 @@ public final class SessionManager {
      * the fresh snapshot sent afterwards fixes.</p>
      */
     private void addArenaCopy(ServerPlayerEntity player, String mapId) {
-        com.leipishu.pvpocket.arena.ArenaMap target = null;
-        for (com.leipishu.pvpocket.arena.ArenaMap map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
-            if (map.id.equalsIgnoreCase(mapId)) {
-                target = map;
-                break;
-            }
-        }
+        com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
         if (target == null) {
             PvPocket.LOGGER.warn("No map called '{}' for arena copy from {}",
                     mapId, player.getName().getString());
@@ -3745,6 +3744,52 @@ public final class SessionManager {
                     player.getName().getString(), target.id, slot);
         }
         sendHomeState(player);
+    }
+
+    /**
+     * {@code /pvpocket arena remove} from the panel: one plot taken away from the named map.
+     *
+     * <p>Both refusals are reported, because they mean different things and only one of them is
+     * temporary. A leased plot is a wait; a map with nothing left is already at zero, and the panel
+     * draws that button disabled — so reaching this at all means a stale panel, which the fresh
+     * snapshot sent afterwards corrects.</p>
+     */
+    private void removeArenaCopy(ServerPlayerEntity player, String mapId) {
+        com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
+        if (target == null) {
+            PvPocket.LOGGER.warn("No map called '{}' for arena remove from {}",
+                    mapId, player.getName().getString());
+            return;
+        }
+        int slot = com.leipishu.pvpocket.arena.ArenaManager.removeCopy(server(), target);
+        if (slot == com.leipishu.pvpocket.arena.ArenaManager.REMOVE_BUSY) {
+            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_busy",
+                    target.labelText()), false);
+        } else if (slot < 0) {
+            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_none",
+                    target.labelText()), false);
+        } else {
+            int left = com.leipishu.pvpocket.arena.ArenaManager.copiesOf(target);
+            PvPocket.LOGGER.info("{} removed a copy of {} at cell {} ({} left)",
+                    player.getName().getString(), target.id, slot, left);
+            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_done",
+                    target.labelText(), slot, left), false);
+            if (left == 0) {
+                player.sendMessage(PvLang.t("pvpocket.command.arena.remove_empty",
+                        target.labelText()), false);
+            }
+        }
+        sendHomeState(player);
+    }
+
+    /** A map by id, or null. Both operator actions take an id straight off the wire. */
+    private com.leipishu.pvpocket.arena.ArenaMap arenaMap(String mapId) {
+        for (com.leipishu.pvpocket.arena.ArenaMap map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            if (map.id.equalsIgnoreCase(mapId)) {
+                return map;
+            }
+        }
+        return null;
     }
 
     /**

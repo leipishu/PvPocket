@@ -24,6 +24,7 @@ scoreboard.
 | `/pvpocket guard <bool>` | OP level 2 |
 | `/pvpocket arena reset` | OP level 3 |
 | `/pvpocket arena copy <map> [count]` | OP level 3 |
+| `/pvpocket arena remove <map> [count]` | OP level 3 |
 | The home panel's "Admin" page | OP level 3 |
 
 ## 2. Player flow
@@ -163,6 +164,7 @@ client and scripts and operators can only speak commands.
 | `/pvpocket arena` | Cell occupancy, change counts, live sessions |
 | `/pvpocket arena reset` | Abort every session and rebuild the dimension (OP 3) |
 | `/pvpocket arena copy <map> [count]` | Give a map more plots so more rooms run at once (OP 3) |
+| `/pvpocket arena remove <map> [count]` | Take a map's plots back and clear them; with none left the map cannot be picked (OP 3) |
 | `/pvpocket guard <true\|false>` | Toggle automatic ejection of stray players, per player (OP 2) |
 
 The match list shows at most six matches; beyond that it points at `/pvpocket spectate <id>`.
@@ -209,13 +211,19 @@ everything else. To add more:
 ```bash
 /pvpocket arena copy flat 2            # two more flat plots
 /pvpocket arena copy arena_colosseum   # no count means one
+/pvpocket arena remove flat            # take one back; the cell is cleared and freed
 ```
 
 A copy gets a **fixed cell number**, recorded in `<world>/pvpocket/arena.json`, and it does not move
 across restarts — so `/tp` to it and the spot stays valid. Copies of a non-flat map are pasted when
 the command runs; copies of a flat map only reserve a cell and are paved by the first duel that
-lands on one. The grid holds 16 cells; when it is full the dimension has to grow. Details in
-[`06-maps.md`](06-maps.md#5-plots-and-copies).
+lands on one. The grid holds 16 cells; when it is full the dimension has to grow.
+
+`remove` takes back **the copy added last**, so the remaining ones keep their addresses. A cell that
+is in a live duel is skipped, and if every cell is leased the command refuses until the round ends.
+**There is no lower bound**: with none left the map disappears from the rule panel, and pressing
+"Copy" again brings it back at its own address rather than at a new cell at the end of the grid.
+Details in [`06-maps.md`](06-maps.md#5-plots-and-copies).
 
 ### The operator page
 
@@ -224,11 +232,14 @@ At operator level 3 the home panel (default key `B`) grows an **Admin** tab just
 | Control | Equivalent |
 | --- | --- |
 | "Copy" beside each map | `/pvpocket arena copy <map>` |
+| "Remove" beside each map | `/pvpocket arena remove <map>` |
 | "Rebuild arena" | `/pvpocket arena reset` (asks first, and says how many duels it will end) |
 | The "stray guard" switch | `/pvpocket guard true\|false` |
 
-The plot table is a live snapshot: after a copy, a rebuild or a flip the server sends a fresh one and
-the page follows. The panel is only another door onto the same server code — permission is checked
+The plot table is a live snapshot: after a copy, a removal, a rebuild or a flip the server sends a
+fresh one and the page follows. "Remove" asks nothing first — it ends no duel (a map whose cells are
+all in use has the button greyed out) and the "Copy" beside it undoes it. The confirmation is kept
+for the rebuild, which is the one action that interrupts other people. The panel is only another door onto the same server code — permission is checked
 server-side, and the panel not drawing a button is a convenience, not the lock.
 
 ### Sandbox rules

@@ -242,7 +242,8 @@ public final class PvAuditHarness {
      * <p>{@code arena_fun_house} is the longest map name in either language and {@code arena_colosseum}
      * is the only one that owns two plots, so the two widest things on the page — a name and a "2
      * plots" value — are both in it. One map is fully leased, which is the state that disables its
-     * copy button.</p>
+     * copy button, and one has no plots at all, which is the state that disables its remove button.
+     * Those two rows also carry the widest tooltips on the page.</p>
      *
      * <p>The operator bit is set here for the same reason the history is twelve records long: a page
      * that only exists for operators is a page the audit would otherwise never open.</p>
@@ -253,7 +254,7 @@ public final class PvAuditHarness {
             "arena_fun_house,1,0",
             "arena_earthborn,1,0",
             "arena_dark_nebula,1,0",
-            "arena_deadwood,1,0",
+            "arena_deadwood,0,0",
             "arena_colosseum,2,2");
 
     /** Names that say where they came from, in case a crashed run leaves them on disk. */

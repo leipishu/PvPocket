@@ -85,6 +85,17 @@ public final class PvPocketCommands {
                                 .then(CommandManager.argument("count",
                                                 IntegerArgumentType.integer(1, 8))
                                         .executes(ctx -> arenaCopy(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "count"))))))
+                // Operator-only, same reason as copy: it writes the saved layout, and it erases a
+                // stamped arena while it does.
+                .then(CommandManager.literal("remove")
+                        .requires(source -> source.hasPermissionLevel(3))
+                        .then(CommandManager.argument("map", StringArgumentType.word())
+                                .suggests(PvPocketCommands::suggestMaps)
+                                .executes(ctx -> arenaRemove(ctx, 1))
+                                .then(CommandManager.argument("count",
+                                                IntegerArgumentType.integer(1, 8))
+                                        .executes(ctx -> arenaRemove(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "count")))))));
         root.then(CommandManager.literal("guard")
                 // Operator-only, because the flag is the one way to stay in the sandbox on purpose.
@@ -132,6 +143,8 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket arena", "pvpocket.command.help.arena");
         helpLine(source, "/pvpocket arena reset", "pvpocket.command.help.arena_reset");
         helpLine(source, "/pvpocket arena copy <map> [count]", "pvpocket.command.help.arena_copy");
+        helpLine(source, "/pvpocket arena remove <map> [count]",
+                "pvpocket.command.help.arena_remove");
         helpLine(source, "/pvpocket guard <true|false>", "pvpocket.command.help.guard");
         helpLine(source, "/pvpocket list", "pvpocket.command.help.list");
         helpLine(source, "/pvpocket spectate <prefix>", "pvpocket.command.help.spectate");
@@ -306,6 +319,65 @@ public final class PvPocketCommands {
             return 0;
         }
         return made;
+    }
+
+    /**
+     * {@code /pvpocket arena remove <map> [count]} — the inverse of {@code copy}.
+     *
+     * <p>Both halves of the capacity decision belong in one place. An operator who has over-planned
+     * an evening needs the cells back, and without this the only way was to edit
+     * {@code pvpocket/arena.json} by hand — a file whose whole design is "do not touch this, the
+     * slot numbers are addresses".</p>
+     *
+     * <p>There is no lower bound: a map can be taken down to no cells, at which point the rule panel
+     * stops offering it. That is the honest way to retire a map — the alternative would be a flag
+     * that hides it from one panel while {@code allocate} still happily stamps it.</p>
+     */
+    private static int arenaRemove(CommandContext<ServerCommandSource> ctx, int count) {
+        ServerCommandSource source = ctx.getSource();
+        String id = StringArgumentType.getString(ctx, "map");
+        com.leipishu.pvpocket.arena.ArenaMap map = null;
+        for (var candidate : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            if (candidate.id.equalsIgnoreCase(id)) {
+                map = candidate;
+                break;
+            }
+        }
+        if (map == null) {
+            source.sendError(PvLang.t("pvpocket.command.arena.copy_unknown", id));
+            return 0;
+        }
+        final com.leipishu.pvpocket.arena.ArenaMap chosen = map;
+        int gone = 0;
+        int last = com.leipishu.pvpocket.arena.ArenaManager.REMOVE_NONE;
+        for (int i = 0; i < count; i++) {
+            last = com.leipishu.pvpocket.arena.ArenaManager.removeCopy(source.getServer(), chosen);
+            if (last < 0) {
+                break;
+            }
+            gone++;
+            final int left = com.leipishu.pvpocket.arena.ArenaManager.copiesOf(chosen);
+            final int cell = last;
+            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.remove_done",
+                    chosen.labelText(), cell, left), false);
+        }
+        if (gone == 0) {
+            // Two refusals, two sentences. "It is in use" is a wait; "there is nothing left" is a
+            // statement about the map, and telling an operator to wait for a duel that does not
+            // exist would be the wrong kind of wrong.
+            if (last == com.leipishu.pvpocket.arena.ArenaManager.REMOVE_BUSY) {
+                source.sendError(PvLang.t("pvpocket.command.arena.remove_busy", chosen.labelText()));
+            } else {
+                source.sendError(PvLang.t("pvpocket.command.arena.remove_none", chosen.labelText()));
+            }
+            return 0;
+        }
+        if (com.leipishu.pvpocket.arena.ArenaManager.copiesOf(chosen) == 0) {
+            MutableText line = PvLang.t("pvpocket.command.arena.remove_empty", chosen.labelText())
+                    .formatted(Formatting.AQUA);
+            source.sendFeedback(() -> line, false);
+        }
+        return gone;
     }
 
     /**

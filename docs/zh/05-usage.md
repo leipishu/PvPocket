@@ -23,6 +23,7 @@
 | `/pvpocket guard <bool>` | OP 等级 2 |
 | `/pvpocket arena reset` | OP 等级 3 |
 | `/pvpocket arena copy <map> [count]` | OP 等级 3 |
+| `/pvpocket arena remove <map> [count]` | OP 等级 3 |
 | 主页「管理」页 | OP 等级 3 |
 
 ## 2. 玩家流程
@@ -141,6 +142,7 @@
 | `/pvpocket arena` | 场地分区占用、变更数、进行中的对局 |
 | `/pvpocket arena reset` | 强制结束所有对局并重建整个场地维度（OP 3） |
 | `/pvpocket arena copy <map> [count]` | 给某张地图多分几个场地分区，让更多房间能同时开打（OP 3） |
+| `/pvpocket arena remove <map> [count]` | 收回某张地图的分区并清空它，删光后这张图就选不了了（OP 3） |
 | `/pvpocket guard <true\|false>` | 开关「滞留决斗维度自动移出」，按玩家记录（OP 2） |
 
 对局面板最多显示 6 场，超出的部分会提示用 `/pvpocket spectate <id>` 进入。
@@ -182,11 +184,16 @@
 ```bash
 /pvpocket arena copy flat 2            # 再给平坦图两份
 /pvpocket arena copy arena_colosseum   # 不写数量就是一份
+/pvpocket arena remove flat            # 收回一份，格子清空、还给网格
 ```
 
 副本拿到的是**固定格子编号**，记在 `<world>/pvpocket/arena.json`，重启也不会挪，
 所以可以用 `/tp` 记住位置。非平坦地图的副本在下命令时就贴好；平坦图的副本只占位，
 第一场落在它上面的决斗才按规则尺寸铺地。网格一共 16 个格子，满了就只能换更大的维度。
+
+`remove` 从**最后加的那份**开始收，所以其余副本的地址不会动；正在打的格子会被跳过，
+全在打就拒绝（等这一场结束）。**没有下限**：删光以后这张图就从规则面板里消失了，
+再按「复制」它会回到自己原来的地址，而不是网格末尾的新格子。
 细节见 [`06-maps.md`](06-maps.md#5-场地分区与副本)。
 
 ### 管理页
@@ -196,8 +203,12 @@ OP 等级 3 的玩家打开主页（默认按键 `B`）后，侧栏会多出一�
 | 控件 | 等价于 |
 | --- | --- |
 | 每张图右侧的「复制」 | `/pvpocket arena copy <map>` |
+| 每张图右侧的「删除」 | `/pvpocket arena remove <map>` |
 | 「重建场地」 | `/pvpocket arena reset`（先弹确认框，并告诉你会结束几场对局） |
 | 「滞留保护」开关 | `/pvpocket guard true\|false` |
+
+「删除」不弹确认框：它不会结束任何对局（有对局的分区按钮直接是灰的），而且旁边那个
+「复制」就能把它加回来。真正的确认留给会打断别人的「重建」。
 
 分区表读的是实时快照：复制成功、重建开始、开关翻转之后，服务端会重新发一份，页面跟着变。
 面板只是同一段服务端代码的另一个入口，权限在服务端校验——面板不画按钮是方便，不是锁。

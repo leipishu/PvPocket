@@ -84,8 +84,10 @@ between neighbours. Choosing a map is a teleport to fixed coordinates.
 
 - **Lease**: a duel claims one cell based on `e.template` and records the session id. A map can be
   leased as many times as it owns cells — its *home* is its index in `ArenaMaps.ALL`, extra cells
-  (copies) are recorded in `pvpocket/arena.json` and handed out by `/pvpocket arena copy`. A copy's
-  cell number is an address and does not move across restarts.
+  (copies) are recorded in `pvpocket/arena.json`, handed out by `/pvpocket arena copy` and taken back
+  by `/pvpocket arena remove`. A copy's cell number is an address and does not move across restarts.
+  A map can be taken down to zero copies — giving up its *home* is recorded as `noHome` in that file —
+  and `allocate` then has no cell to give it.
 - **Terrain protection**: blocks changed during the round are recorded in `ArenaRegion`'s change set
   and restored in batches at the end.
 - **Rebuild**: `/pvpocket arena reset` aborts every session, ejects everyone, clears the dimension and
@@ -108,7 +110,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |
 | C→S | `PresetSharePayload` | Publish / fetch a share code |
 | C→S | `HomeRequestPayload` | "Give me a home-panel snapshot" |
-| C→S | `HomeActionPayload` | Start a duel / from a rule preset / from a loadout preset; at OP 3 also copy a plot, rebuild the arena and toggle the stray guard |
+| C→S | `HomeActionPayload` | Start a duel / from a rule preset / from a loadout preset; at OP 3 also copy or take back a plot, rebuild the arena and toggle the stray guard |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | Rule panel open / close |
 | S→C | `LoadoutOpenPayload` | Loadout editor open |
 | S→C | `MatchListPayload` | Match list |

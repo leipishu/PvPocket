@@ -15,10 +15,10 @@ import net.minecraft.util.Identifier;
  * keeps an older server from having to know about a newer button. Unknown actions are logged and
  * ignored.</p>
  *
- * <p>{@code arg} is the encoded preset for the two preset actions, a map id for the copy action, and
- * {@code "1"} / {@code "0"} for the guard. It is re-validated on arrival exactly like a
+ * <p>{@code arg} is the encoded preset for the two preset actions, a map id for the copy and remove
+ * actions, and {@code "1"} / {@code "0"} for the guard. It is re-validated on arrival exactly like a
  * hand-submitted rule set: the client is allowed to express intent, never to declare what the intent
- * decodes to. The three operator actions are checked against the caller's permission level on the
+ * decodes to. The four operator actions are checked against the caller's permission level on the
  * server — the panel not offering them is a convenience, not the lock.</p>
  */
 public record HomeActionPayload(int action, String arg) implements CustomPayload {
@@ -35,6 +35,8 @@ public record HomeActionPayload(int action, String arg) implements CustomPayload
     public static final int ACTION_ARENA_RESET = 4;
     /** Operator: turn the stray-player guard on or off for the caller ({@code arg} is 1 or 0). */
     public static final int ACTION_GUARD = 5;
+    /** Operator: take one plot away from the map named in {@code arg}. */
+    public static final int ACTION_ARENA_REMOVE = 6;
 
     public static final Id<HomeActionPayload> ID = new Id<>(Identifier.of("pvpocket", "home_action"));
 
@@ -57,6 +59,10 @@ public record HomeActionPayload(int action, String arg) implements CustomPayload
 
     public static HomeActionPayload arenaCopy(String mapId) {
         return new HomeActionPayload(ACTION_ARENA_COPY, mapId == null ? "" : mapId);
+    }
+
+    public static HomeActionPayload arenaRemove(String mapId) {
+        return new HomeActionPayload(ACTION_ARENA_REMOVE, mapId == null ? "" : mapId);
     }
 
     public static HomeActionPayload arenaReset() {

@@ -79,7 +79,8 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 
 - **租用**：开局时按 `e.template` 申请一格，记录会话 id。一张图能同时租「它拥有的分区数」次——
   地图的「家」是它在 `ArenaMaps.ALL` 里的索引，额外分区（副本）记在 `pvpocket/arena.json`，
-  由 `/pvpocket arena copy` 分配。副本的格子编号是地址，重启不会挪。
+  由 `/pvpocket arena copy` 分配、`/pvpocket arena remove` 收回。副本的格子编号是地址，重启不会挪。
+  副本可以删到 0 份（删掉「家」记在文件的 `noHome` 里），此时这张图 `allocate` 拿不到格子。
 - **地形保护**：本局内被改动的方块记录在 `ArenaRegion` 的变更集里，结束时分批复原。
 - **重建**：`/pvpocket arena reset` 会先 `abort` 所有对局、送走所有人、清空维度，
   然后**一 tick 重贴一张图**。5 张图约 15 万方块，一次做完主线程停 4.5 秒，
@@ -100,7 +101,7 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
 | C→S | `PresetSharePayload` | 发布 / 取用分享码 |
 | C→S | `HomeRequestPayload` | 「给我一份主页面快照」 |
-| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、重建场地、开关滞留保护 |
+| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、收回分区、重建场地、开关滞留保护 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |

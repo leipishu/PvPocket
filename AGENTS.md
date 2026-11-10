@@ -87,18 +87,22 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 控制台/RCON 没有客户端（`arena`、`guard`、`loadout give`）、按 id 找一场（`spectate <前缀>`）、
 只读诊断（`status`、`loadout`）、GUI 通道失效时的兜底。
 
-`arena copy` / `arena reset` / `guard` 现在**两边都有**：主页「管理」页（仅 OP 等级 3 可见）给玩家，
-指令给控制台与 RCON。这不是「第二条路」，是同一个动作的两个入口——运维场景里一半是没有客户端的。
-所以面板的动作必须落在同一段代码上（`HomeActionPayload` 的三个动作直接调 `ArenaManager.addCopy`、
-`resetArena`、`setGuardEnabled`），并且**服务端自己校验权限**：面板不画按钮是方便，不是锁。
+`arena copy` / `arena remove` / `arena reset` / `guard` 现在**两边都有**：主页「管理」页（仅 OP 等级 3
+可见）给玩家，指令给控制台与 RCON。这不是「第二条路」，是同一个动作的两个入口——运维场景里一半是
+没有客户端的。所以面板的动作必须落在同一段代码上（`HomeActionPayload` 的四个动作直接调
+`ArenaManager.addCopy` / `removeCopy`、`resetArena`、`setGuardEnabled`），并且**服务端自己校验权限**：
+面板不画按钮是方便，不是锁。
 
 ### 3. 场地分区与副本
 
 - **`ArenaMaps.ALL` 的索引就是地图的「家」，永久不变。** 副本的格子编号存在
   `<world>/pvpocket/arena.json`，编号即地址——不要改成「取第一个空位」，那会让每份副本在
   有人加副本的瞬间集体搬家。
-- **一张图能同时开几场 = 它有几个分区。** `busyMapMask` 的位含义是「该图所有分区都被租用」，
-  不是「有人在打这张图」。
+- **一张图能同时开几场 = 它有几个分区。** `busyMapMask` 的位含义是「按下去会被拒」，包括
+  「分区全被租用」和「分区已删光」两种情况，不是「有人在打这张图」。
+- **副本可以删到 0 份，而且删光后要能原址复活。** `removeCopy` 从 `slotsOf` 末尾收，正在打的格子
+  跳过；删掉「家」记在 `arena.json` 的 `noHome` 里（家是从索引推出来的，抹不掉）。`addCopy` 见到
+  `noHome` 先还家、再谈空格子——地址是运维记在纸上的东西，不能因为删过一次就搬到网格末尾。
 - **地块可以溢出分区。** 上限是 `MAX_SIZE_XZ = PITCH − MIN_ARENA_GAP`，不是 `CELL`。所以
   `ArenaRegion.reset()` 清的是**分区与地块的并集**，只清分区会把大地图的外圈留在空地里。
 - **启动预热只贴每张图的第一份。** 副本是容量不是展品。

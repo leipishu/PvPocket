@@ -174,10 +174,31 @@ public final class ArenaManager {
      */
     private static final Map<String, List<Integer>> EXTRA = new LinkedHashMap<>();
 
+    /**
+     * Maps that have given up their own address, and therefore live only in {@link #EXTRA}.
+     *
+     * <p>A map's home cell is derived from its index in {@link ArenaMaps#ALL} and cannot be
+     * "un-derived", so deleting a map's last copy — which the operator is allowed to do, down to
+     * none at all — needs somewhere to say so. This is that place. {@link #copiesOf} subtracts one
+     * for every id in here, and {@link #addCopy} puts the home cell back by removing the id.</p>
+     *
+     * <p>The alternative was to persist each map's complete cell list instead of its extras, which
+     * reads better but would have made every map's home cell a matter of file contents rather than
+     * of the map's identity. The address is the thing that must not move; this set only records
+     * whether it is currently in use.</p>
+     */
+    private static final java.util.Set<String> NO_HOME = new java.util.LinkedHashSet<>();
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    /** On-disk shape of {@code arena.json}. A record so Gson needs no reflection on private fields. */
-    private record LayoutFile(int version, Map<String, List<Integer>> extra) {
+    /**
+     * On-disk shape of {@code arena.json}. A record so Gson needs no reflection on private fields.
+     *
+     * <p>Version 2 added {@code noHome}. A version 1 file loads unchanged — the field is simply
+     * null, which reads as "no map has given up its address", i.e. exactly what a version 1 layout
+     * meant. Nothing has to be migrated; the next save writes version 2.</p>
+     */
+    private record LayoutFile(int version, Map<String, List<Integer>> extra, List<String> noHome) {
     }
 
     /**
@@ -190,6 +211,7 @@ public final class ArenaManager {
      */
     public static void loadLayout(MinecraftServer server) {
         EXTRA.clear();
+        NO_HOME.clear();
         Path file = layoutFile(server);
         boolean rewrite = false;
         if (Files.exists(file)) {
@@ -203,11 +225,15 @@ public final class ArenaManager {
                         }
                     }
                 }
+                if (parsed != null && parsed.noHome() != null) {
+                    NO_HOME.addAll(parsed.noHome());
+                }
             } catch (IOException | RuntimeException e) {
                 // Losing this file costs the extra cells, not the maps: every map still has its own
                 // address, which is derived from its index and cannot be lost. Re-seed and carry on.
                 PvPocket.LOGGER.warn("Could not read {}; copy layout falls back to defaults", file, e);
                 EXTRA.clear();
+                NO_HOME.clear();
                 rewrite = true;
             }
         } else {
@@ -227,6 +253,13 @@ public final class ArenaManager {
         boolean changed = false;
         for (ArenaMap map : ArenaMaps.ALL) {
             if (EXTRA.containsKey(map.id)) {
+                continue;
+            }
+            // A map whose address was given up has an entry — an empty one — so it is never
+            // reseeded; the second test is for a hand-written file that dropped both.
+            if (NO_HOME.contains(map.id)) {
+                EXTRA.put(map.id, new ArrayList<>());
+                changed = true;
                 continue;
             }
             int want = DEFAULT_COPIES.getOrDefault(map.id, 1) - 1;
@@ -272,6 +305,21 @@ public final class ArenaManager {
             }
             entry.setValue(kept);
         }
+        // A noHome entry for a map that does not exist is a line that would never be read again, and
+        // leaving it in the file makes the next operator wonder which map it referred to.
+        for (String id : new ArrayList<>(NO_HOME)) {
+            boolean known = false;
+            for (ArenaMap map : ArenaMaps.ALL) {
+                if (map.id.equals(id)) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                NO_HOME.remove(id);
+                changed = true;
+            }
+        }
         return changed;
     }
 
@@ -279,7 +327,8 @@ public final class ArenaManager {
         Path file = layoutFile(server);
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, GSON.toJson(new LayoutFile(1, EXTRA)), StandardCharsets.UTF_8);
+            Files.writeString(file, GSON.toJson(new LayoutFile(2, EXTRA, new ArrayList<>(NO_HOME))),
+                    StandardCharsets.UTF_8);
         } catch (IOException e) {
             PvPocket.LOGGER.warn("Could not write {}; the copy layout will not survive a restart",
                     file, e);
@@ -298,10 +347,18 @@ public final class ArenaManager {
         return total;
     }
 
-    /** How many cells a map owns, its own address included. */
+    /**
+     * How many cells a map owns, its own address included.
+     *
+     * <p>Zero is a legal answer. Deleting every copy of a map is how an operator takes it out of
+     * circulation — the rule panel then steps over it, and a session that still has it selected is
+     * refused at "同意并开始". A map with no cells is not a broken map; it is one nobody can be sent
+     * to.</p>
+     */
     public static int copiesOf(ArenaMap map) {
         List<Integer> extra = EXTRA.get(map.id);
-        return 1 + (extra == null ? 0 : extra.size());
+        int extras = extra == null ? 0 : extra.size();
+        return (NO_HOME.contains(map.id) ? 0 : 1) + extras;
     }
 
     /**
@@ -310,18 +367,26 @@ public final class ArenaManager {
      * <p>The address is {@code ArenaMaps.ALL.indexOf(map)} and never moves; the extra copies are
      * whatever {@link #EXTRA} recorded. Returning them as one array is what lets {@link #allocate}
      * stop caring which is which.</p>
+     *
+     * <p>Empty when the map has been deleted down to nothing. The order matters to {@link
+     * #removeCopy}, which takes cells from the end: dropping the last copy added keeps every other
+     * copy at the address it had before.</p>
      */
     public static int[] slotsOf(ArenaMap map) {
-        int home = homeSlot(map);
-        if (home < 0) {
-            return new int[0];
-        }
         List<Integer> extra = EXTRA.get(map.id);
-        int n = 1 + (extra == null ? 0 : extra.size());
-        int[] out = new int[n];
-        out[0] = home;
-        for (int i = 1; i < n; i++) {
-            out[i] = extra.get(i - 1);
+        int extras = extra == null ? 0 : extra.size();
+        boolean hasHome = !NO_HOME.contains(map.id);
+        int home = hasHome ? homeSlot(map) : -1;
+        if (hasHome && home < 0) {
+            hasHome = false;
+        }
+        int[] out = new int[(hasHome ? 1 : 0) + extras];
+        int at = 0;
+        if (hasHome) {
+            out[at++] = home;
+        }
+        for (int i = 0; i < extras; i++) {
+            out[at++] = extra.get(i);
         }
         return out;
     }
@@ -363,6 +428,20 @@ public final class ArenaManager {
         if (map == null) {
             return -1;
         }
+        // A map with no cells left gets its own address back before it gets a spare one. Its address
+        // is the coordinates an operator wrote down, so handing it a cell at the far end of the grid
+        // instead would silently undo the "every map has a fixed address" promise for exactly the
+        // map that had its address taken away.
+        int home = homeSlot(map);
+        if (home >= 0 && NO_HOME.remove(map.id)) {
+            saveLayout(server);
+            if (!map.isFlat()) {
+                stamp(server, home, map, clampSize(map.sizeX, MAX_SIZE_XZ),
+                        clampSize(map.sizeY, MAX_SIZE_Y), clampSize(map.sizeZ, MAX_SIZE_XZ),
+                        false, false);
+            }
+            return home;
+        }
         int slot = spareSlot(EXTRA.getOrDefault(map.id, List.of()));
         if (slot < 0) {
             return -1;
@@ -375,6 +454,96 @@ public final class ArenaManager {
                     false, false);
         }
         return slot;
+    }
+
+    /** {@link #removeCopy} found nothing to delete: the map already owns no cells. */
+    public static final int REMOVE_NONE = -1;
+    /** {@link #removeCopy} refused: every cell the map owns is leased to a live duel. */
+    public static final int REMOVE_BUSY = -2;
+
+    /**
+     * Takes one cell away from a map and wipes it, the inverse of {@link #addCopy}.
+     *
+     * <p>Cells go from the end of {@link #slotsOf}, so the copy added last is the one removed first
+     * and every older copy keeps the address it had. When the extras run out the map's own address
+     * is given up too — {@code /pvpocket arena remove flat 4} leaves the flat plot with nothing, and
+     * that is deliberate: the number of cells is capacity, and capacity is allowed to be zero. A map
+     * with no cells cannot be picked in the rule panel, which is the visible consequence.</p>
+     *
+     * <p>A leased cell is stepped over rather than destroyed. Deleting it would leave the duel's
+     * players standing in air over the void with a session that still thinks it owns a plot, and the
+     * cell would be cleared under them the moment they were teleported out. If every cell is leased
+     * the call refuses and the operator waits for the round.</p>
+     *
+     * @return the cell that was released, or {@link #REMOVE_NONE} / {@link #REMOVE_BUSY}
+     */
+    public static int removeCopy(MinecraftServer server, ArenaMap map) {
+        if (map == null) {
+            return REMOVE_NONE;
+        }
+        int[] slots = slotsOf(map);
+        if (slots.length == 0) {
+            return REMOVE_NONE;
+        }
+        List<Integer> extra = EXTRA.get(map.id);
+        for (int i = slots.length - 1; i >= 0; i--) {
+            int slot = slots[i];
+            if (USED[slot]) {
+                continue;
+            }
+            if (extra != null && extra.remove(Integer.valueOf(slot))) {
+                // An extra cell: the map keeps its address and loses this one.
+            } else {
+                NO_HOME.add(map.id);
+            }
+            saveLayout(server);
+            vacate(server, slot, map);
+            PvPocket.LOGGER.info("Removed a copy of {} at cell {} ({} left)",
+                    map.id, slot, copiesOf(map));
+            return slot;
+        }
+        return REMOVE_BUSY;
+    }
+
+    /**
+     * Empties a cell a map no longer owns: terrain back to void, entities gone, gallery entry gone.
+     *
+     * <p>The blocks have to go, not just the record. A cell that keeps its stamp but has no owner is
+     * a build nobody can be sent to, and nothing else will ever clean it: the gallery fill only
+     * re-stamps a map's first copy, and {@link #wipeUnstampedCells} walks {@link #CELLS}, which has
+     * no entry for a cell nobody owns. It would sit in the dimension until the cell happened to be
+     * given to another map.</p>
+     *
+     * <p><b>{@link #CELLS} cannot be trusted here.</b> It is rebuilt on every start by the warm-up,
+     * and the warm-up only stamps each map's <em>first</em> copy — so a copy stamped in a previous
+     * session is on disk but unknown to this one. When the region is known it is used, because its
+     * box is exactly what was built; when it is not, a maximum-size box centred in the cell is
+     * cleared instead. That box is a superset of anything a plot can occupy in this cell and a
+     * subset of the cell's own clearance, so it cannot reach a neighbour.</p>
+     */
+    private static void vacate(MinecraftServer server, int slot, ArenaMap map) {
+        ServerWorld world = world(server);
+        if (world == null) {
+            CELLS[slot] = null;
+            USED[slot] = false;
+            return;
+        }
+        ArenaRegion region = CELLS[slot];
+        if (region == null) {
+            int cellX = cellMinX(slot);
+            int cellZ = cellMinZ(slot);
+            // Centred like a stamped plot, so the box covers the same ground the stamp would have.
+            region = new ArenaRegion("arena-" + slot, slot,
+                    cellX + (CELL - MAX_SIZE_XZ) / 2, cellZ + (CELL - MAX_SIZE_XZ) / 2,
+                    MAX_SIZE_XZ, MAX_SIZE_Y, MAX_SIZE_XZ,
+                    cellX, cellZ, CELL, CELL, map, false, false);
+        }
+        final ArenaRegion cleared = region;
+        suppressRecording(() -> cleared.reset(world, cleared.sizeY));
+        purge(world, cleared);
+        CELLS[slot] = null;
+        USED[slot] = false;
+        PvPocket.LOGGER.info("Vacated cell {} ({} blocks wide)", slot, cleared.sizeX);
     }
 
     /** The centre of a cell, for reporting where a copy lives. */
@@ -959,7 +1128,10 @@ public final class ArenaManager {
 
         int slot = warmUpCursor++;
         ArenaMap map = ArenaMaps.ALL.get(slot);
-        if (!map.isFlat() && !USED[slot] && CELLS[slot] == null) {
+        // A map whose address was given up owns no cells, so there is nothing here to fill: stamping
+        // it would rebuild a build no rule panel can send anybody to, and the cell would sit there
+        // until the next `remove` happened to clear it.
+        if (!NO_HOME.contains(map.id) && !map.isFlat() && !USED[slot] && CELLS[slot] == null) {
             int sx = clampSize(map.sizeX, MAX_SIZE_XZ);
             int sy = clampSize(map.sizeY, MAX_SIZE_Y);
             int sz = clampSize(map.sizeZ, MAX_SIZE_XZ);
@@ -1067,9 +1239,14 @@ public final class ArenaManager {
      * re-open its own panel without seeing its own plot as taken.</p>
      *
      * <p>Keyed on the map, not on the cell, and that is still right: a map with four copies may
-     * host four duels at once, but a fifth has to wait. So the bit means "every copy of this map is
-     * leased", not "somebody is playing this map" — the panel greys a map out exactly when pressing
-     * it would be refused.</p>
+     * host four duels at once, but a fifth has to wait. So the bit means "pressing this would be
+     * refused", not "somebody is playing this map" — the panel greys a map out exactly when picking
+     * it would get nowhere.</p>
+     *
+     * <p>Two things make a map unselectable, and they share the bit because they share the outcome:
+     * every copy leased, or no copies at all. A map deleted down to zero cells is not "busy", but a
+     * second bit would have to be threaded through the rule payload and the picker to say something
+     * the player cannot act on differently — in both cases the answer is "pick another map".</p>
      */
     public static int busyMapMask(String exceptSessionId) {
         int[] leased = new int[ArenaMaps.ALL.size()];
@@ -1084,7 +1261,8 @@ public final class ArenaManager {
         }
         int mask = 0;
         for (int i = 0; i < leased.length && i < Integer.SIZE; i++) {
-            if (leased[i] > 0 && leased[i] >= copiesOf(ArenaMaps.ALL.get(i))) {
+            int copies = copiesOf(ArenaMaps.ALL.get(i));
+            if (copies == 0 || leased[i] >= copies) {
                 mask |= 1 << i;
             }
         }

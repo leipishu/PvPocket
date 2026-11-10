@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.client.home;
 import com.leipishu.pvpocket.client.ClientPrefs;
 import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
+import com.leipishu.pvpocket.client.gui.PvButtonGroup;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvIconButton;
 import com.leipishu.pvpocket.client.gui.PvScreen;
@@ -589,8 +590,29 @@ public class HomeScreen extends PvScreen {
                 null, PvLang.str("pvpocket.gui.home.admin.summary_value",
                         arena.stamped(), arena.slots(), arena.leased())));
 
+        // 44 is the width both labels need in both languages: 删除 is 16px and "Remove" is 35px, and a
+        // button shrinks its label only past 40. The pair is deliberately the same width — two
+        // buttons of different widths in one row read as two unrelated controls.
+        String copyLabel = PvLang.str("pvpocket.gui.home.admin.copy");
+        String removeLabel = PvLang.str("pvpocket.gui.home.admin.remove");
+
         for (HomeState.MapRow row : arena.maps()) {
-            PvButton add = new PvButton(PvLang.str("pvpocket.gui.home.admin.copy"),
+            // Remove first, copy last: the add direction sits against the row's edge where it has
+            // always been, and the destructive half of the pair is the one you have to reach past.
+            PvButton remove = new PvButton(removeLabel,
+                    PvButton.Style.DANGER, () -> removeMap(row.id())).size(44, 18);
+            // Both refusals are the server's own: nothing left to take, or every cell leased. The
+            // button says so before the click rather than answering with a chat line afterwards.
+            remove.enabled = online && row.copies() > 0 && row.leased() < row.copies();
+            if (!online) {
+                remove.tooltip = PvLang.str("pvpocket.gui.home.tooltip.offline");
+            } else if (row.copies() <= 0) {
+                remove.tooltip = PvLang.str("pvpocket.gui.home.admin.remove_none");
+            } else if (row.leased() >= row.copies()) {
+                remove.tooltip = PvLang.str("pvpocket.gui.home.admin.remove_busy");
+            }
+
+            PvButton add = new PvButton(copyLabel,
                     PvButton.Style.NORMAL, () -> copyMap(row.id())).size(44, 18);
             // Two different reasons to be unavailable, two different sentences. "The grid is full"
             // is a decision the operator can act on (drop a copy, or move to a bigger dimension);
@@ -601,7 +623,7 @@ public class HomeScreen extends PvScreen {
             } else if (arena.gridFull()) {
                 add.tooltip = PvLang.str("pvpocket.gui.home.admin.copy_full");
             }
-            pane.add(new SettingRow(row.label(), add,
+            pane.add(new SettingRow(row.label(), new PvButtonGroup(18, remove, add),
                     PvLang.str("pvpocket.gui.home.admin.map_value", row.copies(), row.leased())));
         }
 
@@ -955,6 +977,18 @@ public class HomeScreen extends PvScreen {
     /** One more plot for a map. The answer is a fresh snapshot, not a local counter bump. */
     private void copyMap(String mapId) {
         HomeClient.send(com.leipishu.pvpocket.network.HomeActionPayload.arenaCopy(mapId));
+    }
+
+    /**
+     * One plot taken away from a map, wiped and given back to the grid.
+     *
+     * <p>No confirmation, unlike the rebuild above. It ends no duels — the server refuses a leased
+     * cell and the button is already disabled when every cell is in use — and it is undone by the
+     * button beside it. The destructive-looking red styling is the whole warning; a dialog here
+     * would train the operator to dismiss the one dialog that does matter.</p>
+     */
+    private void removeMap(String mapId) {
+        HomeClient.send(com.leipishu.pvpocket.network.HomeActionPayload.arenaRemove(mapId));
     }
 
     /**
