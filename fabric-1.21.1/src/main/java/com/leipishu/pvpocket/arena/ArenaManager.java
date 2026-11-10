@@ -539,11 +539,18 @@ public final class ArenaManager {
                     cellX, cellZ, CELL, CELL, map, false, false);
         }
         final ArenaRegion cleared = region;
-        suppressRecording(() -> cleared.reset(world, cleared.sizeY));
+        // Timed for the same reason stamp() is. Deleting a copy runs on the server thread and can
+        // block it for a second, so an operator who freezes mid-command deserves a number in the log
+        // rather than a guess. The erased count separates "this cell was empty" from "this cell was
+        // a full arena": only the second one costs anything, and only the second one is worth
+        // warning about when it happens during a round.
+        long started = System.nanoTime();
+        int wiped = suppressRecording(() -> cleared.reset(world, cleared.sizeY));
         purge(world, cleared);
         CELLS[slot] = null;
         USED[slot] = false;
-        PvPocket.LOGGER.info("Vacated cell {} ({} blocks wide)", slot, cleared.sizeX);
+        PvPocket.LOGGER.info("Vacated cell {} ({} blocks wide, {} blocks erased) in {} ms",
+                slot, cleared.sizeX, wiped, (System.nanoTime() - started) / 1_000_000L);
     }
 
     /** The centre of a cell, for reporting where a copy lives. */
@@ -689,7 +696,14 @@ public final class ArenaManager {
             return null;
         }
         int clearY = previous == null ? sy : Math.max(sy, previous.sizeY);
+        // Phase timings, because this is the one operation in the mod that blocks the server for a
+        // visible stretch and the block counts do not say where the time went: clearing an empty
+        // cell is a few million reads that write nothing, while pasting is tens of thousands of
+        // writes, and the two want opposite fixes. Without the split, "stamping takes a second" has
+        // no next step; with it, the log names the phase.
+        long started = System.nanoTime();
         int cleared = suppressRecording(() -> region.reset(world, clearY));
+        long clearedAt = System.nanoTime();
         int floorBlocks = 0;
         int pasted = 0;
         if (map.isFlat()) {
@@ -700,6 +714,7 @@ public final class ArenaManager {
             // changed this" -- the deviation set would be full before the first round.
             pasted = suppressRecording(() -> map.paste(world, region) ? 1 : 0);
         }
+        long builtAt = System.nanoTime();
         // Capture runs for the flat plot too. Its platform has to be part of the baseline, or the
         // first revert of a duel would delete the ground out from under the players.
         suppressRecording(() -> {
@@ -710,15 +725,18 @@ public final class ArenaManager {
         // below the plot floor and outside the plot box, which is exactly the volume capture skips.
         int bufferBlocks = suppressRecording(() -> buildBuffer(world, region));
         int entities = purge(world, region);
+        long finished = System.nanoTime();
         // Registered here rather than by the caller so both paths -- a duel lease and the startup
         // warm-up -- leave the cell with an occupant. Forgetting it in warm-up meant the gallery was
         // stamped but invisible, and every later lease re-stamped over it.
         CELLS[slot] = region;
         PvPocket.LOGGER.info("Stamped {} into cell {} at {},{},{} (cleared {} blocks, map {} "
                         + "pasted {}, platform {} blocks, buffer {} barrier, {} template blocks, "
-                        + "purged {} entities)",
+                        + "purged {} entities; clear {} ms, build {} ms, capture {} ms)",
                 region, slot, originX, SURFACE_Y, originZ, cleared, map.id, pasted == 1,
-                floorBlocks, bufferBlocks, region.templateBlockCount(), entities);
+                floorBlocks, bufferBlocks, region.templateBlockCount(), entities,
+                (clearedAt - started) / 1_000_000L, (builtAt - clearedAt) / 1_000_000L,
+                (finished - builtAt) / 1_000_000L);
         return region;
     }
 
