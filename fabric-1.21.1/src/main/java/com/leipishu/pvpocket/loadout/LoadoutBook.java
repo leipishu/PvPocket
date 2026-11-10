@@ -84,19 +84,6 @@ public final class LoadoutBook {
         }
     }
 
-    /**
-     * Whether this player has ever pressed 保存配装.
-     *
-     * <p>Different question from {@link #get}, which cannot tell "never configured" from "configured
-     * back to the preset" and answers both with the preset. The distinction matters exactly once, at
-     * freeze: a player who has never saved is going to fight with the default set, and the other side
-     * has no way to know that from the panel — it shows a set, and a set is a set. Read off the file
-     * rather than the cache so it stays true after a restart.</p>
-     */
-    public boolean hasSaved(UUID player) {
-        return Files.isRegularFile(file(player));
-    }
-
     /** Drops the saved loadout, falling back to the default preset. */
     public void clear(UUID player) {        cache.remove(player);
         known.put(player, Boolean.TRUE);

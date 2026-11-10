@@ -71,7 +71,8 @@
 
 **配装** — 进场物品与拾取
 
-- **配装归属** — `d.loadoutScope` · 单选 · 默认 每人独立 · 每人独立 / 每队统一。每队统一时，同队成员使用同一套配装。
+- **配装** — 全场一份，见下方「配装唯一」。没有开关：一场对局里所有人的物品、属性、附魔完全一样，
+  唯一不同的是队伍颜色。谁打开面板看到的都是这一套，谁保存都是全场生效。
 - **局间可换配装** — `d.allowSwapBetweenRounds` · 开关 · 默认 关。开启后可以在系列赛中途改配装，但改动要对手同意，从下一局开始生效。
 - **允许拾取场地物品** — `d.allowPickup` · 开关 · 默认 关。关闭后无法捡起场地里掉落的物品。
 - **允许合成** — `d.allowCrafting` · 开关 · 默认 关。关闭后工作台与背包合成格不可用。
@@ -120,7 +121,7 @@
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict`、`a.winConditions` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.fallDamage`、`c.knockbackResistance` |
-| D | `d.loadoutScope`、`d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
+| D | `d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter`、`f.allowExplosives` |
 | G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
@@ -143,10 +144,11 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
 - **`b.friendlyFire`** — 关闭时同队互相伤害被 `ServerLivingEntityEvents.ALLOW_DAMAGE` 否决，
   并在日志里留一条 `FRIENDLY_FIRE_BLOCKED`。只拦直接攻击者（近战、箭、三叉戟、TNT），不拦
   队友放的火的后续燃烧，这条界线与原生队伍的判定一致。
-- **`d.loadoutScope`** — `每队统一` 时，一套配装属于「这一方」而不是某个人：任何一名成员打开配装面板
-  看到的、保存的都是这一套，保存后本队每个成员都用它（个人配装本不动，那是他下一场带的东西）。开局
-  发装备取该队**在场成员**里的第一名——不是 `teamMembers` 的第一名，因为拒绝邀请的人还留在名册上，
-  拿他的配装会让全队穿上没人配过的一套。
+- **配装唯一** — 一场对局只有一份配装，它不是规则，是前提：`SessionManager.sharedLoadout` 从参与者
+  身上取那一份（所有参与者身上的副本由 `adoptSharedLoadout` 写成同一个值），`startRound` 拿它给每个
+  人发装备，`onLoadoutRequest` 拿它给每个面板画内容。曾经有过一条 `d.loadoutScope`（每人独立 /
+  每队统一），删掉的理由不是选项太多，而是它让「我这把剑有锋利、他那把没有」成为合法状态——对局
+  的意义本来就是同样的刀、同样的甲。开局发装备读的是**全场**那一份，不再按队伍或按人取。
 - **`c.fallDamage` / `e.hazard`** — 都在同一个 `ALLOW_DAMAGE` 里按 `DamageSource` 判。坠落伤害
   要两条都开着才算开（两个都是关闭开关，任一关闭即视为关闭）；岩浆、虚空各由 `e.hazard` 的
   一位控制；`e.hazard` 勾了「无」则三项全关。饥饿伤害（`STARVE`）由 `c.hunger` 控制。

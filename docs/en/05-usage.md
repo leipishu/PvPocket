@@ -99,7 +99,8 @@ stored separately and are never interchangeable.
 - **Load** puts a preset back into the panel. It **does not submit anything** — a rule set still
   needs "Send invite", a loadout still needs "Save loadout".
 - **Start from a preset**: every row on the home panel's Presets tab has "Start". A rule preset opens
-  a draft with those rules applied; a loadout preset opens a draft and swaps the loadout on your side.
+  a draft with those rules applied; a loadout preset opens a draft and swaps the match's loadout to
+  it (a draft holds only you, so that set is the whole match's).
   The invite still goes out the normal way.
 - **Delete** lives behind "More" on the same row and takes two presses.
 - **Share** asks the server for a six-character code, valid for five minutes, and copies it to the
@@ -131,6 +132,14 @@ nothing, while looking exactly like it had saved.
 and both save the same thing: the next match and the next invite both start from it. A change takes
 effect at the moment you press Save loadout, and stays in effect after that.
 
+**Inside a match, everybody's loadout is identical.** Same items, same attributes, same enchantments,
+same arrows and potions; the only difference between the two sides is the wool colour. Whoever opens
+the panel sees that one set, and whoever presses Save loadout changes it for everybody — the
+confirmation adds "every player in this match now uses this set". There is no per-player / per-team
+switch: a match has exactly one loadout, because otherwise "my sword has Sharpness and his does not"
+would be a legal state. That set starts as the proposer's own saved loadout, and everybody invited
+afterwards inherits it instead of bringing their own.
+
 **A loadout edited after a series has started does not enter that series.** Saving it writes the
 personal book and nothing else, and the confirmation says so: "this series keeps the loadout it
 started with; the change applies from the next one". That is deliberate — the loadout is one of the
@@ -138,11 +147,9 @@ terms both sides agreed to before the first round, so changing it mid-series cha
 lands only when the next round hands out items (with `d.allowSwapBetweenRounds` on, it instead goes
 through "a swap needs both sides to agree").
 
-**With "one set each", the other side fights with their own set.** The panel draws a loadout, but
-nothing on it says whose set it is or whether it was ever configured. So before the first round the
-server checks: anyone with no file under `world/pvpocket/loadouts/` has never pressed 保存配装, and
-the other players are told once, in chat, that they are fighting the default set. A truly mirrored
-match needs both sides to save once; "one set per side" only unifies as far as a side.
+**If it is still the default set, the match says so once.** When nobody has ever saved a loadout the
+match runs on the built-in preset, and chat says so before the first round — a panel draws a set
+either way, so nothing on screen would ever reveal that it was never configured.
 
 **An Infinity bow still gets one arrow on entry.** Infinity never uses the arrow up, but vanilla
 refuses to draw unless the inventory holds at least one — granting none made the bow unable to shoot

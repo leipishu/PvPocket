@@ -896,8 +896,9 @@ public class RuleScreen extends PvScreen {
         if (payload.total() <= 2) {
             return "";
         }
-        // Team index -> members, in the order the server listed them (which is the roster order, so
-        // the first name on a side is the one whose loadout that side fights with under "每队统一").
+        // Team index -> members, in the order the server listed them (which is the roster order).
+        // Only the grouping matters here: the loadout is one set for the whole match, so no member
+        // of a side is "the one whose kit the side fights with" any more.
         java.util.Map<Integer, StringBuilder> byTeam = new java.util.TreeMap<>();
         for (Slot slot : slots()) {
             StringBuilder names = byTeam.computeIfAbsent(slot.team(), k -> new StringBuilder());

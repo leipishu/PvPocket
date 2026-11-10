@@ -165,25 +165,6 @@ public final class Rulebook {
         return rules.flag("d.allowSwapBetweenRounds");
     }
 
-    /**
-     * {@code d.loadoutScope}: 0 = every player brings their own set, 1 = one set per side.
-     *
-     * <p>An int rather than a boolean because the rule is an enum in the panel and a third choice
-     * ("one set for the whole match") is a natural thing to want later; a boolean here would make
-     * that a rewrite of every caller instead of one more branch.</p>
-     */
-    public int loadoutScope() {
-        return rules.get("d.loadoutScope");
-    }
-
-    /** Whether the sides share one loadout each, rather than every player bringing their own. */
-    public boolean unifiedLoadout() {
-        return loadoutScope() == LOADOUT_SCOPE_TEAM;
-    }
-
-    /** {@code d.loadoutScope} "每队统一". */
-    public static final int LOADOUT_SCOPE_TEAM = 1;
-
     // ------------------------------------------------------------------ F. 方块
 
     /**

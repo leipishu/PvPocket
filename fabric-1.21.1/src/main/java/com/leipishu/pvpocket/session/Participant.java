@@ -67,8 +67,11 @@ public final class Participant {
     /**
      * This player's loadout, encoded by {@code Loadout.encode()}.
      *
-     * <p>Stored per participant rather than per session because the default rule is "每人独立". It is
-     * also part of what the two sides agree to, so it is fingerprinted alongside the rule set.</p>
+     * <p>There is one set per match, so every participant in a session holds the same value — it is
+     * written onto all of them by {@code SessionManager#adoptSharedLoadout} and read back by
+     * {@code sharedLoadout}. Kept per participant anyway because the loadout is part of what the
+     * sides agree to: the consent digest is computed over the participants, and a copy that lives
+     * only on the session would make "who agreed to what" impossible to reconstruct.</p>
      */
     public String loadout;
     public String loadoutDigest;

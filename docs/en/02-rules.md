@@ -86,7 +86,10 @@ what the panel shows.
 
 **Loadout** — What you bring in and pick up
 
-- **Loadout scope** — `d.loadoutScope` · choice · default Per player · Per player / Per team. When set to per team, everyone on a side uses the same loadout.
+- **Loadout** — one set per match, see "One set, no switch" below. There is no toggle: in a match
+  every player carries the same items, attributes and enchantments, and the only difference between
+  the sides is the wool colour. Whoever opens the panel sees that one set; whoever saves changes it
+  for everybody.
 - **Swap loadout between rounds** — `d.allowSwapBetweenRounds` · toggle · default Off. When on, a loadout can be changed mid-series, but the change needs the other side to agree and applies from the next round.
 - **Pick up dropped items** — `d.allowPickup` · toggle · default Off. When off, items dropped in the arena cannot be picked up.
 - **Allow crafting** — `d.allowCrafting` · toggle · default Off. When off, crafting tables and the inventory grid are disabled.
@@ -133,7 +136,7 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
-| D | `d.loadoutScope`, `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
+| D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter`, `f.allowExplosives` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
@@ -163,12 +166,13 @@ Where each one is read:
   `ServerLivingEntityEvents.ALLOW_DAMAGE` and leaves a `FRIENDLY_FIRE_BLOCKED` journal line. Only a
   direct attacker is blocked (melee, arrows, tridents, TNT), not the fire a team-mate set — the same
   line vanilla draws for its own team checks.
-- **`d.loadoutScope`** — with "one set per side", the set belongs to the *side*, not to a person:
-  any member who opens the loadout panel sees and saves that one set, and saving it applies to every
-  member of the side (their personal book is left alone — that is what they bring to the next match).
-  The round grants the set of the side's first **active** member, not of `teamMembers`'s first:
-  somebody who declined an invite stays on the record, and taking their set would dress the whole
-  side in a loadout nobody playing ever configured.
+- **One set, no switch** — a match has exactly one loadout, and that is not a rule but a premise:
+  `SessionManager.sharedLoadout` reads it off the participants (every copy is written to the same
+  value by `adoptSharedLoadout`), `startRound` grants it to everybody, and `onLoadoutRequest` draws
+  it in every panel. There used to be a `d.loadoutScope` (per player / per team). It was deleted not
+  because there were too many options but because it made "my sword has Sharpness and his does not"
+  a legal state — a duel is supposed to be the same blade and the same armour. The round reads the
+  **match-wide** set; it no longer resolves a set per side or per player.
 - **`c.fallDamage` / `e.hazard`** — both live in the same `ALLOW_DAMAGE` handler, keyed on the
   `DamageSource`. Fall damage needs both switches on (they are both off-switches, so either one
   turns it off); lava and void are one bit each in `e.hazard`, and its "none" chip turns all three

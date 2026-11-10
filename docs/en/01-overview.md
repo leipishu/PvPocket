@@ -66,7 +66,7 @@ protection, arena rebuild.
 
 | Document | Contents |
 | --- | --- |
-| [02-rules](02-rules.md) | The 39 rules, in full, with meanings |
+| [02-rules](02-rules.md) | The 40 rules, in full, with meanings |
 | [03-architecture](03-architecture.md) | Server architecture, session state machine, dimension and cells |
 | [04-visual](04-visual.md) | UI visual and motion specification |
 | [05-usage](05-usage.md) | Deployment, commands, player flow, operations |

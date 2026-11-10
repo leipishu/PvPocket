@@ -58,7 +58,7 @@ PvPocket（口袋决斗）是一个 Minecraft Fabric 1.21.1 模组，为生存�
 
 | 文档 | 内容 |
 | --- | --- |
-| [02-rules](02-rules.md) | 39 条规则的完整清单与含义 |
+| [02-rules](02-rules.md) | 40 条规则的完整清单与含义 |
 | [03-architecture](03-architecture.md) | 服务端架构、会话状态机、维度与分区 |
 | [04-visual](04-visual.md) | 界面视觉与动效规范 |
 | [05-usage](05-usage.md) | 部署、指令、玩家操作、运维 |

@@ -1420,7 +1420,9 @@ public final class SessionManager {
         session.updatedAt = session.createdAt;
         Participant me = new Participant(proposer.getUuidAsString(),
                 proposer.getName().getString(), 0, 0);
-        seedLoadout(me);
+        // The proposer's own book becomes the match's set. Everyone invited after this inherits it
+        // instead of bringing their own — see seedLoadout.
+        seedLoadout(me, loadouts.get(proposer.getUuid()));
         session.participants.add(me);
         session.teamCount = MIN_TEAMS;
 
@@ -1561,7 +1563,10 @@ public final class SessionManager {
                     p.acceptedLoadoutRevision = previous.acceptedLoadoutRevision;
                     p.agreedLoadoutDigest = previous.agreedLoadoutDigest;
                 } else {
-                    seedLoadout(p);
+                    // A newcomer does not bring their own kit. The set belongs to the match, and it
+                    // was seeded from the proposer's book when the session was created — inviting
+                    // somebody must not swap the items out from under the players already in it.
+                    seedLoadout(p, sharedLoadout(session));
                 }
                 built.add(p);
             }
@@ -1579,22 +1584,67 @@ public final class SessionManager {
     }
 
     /**
-     * Every participant starts from their own saved loadout, not from a shared preset.
+     * Writes {@code seed} onto a participant that has no loadout yet.
      *
-     * <p>A player who spent time on a sword should not have to re-enter it every time they are
-     * invited, and the other side should see what <em>they</em> configured rather than what the
-     * proposer happens to carry. {@code d.loadoutScope} "每队统一" is applied later, at freeze
-     * time, so this is always the personal set.</p>
+     * <p>There is exactly one set per match, so the seed is never "this player's own saved
+     * loadout" except for the very first participant: the proposer's book becomes the match's set,
+     * and every player invited afterwards is seeded from that set instead of from their own book.
+     * Handing each side its own kit is what used to make "his sword has Sharpness and mine does
+     * not" possible in a duel that was supposed to be symmetric.</p>
      *
      * <p><b>Only for newcomers.</b> This seeds a participant that has never existed; a rebuild of
      * the roster must carry the existing record's loadout over instead, because the panel's loadout
      * editor writes into the participant and not into this book — see {@link #submitRoster}.</p>
      */
-    private void seedLoadout(Participant p) {
-        Loadout seed = loadouts.get(UUID.fromString(p.uuid));
+    private void seedLoadout(Participant p, Loadout seed) {
         seed.autoAssignSlots();
         p.loadout = seed.encode();
         p.loadoutDigest = seed.digest();
+    }
+
+    /**
+     * The one set this match fights with.
+     *
+     * <p>Both sides carry the same items, the same attributes and the same enchantments; the only
+     * thing that differs between them is the wool colour. That is not a rule any more — it used to
+     * be {@code d.loadoutScope} (每人独立 / 每队统一) and the switch was deleted, because a match
+     * with two different kits is not a duel, it is two players comparing their editors, and every
+     * report of "some of my weapon's attributes only showed up on his side" came from exactly that
+     * state being reachable.</p>
+     *
+     * <p>Derived from the participants rather than stored as a field: every write path copies the
+     * set onto every participant ({@link #adoptSharedLoadout}), so the first live copy <em>is</em>
+     * the set, and deriving it keeps a session written by an older build readable. The preset is
+     * the last resort, for a match that never configured anything.</p>
+     */
+    private static Loadout sharedLoadout(DuelSession session) {
+        for (Participant p : session.participants) {
+            if (!p.rejected && p.loadout != null) {
+                return Loadout.decode(p.loadout);
+            }
+        }
+        return Loadout.defaultDuel();
+    }
+
+    /**
+     * Writes one set onto every participant still in the match, and returns it.
+     *
+     * <p>Everyone, not just whoever pressed 保存. The copies are what the panels draw and what the
+     * consent digest is computed from, so a save that only touched the submitter's record left the
+     * other players looking at — and agreeing to — a document the round would not read. Keeping all
+     * copies identical is also what makes {@link #sharedLoadout} able to derive the set at all.</p>
+     */
+    private static Loadout adoptSharedLoadout(DuelSession session, Loadout loadout) {
+        String encoded = loadout.encode();
+        String digest = loadout.digest();
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            p.loadout = encoded;
+            p.loadoutDigest = digest;
+        }
+        return loadout;
     }
 
     /** A display name for a uuid that may not be online, for refusal messages. */
@@ -2551,26 +2601,13 @@ public final class SessionManager {
         if (p == null) {
             return;
         }
-        if (p.loadout == null) {
-            Loadout seed = loadouts.get(player.getUuid());
-            seed.autoAssignSlots();
-            p.loadout = seed.encode();
-            p.loadoutDigest = seed.digest();
-        }
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
-        // "每队统一" means the side has one set, so the panel has to show that one rather than
-        // whatever this particular player happens to carry. Showing their own made every team-mate
-        // but the first edit a document the round never reads — the switch appeared to do nothing.
-        String encoded = p.loadout;
-        if (session.stage.isPreFreeze() && session.rulebook().unifiedLoadout()) {
-            List<Participant> mates = session.activeMembers(p.teamIndex());
-            Participant source = mates.isEmpty() ? p : mates.get(0);
-            if (source.loadout != null) {
-                encoded = source.loadout;
-            }
-        }
+        // The panel draws the match's one set, whoever opened it. It used to draw this player's own
+        // copy, which is how two players could look at the same "agreed" loadout and see different
+        // items — and how an edit made by the second player landed on a document the round ignored.
+        String encoded = sharedLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                 session.id, encoded, role, otherName(session, player.getUuidAsString())));
     }
@@ -2629,52 +2666,46 @@ public final class SessionManager {
             return;
         }
         String before = combinedLoadoutDigest(session);
-        // "每队统一": the set belongs to the side, not to whoever pressed 保存. Writing only the
-        // submitter's participant left the other members on their own copies, which the round then
-        // ignored — the second team-mate's edits were silently dropped every time.
-        boolean unified = session.rulebook().unifiedLoadout();
-        List<Participant> targets = unified ? session.activeMembers(p.teamIndex()) : List.of(p);
-        if (targets.isEmpty()) {
-            targets = List.of(p);
-        }
-        for (Participant target : targets) {
-            target.loadout = loadout.encode();
-            target.loadoutDigest = loadout.digest();
-        }
-        if (unified) {
-            // The personal book is deliberately left alone. It is what this player brings to the
-            // *next* match, and a team-mate's choices are not theirs to carry home.
-        } else {
-            // The book is written too, so that "my loadout" means one thing wherever the panel was
-            // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
-            // load-bearing in a way nothing on screen said: every switch flipped here came back the
-            // way it was at the next invite, because seedLoadout() re-reads this book.
-            loadouts.put(player.getUuid(), loadout);
-        }
+        // One set per match: whoever presses 保存 writes the set everybody fights with. Writing only
+        // the submitter's participant is what made "some of the attributes only showed up on the
+        // initiator's side" possible — the other copies kept whatever they were seeded with, and the
+        // round then handed out two different kits inside one duel.
+        adoptSharedLoadout(session, loadout);
+        // The book is written too, so that "my loadout" means one thing wherever the panel was
+        // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
+        // load-bearing in a way nothing on screen said: every switch flipped here came back the way
+        // it was at the next invite, because seedLoadout() re-reads this book.
+        loadouts.put(player.getUuid(), loadout);
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
                 "digest", p.loadoutDigest,
                 "items", loadout.size(),
                 "summary", loadout.name,
-                "scope", unified ? "team" : "player");
+                "scope", "match");
         persist(session);
         noteLoadoutChanged(session, p, before);
-        // The stacks this player is already carrying were built from the previous loadout, so a
+        // The stacks the players are already carrying were built from the previous loadout, so a
         // 禁止丢弃 switch flipped just now has to be re-applied to them — see LoadoutLock.restamp.
-        // Every member of the side when unified: one save now describes all of their items.
-        for (Participant target : targets) {
+        // Everybody, because one save now describes all of their items.
+        for (Participant target : session.participants) {
+            if (target.rejected) {
+                continue;
+            }
             ServerPlayerEntity holder = online(target);
             if (holder != null) {
                 LoadoutLock.restamp(holder, loadout);
             }
         }
-        PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {}, scope {})",
-                p.name, session.id, loadout.size(), p.loadoutDigest, unified ? "team" : "player");
+        PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {}, match-wide)",
+                p.name, session.id, loadout.size(), p.loadoutDigest);
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved",
                         loadout.size(), p.loadoutDigest)
                 .formatted(Formatting.GREEN), false);
-        if (unified) {
-            player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_team", targets.size())
+        int players = liveCount(session);
+        if (players > 1) {
+            // Only worth saying once there is somebody else: in a draft this is the proposer alone,
+            // and "every player in this match (1)" is a sentence about nothing.
+            player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_match", players)
                     .formatted(Formatting.GOLD), false);
         }
     }
@@ -2811,9 +2842,11 @@ public final class SessionManager {
     /** Opens the loadout editor against a running series; see {@link #proposeLoadoutSwap}. */
     private void openSeriesEditor(ServerPlayerEntity player, DuelSession session) {
         Participant p = session.participant(player.getUuidAsString());
+        // The pending change if there is one, otherwise the match's set — not this player's copy,
+        // which is the same document only as long as adoptSharedLoadout has written it.
         String encoded = p.pendingLoadout != null
                 ? p.pendingLoadout
-                : (p.loadout != null ? p.loadout : Loadout.defaultDuel().encode());
+                : sharedLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                 session.id, encoded, RulesOpenPayload.ROLE_REVIEWER,
                 otherName(session, player.getUuidAsString())));
@@ -2862,16 +2895,28 @@ public final class SessionManager {
         return count;
     }
 
-    /** Writes every pending loadout into place and closes the table. */
+    /** Writes the pending set into place and closes the table. */
     private void commitLoadoutSwap(DuelSession session, String reason) {
+        Loadout pending = null;
         for (Participant p : session.participants) {
-            if (p.pendingLoadout == null) {
-                continue;
+            if (!p.rejected && p.pendingLoadout != null) {
+                pending = Loadout.decode(p.pendingLoadout);
+                break;
             }
-            p.loadout = p.pendingLoadout;
-            p.loadoutDigest = p.pendingLoadoutDigest;
-            journal(session).append("LOADOUT_SWAPPED", "player", p.name,
-                    "digest", p.loadoutDigest, "round", session.round);
+        }
+        if (pending != null) {
+            // The change is to the match's set, not to the proposer's copy. Only one participant can
+            // have a pending change (the one who opened the editor), and moving just that record
+            // would leave the other side holding the previous items — a duel with two kits, which
+            // is the thing this whole path exists to prevent.
+            adoptSharedLoadout(session, pending);
+            for (Participant p : session.participants) {
+                if (p.rejected) {
+                    continue;
+                }
+                journal(session).append("LOADOUT_SWAPPED", "player", p.name,
+                        "digest", p.loadoutDigest, "round", session.round);
+            }
         }
         clearLoadoutSwaps(session);
         journal(session).append(reason, "revision", session.loadoutRevision, "round", session.round);
@@ -2915,8 +2960,11 @@ public final class SessionManager {
             Participant p = session.participant(player.getUuidAsString());
             if (p != null) {
                 String before = combinedLoadoutDigest(session);
-                p.loadout = loadout.encode();
-                p.loadoutDigest = loadout.digest();
+                // The same one-set-per-match write as onLoadoutSubmit: this entry point exists
+                // because the panel can be opened outside a duel, not because it means something
+                // different. A personal save during a negotiation that only touched this player's
+                // copy is how the two sides ended up entering with different items.
+                adoptSharedLoadout(session, loadout);
                 journal(session).append("LOADOUT_SAVED",
                         "player", p.name,
                         "digest", p.loadoutDigest,
@@ -2925,6 +2973,15 @@ public final class SessionManager {
                         "scope", "personal");
                 persist(session);
                 noteLoadoutChanged(session, p, before);
+                for (Participant q : session.participants) {
+                    if (q.rejected) {
+                        continue;
+                    }
+                    ServerPlayerEntity holder = online(q);
+                    if (holder != null) {
+                        LoadoutLock.restamp(holder, loadout);
+                    }
+                }
                 mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
         } else if (seriesSessionOf(player.getUuid()) != null) {
@@ -2972,12 +3029,21 @@ public final class SessionManager {
         }
         Loadout fallback = Loadout.defaultDuel();
         String before = combinedLoadoutDigest(session);
-        p.loadout = fallback.encode();
-        p.loadoutDigest = fallback.digest();
+        // Everyone, for the same reason a save writes everyone: the match has one set, and a reset
+        // that left the other players on the old one would be a match with two sets again.
+        adoptSharedLoadout(session, fallback);
         journal(session).append("LOADOUT_RESET", "player", p.name, "digest", p.loadoutDigest);
         persist(session);
         noteLoadoutChanged(session, p, before);
-        LoadoutLock.restamp(player, fallback);
+        for (Participant q : session.participants) {
+            if (q.rejected) {
+                continue;
+            }
+            ServerPlayerEntity holder = online(q);
+            if (holder != null) {
+                LoadoutLock.restamp(holder, fallback);
+            }
+        }
         player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal_preset",
                         fallback.size())
                 .formatted(Formatting.GREEN), false);
@@ -3105,36 +3171,28 @@ public final class SessionManager {
     // ------------------------------------------------------------------ internals
 
     private void freeze(DuelSession session) {
+        // One set for the whole match. If it is still the built-in preset then nobody has ever
+        // saved a loadout, and every panel draws a set either way — nothing on screen says "this
+        // is the preset". Saying it once, before the first round, is the difference between "we
+        // agreed to the same kit" and "somebody's items are mysteriously different".
+        Loadout shared = sharedLoadout(session);
+        journal(session).append("LOADOUT_FROZEN",
+                "digest", shared.digest(), "items", shared.size(),
+                "locked", shared.lockedCount(), "players", liveCount(session));
+        if (shared.encode().equals(Loadout.defaultDuel().encode())) {
+            journal(session).append("LOADOUT_DEFAULT_PRESET", "digest", shared.digest());
+            for (Participant q : session.participants) {
+                ServerPlayerEntity told = online(q);
+                if (told != null) {
+                    told.sendMessage(PvLang.t("pvpocket.msg.loadout.match_default")
+                            .formatted(Formatting.GRAY), false);
+                }
+            }
+        }
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
-            }
-            // Last chance to notice a participant that never got a loadout. startRound() treats a
-            // null one as the default preset, which is the right answer for a player who has never
-            // opened the editor and the wrong answer for one whose set was lost on the way here —
-            // and the two look identical from the outside, so it is journalled.
-            if (p.loadout == null) {
-                seedLoadout(p);
-                journal(session).append("LOADOUT_SEEDED_AT_FREEZE",
-                        "player", p.name, "digest", p.loadoutDigest);
-            }
-            // A player who has never pressed 保存配装 fights with the preset. The panel cannot show
-            // that — it draws a set either way — so the other side is told once, here, before the
-            // first round: "his items are different" is otherwise only discoverable by being hit by
-            // them, and the natural conclusion is that the loadout system is broken.
-            if (!loadouts.hasSaved(UUID.fromString(p.uuid))) {
-                journal(session).append("LOADOUT_NEVER_SAVED", "player", p.name);
-                for (Participant other : session.participants) {
-                    if (other.uuid.equals(p.uuid) || other.rejected) {
-                        continue;
-                    }
-                    ServerPlayerEntity told = online(other);
-                    if (told != null) {
-                        told.sendMessage(PvLang.t("pvpocket.msg.loadout.opponent_default", p.name)
-                                .formatted(Formatting.GRAY), false);
-                    }
-                }
             }
             PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
             Path file = storage.snapshotFile(session.id, p.uuid);
@@ -3169,7 +3227,6 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             p.eliminated = false;
         }
-        boolean unified = session.rulebook().unifiedLoadout();
         int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
             ServerPlayerEntity player = online(p);
@@ -3231,21 +3288,10 @@ public final class SessionManager {
             // inventory, so anything written before it would be captured as if the player owned it.
             // Re-granting each round is also what "每一小局结束物品恢复到最初状态" means: grant()
             // clears the inventory before writing, so nothing from the previous round survives.
-            // "每队统一" means every member of a side fights with the same set. The side's first
-            // participant is the source, which is the one whose loadout the panel showed for that
-            // side — deriving it any other way (highest index, newest joiner) would change which
-            // set the team gets when somebody leaves and rejoins.
-            Loadout loadout;
-            if (unified) {
-                // Active members, not every member: a declined invite stays on the record so the
-                // journal and the panel can name them, and taking the side's set from somebody who
-                // said no would hand the whole side a loadout nobody playing ever configured.
-                List<Participant> mates = session.activeMembers(p.teamIndex());
-                Participant source = mates.isEmpty() ? p : mates.get(0);
-                loadout = source.loadout == null ? Loadout.defaultDuel() : Loadout.decode(source.loadout);
-            } else {
-                loadout = p.loadout == null ? Loadout.defaultDuel() : Loadout.decode(p.loadout);
-            }
+            // One set for the whole match — read fresh per participant rather than hoisted out of
+            // the loop, because the legacy branch below may rewrite it and the rewrite must not
+            // leak into the next player's grant.
+            Loadout loadout = sharedLoadout(session);
             // 1.8 has no shields, and a shield that survives into the round does not merely sit
             // unused: right-clicking raises it, which both blocks damage outright and takes the
             // right-click away from the sword block this mode exists for. Dropped here rather than
@@ -3260,11 +3306,11 @@ public final class SessionManager {
             }
             int granted = LoadoutBuilder.grant(player, loadout, p.teamIndex());
             p.loadoutApplied = true;
-            // The digest of the loadout that actually became items, not the participant's recorded
-            // one. Those differ whenever this branch rewrites the set — a legacy round strips
-            // shields, 每队统一 takes a team-mate's — and logging the recorded digest made the
-            // journal agree with LOADOUT_SAVED by construction, which is exactly the evidence a
-            // "my loadout change did nothing" report needs to be able to contradict.
+            // The digest of the loadout that actually became items, not the recorded one. The two
+            // differ whenever this branch rewrites the set (a legacy round strips shields), and
+            // logging the recorded digest made the journal agree with LOADOUT_SAVED by
+            // construction — which is exactly the evidence a "my loadout change did nothing" report
+            // needs to be able to contradict.
             journal(session).append("LOADOUT_APPLIED", "player", p.name,
                     "digest", loadout.digest(), "items", granted,
                     "locked", loadout.lockedCount(), "round", session.round);
@@ -4010,8 +4056,9 @@ public final class SessionManager {
         }
         try {
             Loadout loadout = Loadout.decode(encoded);
-            me.loadout = loadout.encode();
-            me.loadoutDigest = loadout.digest();
+            // Match-wide, like every other write: in a draft this is only the proposer, but the
+            // moment the roster goes out the set has to be the one the whole match fights with.
+            adoptSharedLoadout(session, loadout);
             me.acceptedLoadoutRevision = -1;
             session.loadoutRevision++;
             persist(session);

@@ -71,7 +71,10 @@ public final class RuleCatalog {
         add(RuleDefinition.percent("c.knockbackResistance", RuleGroup.C, 0));
 
         // D. 配装
-        add(RuleDefinition.enumOf("d.loadoutScope", RuleGroup.D, 0, choices("d.loadoutScope", 2)));
+        // 这里曾经有一条 d.loadoutScope（每人独立 / 每队统一）。删掉的理由不是「选项太多」，而是
+        // 一场对局本来就该只有一份配装：对局的意义在于同样的刀、同样的甲，唯一不同的只有队伍的羊毛
+        // 颜色。留着这个开关，就意味着「我这边的火矢他那边没有」是一种合法状态，而这恰好是最难解释
+        // 的一类 bug 报告。现在配装是全场共享的一份，写在 session 的每个参与者身上、由任何人编辑。
         add(RuleDefinition.toggle("d.allowSwapBetweenRounds", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowPickup", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowCrafting", RuleGroup.D, false));
