@@ -53,6 +53,19 @@ public final class LoadoutEntry {
     /** Firework rocket flight duration, 1-3. Only meaningful for {@link ItemKind#FIREWORK_ROCKET}. */
     public int fireworkFlight = 1;
 
+    /**
+     * Whether the Q key refuses to throw the stacks this entry grants away.
+     *
+     * <p>On by default, and that default is the point: the row exists because a sword thrown away
+     * mid-round cannot be got back, and the gesture that loses it is one key. A player who wants to
+     * drop things during a round turns it off per item; nobody has to remember to turn it on.</p>
+     *
+     * <p>The lock travels on the stack itself (see {@code LoadoutLock}) rather than being looked up
+     * per slot, because a player may move the item anywhere in the inventory — or into a chest — and
+     * it must stay locked wherever it ends up.</p>
+     */
+    public boolean noDrop = true;
+
     public static LoadoutEntry of(ItemKind kind) {
         LoadoutEntry entry = new LoadoutEntry();
         entry.kind = kind;
@@ -117,6 +130,7 @@ public final class LoadoutEntry {
         amplifier = other.amplifier;
         tridentStyle = other.tridentStyle;
         fireworkFlight = other.fireworkFlight;
+        noDrop = other.noDrop;
     }
 
     public boolean has(WeaponFlag flag) {
@@ -162,7 +176,8 @@ public final class LoadoutEntry {
                 Integer.toString(durationSec),
                 Integer.toString(amplifier),
                 tridentStyle.id,
-                Integer.toString(fireworkFlight));
+                Integer.toString(fireworkFlight),
+                Integer.toString(noDrop ? 1 : 0));
     }
 
     public static LoadoutEntry decode(String encoded) {
@@ -187,6 +202,10 @@ public final class LoadoutEntry {
         entry.tridentStyle = TridentStyle.byId(part(parts, 13, "none"));
         entry.fireworkFlight = Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
                 Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, num(parts, 14, 1)));
+        // Defaults to 1 (locked). A preset saved before this field existed decodes as locked, which
+        // is the same accident-prevention a freshly added row gets; defaulting to 0 would make the
+        // behaviour depend on when the file happened to be written.
+        entry.noDrop = num(parts, 15, 1) != 0;
         // A preset saved before Riptide became a TridentStyle still carries its old bit. Reading it
         // once here is what keeps that preset from silently losing its enchantment; the bit itself is
         // cleared so the string re-encodes in the new shape. The kind guard matters because a bit set

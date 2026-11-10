@@ -11,6 +11,8 @@
     "LivingEntityMixin",
     "PlayerEntityMixin",
     "PlayerManagerInvoker",
+    "ScreenHandlerMixin",
+    "ServerPlayerEntityMixin",
     "ServerPlayerInteractionManagerMixin",
     "SlotMixin",
     "SpawnHelperMixin",

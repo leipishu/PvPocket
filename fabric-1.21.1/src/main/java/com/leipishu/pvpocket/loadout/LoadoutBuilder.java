@@ -102,7 +102,10 @@ public final class LoadoutBuilder {
             case TNT -> Items.FLINT_AND_STEEL;
             default -> null;
         };
-        return item == null ? ItemStack.EMPTY : new ItemStack(item, entry.companionCount);
+        if (item == null) {
+            return ItemStack.EMPTY;
+        }
+        return lockIfNeeded(new ItemStack(item, entry.companionCount), entry);
     }
 
     /** Builds one stack. Returns {@link ItemStack#EMPTY} for anything the item registry cannot resolve. */
@@ -116,13 +119,26 @@ public final class LoadoutBuilder {
 
         if (entry.kind == ItemKind.POTION) {
             applyPotion(stack, entry);
-            return stack;
+        } else {
+            applyAttributes(stack, entry);
+            applyDurability(stack, entry);
+            applyEnchantments(stack, entry, registries);
+            applyFireworks(stack, entry);
         }
+        return lockIfNeeded(stack, entry);
+    }
 
-        applyAttributes(stack, entry);
-        applyDurability(stack, entry);
-        applyEnchantments(stack, entry, registries);
-        applyFireworks(stack, entry);
+    /**
+     * Applies the entry's {@code noDrop} to a stack it just produced.
+     *
+     * <p>Written here rather than in {@link #grant} so the two other ways a loadout becomes items —
+     * {@code /pvpocket loadout give} and the companion stacks — cannot drift: every stack the builder
+     * returns has been through this, or it has no lock because the entry asked for none.</p>
+     */
+    private static ItemStack lockIfNeeded(ItemStack stack, LoadoutEntry entry) {
+        if (entry.noDrop) {
+            LoadoutLock.mark(stack);
+        }
         return stack;
     }
 

@@ -115,6 +115,24 @@ Presets live on the client, not on the server: change servers and they are still
 is a temporary thing held in memory and swept after five minutes; case, spaces and dashes in a typed
 code make no difference.
 
+### Locked loadout items
+
+The last row of every entry in the loadout editor is **No dropping**, and it is **on by default**. While
+it is on, Q does nothing on the stacks that entry grants — not in the hand, and not on the slot while
+the inventory is open. Both cases leave the item where it is and print "This item is locked and cannot
+be dropped" in chat.
+
+- **Only the stacks the loadout handed out.** The lock lives on the item, not on the slot: move it,
+  stash it in a chest, drop it and pick it back up, and it is still locked. The arrows, obsidian or
+  flint and steel the same row brings are locked too; anything picked up off the ground, crafted, or
+  taken from a map is an ordinary item and drops as usual.
+- **Ctrl+Q on the whole stack is refused too.** The lock is on the "throw with Q" gesture, not on a
+  particular quantity.
+- **Dragging a stack out of the inventory window still works.** That takes a deliberate drag past the
+  edge of the window rather than a stray keypress, and blocking it would be blocking "moving items".
+- Turned off, the entry behaves exactly like any other. The switch is saved with the loadout and
+  travels with it in share codes.
+
 ### Spectating
 
 `/pvpocket list` opens the match list; press "Watch" to enter as a spectator. While watching:

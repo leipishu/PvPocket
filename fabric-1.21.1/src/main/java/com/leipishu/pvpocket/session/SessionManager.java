@@ -841,6 +841,23 @@ public final class SessionManager {
     }
 
     /**
+     * A loadout item with 禁止丢弃 refused to leave the inventory.
+     *
+     * <p>Silence would be indistinguishable from a dropped keybind: the item simply stays in the hand
+     * and nothing happens. Throttled with the other refusals because the Q key repeats while held,
+     * and "this item is locked" five times a second is a wall, not an explanation.</p>
+     *
+     * <p>Server only, like the rest: the client runs the same veto so its own prediction does not
+     * remove the stack for a frame, but it does not speak — a sentence from there would be a local
+     * guess at why the server said no.</p>
+     */
+    public static void reportDropDenial(PlayerEntity player) {
+        if (player instanceof ServerPlayerEntity server) {
+            warnThrottled(server, PvLang.t("pvpocket.msg.loadout.no_drop"));
+        }
+    }
+
+    /**
      * {@code g.chatScope}: who gets to read a line of chat sent during a round.
      *
      * <p>Registered on {@code ServerMessageEvents.ALLOW_CHAT_MESSAGE}, which fires at the head of

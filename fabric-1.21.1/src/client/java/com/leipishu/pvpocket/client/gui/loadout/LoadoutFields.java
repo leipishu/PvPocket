@@ -194,6 +194,14 @@ public final class LoadoutFields {
             }
         }
 
+        // Last on purpose. Everything above describes what the item *is*; this one describes a rule
+        // about it, and putting it between two "what it is" rows would read as another attribute.
+        // It applies to every kind, including potions and blocks, so it cannot live in the switch.
+        out.add(new Field(
+                RuleDefinition.toggle("lo.no_drop", RuleGroup.D, entry.noDrop),
+                () -> entry.noDrop ? 1 : 0,
+                v -> entry.noDrop = v != 0));
+
         return out;
     }
 
