@@ -94,6 +94,16 @@ Two hard constraints:
 Light is not a different product: surfaces still step through five levels of luminance, the accent is
 still the same warm hue, and red still means only "this destroys something".
 
+**The result card takes two exceptions, and neither breaks the two rules above.** The first is a
+second line under the title — `胜利！` over `Victory!`. It is the one screen in this mod a player is
+likely to screenshot for somebody who does not read their language; the English line is an empty
+string in `en_us`, where the title already *is* that line, and an empty translation draws nothing and
+takes no space. The second is a 2px `ACCENT` rule along the card's top edge on a win. The first
+version tinted the whole title band with `ACCENT_SOFT` instead — 34px tall and full width is the
+largest accent area in the interface, and on a near-black card it read as a muddy brown lid. A rule is
+how the accent is used everywhere else, the title keeps its contrast against the surface it sits on,
+and the card still says "this one went your way" from across the room.
+
 The `Light theme` row on the Settings page carries a `beta` pill. **Labelled, not hidden** — the light
 palette is complete enough to use and young enough to change, and the pill says exactly that without a
 second line of prose nobody reads. The pill is `PvBadge`: 14px tall, 3px radius, `ACCENT_SOFT` fill

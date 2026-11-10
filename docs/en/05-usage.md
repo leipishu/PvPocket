@@ -48,7 +48,7 @@ Five tabs:
 | Stats | Matches, win rate, total damage, KD, rounds won, best streak, plus the last ten results as squares |
 | History | Recent series: score, win/loss, map, mode, team size, per-round outcomes; open one for the round-by-round detail and a one-line result to copy; paged at the bottom, with the page size set in Settings |
 | Presets | The loadouts and rule sets on this machine: start from one, share, import, delete |
-| Settings | Version, licence, config path, light/dark theme, motion toggle, scoreboard size, history rows per page, key rebinding |
+| Settings | Version, licence, config path, light/dark theme, motion toggle, scoreboard size, result-screen toggle, history rows per page, key rebinding |
 
 The top bar carries the date, weekday and time.
 
@@ -135,6 +135,41 @@ Leaving restores game mode, dimension, position and rotation. Inventory, effects
 were never touched, so there is nothing to restore.
 
 Spectating is allowed by default; the challenger can turn it off in rule group B.
+
+### The result card
+
+When a whole series ends — not a single round — every participant gets a result card. The server
+pushes it, so no panel has to be opened for it; `Esc` closes it and returns to the game.
+
+From top to bottom:
+
+- **One headline.** In Chinese it is two lines, the verdict and the same verdict in English, because
+  this is the one screen in the mod a player is likely to screenshot for somebody who does not read
+  their language. A loss reads 「再接再厉 / Well fought!」 and a draw 「势均力敌 / Evenly matched」 —
+  never "defeat": the score is right below, and the same fact does not need saying twice.
+- **One row per side**: a wool-coloured bar, that side's roster, and the rounds it won. Your own side
+  has a tinted row and your name carries a marker.
+- **Round by round**, two columns: which round, won/lost/drawn, how it ended (kill, out of bounds,
+  disconnect, timed out…), and how long it ran. When it does not all fit, the last slot says how many
+  rounds are missing rather than dropping them silently.
+- **At the bottom**: map, mode, team size, total length, and the timestamp plus the reason the series
+  ended (surrender, cut short, draw).
+
+`Export` redraws the same card **full-bleed** — no scrim, no world behind it, no buttons — and writes
+the framebuffer to:
+
+```
+screenshots/pvpocket/result-2026-11-10_20-46-25.png
+```
+
+Resolution follows the window and GUI scale: a 1280x720 window at scale 3 gives a 1280x720 image, at
+the panel's 1.0x type size (the bitmap font is not resampled at integer scales, so it stays sharp).
+The poster is taller than the panel, which matters for long series: fifteen rounds fit the poster and
+only six fit the panel on a 320x180 canvas.
+
+To stop seeing it: Settings → Matches → Result screen. The switch is **per installation**, not per
+account — the server still sends the card to every participant and each client decides whether to
+draw it.
 
 ## 3. Commands
 

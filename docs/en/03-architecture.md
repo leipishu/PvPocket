@@ -120,6 +120,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | S→C | `CombatStatePayload` | Combat mode and blocking mirror |
 | S→C | `PresetShareResultPayload` | Share-code outcome: a status code plus the preset body |
 | S→C | `HomeStatePayload` | Home snapshot: career counters, history, live matches, state flags; operators also get the plot table |
+| S→C | `SeriesResultPayload` | End-of-series card: score, round-by-round outcomes, both rosters, length and reason |
 
 **The home panel is the only screen the client asks for**; every other screen is pushed by the
 server. It therefore carries its own request/response pair: `HomeRequestPayload` (empty) →
@@ -140,7 +141,18 @@ because it is the one payload a client can send without limit.
 `PacketCodec.tuple` tops out at six components; beyond that fields move into a nested record (which
 is where `RulesOpenPayload.Details` comes from).
 
-Every inbound payload is handled inside `server.execute(...)` so it runs on the main thread.
+**The result card is one per participant, not one per series.** `SeriesResultPayload` carries a
+`mySide`, because the perspective is the whole message: which score row is highlighted, which rounds
+count as wins, and whether the headline says victory or encouragement all derive from it. Sending one
+shared payload and letting each client work out which side it is on would need the reader's name or
+uuid in the payload too — and the server already knows the answer. Nothing in it is authoritative:
+the record of the match is the `MatchRecord` written just before it, so losing every one of these
+payloads loses a card and no state.
+
+**The switch lives on the client, not the server.** "Result screen" is a per-installation preference
+in `ClientPrefs`; the server sends the card to every participant and each client decides whether to
+draw it. Making the server guess at a preference it does not own would couple "the server supports
+this" to "the player wants this", and every future toggle would become a protocol change.
 
 **A share code travels as a status code, never as a sentence.** `PresetShareResultPayload.status` is
 one of `PUBLISHED` / `FETCHED` / `UNKNOWN_CODE` / `REJECTED` / `FULL`, and the client assembles the

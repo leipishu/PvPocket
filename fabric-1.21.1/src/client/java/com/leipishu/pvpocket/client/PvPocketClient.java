@@ -5,6 +5,8 @@ import com.leipishu.pvpocket.client.gui.PvAuditHarness;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
+import com.leipishu.pvpocket.client.gui.result.MatchResult;
+import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.home.HomeClient;
 import com.leipishu.pvpocket.client.home.HomeState;
@@ -31,6 +33,7 @@ import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
+import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -148,12 +151,31 @@ public final class PvPocketClient implements ClientModInitializer {
             context.client().execute(() -> PresetShare.receive(payload));
         });
 
+        // The result card. Unlike the panel openers above, this one can decline to open at all: the
+        // settings page has a switch, and the server does not know about it — it sends the card to
+        // every participant and lets each client decide. That is the right split, because the
+        // preference belongs to the installation, not to the account.
+        ClientPlayNetworking.registerGlobalReceiver(SeriesResultPayload.ID, (payload, context) -> {
+            context.client().execute(() -> {
+                if (!ClientPrefs.resultScreen()) {
+                    return;
+                }
+                MatchResult result = MatchResult.parse(payload);
+                if (result == null || result.sessionId().equals(lastResultSession)) {
+                    return;
+                }
+                lastResultSession = result.sessionId();
+                context.client().setScreen(new SeriesResultScreen(result));
+            });
+        });
+
         // A stale mirror after leaving a world would make the next join start with a phantom block
         // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             CombatState.clearAll();
             BlockingInput.reset();
             clearPendingState();
+            lastResultSession = null;
             MatchHud.clear();
             ArenaBounds.clear();
             PrepareScreens.clear();
@@ -191,6 +213,16 @@ public final class PvPocketClient implements ClientModInitializer {
      * the symptom is not "the mirror is stale" but "right-click does nothing".
      */
     private static CombatStatePayload pending;
+
+    /**
+     * The last series whose card this client has already shown.
+     *
+     * <p>A series can be finished twice — a clean end, then a shutdown that runs the same teardown —
+     * and the second payload would otherwise reopen a card the player has already dismissed. Keyed
+     * on the session id rather than on a timestamp because it is the thing that is actually unique,
+     * and cleared on disconnect so a new world starts with a clean slate.</p>
+     */
+    private static String lastResultSession;
 
     private static void apply(CombatStatePayload payload) {
         MinecraftClient client = MinecraftClient.getInstance();

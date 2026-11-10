@@ -70,6 +70,16 @@ public final class ClientPrefs {
         int historyPageSize = DEFAULT_HISTORY_PAGE;
         /** Scoreboard size step, 1..4. Zero in a file written before the field existed. */
         int hudScale = DEFAULT_HUD_SCALE;
+        /**
+         * Whether a finished series opens the result card.
+         *
+         * <p>On by default, including for a file written before the field existed: Gson leaves an
+         * absent field at its initialiser, which is the same answer the settings page shows, and a
+         * feature that has to be discovered in a settings page before it does anything is a feature
+         * nobody finds. It is one Esc away from being dismissed, and one switch away from never
+         * appearing again.</p>
+         */
+        boolean resultScreen = true;
     }
 
     private static boolean loaded;
@@ -77,6 +87,7 @@ public final class ClientPrefs {
     private static boolean motion = true;
     private static int historyPageSize = DEFAULT_HISTORY_PAGE;
     private static int hudScale = DEFAULT_HUD_SCALE;
+    private static boolean resultScreen = true;
 
     private ClientPrefs() {
     }
@@ -101,6 +112,7 @@ public final class ClientPrefs {
                     motion = parsed.motion;
                     historyPageSize = clampPage(parsed.historyPageSize);
                     hudScale = clampHudScale(parsed.hudScale);
+                    resultScreen = parsed.resultScreen;
                 }
             } catch (Exception e) {
                 // A bad preference file costs a theme, not a launch.
@@ -184,12 +196,23 @@ public final class ClientPrefs {
         return Math.max(HUD_SCALE_MIN, Math.min(HUD_SCALE_MAX, raw));
     }
 
+    /** Whether a finished series opens the result card. See {@link File_#resultScreen}. */
+    public static boolean resultScreen() {
+        return resultScreen;
+    }
+
+    public static void setResultScreen(boolean value) {
+        resultScreen = value;
+        save();
+    }
+
     private static void save() {
         File_ out = new File_();
         out.theme = theme == PvTheme.Theme.LIGHT ? "light" : "dark";
         out.motion = motion;
         out.historyPageSize = historyPageSize;
         out.hudScale = hudScale;
+        out.resultScreen = resultScreen;
         try {
             Files.createDirectories(file().getParent());
             PvPocketStorage.writeAtomically(file(),

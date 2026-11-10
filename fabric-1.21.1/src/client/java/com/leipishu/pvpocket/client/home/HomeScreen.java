@@ -528,6 +528,12 @@ public class HomeScreen extends PvScreen {
         // Its own section rather than a third line under "appearance": how many records a page holds
         // is about the data, and burying it under a heading about colours is how a setting ends up
         // existing without anyone finding it.
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.match")));
+        PvToggle resultCard = new PvToggle(ClientPrefs.resultScreen());
+        resultCard.onChange(value -> ClientPrefs.setResultScreen(value == 1));
+        resultCard.tooltip = PvLang.str("pvpocket.gui.home.settings.result_hint");
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.result"), resultCard, null));
+
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.tab.history")));
         PvStepper perPage = new PvStepper(ClientPrefs.HISTORY_PAGE_MIN,
                 ClientPrefs.HISTORY_PAGE_MAX, ClientPrefs.HISTORY_PAGE_STEP,

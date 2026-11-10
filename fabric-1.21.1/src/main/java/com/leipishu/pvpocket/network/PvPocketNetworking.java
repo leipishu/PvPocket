@@ -45,6 +45,7 @@ public final class PvPocketNetworking {
         PayloadTypeRegistry.playS2C().register(SpectateStatePayload.ID, SpectateStatePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(PossessPayload.ID, PossessPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(PresetShareResultPayload.ID, PresetShareResultPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(SeriesResultPayload.ID, SeriesResultPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(SpectateRequestPayload.ID, (payload, context) -> {
             ServerPlayerEntity player = context.player();
@@ -320,6 +321,20 @@ public final class PvPocketNetworking {
      */
     public static void sendPossess(ServerPlayerEntity player, PossessPayload payload) {
         if (ServerPlayNetworking.canSend(player, PossessPayload.ID)) {
+            ServerPlayNetworking.send(player, payload);
+        }
+    }
+
+    /**
+     * Hands one participant the card for a series that just ended.
+     *
+     * <p>Silent, like the HUD: it is sent once per player per series, next to the chat line that says
+     * the same thing in words. Whether it is drawn at all is the client's decision — the settings
+     * page has a switch for it — so a refusal here would be the server guessing at a preference it
+     * does not own.</p>
+     */
+    public static void sendSeriesResult(ServerPlayerEntity player, SeriesResultPayload payload) {
+        if (ServerPlayNetworking.canSend(player, SeriesResultPayload.ID)) {
             ServerPlayNetworking.send(player, payload);
         }
     }

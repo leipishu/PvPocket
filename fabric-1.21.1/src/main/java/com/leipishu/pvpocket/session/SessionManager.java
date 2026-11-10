@@ -21,6 +21,7 @@ import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
+import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.Rulebook;
@@ -4112,8 +4113,63 @@ public final class SessionManager {
                 player.sendMessage(line.copy()
                         .formatted(winnerTeam >= 0 && p.teamIndex() == winnerTeam
                                 ? Formatting.GREEN : Formatting.GRAY), false);
+                // The card goes out next to the sentence, not instead of it: the sentence is what a
+                // player reads in the chat log a week later, the card is what they look at for the
+                // ten seconds after the last round. A declined invite is skipped — it was never a
+                // match for that player, and a victory card would be a lie in the other direction.
+                if (!p.rejected) {
+                    PvPocketNetworking.sendSeriesResult(player, resultCard(session, p, winnerTeam));
+                }
             }
         }
+    }
+
+    /**
+     * The result card for one reader, as the client needs it to draw and to export.
+     *
+     * <p>Built per participant rather than once per series because {@code mySide} is the whole
+     * perspective: it decides which row of the score block is highlighted, which round marks count as
+     * wins, and whether the headline is a victory. The alternative — sending the sides and letting
+     * each client work out which one it is on — would need the reader's name or uuid in the payload
+     * anyway, and the server already knows the answer.</p>
+     *
+     * <p>Read off the session rather than off the {@link MatchRecord} written a few lines earlier:
+     * the record is the reader's own view with the reasons flattened, while this needs both sides'
+     * rosters and every round's absolute winner. Format documented on {@link SeriesResultPayload}.</p>
+     */
+    private SeriesResultPayload resultCard(DuelSession session, Participant reader, int winnerTeam) {
+        long now = System.currentTimeMillis();
+        String head = String.join("|",
+                session.id,
+                spectators.mapId(session),
+                session.mode,
+                Integer.toString(reader.teamIndex()),
+                Integer.toString(winnerTeam),
+                Long.toString(now),
+                Long.toString(Math.max(0L, now - session.createdAt)),
+                session.seriesEndReason == null ? "" : session.seriesEndReason);
+
+        StringBuilder rounds = new StringBuilder();
+        for (DuelSession.RoundLog round : session.roundLog) {
+            if (rounds.length() > 0) {
+                rounds.append('\n');
+            }
+            rounds.append(round.winner).append(',')
+                    .append(round.reason == null ? "" : round.reason).append(',')
+                    .append(round.ms);
+        }
+
+        StringBuilder sides = new StringBuilder();
+        for (int side : session.playingTeams()) {
+            if (sides.length() > 0) {
+                sides.append('\n');
+            }
+            sides.append(side).append(',').append(session.wins(side));
+            for (Participant member : session.activeMembers(side)) {
+                sides.append(',').append(member.name);
+            }
+        }
+        return new SeriesResultPayload(head, rounds.toString(), sides.toString());
     }
 
     // ------------------------------------------------------------------ scoreboard HUD

@@ -2,6 +2,7 @@ package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
+import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.home.HomeScreen;
 import com.leipishu.pvpocket.client.home.HomeState;
@@ -144,6 +145,14 @@ public final class PvAuditHarness {
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
             add("match/list", size, 0, () -> new MatchListScreen(matches()));
+            // Three cards: a win, a loss that ended early, and a four-side draw. The shapes decide
+            // widths — fifteen rounds is what makes the round list truncate, four sides is what makes
+            // the score block taller than the card was drawn for, and a loss is the only variant
+            // where the headline is not the accent colour.
+            for (int variant = 0; variant < 3; variant++) {
+                int v = variant;
+                add("result", size, variant, () -> SeriesResultScreen.sample(v));
+            }
             // One variant per page, plus whatever dialogs the screen declares. The count is asked
             // from the screen rather than written here: it was hardcoded at five, and the history
             // detail dialog — the most crowded layout on the panel — was consequently never measured
