@@ -1019,6 +1019,22 @@ public final class ArenaManager {
         return SLOTS;
     }
 
+    /**
+     * How many cells currently hold a plot, for the operator panel's "n / total stamped" line.
+     *
+     * <p>Counts the registered occupants rather than the blocks: a cell whose map was never built
+     * and a cell that is empty are the same thing to an operator deciding whether to add a copy.</p>
+     */
+    public static int stampedCount() {
+        int stamped = 0;
+        for (ArenaRegion region : CELLS) {
+            if (region != null) {
+                stamped++;
+            }
+        }
+        return stamped;
+    }
+
     /** Returns a plot to the pool. Idempotent: releasing an unleased session is a no-op. */
     public static ArenaRegion release(String sessionId) {
         ArenaRegion region = BY_SESSION.remove(sessionId);

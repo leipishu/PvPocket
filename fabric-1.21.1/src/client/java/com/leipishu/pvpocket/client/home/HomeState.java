@@ -87,9 +87,58 @@ public final class HomeState {
     public record Round(boolean won, String reason, long ms) {
     }
 
+    /**
+     * One row of the operator page: a map, how many plots it owns, and how many are in use.
+     *
+     * <p>{@code copies} counts the map's own address, so "4 plots" is four concurrent duels of this
+     * map, not three plus one.</p>
+     */
+    public record MapRow(String id, int copies, int leased) {
+
+        /** The translated map name, falling back to the id when the key is missing. */
+        public String label() {
+            String key = "pvpocket.map." + id;
+            String text = com.leipishu.pvpocket.i18n.PvLang.str(key);
+            return text.equals(key) ? id : text;
+        }
+
+        /** True when every plot this map owns is leased, i.e. the next duel on it is refused. */
+        public boolean full() {
+            return leased >= copies;
+        }
+    }
+
+    /**
+     * The arena section of the snapshot, as the operator page reads it.
+     *
+     * <p>{@code guard} is this reader's own stray-player flag, not a server-wide setting: the switch
+     * in the panel means "do not move me out", and a shared value would make it look broken to the
+     * second operator on the server.</p>
+     */
+    public record Arena(boolean guard, int stamped, int slots, int leased, boolean building,
+                        List<MapRow> maps) {
+
+        public static final Arena EMPTY = new Arena(true, 0, 0, 0, false, List.of());
+
+        /** Cells the layout has handed out, i.e. the sum of every map's copies. */
+        public int assigned() {
+            int total = 0;
+            for (MapRow row : maps) {
+                total += row.copies();
+            }
+            return total;
+        }
+
+        /** True when there is no spare cell left, so "copy" would be refused. */
+        public boolean gridFull() {
+            return slots > 0 && assigned() >= slots;
+        }
+    }
+
     private static Stats stats = Stats.EMPTY;
     private static List<History> history = List.of();
     private static List<MatchListScreen.Entry> matches = List.of();
+    private static Arena arena = Arena.EMPTY;
     private static int flags;
     private static int version;
     private static boolean loaded;
@@ -101,6 +150,7 @@ public final class HomeState {
         stats = parseStats(payload.stats());
         history = parseHistory(payload.history());
         matches = MatchListScreen.Entry.parse(payload.matches());
+        arena = parseArena(payload.arena());
         flags = payload.flags();
         loaded = true;
         version++;
@@ -111,6 +161,7 @@ public final class HomeState {
         stats = Stats.EMPTY;
         history = List.of();
         matches = List.of();
+        arena = Arena.EMPTY;
         flags = 0;
         loaded = false;
         version++;
@@ -126,6 +177,10 @@ public final class HomeState {
 
     public static List<MatchListScreen.Entry> matches() {
         return matches;
+    }
+
+    public static Arena arena() {
+        return arena;
     }
 
     public static boolean has(int flag) {
@@ -182,5 +237,41 @@ public final class HomeState {
             }
         }
         return out;
+    }
+
+    /**
+     * The arena block, or {@link Arena#EMPTY} when the field is absent.
+     *
+     * <p>Absent is the normal case, not an error: the server leaves it empty for everyone below
+     * operator level, and an older server does not send it at all. Both mean the same thing to this
+     * client — no operator page — so both read as empty rather than as a broken snapshot.</p>
+     */
+    private static Arena parseArena(String block) {
+        if (block == null || block.isEmpty()) {
+            return Arena.EMPTY;
+        }
+        String[] lines = block.split("\n");
+        String[] head = lines[0].split(",", 5);
+        if (head.length < 5) {
+            return Arena.EMPTY;
+        }
+        List<MapRow> maps = new ArrayList<>(lines.length - 1);
+        for (int i = 1; i < lines.length; i++) {
+            String[] f = lines[i].split(",", 3);
+            if (f.length < 3) {
+                continue;
+            }
+            try {
+                maps.add(new MapRow(f[0], Integer.parseInt(f[1]), Integer.parseInt(f[2])));
+            } catch (NumberFormatException ignored) {
+                // A row this client cannot read is a row it does not draw; the rest still work.
+            }
+        }
+        try {
+            return new Arena(!"0".equals(head[0]), Integer.parseInt(head[1]),
+                    Integer.parseInt(head[2]), Integer.parseInt(head[3]), "1".equals(head[4]), maps);
+        } catch (NumberFormatException e) {
+            return Arena.EMPTY;
+        }
     }
 }

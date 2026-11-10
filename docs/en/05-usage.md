@@ -24,6 +24,7 @@ scoreboard.
 | `/pvpocket guard <bool>` | OP level 2 |
 | `/pvpocket arena reset` | OP level 3 |
 | `/pvpocket arena copy <map> [count]` | OP level 3 |
+| The home panel's "Admin" page | OP level 3 |
 
 ## 2. Player flow
 
@@ -215,6 +216,20 @@ across restarts — so `/tp` to it and the spot stays valid. Copies of a non-fla
 the command runs; copies of a flat map only reserve a cell and are paved by the first duel that
 lands on one. The grid holds 16 cells; when it is full the dimension has to grow. Details in
 [`06-maps.md`](06-maps.md#5-plots-and-copies).
+
+### The operator page
+
+At operator level 3 the home panel (default key `B`) grows an **Admin** tab just above Settings:
+
+| Control | Equivalent |
+| --- | --- |
+| "Copy" beside each map | `/pvpocket arena copy <map>` |
+| "Rebuild arena" | `/pvpocket arena reset` (asks first, and says how many duels it will end) |
+| The "stray guard" switch | `/pvpocket guard true\|false` |
+
+The plot table is a live snapshot: after a copy, a rebuild or a flip the server sends a fresh one and
+the page follows. The panel is only another door onto the same server code — permission is checked
+server-side, and the panel not drawing a button is a convenience, not the lock.
 
 ### Sandbox rules
 

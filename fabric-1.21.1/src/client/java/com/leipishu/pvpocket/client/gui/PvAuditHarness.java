@@ -231,8 +231,30 @@ public final class PvAuditHarness {
         }
         HomeState.update(new HomeStatePayload(
                 "24,15,61,38,2840,42,19,4,7," + now,
-                history.toString(), MATCH_ROWS, HomeStatePayload.FLAG_HAS_STATS));
+                history.toString(), MATCH_ROWS,
+                HomeStatePayload.FLAG_HAS_STATS | HomeStatePayload.FLAG_OPERATOR,
+                ARENA_ROWS));
     }
+
+    /**
+     * The operator page's fixture: the same layout a real server would send, shaped to be awkward.
+     *
+     * <p>{@code arena_fun_house} is the longest map name in either language and {@code arena_colosseum}
+     * is the only one that owns two plots, so the two widest things on the page — a name and a "2
+     * plots" value — are both in it. One map is fully leased, which is the state that disables its
+     * copy button.</p>
+     *
+     * <p>The operator bit is set here for the same reason the history is twelve records long: a page
+     * that only exists for operators is a page the audit would otherwise never open.</p>
+     */
+    private static final String ARENA_ROWS = String.join("\n",
+            "1,5,16,2,0",
+            "flat,4,1",
+            "arena_fun_house,1,0",
+            "arena_earthborn,1,0",
+            "arena_dark_nebula,1,0",
+            "arena_deadwood,1,0",
+            "arena_colosseum,2,2");
 
     /** Names that say where they came from, in case a crashed run leaves them on disk. */
     private static final String SEED_LOADOUT = "audit-loadout";

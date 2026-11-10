@@ -55,8 +55,21 @@ public class HomeScreen extends PvScreen {
     public static final int PAGE_STATS = 1;
     public static final int PAGE_HISTORY = 2;
     public static final int PAGE_PRESETS = 3;
-    public static final int PAGE_SETTINGS = 4;
-    private static final int PAGE_COUNT = 5;
+    /**
+     * The operator page: arena layout, copies, rebuild, and the stray-player guard.
+     *
+     * <p>Second from the bottom, above settings. It is drawn when the snapshot carries
+     * {@link HomeStatePayload#FLAG_OPERATOR}, which the server sets at operator level 3 — the same
+     * level the commands behind these buttons require. A page a player can see but not act on would
+     * be a page that teaches them the buttons are broken.</p>
+     *
+     * <p><b>These numbers are page ids, not tab indices.</b> This one is the only page that comes
+     * and goes, so the tab strip is a filtered list of ids — see {@link #visiblePages()}. Equating
+     * the two worked only while every page was always present.</p>
+     */
+    public static final int PAGE_ADMIN = 4;
+    public static final int PAGE_SETTINGS = 5;
+    private static final int PAGE_COUNT = 6;
 
     private static final int MAX_W = 640;
     private static final int MAX_H = 400;
@@ -104,8 +117,16 @@ public class HomeScreen extends PvScreen {
     protected void init() {
         // init() also runs on resize, so the open tab has to be carried over: losing the page because
         // the window changed size is the kind of bug that only shows up on a second monitor.
+        List<Integer> pages = visiblePages();
         int keep = tabs == null ? page : tabs.selected();
-        page = keep;
+        // The operator page can disappear between two inits — a demotion, or a reconnect to a server
+        // where the player is not an operator. Without this the screen would build a page whose tab
+        // does not exist and draw it with nothing selected.
+        int index = pages.indexOf(keep);
+        if (index < 0) {
+            index = Math.min(tabs == null ? 0 : tabs.selected(), pages.size() - 1);
+        }
+        page = pages.get(Math.max(0, index));
         roots.clear();
         pageWidgets.clear();
         primary = null;
@@ -114,13 +135,13 @@ public class HomeScreen extends PvScreen {
         chromeH = HEADER_H;
         chromeW = sidebarWidth();
 
-        tabs = new PvTabs(tabLabels(), keep);
+        tabs = new PvTabs(tabLabels(), pages.indexOf(page));
         tabs.x = panelX;
         tabs.y = panelY + HEADER_H + AVATAR_H + 8;
         tabs.width = chromeW;
         tabs.fitInto(panelH - HEADER_H - AVATAR_H - 8 - 2);
         tabs.onChange(() -> {
-            page = tabs.selected();
+            page = visiblePages().get(tabs.selected());
             buildPage();
         });
         roots.add(tabs);
@@ -142,14 +163,45 @@ public class HomeScreen extends PvScreen {
         }
     }
 
+    /**
+     * The pages this client may open, in strip order.
+     *
+     * <p>A list rather than a constant, because the operator page is conditional: the strip is built
+     * from this, and {@code page} is looked up through it, so an absent page costs nothing anywhere
+     * else. Keeping {@code page} as a tab index instead would have made every index above the
+     * operator page shift by one depending on who is looking.</p>
+     */
+    private List<Integer> visiblePages() {
+        List<Integer> pages = new ArrayList<>(PAGE_COUNT);
+        pages.add(PAGE_OVERVIEW);
+        pages.add(PAGE_STATS);
+        pages.add(PAGE_HISTORY);
+        pages.add(PAGE_PRESETS);
+        if (HomeState.has(HomeStatePayload.FLAG_OPERATOR)) {
+            pages.add(PAGE_ADMIN);
+        }
+        pages.add(PAGE_SETTINGS);
+        return pages;
+    }
+
     private List<String> tabLabels() {
-        List<String> labels = new ArrayList<>(PAGE_COUNT);
-        labels.add(PvLang.str("pvpocket.gui.home.tab.overview"));
-        labels.add(PvLang.str("pvpocket.gui.home.tab.stats"));
-        labels.add(PvLang.str("pvpocket.gui.home.tab.history"));
-        labels.add(PvLang.str("pvpocket.gui.home.tab.presets"));
-        labels.add(PvLang.str("pvpocket.gui.home.tab.settings"));
+        List<Integer> pages = visiblePages();
+        List<String> labels = new ArrayList<>(pages.size());
+        for (int id : pages) {
+            labels.add(PvLang.str(labelKey(id)));
+        }
         return labels;
+    }
+
+    private static String labelKey(int id) {
+        return switch (id) {
+            case PAGE_OVERVIEW -> "pvpocket.gui.home.tab.overview";
+            case PAGE_STATS -> "pvpocket.gui.home.tab.stats";
+            case PAGE_HISTORY -> "pvpocket.gui.home.tab.history";
+            case PAGE_PRESETS -> "pvpocket.gui.home.tab.presets";
+            case PAGE_ADMIN -> "pvpocket.gui.home.tab.admin";
+            default -> "pvpocket.gui.home.tab.settings";
+        };
     }
 
     /**
@@ -220,7 +272,8 @@ public class HomeScreen extends PvScreen {
         primary = null;
         pane.clear();
 
-        boolean scrolls = page == PAGE_HISTORY || page == PAGE_PRESETS || page == PAGE_SETTINGS;
+        boolean scrolls = page == PAGE_HISTORY || page == PAGE_PRESETS || page == PAGE_SETTINGS
+                || page == PAGE_ADMIN;
         pane.visible = scrolls;
         if (!scrolls) {
             if (page == PAGE_OVERVIEW) {
@@ -236,6 +289,7 @@ public class HomeScreen extends PvScreen {
         switch (page) {
             case PAGE_HISTORY -> buildHistory();
             case PAGE_PRESETS -> buildPresets();
+            case PAGE_ADMIN -> buildAdmin();
             default -> buildSettings();
         }
         pane.layout();
@@ -510,6 +564,67 @@ public class HomeScreen extends PvScreen {
         return FabricLoader.getInstance().getModContainer("pvpocket")
                 .map(container -> container.getMetadata().getVersion().getFriendlyString())
                 .orElse("?");
+    }
+
+    /**
+     * The operator page: what the dimension looks like, and the three things only an operator can do
+     * to it.
+     *
+     * <p>This is the panel that makes the two arena commands discoverable. The commands still exist
+     * — a console or an RCON pipe has no client to draw a page — but "how many colosseums can we run
+     * tonight" is a question an operator answers while looking at the numbers, and a chat command
+     * answers it with a wall of text.</p>
+     *
+     * <p>Every row is rebuilt from the snapshot, so nothing here holds its own copy of the state: a
+     * copy lands, the server answers with a fresh snapshot, and the numbers move. That is also why
+     * the guard switch asks the server instead of flipping locally — the file it persists to can be
+     * edited by hand, and a toggle that disagrees with the file is worse than no toggle.</p>
+     */
+    private void buildAdmin() {
+        HomeState.Arena arena = HomeState.arena();
+        boolean online = HomeClient.supported();
+
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.arena")));
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.summary"),
+                null, PvLang.str("pvpocket.gui.home.admin.summary_value",
+                        arena.stamped(), arena.slots(), arena.leased())));
+
+        for (HomeState.MapRow row : arena.maps()) {
+            PvButton add = new PvButton(PvLang.str("pvpocket.gui.home.admin.copy"),
+                    PvButton.Style.NORMAL, () -> copyMap(row.id())).size(44, 18);
+            // Two different reasons to be unavailable, two different sentences. "The grid is full"
+            // is a decision the operator can act on (drop a copy, or move to a bigger dimension);
+            // "offline" is not.
+            add.enabled = online && !arena.gridFull();
+            if (!online) {
+                add.tooltip = PvLang.str("pvpocket.gui.home.tooltip.offline");
+            } else if (arena.gridFull()) {
+                add.tooltip = PvLang.str("pvpocket.gui.home.admin.copy_full");
+            }
+            pane.add(new SettingRow(row.label(), add,
+                    PvLang.str("pvpocket.gui.home.admin.map_value", row.copies(), row.leased())));
+        }
+
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.maintenance")));
+        PvButton reset = new PvButton(PvLang.str("pvpocket.gui.home.admin.reset"),
+                PvButton.Style.DANGER, this::askReset).size(56, 18);
+        // A rebuild already running is the one state where the button must not work: the server
+        // refuses a second one, and a button that answers with a refusal reads as broken.
+        reset.enabled = online && !arena.building();
+        if (arena.building()) {
+            reset.tooltip = PvLang.str("pvpocket.gui.home.admin.building");
+        } else if (!online) {
+            reset.tooltip = PvLang.str("pvpocket.gui.home.tooltip.offline");
+        }
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.reset_label"), reset, null));
+        pane.add(SettingRow.hint(PvLang.str("pvpocket.gui.home.admin.reset_hint")));
+
+        PvToggle guard = new PvToggle(arena.guard());
+        guard.enabled = online;
+        guard.onChange(value -> HomeClient.send(
+                com.leipishu.pvpocket.network.HomeActionPayload.guard(value == 1)));
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.guard"), guard, null));
+        pane.add(SettingRow.hint(PvLang.str("pvpocket.gui.home.admin.guard_hint")));
     }
 
     // ------------------------------------------------------------------ rendering
@@ -837,6 +952,33 @@ public class HomeScreen extends PvScreen {
         setOverlay(new HistoryDetail(record, this::dismissOverlay));
     }
 
+    /** One more plot for a map. The answer is a fresh snapshot, not a local counter bump. */
+    private void copyMap(String mapId) {
+        HomeClient.send(com.leipishu.pvpocket.network.HomeActionPayload.arenaCopy(mapId));
+    }
+
+    /**
+     * The rebuild question, asked before anything is sent.
+     *
+     * <p>The body is built from the snapshot so the operator sees how much this is about to end: "0
+     * duels" is a very different decision from "3 duels". A confirmation that does not say what it
+     * is interrupting is a confirmation that gets clicked through.</p>
+     */
+    private void askReset() {
+        HomeState.Arena arena = HomeState.arena();
+        setOverlay(new ConfirmOverlay(
+                PvLang.str("pvpocket.gui.home.admin.reset_confirm_title"),
+                PvLang.str("pvpocket.gui.home.admin.reset_confirm_body", arena.leased()),
+                PvLang.str("pvpocket.gui.home.admin.reset_confirm_note"),
+                PvLang.str("pvpocket.gui.home.admin.reset"),
+                this::doReset, this::dismissOverlay));
+    }
+
+    private void doReset() {
+        dismissOverlay();
+        HomeClient.send(com.leipishu.pvpocket.network.HomeActionPayload.arenaReset());
+    }
+
     /**
      * Closing the preset dialog also rebuilds the list behind it.
      *
@@ -869,17 +1011,21 @@ public class HomeScreen extends PvScreen {
     // ------------------------------------------------------------------ audit
 
     /**
-     * One layout per tab, plus one with the history detail dialog open.
+     * One layout per tab, plus the two dialogs the screen can open.
      *
-     * <p>The dialog is its own arrangement of its own widgets and is not a tab, so walking only the
-     * five tabs would leave the most crowded layout on this screen — a card with two columns of
+     * <p>The history dialog is its own arrangement of its own widgets and is not a tab, so walking
+     * only the tabs would leave the most crowded layout on this screen — a card with two columns of
      * rounds, a verdict chip and two buttons — measured by nobody. It is also where the "第 10 局"
      * label used to run into the result beside it, which is precisely the kind of thing an audit is
      * for.</p>
+     *
+     * <p>The confirmation dialog is walked for the same reason, and on the operator page because
+     * that is the only page that can open it: a dialog audited on top of the wrong page would be
+     * measured against a layout it is never drawn over.</p>
      */
     @Override
     public int auditVariantCount() {
-        return PAGE_COUNT + 1;
+        return visiblePages().size() + 2;
     }
 
     @Override
@@ -887,11 +1033,26 @@ public class HomeScreen extends PvScreen {
         if (tabs == null) {
             return;
         }
-        tabs.select(Math.min(index, PAGE_COUNT - 1));
-        page = tabs.selected();
+        List<Integer> pages = visiblePages();
+        int tabsCount = pages.size();
+        // The two dialog variants are drawn over the page they belong to: the history detail over
+        // the history page, the rebuild confirmation over the operator page. Anywhere else and the
+        // dialog would be measured against a layout it is never actually drawn over.
+        int target = index < tabsCount ? pages.get(index)
+                : index == tabsCount ? PAGE_HISTORY : PAGE_ADMIN;
+        int tab = pages.indexOf(target);
+        if (tab < 0) {
+            return;
+        }
+        tabs.select(tab);
+        page = target;
         buildPage();
-        if (index >= PAGE_COUNT && !HomeState.history().isEmpty()) {
-            openDetail(HomeState.history().get(0));
+        if (index == tabsCount) {
+            if (!HomeState.history().isEmpty()) {
+                openDetail(HomeState.history().get(0));
+            }
+        } else if (index > tabsCount) {
+            askReset();
         }
     }
 }

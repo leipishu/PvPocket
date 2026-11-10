@@ -108,7 +108,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |
 | C→S | `PresetSharePayload` | Publish / fetch a share code |
 | C→S | `HomeRequestPayload` | "Give me a home-panel snapshot" |
-| C→S | `HomeActionPayload` | Start a duel / start from a rule preset / start from a loadout preset |
+| C→S | `HomeActionPayload` | Start a duel / from a rule preset / from a loadout preset; at OP 3 also copy a plot, rebuild the arena and toggle the stray guard |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | Rule panel open / close |
 | S→C | `LoadoutOpenPayload` | Loadout editor open |
 | S→C | `MatchListPayload` | Match list |
@@ -117,7 +117,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | S→C | `SpectateStatePayload` / `PossessPayload` | Spectator bar / possessed hotbar |
 | S→C | `CombatStatePayload` | Combat mode and blocking mirror |
 | S→C | `PresetShareResultPayload` | Share-code outcome: a status code plus the preset body |
-| S→C | `HomeStatePayload` | Home snapshot: career counters, history, live matches, state flags |
+| S→C | `HomeStatePayload` | Home snapshot: career counters, history, live matches, state flags; operators also get the plot table |
 
 **The home panel is the only screen the client asks for**; every other screen is pushed by the
 server. It therefore carries its own request/response pair: `HomeRequestPayload` (empty) →

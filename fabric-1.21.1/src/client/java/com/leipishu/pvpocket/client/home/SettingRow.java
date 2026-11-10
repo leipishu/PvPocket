@@ -103,14 +103,23 @@ public class SettingRow extends PvWidget {
             control.visible = visible;
             control.render(ctx, mouseX, mouseY, delta);
             reserve = control.width + 10;
-        } else if (value != null) {
+        }
+        if (value != null) {
+            // Drawn to the left of the control when there is one, and against the row's right edge
+            // when there is not. The operator page needs both at once — "4 plots · 1 live" beside a
+            // copy button — and dropping the value there would have been a row that silently lost
+            // half of what it was asked to show.
+            //
             // A value that is longer than half the row is a value that has outgrown its column —
             // "LGPL-3.0-only" is fine, a path or a version string with a build suffix is not. It
             // shrinks first and takes its reserve from what it actually covers, so the label beside
-            // it is measured against the truth.
-            int valueRoom = Math.max(24, width / 2);
-            reserve = PvDraw.fittedWidth(tr, value, valueRoom) + 10;
-            PvDraw.textFitRight(ctx, tr, value, x + width, textY, valueRoom, PvTheme.TEXT_DIM);
+            // it is measured against the truth. A third, not a half, when a control shares the row:
+            // the label is the thing that names the row and it must not be the part that gives way.
+            int valueRoom = Math.max(24, control == null ? width / 2 : width / 3);
+            int drawn = PvDraw.fittedWidth(tr, value, valueRoom);
+            PvDraw.textFitRight(ctx, tr, value, x + width - reserve, textY, valueRoom,
+                    PvTheme.TEXT_DIM);
+            reserve += drawn + 10;
         }
         // The badge takes its room out of the label's budget before the label is fitted: a long
         // translated label must truncate rather than run underneath the pill. It is then placed

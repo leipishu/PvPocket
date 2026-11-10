@@ -87,8 +87,10 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 控制台/RCON 没有客户端（`arena`、`guard`、`loadout give`）、按 id 找一场（`spectate <前缀>`）、
 只读诊断（`status`、`loadout`）、GUI 通道失效时的兜底。
 
-`arena copy` 是唯一一条「面板不该做」的反例：它改的是**容量**，不是某人这一局的设置。运维为两个
-斗兽场规划过，第三场就该被一句明确的话拒掉，而不是面板上顺手点出来把邻居格子挤了。
+`arena copy` / `arena reset` / `guard` 现在**两边都有**：主页「管理」页（仅 OP 等级 3 可见）给玩家，
+指令给控制台与 RCON。这不是「第二条路」，是同一个动作的两个入口——运维场景里一半是没有客户端的。
+所以面板的动作必须落在同一段代码上（`HomeActionPayload` 的三个动作直接调 `ArenaManager.addCopy`、
+`resetArena`、`setGuardEnabled`），并且**服务端自己校验权限**：面板不画按钮是方便，不是锁。
 
 ### 3. 场地分区与副本
 
@@ -133,6 +135,9 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   行高的（提示句几行取决于宽度）。
 - **`init()` 在窗口 resize 时也会跑**。选中的标签页、正在编辑的名册、已填的输入必须跨 `init()`
   保留，否则改一次窗口大小就丢一次工作。
+- **页面 id 不等于标签索引。** 主页的「管理」页只对 OP 出现，所以标签条是
+  `visiblePages()` 过滤出来的列表，`page` 是 id、`tabs.selected()` 是索引，两者用 `indexOf` 换算。
+  之前两者相等只是因为每个页面都在——一旦有条件页面，上面的每一页都会错位一格。
 - **侧栏是一条竖向预算。** 侧栏高 = 顶栏以下全部，`Tab 高 × 条目数 + 按钮高 × 个数 + 间距` 必须装得下；
   装不下先换排布（`compact`：按钮整排移到凹槽下方），再减按钮，最后才是减字号。八项标签加三个按钮
   在 190px 里只剩 12px 的 Tab，这已经是下限。侧栏宽要**同时**量 Tab 标签和按钮标签——英文的

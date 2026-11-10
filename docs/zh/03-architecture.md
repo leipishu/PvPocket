@@ -100,7 +100,7 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
 | C→S | `PresetSharePayload` | 发布 / 取用分享码 |
 | C→S | `HomeRequestPayload` | 「给我一份主页面快照」 |
-| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局 |
+| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、重建场地、开关滞留保护 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |
@@ -109,7 +109,7 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | S→C | `SpectateStatePayload` / `PossessPayload` | 观战条 / 附身目标快捷栏 |
 | S→C | `CombatStatePayload` | 战斗模式与格挡状态镜像 |
 | S→C | `PresetShareResultPayload` | 分享码的结果：状态码 + 预设内容 |
-| S→C | `HomeStatePayload` | 主页面快照：生涯计数、历史、进行中对局、状态位 |
+| S→C | `HomeStatePayload` | 主页面快照：生涯计数、历史、进行中对局、状态位；OP 另带场地分区表 |
 
 **主页面是唯一由客户端主动要求打开的界面**，其余界面都是服务端推过来的。它因此自带一对
 请求/应答：`HomeRequestPayload`（空包）→ `HomeStatePayload`。快照不推送，只在玩家打开面板

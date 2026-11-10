@@ -30,7 +30,7 @@ public class PvButton extends PvWidget {
         GHOST
     }
 
-    private final String label;
+    private String label;
     private final Runnable action;
     private Style style;
     private boolean pressed;
@@ -72,6 +72,19 @@ public class PvButton extends PvWidget {
     public PvButton size(int w, int h) {
         this.width = w;
         this.height = h;
+        return this;
+    }
+
+    /**
+     * Re-labels in place, without touching the size.
+     *
+     * <p>For the two-step confirmation: the same button asks first and acts second, and rebuilding
+     * the page between the two presses would move the widget out from under the pointer mid-click.
+     * The width is left alone on purpose — a caller that wants both labels to fit sizes for the
+     * longer one when it is built.</p>
+     */
+    public PvButton label(String text) {
+        this.label = text;
         return this;
     }
 

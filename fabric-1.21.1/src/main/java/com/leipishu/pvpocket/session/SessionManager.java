@@ -3581,6 +3581,10 @@ public final class SessionManager {
         if (s.matches > 0) {
             flags |= HomeStatePayload.FLAG_HAS_STATS;
         }
+        boolean operator = player.hasPermissionLevel(3);
+        if (operator) {
+            flags |= HomeStatePayload.FLAG_OPERATOR;
+        }
 
         StringBuilder statLine = new StringBuilder()
                 .append(s.matches).append(',')
@@ -3616,7 +3620,39 @@ public final class SessionManager {
         }
 
         PvPocketNetworking.sendHomeState(player, new HomeStatePayload(
-                statLine.toString(), history.toString(), spectators.rowsFor(player), flags));
+                statLine.toString(), history.toString(), spectators.rowsFor(player), flags,
+                operator ? arenaBlock(player) : ""));
+    }
+
+    /**
+     * The arena section of the snapshot: one header line, then one line per map.
+     *
+     * <p>Only built for operators. The layout of the dimension is not a secret, but the panel that
+     * reads this is drawn only for them, so sending it to everyone would be a field no screen on
+     * that client can reach.</p>
+     *
+     * <p>{@code guard} is the reader's own flag rather than a server-wide number: the switch in the
+     * panel is "do not throw <em>me</em> out", and a shared value would make the toggle look broken
+     * to the second operator.</p>
+     */
+    private String arenaBlock(ServerPlayerEntity player) {
+        java.util.Map<String, Integer> leasedPerMap = new java.util.HashMap<>();
+        for (Map.Entry<String, com.leipishu.pvpocket.arena.ArenaRegion> lease
+                : com.leipishu.pvpocket.arena.ArenaManager.leased()) {
+            leasedPerMap.merge(lease.getValue().map.id, 1, Integer::sum);
+        }
+        StringBuilder out = new StringBuilder()
+                .append(guard.isExempt(player.getUuid()) ? 0 : 1).append(',')
+                .append(com.leipishu.pvpocket.arena.ArenaManager.stampedCount()).append(',')
+                .append(com.leipishu.pvpocket.arena.ArenaManager.slotCount()).append(',')
+                .append(com.leipishu.pvpocket.arena.ArenaManager.leasedCount()).append(',')
+                .append(com.leipishu.pvpocket.arena.ArenaManager.warmUpPending() ? 1 : 0);
+        for (com.leipishu.pvpocket.arena.ArenaMap map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            out.append('\n').append(map.id).append(',')
+                    .append(com.leipishu.pvpocket.arena.ArenaManager.copiesOf(map)).append(',')
+                    .append(leasedPerMap.getOrDefault(map.id, 0));
+        }
+        return out.toString();
     }
 
     /** Rows of history one snapshot carries. The list shows three at a time. */
@@ -3641,9 +3677,96 @@ public final class SessionManager {
                 openRoster(player);
                 applyPresetLoadout(player, action.arg());
             }
+            case HomeActionPayload.ACTION_ARENA_COPY -> {
+                if (requireOperator(player, "copy")) {
+                    addArenaCopy(player, action.arg());
+                }
+            }
+            case HomeActionPayload.ACTION_ARENA_RESET -> {
+                if (requireOperator(player, "reset")) {
+                    resetArenaFromPanel(player);
+                }
+            }
+            case HomeActionPayload.ACTION_GUARD -> {
+                if (requireOperator(player, "guard")) {
+                    setGuardEnabled(player, "1".equals(action.arg()));
+                    // The switch has to show the state the server actually stored, not the one the
+                    // click asked for, so the answer is a fresh snapshot rather than a local flip.
+                    sendHomeState(player);
+                }
+            }
             default -> PvPocket.LOGGER.debug("Ignoring unknown home action {} from {}",
                     action.action(), player.getName().getString());
         }
+    }
+
+    /**
+     * The permission check behind the operator page, and the only one that matters.
+     *
+     * <p>The panel not drawing these buttons is a convenience; this is the lock. The same level the
+     * commands require is the level the panel requires, so a client cannot reach a capability by
+     * talking to the payload directly that it could not reach by typing the command.</p>
+     */
+    private boolean requireOperator(ServerPlayerEntity player, String what) {
+        if (player.hasPermissionLevel(3)) {
+            return true;
+        }
+        PvPocket.LOGGER.warn("Refused home action '{}' from {} (not an operator)",
+                what, player.getName().getString());
+        return false;
+    }
+
+    /**
+     * {@code /pvpocket arena copy} from the panel: one more plot for the named map.
+     *
+     * <p>The map is looked up by id, and an unknown id is a log line rather than an exception — the
+     * ids come from the snapshot the server itself sent, so a mismatch means a stale panel, which
+     * the fresh snapshot sent afterwards fixes.</p>
+     */
+    private void addArenaCopy(ServerPlayerEntity player, String mapId) {
+        com.leipishu.pvpocket.arena.ArenaMap target = null;
+        for (com.leipishu.pvpocket.arena.ArenaMap map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
+            if (map.id.equalsIgnoreCase(mapId)) {
+                target = map;
+                break;
+            }
+        }
+        if (target == null) {
+            PvPocket.LOGGER.warn("No map called '{}' for arena copy from {}",
+                    mapId, player.getName().getString());
+            return;
+        }
+        int slot = com.leipishu.pvpocket.arena.ArenaManager.addCopy(server(), target);
+        if (slot < 0) {
+            player.sendMessage(PvLang.t("pvpocket.command.arena.copy_full",
+                    com.leipishu.pvpocket.arena.ArenaManager.slotCount()), false);
+        } else {
+            PvPocket.LOGGER.info("{} added a copy of {} as cell {}",
+                    player.getName().getString(), target.id, slot);
+        }
+        sendHomeState(player);
+    }
+
+    /**
+     * {@code /pvpocket arena reset} from the panel.
+     *
+     * <p>The command's version sends its result to the command source and to everybody else
+     * separately, because a console source is not a player. This one has a player and only a
+     * player, so it announces once to the whole list — the actor included, since a panel that
+     * rebuilds itself with no sentence about why reads as the click having done nothing.</p>
+     */
+    private void resetArenaFromPanel(ServerPlayerEntity player) {
+        int ended = resetArena();
+        if (ended < 0) {
+            player.sendMessage(PvLang.t("pvpocket.command.arena.rebuilding"), false);
+            return;
+        }
+        net.minecraft.text.MutableText line = PvLang.t("pvpocket.command.arena.reset_done", ended)
+                .formatted(net.minecraft.util.Formatting.AQUA);
+        for (ServerPlayerEntity other : server().getPlayerManager().getPlayerList()) {
+            other.sendMessage(line, false);
+        }
+        sendHomeState(player);
     }
 
     /**
