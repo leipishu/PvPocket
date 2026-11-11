@@ -100,6 +100,15 @@ public class HomeScreen extends PvScreen {
     private int historyPage;
     private PvTabs tabs;
     private PvScrollPane pane;
+    /**
+     * The page ids the current tab strip was built from.
+     *
+     * <p>Kept so a snapshot that arrives while the screen is open can tell "the numbers changed" from
+     * "the shape of the panel changed". The operator page is the only page that comes and goes, and
+     * it comes with the first snapshot — which lands after {@code init()} has already built a strip
+     * without it.</p>
+     */
+    private List<Integer> shownPages = List.of();
     /** Widgets belonging to the current page, removed on every rebuild. */
     private final List<PvWidget> pageWidgets = new ArrayList<>();
     private PvButton primary;
@@ -120,33 +129,24 @@ public class HomeScreen extends PvScreen {
         // init() also runs on resize, so the open tab has to be carried over: losing the page because
         // the window changed size is the kind of bug that only shows up on a second monitor.
         List<Integer> pages = visiblePages();
-        int keep = tabs == null ? page : tabs.selected();
-        // The operator page can disappear between two inits — a demotion, or a reconnect to a server
-        // where the player is not an operator. Without this the screen would build a page whose tab
-        // does not exist and draw it with nothing selected.
-        int index = pages.indexOf(keep);
-        if (index < 0) {
-            index = Math.min(tabs == null ? 0 : tabs.selected(), pages.size() - 1);
+        // Carried over as a tab *position*, not as a page id. The two are equal only while the page
+        // set is unchanged, and the operator page can disappear between two inits — a demotion, or a
+        // reconnect to a server where the player is not an operator. Holding the position keeps the
+        // player on 设置 when the operator page above it goes away; holding the id would send them
+        // back to 概览 for no reason they could see.
+        int keep = tabs == null ? pages.indexOf(page) : tabs.selected();
+        if (keep < 0) {
+            keep = 0;
         }
-        page = pages.get(Math.max(0, index));
+        keep = Math.min(keep, pages.size() - 1);
+        page = pages.get(keep);
         roots.clear();
         pageWidgets.clear();
         primary = null;
 
         layoutPanel(MAX_W, MAX_H);
         chromeH = HEADER_H;
-        chromeW = sidebarWidth();
-
-        tabs = new PvTabs(tabLabels(), pages.indexOf(page));
-        tabs.x = panelX;
-        tabs.y = panelY + HEADER_H + AVATAR_H + 8;
-        tabs.width = chromeW;
-        tabs.fitInto(panelH - HEADER_H - AVATAR_H - 8 - 2);
-        tabs.onChange(() -> {
-            page = visiblePages().get(tabs.selected());
-            buildPage();
-        });
-        roots.add(tabs);
+        buildTabs(pages);
 
         pane = new PvScrollPane();
         pane.gap = 4;
@@ -163,6 +163,61 @@ public class HomeScreen extends PvScreen {
             requested = true;
             HomeClient.request();
         }
+    }
+
+    /**
+     * Builds the tab strip for {@code pages}, replacing the current one.
+     *
+     * <p>A method rather than inline code in {@link #init()} because the strip has to be rebuilt when
+     * the page set changes while the screen is already open. {@link PvTabs} fixes its labels at
+     * construction, so a strip built before the first snapshot cannot gain a tab afterwards — and the
+     * damage was not limited to a missing tab: the strip kept five entries while
+     * {@link #visiblePages()} had six, so every tab below the missing one selected the page above it.
+     * Clicking 设置 opened the operator page. That is the "管理 only shows up the second time" report,
+     * and it was also why the first session after logging in behaved oddly.
+     *
+     * <p>Safe to call from {@code drawContent}: {@link PvScreen#render} draws the content before it
+     * walks {@code roots}, so the rebuilt strip is the one painted this frame.
+     */
+    private void buildTabs(List<Integer> pages) {
+        if (tabs != null) {
+            roots.remove(tabs);
+        }
+        // Recomputed here, not by the caller: the sidebar is sized from the labels, and the operator
+        // label can be the widest one in a given language.
+        chromeW = sidebarWidth(pages);
+        tabs = new PvTabs(labelsFor(pages), pages.indexOf(page));
+        tabs.x = panelX;
+        tabs.y = panelY + HEADER_H + AVATAR_H + 8;
+        tabs.width = chromeW;
+        tabs.fitInto(panelH - HEADER_H - AVATAR_H - 8 - 2);
+        tabs.onChange(() -> {
+            page = visiblePages().get(tabs.selected());
+            buildPage();
+        });
+        // Inserted rather than appended, so the root order stays tab strip → content well → close
+        // button. The three do not overlap, but a rebuild that silently reorders the roots is a
+        // rebuild that makes the next layout bug harder to see.
+        roots.add(0, tabs);
+        shownPages = pages;
+    }
+
+    /**
+     * Brings the strip and the page in line with a snapshot that arrived after the screen opened.
+     *
+     * <p>Most snapshots only change numbers, and rebuilding the page is enough. The first one also
+     * decides whether the operator page exists at all, which changes the <em>shape</em> of the panel
+     * — that is the case the strip has to be rebuilt for.</p>
+     */
+    private void syncPages() {
+        List<Integer> pages = visiblePages();
+        if (!pages.equals(shownPages)) {
+            if (!pages.contains(page)) {
+                page = PAGE_OVERVIEW;
+            }
+            buildTabs(pages);
+        }
+        buildPage();
     }
 
     /**
@@ -186,8 +241,7 @@ public class HomeScreen extends PvScreen {
         return pages;
     }
 
-    private List<String> tabLabels() {
-        List<Integer> pages = visiblePages();
+    private List<String> labelsFor(List<Integer> pages) {
         List<String> labels = new ArrayList<>(pages.size());
         for (int id : pages) {
             labels.add(PvLang.str(labelKey(id)));
@@ -213,10 +267,10 @@ public class HomeScreen extends PvScreen {
      * in English — with one addition: the avatar row needs {@code 22 + 6 + name} on one line, and the
      * name may be truncated, so the row only sets a floor rather than a hard requirement.</p>
      */
-    private int sidebarWidth() {
+    private int sidebarWidth(List<Integer> pages) {
         TextRenderer tr = font();
         int widest = 0;
-        for (String label : tabLabels()) {
+        for (String label : labelsFor(pages)) {
             widest = Math.max(widest, tr.getWidth(label));
         }
         // 34 = two 6px insets + 10px text inset + 12px for the dirty-dot column the strip reserves.
@@ -665,8 +719,12 @@ public class HomeScreen extends PvScreen {
         // it runs before the root widgets are rendered this frame — the page is stale for zero
         // frames, and the alternative (painting an empty page until the player changes tabs) reads
         // as a request that never arrived.
+        //
+        // syncPages rather than buildPage: the first snapshot also decides whether the operator page
+        // exists, which changes the tab strip itself. Rebuilding only the page left the strip one
+        // entry short, and every tab below the gap then opened the page above it.
         if (seenVersion != HomeState.version()) {
-            buildPage();
+            syncPages();
         }
         TextRenderer tr = font();
         drawHeader(ctx, tr);
