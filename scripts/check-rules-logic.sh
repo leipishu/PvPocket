@@ -53,5 +53,6 @@ OUT="build/rules-logic"
 mkdir -p "$OUT"
 "$JDK/javac" -encoding UTF-8 -classpath "build/classes/java/main" -d "$OUT" \
     "$ROOT/scripts/agent/RuleLogicCheck.java" || exit 2
-"$JDK/java" -Dfile.encoding=UTF-8 \
+# stdout.encoding 从 JDK 19 起独立于 file.encoding，不给它的话 CI 日志里的中文是乱码。
+"$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
     -classpath "build/classes/java/main;$OUT;$MC_COMMON;$MC_CLIENT;$LOOM_CP" RuleLogicCheck
