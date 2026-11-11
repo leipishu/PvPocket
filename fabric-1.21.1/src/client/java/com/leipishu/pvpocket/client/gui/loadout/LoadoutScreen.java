@@ -16,6 +16,7 @@ import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
+import com.leipishu.pvpocket.loadout.Material;
 import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
@@ -210,7 +211,10 @@ public class LoadoutScreen extends PvScreen {
         }
 
         listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.available")));
-        for (ItemKind kind : ItemKind.of(page)) {
+        // Only what this build can actually grant. The list is a whitelist over the item registry,
+        // so a kind whose item does not exist in the running game (a spear on 1.21.1, a mace on
+        // 1.20.1) is simply absent rather than a row that adds nothing.
+        for (ItemKind kind : ItemKind.availableOf(page)) {
             // Adding opens the dialog immediately: a new entry that appears in the list with default
             // numbers and no dialog is a row the player has to be told to go and click again.
             listPane.add(new LoadoutRow(LoadoutRow.Type.KIND, kind.label(), null, iconOf(kind),
@@ -460,7 +464,12 @@ public class LoadoutScreen extends PvScreen {
             case POTION -> Items.SPLASH_POTION;
             case FOOD -> Items.GOLDEN_CARROT;
             case BLOCK -> Items.WHITE_WOOL;
-            default -> kind.resolve(com.leipishu.pvpocket.loadout.Material.IRON);
+            // The cheapest tier that exists for this kind, not a fixed one: a kind whose iron
+            // variant is missing would otherwise show no icon at all in the "available" list.
+            default -> {
+                List<Material> materials = kind.materials();
+                yield materials.isEmpty() ? null : kind.resolve(materials.get(0));
+            }
         };
         return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
     }
@@ -668,7 +677,11 @@ public class LoadoutScreen extends PvScreen {
         }
         if (index == PAGES.size()) {
             if (loadout.entries.isEmpty()) {
-                loadout.entries.add(LoadoutEntry.of(ItemKind.of(page).get(0)));
+                List<ItemKind> kinds = ItemKind.availableOf(page);
+                if (kinds.isEmpty()) {
+                    return;
+                }
+                loadout.entries.add(LoadoutEntry.of(kinds.get(0)));
                 rebuildList();
             }
             openEditor(0, false);

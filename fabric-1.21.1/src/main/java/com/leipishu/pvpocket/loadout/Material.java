@@ -21,10 +21,15 @@ public enum Material {
 
     WOOD("wood", "wooden", 0),
     STONE("stone", "stone", 1),
-    IRON("iron", "iron", 2),
-    GOLD("gold", "golden", 3),
-    DIAMOND("diamond", "diamond", 4),
-    NETHERITE("netherite", "netherite", 5);
+    /**
+     * A weapon tier only from 1.21.11 onwards, and not for every kind — {@link ItemKind#materials()}
+     * asks the registry per kind, so copper shows up exactly where a copper variant exists.
+     */
+    COPPER("copper", "copper", 2),
+    IRON("iron", "iron", 3),
+    GOLD("gold", "golden", 4),
+    DIAMOND("diamond", "diamond", 5),
+    NETHERITE("netherite", "netherite", 6);
 
     public final String id;
     public final String labelKey;

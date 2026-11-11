@@ -32,6 +32,9 @@ public enum ItemKind {
     BOW(Page.WEAPON, "bow", false, 1),
     CROSSBOW(Page.WEAPON, "crossbow", false, 1),
     TRIDENT(Page.WEAPON, "trident", false, 1),
+    /** Added in 1.21.11; absent from 1.21.1 and older, so {@link #available} hides it there. */
+    SPEAR(Page.WEAPON, "spear", true, 1),
+    /** Added in 1.21 (Tricky Trials); absent from 1.20.1. */
     MACE(Page.WEAPON, "mace", false, 1),
     FISHING_ROD(Page.WEAPON, "fishing_rod", false, 1),
 
@@ -101,10 +104,6 @@ public enum ItemKind {
         return PvLang.str(labelKey);
     }
 
-    public static List<ItemKind> of(Page page) {
-        return java.util.Arrays.stream(values()).filter(k -> k.page == page).toList();
-    }
-
     public static ItemKind byId(String id) {
         for (ItemKind kind : values()) {
             if (kind.id.equals(id)) {
@@ -121,11 +120,97 @@ public enum ItemKind {
      * network, so an unknown combination has to be a rejected entry, not a crashed server.</p>
      */
     public Item resolve(Material material) {
-        String path = materialised && material != null
-                ? material.itemPrefix() + "_" + id
-                : id;
+        String path = itemPath(material);
         Identifier identifier = Identifier.of("minecraft", path);
         return Registries.ITEM.containsId(identifier) ? Registries.ITEM.get(identifier) : null;
+    }
+
+    /** The vanilla id this kind resolves to for {@code material}, without asking the registry. */
+    public String itemPath(Material material) {
+        return materialised && material != null ? material.itemPrefix() + "_" + id : id;
+    }
+
+    // ------------------------------------------------------------------ availability
+    //
+    // Which kinds and materials a build can offer is a property of the *game*, not of this mod, and
+    // the game keeps changing it: the mace arrived in 1.21, the spear in 1.21.11, copper as a weapon
+    // tier later still. Hard-coding a version table would mean every port has to remember to edit it,
+    // and getting it wrong shows the player a row that grants nothing.
+    //
+    // So the registry is the table. The only thing that has to be version-independent is the shape of
+    // the question, which is why the predicate is injected: `availableOf(page)` asks the real item
+    // registry, while the offline self-check passes a fixed set of ids and asserts what each target
+    // version would offer. Without that split this logic could only be tested by launching the game
+    // once per version.
+
+    /** Answers "does this item id exist in this build". The only registry-touching part. */
+    @FunctionalInterface
+    public interface ItemIds {
+        boolean has(String path);
+    }
+
+    /** True for kinds whose concrete item comes from {@link LoadoutEntry#variant}, not from a material. */
+    public boolean resolvesByVariant() {
+        return this == FOOD || this == BLOCK || this == POTION;
+    }
+
+    /** True when at least one material variant of this kind exists in the running game. */
+    public boolean available() {
+        return available(ItemKind::registryHas);
+    }
+
+    public boolean available(ItemIds ids) {
+        // FOOD / BLOCK / POTION carry no item id of their own — the entry's variant names the item,
+        // and every variant in the catalog is a vanilla item that predates all of these versions.
+        // Asking the registry for "food" would answer no and hide the whole page.
+        if (resolvesByVariant()) {
+            return true;
+        }
+        if (!materialised) {
+            return ids.has(id);
+        }
+        for (Material material : Material.values()) {
+            if (ids.has(itemPath(material))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The kinds on {@code page} this build can actually grant, in declaration order. */
+    public static List<ItemKind> availableOf(Page page) {
+        return availableOf(page, ItemKind::registryHas);
+    }
+
+    public static List<ItemKind> availableOf(Page page, ItemIds ids) {
+        return java.util.Arrays.stream(values())
+                .filter(kind -> kind.page == page)
+                .filter(kind -> kind.available(ids))
+                .toList();
+    }
+
+    /**
+     * The materials that produce a real item for this kind, in tier order.
+     *
+     * <p>Per kind rather than global on purpose: copper is a weapon tier in 1.21.11 but not every
+     * kind has a copper variant, and a material offered for a kind it cannot build is a cycle that
+     * stops on an item that does not exist.</p>
+     */
+    public List<Material> materials() {
+        return materials(ItemKind::registryHas);
+    }
+
+    public List<Material> materials(ItemIds ids) {
+        if (!materialised) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(Material.values())
+                .filter(material -> ids.has(itemPath(material)))
+                .toList();
+    }
+
+    private static boolean registryHas(String path) {
+        return Registries.ITEM.containsId(Identifier.of("minecraft", path));
     }
 
     /** True for kinds whose attributes (damage / armour / durability) are worth editing. */

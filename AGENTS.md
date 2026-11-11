@@ -216,6 +216,25 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 主页面是唯一由客户端主动请求的界面（`HomeRequestPayload` → `HomeStatePayload`），
 其余都是服务端推的。新增这类「客户端想要才要」的数据，照这个形状做，不要改成推送。
 
+### 5b. 配装目录（跨版本的内容差）
+
+**配装目录是物品注册表的投影，不是常量表。** 重锤与风弹是 1.21 才有的，长矛是 1.21.11 才有的，
+铜制武器更晚——而且铜可能只对部分种类成立（有铜矛不一定有铜剑）。把这张表写成常量，每移植一个版本
+就要靠人记得改，改漏的表现是「面板上有这一行，加上去却什么都没发」。
+
+- **界面只列能建出东西的条目**：种类用 `ItemKind.availableOf(page)`，材质用 `kind.materials()`。
+  不要直接遍历 `ItemKind.values()` 或 `Material.values()`——那样会把当前版本没有的选项画出来。
+- **可用性是（种类 × 材质）的组合，不是材质全局属性**。`materials()` 按种类问注册表，所以铜矛有、
+  铜剑没有这件事是自动成立的。
+- **非材质化的种类没有自己的物品 id**（FOOD / BLOCK / POTION 由 `variant` 决定物品），它们的可用性
+  恒为真。用「注册表里有没有 `food`」来判断会让整页消失——踩过一次。
+- **线格式用 `kind.id` / `material.id`，永远不用 `ordinal()`**。`Material` 的序号会随插入新材质变化
+  （`COPPER` 就插在中间），而序号一旦落进预设就是静默错位。
+- **校验要分两句**：`item_missing`（这个版本没有这类物品，只能删掉这一行）与 `no_such_item`
+  （这个材质建不出这个物品，换一个材质就好）。混成一句会让玩家不知道该怎么修。
+- 新增物品或材质之后跑 `scripts/check-logic.sh`，`LoadoutContentCheck` 会用三份手写的版本清单
+  断言每个版本应当看到什么。
+
 ### 6. 沙盒
 
 决斗维度内聊天只放行 `/pvpocket` 根字面量（白名单，不是黑名单）；任何人不得自行切游戏模式
@@ -283,15 +302,17 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 python scripts/audit-rules.py --docs                       # 静态：读取点 / 默认值 / 语言键 / 文档一致性
 python scripts/audit-rules.py --coverage fabric-1.21.1/runs/server/world
                                                            # 历史：哪些规则从未以非默认值跑过
-scripts/check-rules-logic.sh                               # 运行时：选项切换、步进、夹取、规范化
+scripts/check-logic.sh                                     # 运行时：规则切换 + 配装目录的版本可用性
 ```
 
 `audit-rules.py` 的判据是「规则 id 在 `RuleCatalog` 之外还有没有**非注释**读取点」。`--coverage`
 读 journal 的 `RULES_ACCEPTED`，回答的是另一个问题——**这条规则有没有被真的验证过**：一份「全部
 OK」的静态报告只能说明线接上了，说明不了它会变。改规则默认值或语义之后先看这张表，别只看静态结果。
 
-`check-rules-logic.sh` 跑的是编译出来的 `RuleDefinition` 与 `DuelRules`，不是把公式抄一遍。加规则
-或改 `clamp` / `step` / `normalise` 之后必须跑它。
+`check-logic.sh` 会编译并运行 `scripts/agent/*Check.java` 里的每一个检查，跑的是编译出来的真实类，
+不是把公式抄一遍。目前两个：`RuleLogicCheck`（选项切换、步进、夹取、规范化）与 `LoadoutContentCheck`
+（配装目录的版本可用性）。加规则、改 `clamp` / `step` / `normalise`、增删物品或材质之后必须跑它。
+新增一个检查就是在 `scripts/agent/` 放一个带 `main` 的 `*Check.java`，退出码 0 表示通过。
 
 界面自动化两条铁律：
 

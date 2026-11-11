@@ -51,13 +51,24 @@ public final class LoadoutFields {
                 v -> entry.count = v));
 
         if (kind.materialised) {
-            Material[] materials = Material.values();
-            String[] labels = Arrays.stream(materials).map(m -> m.labelKey).toArray(String[]::new);
+            // Only the materials that actually build an item for this kind, in tier order. A copper
+            // spear exists in 1.21.11 and a copper sword may not; offering the pair the game cannot
+            // build is a cycle that stops on an item that never arrives.
+            List<Material> available = kind.materials();
+            List<Material> choices = available.isEmpty() ? List.of(Material.IRON) : available;
+            if (!choices.contains(entry.material)) {
+                // The row was authored on a version that had this material. This is a draft copy
+                // (cancel throws it away), so falling back to the lowest available tier is the
+                // honest degradation: the player sees a material that exists instead of a cycle
+                // whose handle is parked on something the game cannot grant.
+                entry.material = choices.get(0);
+            }
+            String[] labels = choices.stream().map(m -> m.labelKey).toArray(String[]::new);
             out.add(new Field(
                     RuleDefinition.enumOf("lo.material", RuleGroup.D,
-                            Math.max(0, Math.min(labels.length - 1, entry.material.ordinal())), labels),
-                    () -> entry.material.ordinal(),
-                    v -> entry.material = materials[Math.floorMod(v, materials.length)]));
+                            indexOfMaterial(choices, entry.material), labels),
+                    () -> indexOfMaterial(choices, entry.material),
+                    v -> entry.material = choices.get(Math.floorMod(v, choices.size()))));
         }
 
         if (kind.page == ItemKind.Page.WEAPON || kind == ItemKind.PICKAXE) {
@@ -225,6 +236,11 @@ public final class LoadoutFields {
             case TNT -> "lo.companion.tnt";
             default -> "lo.arrows";
         };
+    }
+
+    private static int indexOfMaterial(List<Material> materials, Material material) {
+        int index = materials.indexOf(material);
+        return index < 0 ? 0 : index;
     }
 
     private static int indexOfOption(List<LoadoutCatalog.Option> options, String id) {

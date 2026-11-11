@@ -266,11 +266,20 @@ public final class Loadout {
 
     private static List<Text> validateEntry(LoadoutEntry entry, MutableText row) {
         List<Text> problems = new ArrayList<>();
-        // Only materialised kinds are named <material>_<kind>. FOOD and BLOCK resolve through their
-        // variant instead, so asking "does iron_food exist" would reject every valid food row — and
-        // did, which made the default preset unsaveable until the editor exposed it.
-        if (entry.kind.materialised && entry.kind.resolve(entry.material) == null) {
-            problems.add(PvLang.t("pvpocket.loadout.problem.no_such_item", row));
+        // Every kind, not only the materialised ones. A mace on 1.20.1 and a wind charge on 1.20.1
+        // resolve to an empty stack exactly as quietly as a copper spear on 1.21.1, and the old
+        // materialised-only guard let both through: the row validated clean and then granted nothing.
+        //
+        // Two different sentences, because they are two different mistakes. "This version has no
+        // such item" is a preset that came from a newer build and can only be fixed by removing the
+        // row; "this material has no such item" is a row on a material this build cannot build and
+        // can be fixed by picking another tier.
+        if (!entry.kind.resolvesByVariant()) {
+            if (!entry.kind.available()) {
+                problems.add(PvLang.t("pvpocket.loadout.problem.item_missing", row));
+            } else if (entry.kind.resolve(entry.material) == null) {
+                problems.add(PvLang.t("pvpocket.loadout.problem.no_such_item", row));
+            }
         }
         if (entry.count < 1 || entry.count > 64) {
             problems.add(PvLang.t("pvpocket.loadout.problem.count", row));
