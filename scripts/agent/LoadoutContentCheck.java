@@ -35,11 +35,97 @@ public final class LoadoutContentCheck {
         checkEveryKindIsReachable(v1201, v1211, v12111);
         checkWireIds();
 
+        // 第二段：拿真实的游戏 jar 验一遍。上面那三份是"机制对不对"，这一段是"当前这版游戏里到底有
+        // 什么"。物品 id 从客户端 jar 的 en_us.json 里取——每个原版物品都有一条
+        // item.minecraft.<id>，所以不需要启动游戏也不需要 Bootstrap。
+        if (args.length == 2 && "--mcjar".equals(args[0])) {
+            checkAgainstJar(args[1]);
+        }
+
         System.out.println(failures == 0
                 ? "[loadout-content] 全部通过"
                 : "[loadout-content] " + failures + " 项失败");
         if (failures != 0) {
             System.exit(1);
+        }
+    }
+
+    /**
+     * 用真实的游戏 jar 验一遍当前版本。
+     *
+     * <p>这一段的断言只写"不会随版本变化的事实"：任何版本都必须有剑、有食物、有方块；1.21.x 必须有
+     * 重锤与风弹。长矛不在这里断言，因为它随版本出现——那部分由上面的三份模拟清单负责。</p>
+     */
+    private static void checkAgainstJar(String jarPath) {
+        Set<String> itemIds;
+        try {
+            itemIds = itemIdsFromJar(jarPath);
+        } catch (Exception e) {
+            fail("读不了游戏 jar：" + jarPath + "（" + e.getMessage() + "）");
+            return;
+        }
+        if (itemIds.size() < 300) {
+            fail("从 " + jarPath + " 只读到 " + itemIds.size() + " 个物品 id，lang 文件多半换了位置");
+            return;
+        }
+        ItemKind.ItemIds ids = itemIds::contains;
+
+        for (ItemKind.Page page : ItemKind.Page.values()) {
+            List<ItemKind> offered = ItemKind.availableOf(page, ids);
+            StringBuilder line = new StringBuilder("    " + page + ": ");
+            for (ItemKind kind : offered) {
+                line.append(kind.id).append(' ');
+            }
+            System.out.println(line.toString().stripTrailing());
+            expect(!offered.isEmpty(), "页面 " + page + " 在这一版游戏里一个种类都没有");
+        }
+
+        // 材质矩阵：每一个可用的材质化种类，至少要有一种材质；顺序必须是阶梯顺序。
+        for (ItemKind kind : ItemKind.values()) {
+            if (!kind.materialised || !kind.available(ids)) {
+                continue;
+            }
+            List<Material> materials = kind.materials(ids);
+            expect(!materials.isEmpty(), kind.id + " 可用却没有一种材质");
+            expect(isTierOrdered(materials), kind.id + " 的材质顺序不是阶梯顺序：" + materials);
+        }
+
+        // 这几个是所有 1.21.x 都成立的事实；写成断言是为了让"哪天它们没了"当场变红。
+        expect(ItemKind.SWORD.available(ids), "这一版游戏里没有剑？");
+        expect(ItemKind.MACE.available(ids), "1.21.x 应该有重锤");
+        expect(ItemKind.WIND_CHARGE.available(ids), "1.21.x 应该有风弹");
+        expect(ItemKind.FOOD.available(ids), "食物应该永远可用");
+        System.out.println("    共 " + itemIds.size() + " 个物品 id（来自 " + jarPath + "）");
+    }
+
+    /**
+     * 从客户端 jar 的 {@code assets/minecraft/lang/en_us.json} 里取物品 id。
+     *
+     * <p>只保留 {@code item.minecraft.<rest>} 且 {@code <rest>} 里没有点号的键：药水有
+     * {@code item.minecraft.splash_potion.effect.speed} 这种键，它描述的是一个物品的变体，不是注册表
+     * 里的一项。这个过滤是唯一容易出错的地方，所以下面的断言会检查数量级。</p>
+     */
+    private static Set<String> itemIdsFromJar(String jarPath) throws Exception {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jarPath)) {
+            java.util.zip.ZipEntry entry = zip.getEntry("assets/minecraft/lang/en_us.json");
+            if (entry == null) {
+                throw new IllegalStateException("jar 里没有 assets/minecraft/lang/en_us.json");
+            }
+            String json;
+            try (java.io.InputStream in = zip.getInputStream(entry)) {
+                json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            Set<String> out = new LinkedHashSet<>();
+            for (String key : com.google.gson.JsonParser.parseString(json).getAsJsonObject().keySet()) {
+                if (!key.startsWith("item.minecraft.")) {
+                    continue;
+                }
+                String id = key.substring("item.minecraft.".length());
+                if (id.indexOf('.') < 0) {
+                    out.add(id);
+                }
+            }
+            return out;
         }
     }
 
@@ -226,8 +312,13 @@ public final class LoadoutContentCheck {
 
     private static void expect(boolean condition, String message) {
         if (!condition) {
-            failures++;
-            System.out.println("  ! " + message);
+            fail(message);
         }
+    }
+
+    /** 无条件失败。用于"后面的断言全都做不了"的情形（例如 jar 读不出来）。 */
+    private static void fail(String message) {
+        failures++;
+        System.out.println("  ! " + message);
     }
 }

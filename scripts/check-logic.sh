@@ -64,16 +64,25 @@ if [ -z "$SOURCES" ]; then
     echo "[logic] scripts/agent/ 下没有 *Check.java" >&2
     exit 2
 fi
+# -proc:none 关掉批注处理（类路径上有 loom 带的处理器，javac 会为此多打五行提示）；
+# -J-Duser.language=en：javac 的提示是本地化消息，在 GBK 控制台下和下面 UTF-8 的检查输出混在一起，
+# `iconv` 转一遍必然一半乱码。让它说英文，整份日志就只有一个编码。
 # shellcheck disable=SC2086
-"$JDK/javac" -encoding UTF-8 -classpath "$CP" -d "$OUT" $SOURCES || exit 2
+"$JDK/javac" -J-Duser.language=en -J-Duser.country=US -proc:none -encoding UTF-8 \
+    -classpath "$CP" -d "$OUT" $SOURCES || exit 2
 
 FAILED=0
 for source in $SOURCES; do
     CLASS="$(basename "$source" .java)"
+    # 把游戏 jar 传给检查：认得的（LoadoutContentCheck）会拿它核对真实物品表，认不得的忽略。
     # stdout.encoding 从 JDK 19 起独立于 file.encoding，不给它的话 CI 日志里的中文是乱码。
-    if ! "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
-        -classpath "build/classes/java/main;$OUT;$MC_COMMON;$MC_CLIENT;$LOOM_CP" "$CLASS"; then
-        FAILED=1
+    if [ -n "$MC_CLIENT" ]; then
+        "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
+            -classpath "build/classes/java/main;$OUT;$MC_COMMON;$MC_CLIENT;$LOOM_CP" "$CLASS" \
+            --mcjar "$MC_CLIENT" || FAILED=1
+    else
+        "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
+            -classpath "build/classes/java/main;$OUT;$MC_COMMON;$LOOM_CP" "$CLASS" || FAILED=1
     fi
 done
 exit $FAILED
