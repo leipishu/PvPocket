@@ -120,7 +120,7 @@ public class RuleRow extends PvWidget {
     /** Locked rows are not tab stops: focusing something that cannot be changed is a dead end. */
     @Override
     public boolean focusable() {
-        return super.focusable() && control != null;
+        return super.focusable() && control != null && editable;
     }
 
     @Override

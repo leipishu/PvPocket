@@ -75,6 +75,16 @@ public class RosterBoard extends PvWidget {
     private static final int MIN_CARD_W = 150;
 
     private final List<List<Member>> teams = new ArrayList<>();
+    /**
+     * Members pushed off the end of a card when {@code b.teamSize} shrank, kept in case it grows back.
+     *
+     * <p>Parallel to {@link #teams} and empty in the ordinary case. Shrinking has to remove them —
+     * the cards are the roster, and a card with more members than slots cannot be drawn — but
+     * removing them for good turned a slider nudge into data loss: lower 每队人数 to 2 to look at
+     * something, put it back to 5, and three hand-picked names were gone with no way to tell which.
+     * Holding them here makes the operation reversible, which is what a slider should be.</p>
+     */
+    private final List<List<Member>> spilled = new ArrayList<>();
     private final boolean editable;
     private int slots;
     private Listener listener;
@@ -93,10 +103,12 @@ public class RosterBoard extends PvWidget {
      * Slot count follows the {@code b.teamSize} rule, which lives on another tab.
      *
      * <p>Mutable rather than constructor-only because the panel is one screen: a player who lowers
-     * "每队人数" on page B and comes back has to see the cards shrink, or the setting looks inert.
-     * Shrinking drops the members past the new last slot instead of refusing the change — they are
-     * the ones the player added most recently, and refusing would leave the two pages disagreeing
-     * about how many people are in the match.</p>
+     * "每队人数" on page B and comes back has to see the cards shrink, or the setting looks inert.</p>
+     *
+     * <p>Shrinking moves the members past the new last slot into {@link #spilled} rather than
+     * deleting them, and growing puts them back. The cards still cannot show more members than
+     * slots, so the two pages never disagree about how many people are in the match — but a slider
+     * that is dragged down and back up no longer costs the player three names.</p>
      */
     public void setSlots(int slots) {
         int next = Math.max(1, slots);
@@ -104,9 +116,19 @@ public class RosterBoard extends PvWidget {
             return;
         }
         this.slots = next;
-        for (List<Member> side : teams) {
+        // Defensive: the two lists are maintained together, but a caller that reaches into teams()
+        // directly would desync them and this loop is the first place that would notice.
+        while (spilled.size() < teams.size()) {
+            spilled.add(new ArrayList<>());
+        }
+        for (int team = 0; team < teams.size(); team++) {
+            List<Member> side = teams.get(team);
             while (side.size() > next) {
-                side.remove(side.size() - 1);
+                spilled.get(team).add(0, side.remove(side.size() - 1));
+            }
+            // Newest spill first, so growing back restores the order the player built.
+            while (side.size() < next && !spilled.get(team).isEmpty()) {
+                side.add(spilled.get(team).remove(0));
             }
         }
     }
@@ -134,17 +156,20 @@ public class RosterBoard extends PvWidget {
 
     public void clear() {
         teams.clear();
+        spilled.clear();
     }
 
     public void addTeam() {
         if (teams.size() < MAX_TEAMS) {
             teams.add(new ArrayList<>());
+            spilled.add(new ArrayList<>());
         }
     }
 
     public void removeTeam(int team) {
         if (teams.size() > MIN_TEAMS && team >= 0 && team < teams.size()) {
             teams.remove(team);
+            spilled.remove(team);
         }
     }
 
@@ -157,7 +182,16 @@ public class RosterBoard extends PvWidget {
         if (team < 0 || team >= teams.size() || teams.get(team).size() >= slots) {
             return false;
         }
+        // Spilled members count as taken too: growing the slots later would otherwise put the same
+        // person on two cards.
         for (List<Member> side : teams) {
+            for (Member member : side) {
+                if (member.uuid.equals(uuid)) {
+                    return false;
+                }
+            }
+        }
+        for (List<Member> side : spilled) {
             for (Member member : side) {
                 if (member.uuid.equals(uuid)) {
                     return false;

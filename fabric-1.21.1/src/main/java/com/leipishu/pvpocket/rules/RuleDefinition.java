@@ -184,12 +184,38 @@ public final class RuleDefinition {
 
     // ------------------------------------------------------------------ values
 
-    /** Clamps a raw value into the range this definition accepts. */
+    /**
+     * Clamps a raw value into the range this definition accepts.
+     *
+     * <p>INT rules are additionally snapped onto the {@link #step} grid. Every path that writes a
+     * value from the panel already lands on that grid — {@link #step} adds whole steps, and the
+     * slider rounds onto it — so snapping here only ever touches values that arrived from
+     * somewhere else: a hand-edited packet, a preset written by an older build, a rule set typed
+     * into a journal. Without it a stored {@code e.sizeX=45} renders as "45" while the arrow goes
+     * 45 → 53 → 61, i.e. the panel can never come back to the value it is showing, and the row
+     * stays off-grid for the rest of the session.</p>
+     *
+     * <p>The grid is anchored at {@link #min}, not at zero, because that is what the slider and
+     * the stepper already do: {@code e.sizeX} runs 16, 24, … 224.</p>
+     */
     public int clamp(int value) {
         switch (kind) {
             case TOGGLE:
                 return value == 0 ? 0 : 1;
-            case INT:
+            case INT: {
+                int v = Math.max(min, Math.min(max, value));
+                if (step > 1) {
+                    // Round to nearest, then step back inside the range: max is not required to sit
+                    // on the grid, and rounding up past it would hand out a value clamp exists to
+                    // reject.
+                    int snapped = min + Math.round((v - min) / (float) step) * step;
+                    if (snapped > max) {
+                        snapped -= step;
+                    }
+                    v = Math.max(min, snapped);
+                }
+                return v;
+            }
             case ENUM:
                 return Math.max(min, Math.min(max, value));
             case MULTI:

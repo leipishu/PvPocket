@@ -4,16 +4,16 @@
 
 ## 1. The model
 
-A duel's rules are an **ordered key/value snapshot**: 39 configurable rules plus one read-only
+A duel's rules are an **ordered key/value snapshot**: 37 configurable rules plus one read-only
 informational entry, in seven groups.
 
 | Group | Subject | Count |
 | --- | --- | --- |
-| A | Match (rounds, victory, timing) | 6 |
-| B | Players (sizes, teams, friendly fire, spectating) | 5 |
-| C | Combat (mode, survival stats) | 7 |
-| D | Loadout (items, pickups, crafting) | 5 |
-| E | Arena (size, map, boundary, environment) | 7 |
+| A | Match (rounds, victory, timing) | 7 |
+| B | Players (sizes, teams, friendly fire, spectating) | 4 |
+| C | Combat (mode, survival stats) | 6 |
+| D | Loadout (items, pickups, crafting) | 4 |
+| E | Arena (size, map, boundary, environment) | 8 |
 | F | Blocks (placing, breaking, explosives) | 5 |
 | G | Other (pearls, surrender, display, chat) | 4 |
 
@@ -31,11 +31,11 @@ what the panel shows.
 - **Round cap** — `a.maxRounds` · int 1–15 · default 3 rounds. The most rounds a match can run; reaching it ends the match.
 - **Rounds to win** — `a.winsNeeded` · int 1–15 · default 2 rounds. The first side to win this many rounds takes the match. The panel keeps it at or below the round cap, so "4 wins out of 3" is not a state the panel can sit in.
   Two numbers rather than one "best of N" choice because they answer two different questions — "how long until we stop" and "how much is enough". Collapsed into one, an even round count cannot be expressed and **a draw is structurally impossible**: wins are derived from the round count, so somebody always gets there first. Split, a match that runs out of rounds with nobody at the line goes to the highest score, and a tie is a draw.
-- **Round time limit** — `a.roundLimit` · choice · default No limit · No limit / 1 minute / 3 minutes / 5 minutes / 10 minutes / 15 minutes. After this the round is settled by the timeout rule. Unlimited when off.
+- **Round time limit** — `a.roundLimit` · choice · default 15 minutes · No limit / 1 minute / 3 minutes / 5 minutes / 10 minutes / 15 minutes. After this the round is settled by the timeout rule. Unlimited when off. **The clock only runs while Timeout is one of the win conditions**; without it the round has no clock at all and this row is greyed out.
 - **Timeout verdict** — `a.timeoutVerdict` · choice · default Higher health wins · Higher health wins / Draw / Both lose. How a round is decided when the clock runs out.
 - **Preparation time** — `a.countdown` · int 0–30 · default 5 s. Time between being teleported in and the first blow, counted down in chat one second at a time. Nobody can deal or take damage during it: an invisible solid ring stands around the plot, and four blocks in front of each side a solid white screen spans the width of the fight area. Both vanish the moment the round goes live. The boundary curtain keeps its rule colour (blue/red) throughout the countdown — the solid white belongs to the wall between the two sides, not to the edge.
 - **Intermission** — `a.intermission` · int 1–10 · default 3 s. The break between two rounds of a series.
-- **Win conditions** — `a.winConditions` · multi · Kill / Out of bounds / Surrender / Timeout. Which events can end a round. "Kill" is locked on; keep at least one of the other three.
+- **Win conditions** — `a.winConditions` · multi · Kill / Out of bounds / Surrender / Timeout. Which events can end a round. **"Kill" is locked on and cannot be cleared**: wiping the other side out is the only structural guarantee that a round ends, and clearing it would mean allowing a round that never does. The other three are free.
 
 **Players** — Teams, sizes, friendly fire
 
@@ -59,7 +59,6 @@ what the panel shows.
 - **Max health** — `c.maxHealth` · int 1–40 · default 20 HP. Health cap for everyone once inside. Vanilla is 20.
 - **Natural regeneration** — `c.naturalRegen` · toggle · default On. When off, only potions and golden apples restore health.
 - **Hunger** — `c.hunger` · choice · default Normal · Normal / Off. When off, hunger never drops and starvation never hurts.
-- **Fall damage** — `c.fallDamage` · toggle · default On. When off, landing from a height does no damage.
 - **Knockback resistance** — `c.knockbackResistance` · percent · default 0%. Knockback resistance applied equally to every participant.
 
 > **Shields and blocking in legacy mode.** 1.8 has no shields, so a legacy round strips shield rows
@@ -97,14 +96,14 @@ what the panel shows.
 
 **Arena** — Arena, boundary, hazards
 
-- **Arena length (X)** — `e.sizeX` · int 16–224 · default 48 blocks. Plot size along X. Taken over by the map's own size once one is picked.
+- **Arena length (X)** — `e.sizeX` · int 16–224 · default 48 blocks. Plot size along X. **Only applies to the flat plot**: every other map carries its own bounding box and `ArenaManager.allocate` uses that instead, so the three size rows are greyed out once a map is picked.
 - **Arena width (Z)** — `e.sizeZ` · int 16–224 · default 48 blocks. Plot size along Z. Taken over by the map's own size once one is picked.
 - **Arena height (Y)** — `e.sizeY` · int 8–96 · default 32 blocks. Plot size along Y, which is how much vertical room there is to build in. Taken over by the map's own size once one is picked.
 - **Arena map** — `e.template` · choice · default Flat · Flat / Fun House / Sky Island / Dark Nebula / Deadwood / Colosseum. Flat is a floating platform whose size is the length and width below; the rest are built-in maps, and picking one makes the plot follow the map's bounding box. Every arena floats in the void, so leaving the plot means falling into it. A map can only host one duel at a time; maps in use are marked and skipped.
-- **Boundary rule** — `e.boundary` · choice · default Push back · Push back / Countdown forfeit. Push back: stepping out puts you back at the nearest point inside. Forfeit: stepping out starts a five-second countdown, and still being outside when it ends loses the round. A translucent curtain marks all four edges (blue = push back, red = forfeit); you can walk through it, it grows with your height, and only the stretch near you is drawn. Maps with an inner pit (the colosseum) ring the fighting floor only, not the seating.
-- **Time of day** — `e.timeOfDay` · choice · default Natural · Natural / Dawn / Noon / Dusk / Midnight. A fixed time freezes the clock and switches the daylight cycle off; Natural keeps the vanilla cycle.
+- **Boundary rule** — `e.boundary` · choice · default Countdown forfeit · Push back / Countdown forfeit. Push back: stepping out puts you back at the nearest point inside. Forfeit: stepping out starts a five-second countdown, and still being outside when it ends loses the round. A translucent curtain marks all four edges (blue = push back, red = forfeit); you can walk through it, it grows with your height, and only the stretch near you is drawn. Maps with an inner pit (the colosseum) ring the fighting floor only, not the seating.
+- **Time of day** — `e.timeOfDay` · choice · default Dawn · Natural / Dawn / Noon / Dusk / Midnight. A fixed time freezes the clock and switches the daylight cycle off; Natural keeps the vanilla cycle.
 - **Weather** — `e.weather` · choice · default Clear · Clear / Rain / Thunder. Set at the start of every round. Weather is a dimension-wide property, so with several duels running at once the last one to start wins.
-- **Environmental hazards** — `e.hazard` · multi · None / Fall damage / Lava / Void. Extra sources of damage that apply inside the arena.
+- **Environmental hazards** — `e.hazard` · multi · None / Fall damage / Lava / Void. Extra sources of damage that apply inside the arena. **None excludes the other three**: checking it clears them, checking any of them clears None. This is the **only** fall-damage switch — `c.fallDamage` is gone, because two switches for one question always means one of them is lying.
 
 **Blocks** — Placing, breaking, explosives
 
@@ -121,9 +120,26 @@ what the panel shows.
 - **Show opponent health** — `g.showOpponentHealth` · toggle · default On. Show the opponent's health at the top of the screen.
 - **Chat during the duel** — `g.chatScope` · choice · default Server-wide · Server-wide / Team only / Muted. Restricts who can see chat during the match.
 
+### Dependencies between rules
+
+Three groups are meaningless on their own: they only apply while another rule is in a particular
+state. The panel greys out the rows that do not apply and the hint says why. Greying is the only
+honest rendering — hiding the rows makes the panel look like it lost something, and leaving them
+clickable means letting the player edit a number nobody reads.
+
+| Rule | Depends on | When it does not hold |
+| --- | --- | --- |
+| `a.roundLimit`, `a.timeoutVerdict` | Timeout checked in `a.winConditions` | the round has no clock and the verdict is never used |
+| `e.sizeX`, `e.sizeY`, `e.sizeZ` | `e.template` being the flat plot | the map's bounding box decides the size; these three are ignored |
+| the "None" chip of `e.hazard` | mutually exclusive with the other three | checking None clears them, checking any of them clears None |
+
+The third is not a dependency but two spellings of one state, so it is collapsed in the data layer:
+`DuelRules` normalisation turns both `e.hazard=0` and `e.hazard=15` into `1` ("None"), so two rule
+sets that behave identically cannot produce two different digests.
+
 ## 3. Enforcement status (important)
 
-**All 40 rules exist, 39 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
+**All 38 rules exist, 37 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
 conflict note), **and every one of those currently affects a duel.** This is the section that matters. Do
 not look at the panel and assume the whole set is in effect.
 
@@ -135,7 +151,7 @@ Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the 
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
-| C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.fallDamage`, `c.knockbackResistance` |
+| C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.knockbackResistance` |
 | D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter`, `f.allowExplosives` |
@@ -173,12 +189,13 @@ Where each one is read:
   because there were too many options but because it made "my sword has Sharpness and his does not"
   a legal state — a duel is supposed to be the same blade and the same armour. The round reads the
   **match-wide** set; it no longer resolves a set per side or per player.
-- **`c.fallDamage` / `e.hazard`** — both live in the same `ALLOW_DAMAGE` handler, keyed on the
-  `DamageSource`. Fall damage needs both switches on (they are both off-switches, so either one
-  turns it off); lava and void are one bit each in `e.hazard`, and its "none" chip turns all three
-  off. Starvation damage is gated by `c.hunger`. This branch is **deliberately not journalled**:
-  standing in lava would write a line every ten ticks and bury everything else, and the rules
-  themselves are journalled when the session starts.
+- **`e.hazard`** — lives in the `ALLOW_DAMAGE` handler, keyed on the `DamageSource`. Fall, lava and
+  void are one bit each, and the "none" chip turns all three off. Starvation damage is gated by
+  `c.hunger`. This branch is **deliberately not journalled**: standing in lava would write a line
+  every ten ticks and bury everything else, and the rules themselves are journalled when the session
+  starts. There used to be a `c.fallDamage` toggle ANDed into the fall bit, which meant clearing the
+  hazard bit left the panel saying "on" while the landing did not hurt — two switches for one
+  question always means one of them is lying, so the group C toggle is the one that went.
 - **`c.naturalRegen`** — injected into `PlayerEntity#canFoodHeal`; returning false removes
   hunger-driven regeneration. Golden apples and potions go through `heal()` and are unaffected.
 - **`c.hunger`** — injected into `PlayerEntity#addExhaustion` and cancelled, so the bar never drains.
@@ -285,7 +302,7 @@ Where each one is read:
 
 ### There is no "recorded only" left
 
-**All 39 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+**All 37 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
 `fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
 
 This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line

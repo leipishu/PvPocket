@@ -84,7 +84,17 @@ public final class ArenaMaps {
     private ArenaMaps() {
     }
 
-    /** Index-safe lookup: an out-of-range value (older or newer client) falls back to flat. */
+    /**
+     * Index-safe lookup.
+     *
+     * <p>An out-of-range value falls back to flat rather than throwing, but note that in practice
+     * this branch is unreachable from a rule set: {@code DuelRules.decode} clamps an ENUM to
+     * {@code [min, max]} before anything reads it, so a stale index left over from a build with
+     * more maps arrives here already pinned to the <em>last</em> map rather than falling back to
+     * flat. That difference matters — it means an old session silently moves to a different map
+     * instead of to the default one — and it is why {@code DuelRules} records every value the
+     * normalisation had to move and {@code SessionManager} journals it at accept time.</p>
+     */
     public static ArenaMap byIndex(int index) {
         if (index < 0 || index >= ALL.size()) {
             return ArenaMap.FLAT;

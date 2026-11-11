@@ -26,6 +26,7 @@ import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
+import com.leipishu.pvpocket.rules.Rulebook;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -243,10 +244,45 @@ public class RuleScreen extends PvScreen {
             buildLoadoutToolbar();
         }
         for (RuleDefinition def : RuleCatalog.of(tabs.group())) {
-            pane.add(new RuleRow(def, createControl(def), incoming.get(def.id), true));
+            pane.add(new RuleRow(def, createControl(def), incoming.get(def.id), rowEnabled(def)));
         }
         pane.layout();
         validateFocus();
+    }
+
+    /**
+     * Whether this rule's control is usable at all, given what the other rules are set to.
+     *
+     * <p>Two pairs are only meaningful together, and the panel used to leave both halves fully
+     * editable — which is how a rule gets the reputation of not working.</p>
+     *
+     * <ul>
+     *   <li>{@code a.roundLimit} and {@code a.timeoutVerdict} describe a clock that only runs when
+     *       超时 is one of the accepted win conditions ({@code SessionManager#tickRoundLimit} returns
+     *       early otherwise). Setting a 15-minute limit with 超时 unchecked produced no clock at all,
+     *       silently.</li>
+     *   <li>{@code e.sizeX/Y/Z} only apply to the flat plot. Every other map carries its own
+     *       bounding box and {@code ArenaManager#allocate} uses that instead, so the sliders were
+     *       moving a number nobody reads.</li>
+     * </ul>
+     *
+     * <p>Greyed rather than hidden: the value is still part of the rule set and still shown in the
+     * summary, and a row that disappears makes the panel feel like it lost something. The hint on
+     * each row explains the dependency, and the row's label dims to match its control.</p>
+     */
+    private boolean rowEnabled(RuleDefinition def) {
+        switch (def.id) {
+            case "a.roundLimit":
+            case "a.timeoutVerdict":
+                return (edited.get("a.winConditions")
+                        & (1 << Rulebook.WinCondition.TIMEOUT.ordinal())) != 0;
+            case "e.sizeX":
+            case "e.sizeY":
+            case "e.sizeZ":
+                return ArenaMaps.byIndex(edited.get("e.template")).isFlat();
+            default:
+                return true;
+        }
     }
 
     /**
@@ -340,7 +376,23 @@ public class RuleScreen extends PvScreen {
         }
     }
 
+    /**
+     * Whether the roster has reached {@code b.maxPlayers}.
+     *
+     * <p>Checked here as well as on the server because the server's refusal arrives at "同意并开始",
+     * which is the worst possible moment to learn about it: the player has already picked sides and
+     * is looking at a button that will not work. The card grid cannot express this on its own —
+     * 4 teams x 5 slots is twenty places, and the cap is a separate number — so the footer says it.
+     * </p>
+     */
+    private boolean atPlayerCap() {
+        return board != null && board.playerCount() >= edited.get("b.maxPlayers");
+    }
+
     private void openPicker(int team) {
+        if (atPlayerCap()) {
+            return;
+        }
         java.util.List<String[]> candidates = new java.util.ArrayList<>();
         if (!payload.candidates().isEmpty()) {
             for (String pair : payload.candidates().split(",")) {
@@ -405,6 +457,13 @@ public class RuleScreen extends PvScreen {
                 if ("a.maxRounds".equals(def.id)) {
                     clampWinsNeeded();
                 }
+                // Rows whose usability depends on this one have to be rebuilt, not patched: the
+                // dependency lives in RuleRow.editable, which is fixed at construction. Deferred to
+                // the next tick because this callback runs inside the control's own click handler
+                // and rebuilding the pane under it would pull the ground out from under the event.
+                if ("a.winConditions".equals(def.id)) {
+                    MinecraftClient.getInstance().execute(this::buildRows);
+                }
             });
             if ("e.template".equals(def.id)) {
                 control.onChange(this::pickTemplate);
@@ -464,12 +523,14 @@ public class RuleScreen extends PvScreen {
     private void pickTemplate(int choice) {
         edited.set("e.template", choice);
         ArenaMap map = ArenaMaps.byIndex(choice);
-        if (map.isFlat()) {
-            return;
+        if (!map.isFlat()) {
+            edited.set("e.sizeX", map.sizeX);
+            edited.set("e.sizeZ", map.sizeZ);
+            edited.set("e.sizeY", map.sizeY);
         }
-        edited.set("e.sizeX", map.sizeX);
-        edited.set("e.sizeZ", map.sizeZ);
-        edited.set("e.sizeY", map.sizeY);
+        // Rebuilt on both branches. The flat branch used to return early, which was fine while the
+        // size rows were always editable — now that they are greyed out on every other map, coming
+        // back to 平坦 has to re-enable them, and that state is fixed when the row is constructed.
         MinecraftClient.getInstance().execute(this::buildRows);
     }
 
@@ -770,12 +831,17 @@ public class RuleScreen extends PvScreen {
         if (rosterEditable()) {
             int teams = board == null ? 0 : board.playingTeams();
             int people = board == null ? 0 : board.playerCount();
-            status = teams < 2
+            // The cap is named before the generic "send when ready": it is the one blocker that the
+            // cards cannot show, because the grid has room for twenty places and the cap is a
+            // separate number. Naming it is what stops the player from counting slots.
+            status = atPlayerCap()
+                    ? PvLang.str("pvpocket.gui.roster.footer.at_cap", edited.get("b.maxPlayers"))
+                    : teams < 2
                     ? PvLang.str("pvpocket.gui.roster.footer.need_sides")
                     : people < 2
                     ? PvLang.str("pvpocket.gui.roster.footer.need_people")
                     : PvLang.str("pvpocket.gui.roster.footer");
-            if (teams >= 2 && people >= 2) {
+            if (atPlayerCap() || (teams >= 2 && people >= 2)) {
                 color = PvTheme.ACCENT;
             }
         } else {

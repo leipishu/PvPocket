@@ -67,7 +67,11 @@ public final class RuleCatalog {
         add(RuleDefinition.intRange("c.maxHealth", RuleGroup.C, 1, 40, 1, 20));
         add(RuleDefinition.toggle("c.naturalRegen", RuleGroup.C, true));
         add(RuleDefinition.enumOf("c.hunger", RuleGroup.C, 0, choices("c.hunger", 2)));
-        add(RuleDefinition.toggle("c.fallDamage", RuleGroup.C, true));
+        // 这里曾经有一条 c.fallDamage。它和 e.hazard 的「掉落伤害」位问的是同一个问题，而
+        // Rulebook 里是 && 起来算的：取消 e.hazard 那一项之后，面板上 c.fallDamage 仍显示「开」，
+        // 落地却不疼。两个开关管一件事，无论默认值怎么调都会有一半的玩家觉得「改了没反应」，
+        // 所以删掉的是组 C 这一条——掉落本来就是「场地内生效的额外伤害来源」的一种，留在 e.hazard
+        // 里就够了，而且删规则不动 e.hazard 的位序（改位序会让旧存档静默错位）。
         add(RuleDefinition.percent("c.knockbackResistance", RuleGroup.C, 0));
 
         // D. 配装
@@ -132,10 +136,27 @@ public final class RuleCatalog {
      * on a wipe, is the kind of config that lies, which is the whole reason this backlog exists.</p>
      *
      * <p>Enforced twice: {@link DuelRules#set} forces the bit back on for anything that writes a
-     * rule set, and the chip widget draws it as locked.</p>
+     * rule set, and the chip widget draws it as locked. The bit is also <em>read</em> —
+     * {@code Rulebook#wipeEndsRound} is what the round-end path asks — so the lock protects a real
+     * branch rather than a decoration. Without that read, a crafted packet could clear the bit and
+     * nothing downstream would notice, which is exactly the kind of switch this file exists to
+     * refuse.</p>
      */
     public static int lockedBits(String id) {
         return "a.winConditions".equals(id) ? 1 : 0;
+    }
+
+    /**
+     * Bits of a multi-select rule that exclude every other bit, in {@code e.hazard}'s sense of 无.
+     *
+     * <p>{@code e.hazard} has four chips: 无 / 掉落 / 岩浆 / 虚空. 无 is not a fourth hazard, it is
+     * the absence of all three, so "无 and 岩浆 are both checked" is a state with no meaning — and
+     * {@code Rulebook#hazard} resolves it by letting 无 win, which leaves a lit 岩浆 chip that does
+     * nothing. Refusing the state at the widget is the only place it can be refused without lying:
+     * checking 无 clears the rest, checking anything else clears 无.</p>
+     */
+    public static int exclusiveBits(String id) {
+        return "e.hazard".equals(id) ? 1 : 0;
     }
 
     private static void add(RuleDefinition def) {

@@ -2373,6 +2373,15 @@ public final class SessionManager {
                 // the last answer was already on the record in that case.
                 "acceptedBy", accepter == null ? "(auto)" : accepter.getName().getString(),
                 "digest", session.rulesDigest,
+                // The ids that differ from the catalog defaults, spelled out. The encoded string is
+                // also here, but reading it back means decoding thirty-eight pairs by hand, and the
+                // question somebody actually asks of this file is "what was unusual about this
+                // match" — which is a list of three ids, not a wall of defaults.
+                "changed", changedFromDefaults(rules),
+                // Values the normalisation had to move on the way in. Empty in every ordinary
+                // match; non-empty means the rule set a player agreed to is not the one about to
+                // run, which is otherwise invisible (the digest hashes what was stored).
+                "clamped", rules.clampedValues(),
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
         closePanels(session);
@@ -2471,6 +2480,12 @@ public final class SessionManager {
     }
 
     // ------------------------------------------------------------------ rule plumbing
+
+    /** Rule ids whose value differs from the catalog default, comma-separated; "-" when none do. */
+    private static String changedFromDefaults(DuelRules rules) {
+        List<String> ids = rules.differences(DuelRules.defaults());
+        return ids.isEmpty() ? "-" : String.join(",", ids);
+    }
 
     /** Copies a rule set onto the session and refreshes the derived fields plus the fingerprint. */
     private static void applyRulesToSession(DuelSession session, DuelRules rules) {
@@ -3394,6 +3409,13 @@ public final class SessionManager {
                 // the HUD rather than a behaviour, and "I set it to 40 and started on 20" needs an
                 // answer that does not depend on remembering which revision ran.
                 "maxHealth", rules.get("c.maxHealth"),
+                // And the round clock, for the same reason plus one of its own: the clock only runs
+                // when 超时 is also an accepted win condition, so "I set a 15 minute limit and the
+                // round ran for an hour" has two very different explanations and this line is what
+                // tells them apart.
+                "roundLimit", session.rulebook().roundLimitSeconds() == 0
+                        || !session.rulebook().winsBy(Rulebook.WinCondition.TIMEOUT)
+                        ? "off" : session.rulebook().roundLimitSeconds() + "s",
                 "region", region == null ? "-" : region.id,
                 "teams", session.teamCount,
                 "shape", shapeOf(session),
@@ -3514,11 +3536,49 @@ public final class SessionManager {
     }
 
     /**
+     * Puts the arena dimension's clock and weather back once nothing is running in it.
+     *
+     * <p>{@code e.timeOfDay} and {@code e.weather} are per-<em>world</em> properties, so a fixed
+     * time is applied by switching {@code DO_DAYLIGHT_CYCLE} off — and until this method existed
+     * nothing ever switched it back on. One match set to 正午 froze the arena dimension's clock for
+     * every match after it, and for the survival world's neighbours sharing that dimension, until
+     * somebody happened to start a match that asked for 自然. The rule was not wrong; the cleanup
+     * was missing.</p>
+     *
+     * <p>Guarded on "nothing is running" rather than done unconditionally: two matches share one
+     * clock, and restoring it when the first of them ends would yank the time out from under the
+     * second — the same shared-world problem {@link #applyEnvironment} documents, just at the other
+     * end.</p>
+     */
+    private void restoreEnvironmentWhenIdle(ServerWorld world) {
+        if (world == null) {
+            return;
+        }
+        for (DuelSession other : sessions.values()) {
+            if (other.stage == SessionStage.ROUND_READY
+                    || other.stage == SessionStage.ROUND_ACTIVE
+                    || other.stage == SessionStage.ROUND_SETTLED
+                    || other.stage == SessionStage.FROZEN) {
+                return;
+            }
+        }
+        world.getGameRules().get(GameRules.DO_DAYLIGHT_CYCLE).set(true, server);
+        world.setWeather(12_000, 0, false, false);
+    }
+
+    /**
      * Takes one player out of the round.
      *
      * <p>The round ends when the last member of a side is gone, not when the first player dies. That
      * single rule covers both shapes: a 1v1 ends on the first death because the side had one member,
      * and a 3v3 continues while two team-mates are still standing.</p>
+     *
+     * <p>That is {@code a.winConditions} · 击杀, and it is asked rather than assumed. The bit is
+     * locked on in the panel because the only alternative — respawn the wiped side and keep playing
+     * — is a game mode, not a checkbox; but a bit that nothing reads is a bit whose lock protects
+     * nothing, and a crafted packet could clear it. If it ever arrives cleared, the round still ends
+     * (a round that cannot end is the worst failure mode there is) and the anomaly is journalled so
+     * the contradiction is visible instead of silent.</p>
      */
     private void eliminate(DuelSession session, Participant p, String reason) {
         if (session.stage != SessionStage.ROUND_ACTIVE || p.eliminated) {
@@ -3531,6 +3591,10 @@ public final class SessionManager {
                 "alive", survivorsOf(session),
                 "winnerTeam", winner);
         if (winner >= 0) {
+            if (!session.rulebook().wipeEndsRound()) {
+                journal(session).append("ANOMALY", "kind", "wipe_without_kill_condition",
+                        "team", winner, "round", session.round);
+            }
             settle(session, reason, winner);
         } else {
             persist(session);
@@ -4133,6 +4197,7 @@ public final class SessionManager {
         }
         ArenaManager.release(session.id);
         journal(session).append("ARENA_RELEASED", "region", session.arenaId);
+        restoreEnvironmentWhenIdle(arenaWorld);
 
         // Hidden before ARCHIVED so the client never draws a scoreboard for a session that no longer
         // exists on the server — the payload is the only thing it has to go on.

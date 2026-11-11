@@ -74,6 +74,19 @@ public final class Rulebook {
         return (rules.get("a.winConditions") & (1 << condition.ordinal())) != 0;
     }
 
+    /**
+     * Whether wiping the other side out ends the round.
+     *
+     * <p>{@code a.winConditions} · 击杀, and it is the only condition that is locked on: the
+     * alternative is respawning the wiped side and playing on, which is a different game mode rather
+     * than a checkbox. Exposed as its own question because the round-end path has to ask it — a bit
+     * that no code reads is a bit whose lock protects nothing, and this one is drawn as locked on
+     * the panel.</p>
+     */
+    public boolean wipeEndsRound() {
+        return winsBy(WinCondition.KILL);
+    }
+
     /** The round clock, in seconds; 0 means no limit. */
     public int roundLimitSeconds() {
         int choice = rules.get("a.roundLimit");
@@ -112,15 +125,15 @@ public final class Rulebook {
     }
 
     /**
-     * Fall damage, which two rules can turn off.
+     * Fall damage, which {@code e.hazard} owns outright.
      *
-     * <p>{@code c.fallDamage} is the general switch and {@code e.hazard} has a fall bit of its own.
-     * They overlap, so the stricter of the two wins: a player who clears the hazard bit and sees
-     * their landing still hurt would be right to call it a bug, and so would one who turns off
-     * {@code c.fallDamage} and still dies to a three-block drop.</p>
+     * <p>There used to be a {@code c.fallDamage} toggle as well, and this method was
+     * {@code c.fallDamage && hazard(HAZARD_FALL)}. Two switches for one question means one of them
+     * is always lying: clearing the hazard bit made the toggle a no-op, so the panel said "开" and
+     * the landing did not hurt. The toggle is gone; the hazard bit is the answer.</p>
      */
     public boolean fallDamage() {
-        return rules.flag("c.fallDamage") && hazard(HAZARD_FALL);
+        return hazard(HAZARD_FALL);
     }
 
     /** {@code e.hazard} · lava. */

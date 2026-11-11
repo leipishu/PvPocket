@@ -56,9 +56,9 @@ If the panel is closed with Esc, `/pvpocket review` reopens it.
 | ----------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
 | A Match structure | Rounds, victory, time           | Rounds to win, per-round limit, timeout verdict                                    |
 | B Participants    | Players, teams, friendly fire   | Team size, player cap, friendly-fire toggle                                        |
-| C Combat          | Combat mode and survival stats  | Modern / 1.8, max health, natural regen, hunger, fall damage, knockback resistance |
+| C Combat          | Combat mode and survival stats  | Modern / 1.8, max health, natural regen, hunger, knockback resistance               |
 | D Loadout         | Entry items and pickup          | Swapping between rounds, pickup, crafting, consumables                             |
-| E Arena           | Map, bounds, environment        | Map, size, boundary rule, time of day, weather, hazards                            |
+| E Arena           | Map, bounds, environment        | Map, size, boundary rule, time of day, weather, hazards (incl. fall damage)         |
 | F Blocks          | Placement, breaking, explosions | Placement, terrain protection, block filter, explosives                            |
 | G Other           | Pearls, surrender, display      | Ender pearls, surrender, opponent health, chat scope                               |
 

@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.rules;
 
+import com.leipishu.pvpocket.arena.ArenaMap;
+import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
@@ -26,6 +28,8 @@ import java.util.Map;
 public final class DuelRules {
 
     private final Map<String, Integer> values = new LinkedHashMap<>();
+    /** Ids whose stored value the clamp had to move, as {@code raw->stored}; see {@link #decode}. */
+    private final Map<String, String> clamped = new LinkedHashMap<>();
 
     private DuelRules() {
     }
@@ -33,7 +37,7 @@ public final class DuelRules {
     public static DuelRules defaults() {
         DuelRules rules = new DuelRules();
         for (RuleDefinition def : RuleCatalog.all()) {
-            rules.values.put(def.id, def.defaultValue);
+            rules.values.put(def.id, normalise(def.id, def.defaultValue));
         }
         return rules;
     }
@@ -54,7 +58,16 @@ public final class DuelRules {
                 RuleDefinition def = RuleCatalog.byId(id);
                 // Unknown ids are kept verbatim: a rule added on the server but missing from an
                 // older client must survive the round trip rather than be reset to its default.
-                rules.values.put(id, def == null ? raw : def.clamp(raw));
+                int stored = def == null ? raw : normalise(id, raw);
+                // A value the normalisation had to move is the one case where the rule set a player
+                // agreed to is not the rule set that will run, and it is silent by construction —
+                // the digest in the journal hashes what was stored, not what was asked for.
+                // Recorded here and journalled at accept time; the case that motivated it is a map
+                // index left over from a build that had more maps than this one.
+                if (stored != raw) {
+                    rules.clamped.put(id, raw + "->" + stored);
+                }
+                rules.values.put(id, stored);
             } catch (NumberFormatException ignored) {
                 // A malformed pair is dropped; the default for that id stays in place.
             }
@@ -65,7 +78,13 @@ public final class DuelRules {
     public DuelRules copy() {
         DuelRules copy = new DuelRules();
         copy.values.putAll(values);
+        copy.clamped.putAll(clamped);
         return copy;
+    }
+
+    /** Ids whose value was moved by {@link RuleDefinition#clamp} on the way in, as {@code raw->stored}. */
+    public Map<String, String> clampedValues() {
+        return java.util.Collections.unmodifiableMap(clamped);
     }
 
     public int get(String id) {
@@ -77,22 +96,38 @@ public final class DuelRules {
         return def == null ? 0 : def.defaultValue;
     }
 
-    public void set(String id, int value) {
+    /**
+     * Everything a stored value has to satisfy before any code reads it.
+     *
+     * <p>Three steps, in this order: the definition's own range, the bits the panel will not let you
+     * clear, and the bits that exclude the rest. Applied on both the {@code set} path and the
+     * {@code decode} path, because the second one is how a session reloaded from disk, a preset file
+     * or a hand-built packet gets in — and a rule set that can only be trusted when it arrived
+     * through the panel is not a rule set at all.</p>
+     */
+    private static int normalise(String id, int value) {
         RuleDefinition def = RuleCatalog.byId(id);
-        int clamped = def == null ? value : def.clamp(value);
-        // Bits the panel refuses to clear are forced back on here as well. The panel is not the only
-        // writer — a hand-built packet or an older client would otherwise be able to store a rule
-        // set whose meaning is "a round cannot be won by wiping the other side out", which no code
-        // implements.
-        values.put(id, clamped | RuleCatalog.lockedBits(id));
+        int out = def == null ? value : def.clamp(value);
+        out |= RuleCatalog.lockedBits(id);
+        int exclusive = RuleCatalog.exclusiveBits(id);
+        if (exclusive != 0) {
+            if ((out & exclusive) != 0) {
+                out &= exclusive;
+            } else if ((out & ~exclusive) == 0) {
+                // "none of the ordinary bits" and "the exclusive bit" are the same state; storing
+                // both spellings would make two rule sets that behave identically hash differently.
+                out = exclusive;
+            }
+        }
+        return out;
+    }
+
+    public void set(String id, int value) {
+        values.put(id, normalise(id, value));
     }
 
     public boolean flag(String id) {
         return get(id) != 0;
-    }
-
-    public boolean has(String id, int bit) {
-        return (get(id) & (1 << bit)) != 0;
     }
 
     public String encode() {
@@ -149,6 +184,12 @@ public final class DuelRules {
         // no summary at all.
         int maxRounds = get("a.maxRounds");
         int winsNeeded = Math.min(get("a.winsNeeded"), maxRounds);
+        ArenaMap map = ArenaMaps.byIndex(get("e.template"));
+        // The map is named, not just its size. It was the one field of this line that the reader
+        // could not recover from anywhere else, and it is the most visible thing about a match — two
+        // players who agreed on "斗兽场" had no way to tell from the summary that they were about to
+        // be dropped into the fun house. The size is still printed because it is what the flat map
+        // actually uses, but for any other map the name is the fact that matters.
         return Text.empty()
                 .append(PvLang.t("pvpocket.rule.series.short", maxRounds, winsNeeded))
                 .append(Text.literal(" · "))
@@ -156,6 +197,8 @@ public final class DuelRules {
                 .append(Text.literal(" · "))
                 .append(PvLang.t("pvpocket.rule.b.teamSlot", get("b.teamSize")))
                 .append(Text.literal(" · "))
+                .append(map.labelText())
+                .append(Text.literal(" "))
                 .append(PvLang.t("pvpocket.rule.e.size", sizeX.formatText(get("e.sizeX")),
                         sizeZ.formatText(get("e.sizeZ"))))
                 .append(Text.literal(" · "))

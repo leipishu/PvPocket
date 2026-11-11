@@ -93,6 +93,32 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
 `ArenaManager.addCopy` / `removeCopy`、`resetArena`、`setGuardEnabled`），并且**服务端自己校验权限**：
 面板不画按钮是方便，不是锁。
 
+### 2b. 规则层（加规则之前先读这一条）
+
+**一条规则只能有一个开关管它。** 两个开关问同一个问题，无论默认值怎么调都会有一半的玩家觉得
+「改了没反应」——`c.fallDamage` 与 `e.hazard` 的坠落位曾经就是这样，取消坠落位之后面板仍显示
+「开」，落地却不疼。发现重叠就删一个，别调和。
+
+**删规则可以，改位序不行。** `e.hazard` / `a.winConditions` / `f.blockFilter` 的位号就是线格式，
+重新编号会让旧存档静默指向别的选项。要删就整条删，位图不动。
+
+**互斥语义要在数据层收敛，不只是界面。** `e.hazard` 的「无」是「其余三项都没有」，不是第四种危害；
+`RuleCatalog.exclusiveBits` 声明它，`DuelRules.normalise` 把它收成一个值（`0` 与 `15` 都变 `1`），
+`PvChips` 在点击时保证它——三处都要有，否则手改的包能让面板显示一个不生效的勾。
+
+**规则之间的依赖要在面板上置灰，并写进 hint。** 目前三组：`a.roundLimit`/`a.timeoutVerdict` 依赖
+`a.winConditions` 的「超时」位；`e.sizeX/Y/Z` 只对「平坦」生效（其余地图用包围盒）；`e.hazard` 的
+「无」互斥。置灰优于隐藏（隐藏像丢了东西），优于保持可点（等于让人改一个没人读的数）。
+`RuleRow` 的 `editable` 在构造时固定，所以依赖变了必须 `buildRows()` 重建整页，不能只改值。
+
+**被夹过的值必须留痕。** `DuelRules.decode` 记录每个被 `clamp` 移动过的 id，`RULES_ACCEPTED` 里
+有 `clamped` 一列。没有它，「我同意的图和实际打的图不是一张」在日志里是查不出来的——digest 只
+哈希存下来的值。同一行还有 `changed`（与目录默认不同的 id），排查时不用解码三十多个键值对。
+
+**`clamp` 同时负责吸附到步长网格。** `e.sizeX` 的步长是 8、从 16 起算，盘上若留着 45（旧版本或手改
+的包），面板会显示 45 而箭头跳 45 → 53 → 61，这一行就再也回不到网格上。网格锚在 `min` 不是 0，
+跟滑杆、步进器的算法一致；吸附之后越界的要退回一格，`max` 不保证落在网格上。
+
 ### 3. 场地分区与副本
 
 - **`ArenaMaps.ALL` 的索引就是地图的「家」，永久不变。** 副本的格子编号存在
@@ -250,6 +276,22 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 
 统计文件是**唯一一类 bug 会永久留下**的东西：重复的历史行、丢错端的上限，都不会当场报错，
 只会让某个玩家的记录永远错下去。改 `DuelStats` 必须跑它。
+
+规则层有两条命令，都不需要客户端：
+
+```bash
+python scripts/audit-rules.py --docs                       # 静态：读取点 / 默认值 / 语言键 / 文档一致性
+python scripts/audit-rules.py --coverage fabric-1.21.1/runs/server/world
+                                                           # 历史：哪些规则从未以非默认值跑过
+scripts/check-rules-logic.sh                               # 运行时：选项切换、步进、夹取、规范化
+```
+
+`audit-rules.py` 的判据是「规则 id 在 `RuleCatalog` 之外还有没有**非注释**读取点」。`--coverage`
+读 journal 的 `RULES_ACCEPTED`，回答的是另一个问题——**这条规则有没有被真的验证过**：一份「全部
+OK」的静态报告只能说明线接上了，说明不了它会变。改规则默认值或语义之后先看这张表，别只看静态结果。
+
+`check-rules-logic.sh` 跑的是编译出来的 `RuleDefinition` 与 `DuelRules`，不是把公式抄一遍。加规则
+或改 `clamp` / `step` / `normalise` 之后必须跑它。
 
 界面自动化两条铁律：
 

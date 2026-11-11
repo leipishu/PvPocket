@@ -30,6 +30,16 @@ public class PvChips extends PvValueControl {
     private final RuleDefinition def;
     /** Chips that stay on no matter what; see {@link RuleCatalog#lockedBits}. */
     private final int locked;
+    /**
+     * Chips that exclude every other chip; see {@link RuleCatalog#exclusiveBits}.
+     *
+     * <p>{@code e.hazard} is the only user: 无 is not a fourth hazard, it is the absence of the other
+     * three. Without this mask the row can sit in "无 and 岩浆 both lit", which the reader resolves by
+     * letting 无 win — so the panel shows a hazard that is switched off. The state is refused here
+     * because the widget is the only place it can be refused without the display disagreeing with
+     * the behaviour.</p>
+     */
+    private final int exclusive;
     private final float[] selT;
     private final float[] hotT;
 
@@ -37,6 +47,7 @@ public class PvChips extends PvValueControl {
         this.def = def;
         this.value = def.clamp(value);
         this.locked = RuleCatalog.lockedBits(def.id);
+        this.exclusive = RuleCatalog.exclusiveBits(def.id);
         this.height = H;
         this.width = 200;
         this.selT = new float[def.choiceCount()];
@@ -141,7 +152,27 @@ public class PvChips extends PvValueControl {
             // chip still feels like a control that simply refuses.
             return true;
         }
-        value ^= (1 << index);
+        int bit = 1 << index;
+        boolean turningOn = (value & bit) == 0;
+        if (turningOn) {
+            // Turning an exclusive chip on clears the rest; turning anything else on clears the
+            // exclusive one. Either way the row leaves with at most one of the two groups lit.
+            value = (exclusive & bit) != 0 ? bit : (value & ~exclusive) | bit;
+        } else if ((exclusive & bit) == 0) {
+            value &= ~bit;
+            // Clearing the last ordinary chip is the same state as the exclusive chip, so the
+            // exclusive one is set instead of leaving the row dark. Without this the same meaning
+            // has two spellings — 0 and 1 — and the reader cannot tell which one they are looking
+            // at.
+            if (exclusive != 0 && (value & ~exclusive) == 0) {
+                value = exclusive;
+            }
+        } else {
+            // The exclusive chip cannot be cleared on its own: it already means "none of the
+            // others", and a dark 无 next to three dark chips would be the fourth spelling of the
+            // same state.
+            return true;
+        }
         MinecraftClient.getInstance().getSoundManager()
                 .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.2F));
         emit();

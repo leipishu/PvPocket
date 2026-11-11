@@ -42,7 +42,10 @@ public class PvCycle extends PvValueControl {
 
     public PvCycle(RuleDefinition def, int value) {
         this.def = def;
-        this.value = value;
+        // Clamped like PvChips does. Without it an out-of-range value (an old session whose map
+        // index no longer exists, a hand-edited preset) renders as the clamped choice but steps
+        // from the raw one, so the first click jumps somewhere unrelated to what was on screen.
+        this.value = def.clamp(value);
         this.width = 168;
         this.height = 24;
     }
