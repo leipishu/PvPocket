@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 
 /**
  * Boolean switch: a pill track with a sliding knob.
@@ -43,7 +43,7 @@ public class PvToggle extends PvValueControl {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -84,8 +84,8 @@ public class PvToggle extends PvValueControl {
             return false;
         }
         value = value == 0 ? 1 : 0;
-        MinecraftClient.getInstance().getSoundManager()
-                .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, value == 1 ? 1.4F : 1.0F));
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, value == 1 ? 1.4F : 1.0F));
         emit();
         return true;
     }

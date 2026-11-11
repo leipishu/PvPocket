@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: one of four spectator intents.
@@ -19,7 +19,7 @@ import net.minecraft.util.Identifier;
  * finished series, or for a session it is already a participant of, is refused with a chat line and
  * nothing else happens.</p>
  */
-public record SpectateRequestPayload(int action, String sessionId) implements CustomPayload {
+public record SpectateRequestPayload(int action, String sessionId) implements CustomPacketPayload {
 
     /** Re-send the match list to the sender. The panel's 刷新 button. */
     public static final int ACTION_LIST = 0;
@@ -40,12 +40,12 @@ public record SpectateRequestPayload(int action, String sessionId) implements Cu
      */
     public static final int ACTION_DETACH = 4;
 
-    public static final Id<SpectateRequestPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "spectate_request"));
+    public static final Type<SpectateRequestPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "spectate_request"));
 
-    public static final PacketCodec<RegistryByteBuf, SpectateRequestPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, SpectateRequestPayload::action,
-            PacketCodecs.STRING, SpectateRequestPayload::sessionId,
+    public static final StreamCodec<RegistryFriendlyByteBuf, SpectateRequestPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, SpectateRequestPayload::action,
+            ByteBufCodecs.STRING_UTF8, SpectateRequestPayload::sessionId,
             SpectateRequestPayload::new);
 
     public static SpectateRequestPayload list() {
@@ -69,7 +69,7 @@ public record SpectateRequestPayload(int action, String sessionId) implements Cu
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

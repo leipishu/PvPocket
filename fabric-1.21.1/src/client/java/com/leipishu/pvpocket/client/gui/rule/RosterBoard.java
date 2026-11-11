@@ -4,13 +4,13 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.client.util.SkinTextures;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -288,21 +288,21 @@ public class RosterBoard extends PvWidget {
     // ------------------------------------------------------------------ drawing
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         tickHover(d);
         tickFocus(d);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         for (int team = 0; team < teams.size(); team++) {
             drawCard(ctx, tr, team, mouseX, mouseY);
         }
     }
 
-    private void drawCard(DrawContext ctx, TextRenderer tr, int team, int mouseX, int mouseY) {
+    private void drawCard(GuiGraphics ctx, Font tr, int team, int mouseX, int mouseY) {
         int cx = cardX(team);
         int cy = cardY(team);
         int cw = cardW();
@@ -346,7 +346,7 @@ public class RosterBoard extends PvWidget {
         }
     }
 
-    private void drawMember(DrawContext ctx, TextRenderer tr, int team, int cx, int sy,
+    private void drawMember(GuiGraphics ctx, Font tr, int team, int cx, int sy,
                             Member member, int slot, int mouseX, int mouseY) {
         int cw = cardW();
         int rowX = cx + 6;
@@ -360,7 +360,7 @@ public class RosterBoard extends PvWidget {
         }
 
         int headY = sy + (SLOT_H - HEAD) / 2;
-        PlayerSkinDrawer.draw(ctx, skinOf(member.uuid), rowX + 2, headY, HEAD);
+        PlayerFaceRenderer.draw(ctx, skinOf(member.uuid), rowX + 2, headY, HEAD);
 
         int textY = sy + (SLOT_H - 8) / 2;
         int nameColor = rejected ? PvTheme.TEXT_MUTED : PvTheme.TEXT;
@@ -386,7 +386,7 @@ public class RosterBoard extends PvWidget {
         }
     }
 
-    private void drawCap(DrawContext ctx, int capX, int capY, int mouseX, int mouseY, boolean plus) {
+    private void drawCap(GuiGraphics ctx, int capX, int capY, int mouseX, int mouseY, boolean plus) {
         boolean hot = mouseX >= capX && mouseX < capX + CAP && mouseY >= capY && mouseY < capY + CAP;
         PvDraw.roundRect(ctx, capX, capY, CAP, CAP, 3, hot ? PvTheme.CARD_ACTIVE : PvTheme.SUNKEN);
         int glyph = hot ? PvTheme.TEXT : PvTheme.TEXT_DIM;
@@ -397,22 +397,22 @@ public class RosterBoard extends PvWidget {
         }
     }
 
-    private static SkinTextures skinOf(String uuid) {
+    private static PlayerSkin skinOf(String uuid) {
         UUID id;
         try {
             id = UUID.fromString(uuid);
         } catch (IllegalArgumentException e) {
-            return DefaultSkinHelper.getSkinTextures(new UUID(0L, 0L));
+            return DefaultPlayerSkin.get(new UUID(0L, 0L));
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world != null) {
-            for (AbstractClientPlayerEntity player : client.world.getPlayers()) {
-                if (player.getUuid().equals(id)) {
-                    return player.getSkinTextures();
+        Minecraft client = Minecraft.getInstance();
+        if (client.level != null) {
+            for (AbstractClientPlayer player : client.level.players()) {
+                if (player.getUUID().equals(id)) {
+                    return player.getSkin();
                 }
             }
         }
-        return DefaultSkinHelper.getSkinTextures(id);
+        return DefaultPlayerSkin.get(id);
     }
 
     // ------------------------------------------------------------------ input

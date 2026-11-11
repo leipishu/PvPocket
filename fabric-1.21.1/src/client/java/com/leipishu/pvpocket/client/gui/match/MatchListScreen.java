@@ -9,10 +9,10 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -206,7 +206,7 @@ public class MatchListScreen extends PvScreen {
         int y = panelY + panelH - FOOTER_H + 8;
         int right = panelX + panelW - 12;
         PvButton close = new PvButton(PvLang.str("pvpocket.gui.match.button.close"),
-                PvButton.Style.NORMAL, this::close);
+                PvButton.Style.NORMAL, this::onClose);
         close.size(56, PvTheme.BTN_H);
         close.x = right - close.width;
         close.y = y;
@@ -224,8 +224,8 @@ public class MatchListScreen extends PvScreen {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        TextRenderer tr = font();
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+        Font tr = font();
         float d = PvAnim.dt(delta);
 
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 11,
@@ -260,7 +260,7 @@ public class MatchListScreen extends PvScreen {
                 panelX + 72, panelY + panelH - FOOTER_H + 16, PvTheme.TEXT_MUTED);
     }
 
-    private void drawRow(DrawContext ctx, TextRenderer tr, Entry entry, int index,
+    private void drawRow(GuiGraphics ctx, Font tr, Entry entry, int index,
                          int mouseX, int mouseY, float d) {
         int x = panelX + 12;
         int y = rowTop + index * ROW_H;
@@ -295,20 +295,20 @@ public class MatchListScreen extends PvScreen {
         // Right to left: the score, then the watcher count, then whatever is left for the map name.
         int anchor = panelX + panelW - 20 - BTN_W - 12;
         String score = entry.score();
-        int scoreW = tr.getWidth(score);
+        int scoreW = tr.width(score);
         String watchers = entry.spectators() > 0
                 ? PvLang.str("pvpocket.gui.match.watchers", entry.spectators())
                 : null;
-        int rightW = scoreW + (watchers == null ? 0 : tr.getWidth(watchers) + 10);
+        int rightW = scoreW + (watchers == null ? 0 : tr.width(watchers) + 10);
         int leftLimit = anchor - rightW - 10;
 
         String stage = entry.stageLabel();
-        int chipW = tr.getWidth(stage) + 10;
+        int chipW = tr.width(stage) + 10;
         String round = entry.maxRounds() > 1
                 ? PvLang.str("pvpocket.gui.match.round", Math.max(1, entry.round()), entry.maxRounds())
                 : null;
         int room = leftLimit - textX;
-        int roundW = round == null ? 0 : tr.getWidth(round) + 6;
+        int roundW = round == null ? 0 : tr.width(round) + 6;
         // Right-to-left priority: the round number goes first (it qualifies the stage), then the
         // stage chip itself (it qualifies the map), and the map name keeps a floor-sized minimum
         // throughout. Squeezing all three into a 178px card truncated the map to two letters and
@@ -362,7 +362,7 @@ public class MatchListScreen extends PvScreen {
         send(SpectateRequestPayload.join(sessionId));
         // Closed immediately: the server is about to switch this player into spectator mode and
         // teleport them, and a modal panel over that transition would be the last thing they see.
-        MinecraftClient.getInstance().setScreen(null);
+        Minecraft.getInstance().setScreen(null);
     }
 
     private void leave() {
@@ -381,7 +381,7 @@ public class MatchListScreen extends PvScreen {
     }
 
     @Override
-    public void close() {
-        MinecraftClient.getInstance().setScreen(null);
+    public void onClose() {
+        Minecraft.getInstance().setScreen(null);
     }
 }

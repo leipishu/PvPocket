@@ -22,12 +22,12 @@ import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.network.chat.Component;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -152,7 +152,7 @@ public class HomeScreen extends PvScreen {
         pane.gap = 4;
         roots.add(pane);
 
-        PvIconButton close = new PvIconButton(PvIconButton.Glyph.CROSS, CLOSE, this::close);
+        PvIconButton close = new PvIconButton(PvIconButton.Glyph.CROSS, CLOSE, this::onClose);
         close.x = panelX + panelW - 8 - CLOSE;
         close.y = panelY + (HEADER_H - CLOSE) / 2;
         close.tooltip = PvLang.str("pvpocket.gui.home.close");
@@ -268,10 +268,10 @@ public class HomeScreen extends PvScreen {
      * name may be truncated, so the row only sets a floor rather than a hard requirement.</p>
      */
     private int sidebarWidth(List<Integer> pages) {
-        TextRenderer tr = font();
+        Font tr = font();
         int widest = 0;
         for (String label : labelsFor(pages)) {
-            widest = Math.max(widest, tr.getWidth(label));
+            widest = Math.max(widest, tr.width(label));
         }
         // 34 = two 6px insets + 10px text inset + 12px for the dirty-dot column the strip reserves.
         int fromTabs = widest + 34;
@@ -552,7 +552,7 @@ public class HomeScreen extends PvScreen {
     }
 
     private void buildSettings() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.about")));
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.version"), null, version()));
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.license"), null, "LGPL-3.0-only"));
@@ -609,9 +609,9 @@ public class HomeScreen extends PvScreen {
             pane.add(new KeyBindRow(PvLang.str("pvpocket.gui.home.settings.key_home"),
                     HomeClient.homeKey()));
         }
-        for (net.minecraft.client.option.KeyBinding binding : HomeClient.extraKeys()) {
-            pane.add(new KeyBindRow(binding.getTranslationKey() == null ? "?"
-                    : Text.translatable(binding.getTranslationKey()).getString(), binding));
+        for (net.minecraft.client.KeyMapping binding : HomeClient.extraKeys()) {
+            pane.add(new KeyBindRow(binding.getName() == null ? "?"
+                    : Component.translatable(binding.getName()).getString(), binding));
         }
         pane.add(SettingRow.hint(PvLang.str("pvpocket.gui.home.settings.key_hint")));
 
@@ -713,7 +713,7 @@ public class HomeScreen extends PvScreen {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         // A snapshot that lands after the panel opened has to be *laid out*, not merely painted: the
         // live rows and their buttons only exist once the data does. Rebuilding here is safe because
         // it runs before the root widgets are rendered this frame — the page is stale for zero
@@ -726,7 +726,7 @@ public class HomeScreen extends PvScreen {
         if (seenVersion != HomeState.version()) {
             syncPages();
         }
-        TextRenderer tr = font();
+        Font tr = font();
         drawHeader(ctx, tr);
         drawIdentity(ctx, tr);
 
@@ -748,7 +748,7 @@ public class HomeScreen extends PvScreen {
         }
     }
 
-    private void drawHeader(DrawContext ctx, TextRenderer tr) {
+    private void drawHeader(GuiGraphics ctx, Font tr) {
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.title"), panelX + 16, panelY + 11,
                 PvTheme.TEXT);
         // The clock lives in the header rather than on the overview page: it is ambient information,
@@ -759,14 +759,14 @@ public class HomeScreen extends PvScreen {
                 panelY + 11, PvTheme.TEXT_MUTED);
     }
 
-    private void drawIdentity(DrawContext ctx, TextRenderer tr) {
+    private void drawIdentity(GuiGraphics ctx, Font tr) {
         int x = panelX + 6;
         int y = panelY + HEADER_H + 6;
-        MinecraftClient client = MinecraftClient.getInstance();
-        ClientPlayerEntity player = client.player;
+        Minecraft client = Minecraft.getInstance();
+        LocalPlayer player = client.player;
 
         if (player != null) {
-            PlayerSkinDrawer.draw(ctx, client.getSkinProvider().getSkinTextures(player.getGameProfile()),
+            PlayerFaceRenderer.draw(ctx, client.getSkinManager().getInsecureSkin(player.getGameProfile()),
                     x, y, AVATAR);
         } else {
             PvDraw.roundRect(ctx, x, y, AVATAR, AVATAR, 3, PvTheme.CARD_ACTIVE);
@@ -788,7 +788,7 @@ public class HomeScreen extends PvScreen {
         PvDraw.text(ctx, tr, PvDraw.fit(tr, state, nameRoom), nameX, y + 12, PvTheme.TEXT_MUTED);
     }
 
-    private void drawOverview(DrawContext ctx, TextRenderer tr, int mouseX, int mouseY) {
+    private void drawOverview(GuiGraphics ctx, Font tr, int mouseX, int mouseY) {
         int x = contentX();
         int y = contentY();
         int w = contentW();
@@ -836,7 +836,7 @@ public class HomeScreen extends PvScreen {
      * {@link #liveButton}, which is what keeps a click from being handled by a widget that was
      * rebuilt sixty times a second.</p>
      */
-    private void drawMatchRow(DrawContext ctx, TextRenderer tr, MatchListScreen.Entry entry,
+    private void drawMatchRow(GuiGraphics ctx, Font tr, MatchListScreen.Entry entry,
                               int x, int y, int w, int h, int mouseX, int mouseY) {
         boolean hot = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
         PvDraw.roundPanel(ctx, x, y, w, h, PvTheme.RADIUS,
@@ -855,7 +855,7 @@ public class HomeScreen extends PvScreen {
         // names the row. On a 130px card the chip left the name 26px, which is "Colum…"; below the
         // threshold the chip is dropped and the name gets the whole line instead.
         String stage = entry.stageLabel();
-        int chipW = tr.getWidth(stage) + 10;
+        int chipW = tr.width(stage) + 10;
         boolean chip = room - 6 - chipW >= MIN_MAP_ROOM;
         // The run reports what it covered, so the chip is anchored to the drawn width and a long map
         // name can no longer run underneath it.
@@ -872,7 +872,7 @@ public class HomeScreen extends PvScreen {
         PvDraw.textFitRight(ctx, tr, score, btnX - 10, y + (h - 8) / 2 + 1, 64, PvTheme.TEXT);
     }
 
-    private void drawStats(DrawContext ctx, TextRenderer tr) {
+    private void drawStats(GuiGraphics ctx, Font tr) {
         int x = contentX();
         int y = contentY();
         int w = contentW();
@@ -920,7 +920,7 @@ public class HomeScreen extends PvScreen {
         }
     }
 
-    private void drawStatCard(DrawContext ctx, TextRenderer tr, int x, int y, int w, int h,
+    private void drawStatCard(GuiGraphics ctx, Font tr, int x, int y, int w, int h,
                               String label, String value, boolean accent) {
         PvDraw.roundRect(ctx, x, y, w, h, PvTheme.RADIUS, PvTheme.CARD);
         PvDraw.textFitLeft(ctx, tr, label, x + 8, y + 7, w - 16, PvTheme.TEXT_MUTED);
@@ -935,7 +935,7 @@ public class HomeScreen extends PvScreen {
      * readable, and axes need room this panel does not have. Ten squares say "form" at a glance, which
      * is the question the page is asked.</p>
      */
-    private void drawWinStrip(DrawContext ctx, int x, int y, int w) {
+    private void drawWinStrip(GuiGraphics ctx, int x, int y, int w) {
         List<HomeState.History> records = HomeState.history();
         if (records.isEmpty()) {
             return;
@@ -952,7 +952,7 @@ public class HomeScreen extends PvScreen {
         }
     }
 
-    private void drawEmpty(DrawContext ctx, TextRenderer tr, String text) {
+    private void drawEmpty(GuiGraphics ctx, Font tr, String text) {
         PvDraw.textCenter(ctx, tr, PvDraw.fit(tr, text, contentW()), contentX() + contentW() / 2,
                 contentY() + 16, PvTheme.TEXT_MUTED);
     }
@@ -968,7 +968,7 @@ public class HomeScreen extends PvScreen {
      * being right-aligned against the panel edge: on the smallest canvas the well is 200px wide, and
      * "1–10 of 27" plus "2 / 3" plus two arrows is already most of it.</p>
      */
-    private void drawHistoryFooter(DrawContext ctx, TextRenderer tr, int total) {
+    private void drawHistoryFooter(GuiGraphics ctx, Font tr, int total) {
         int x = contentX();
         int w = contentW();
         int y = footerY();
@@ -983,7 +983,7 @@ public class HomeScreen extends PvScreen {
         String counter = pages > 1
                 ? PvLang.str("pvpocket.gui.home.history.page", historyPage + 1, pages) : null;
         int arrowsW = pages > 1 ? PAGER_BTN * 2 + 4 : 0;
-        int counterW = counter == null ? 0 : tr.getWidth(counter) + 10;
+        int counterW = counter == null ? 0 : tr.width(counter) + 10;
 
         String range = PvLang.str("pvpocket.gui.home.history.range", from + 1, to, total);
         PvDraw.text(ctx, tr, PvDraw.fit(tr, range, w - arrowsW - counterW), x, textY,
@@ -994,7 +994,7 @@ public class HomeScreen extends PvScreen {
     }
 
     private String greeting() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         String name = client.player == null ? "" : client.player.getGameProfile().getName();
         int hour = LocalTime.now().getHour();
         String slot = hour < 6 ? "night" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
@@ -1020,7 +1020,7 @@ public class HomeScreen extends PvScreen {
 
     private void spectate(String sessionId) {
         HomeClient.send(SpectateRequestPayload.join(sessionId));
-        MinecraftClient.getInstance().setScreen(null);
+        Minecraft.getInstance().setScreen(null);
     }
 
     private void leaveSpectate() {
@@ -1029,9 +1029,9 @@ public class HomeScreen extends PvScreen {
     }
 
     private void surrender() {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client.player != null) {
-            client.player.networkHandler.sendCommand("pvpocket surrender");
+            client.player.connection.sendCommand("pvpocket surrender");
         }
     }
 
@@ -1105,9 +1105,9 @@ public class HomeScreen extends PvScreen {
     }
 
     @Override
-    public void close() {
+    public void onClose() {
         KeyBindRow.cancelCapture();
-        super.close();
+        super.onClose();
     }
 
     // ------------------------------------------------------------------ audit

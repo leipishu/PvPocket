@@ -8,8 +8,8 @@ import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -32,8 +32,8 @@ import org.lwjgl.glfw.GLFW;
 @Environment(EnvType.CLIENT)
 public final class SpectatorInput {
 
-    private static KeyBinding cycle;
-    private static KeyBinding detach;
+    private static KeyMapping cycle;
+    private static KeyMapping detach;
 
     private SpectatorInput() {
     }
@@ -45,7 +45,7 @@ public final class SpectatorInput {
      * own key uses. The alternative — a second copy of the binding in a mod-owned config — is the one
      * arrangement that guarantees the two eventually disagree.</p>
      */
-    public static java.util.List<KeyBinding> bindings() {
+    public static java.util.List<KeyMapping> bindings() {
         if (cycle == null || detach == null) {
             return java.util.List.of();
         }
@@ -53,26 +53,26 @@ public final class SpectatorInput {
     }
 
     public static void register() {
-        cycle = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        cycle = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.pvpocket.cycle_spectator",
-                InputUtil.Type.KEYSYM,
+                InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_V,
                 // A key, not a name: the controls screen translates the category with
                 // Text.translatable, which is how vanilla's own "Movement" heading is produced.
                 "key.categories.pvpocket"));
-        detach = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        detach = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.pvpocket.detach_spectator",
-                InputUtil.Type.KEYSYM,
+                InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_G,
                 "key.categories.pvpocket"));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             // Drained in a loop rather than checked once: two presses inside one tick are two
             // intents, and dropping one makes the key feel unreliable at high frame rates.
-            while (cycle.wasPressed()) {
+            while (cycle.consumeClick()) {
                 send(SpectateRequestPayload.cycle());
             }
-            while (detach.wasPressed()) {
+            while (detach.consumeClick()) {
                 // Only meaningful while a body is being ridden. Sending it from the detached state
                 // would be a no-op round trip, and the bar already says "free camera" there.
                 if (PossessionHud.active()) {

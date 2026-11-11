@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.rules;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
+import net.minecraft.network.chat.MutableComponent;
 
 /**
  * The seven rule groups from the locked specification. The letter is the stable id prefix, so a
@@ -35,7 +35,7 @@ public enum RuleGroup {
         this.hintKey = labelKey + ".hint";
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 

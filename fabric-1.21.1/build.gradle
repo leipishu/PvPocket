@@ -155,7 +155,14 @@ loom.runs.named("datagen") { it.programArgs.clear() }
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    // 官方映射（Mojmap），不是 Yarn。
+    //
+    // 26.1 起 Minecraft 不再混淆，官方名成了运行时里真实存在的名字，也是唯一一套不会随加载器过期的
+    // 命名；Yarn 是社区映射，只能跟着官方名翻译。要一份源码同时喂 Fabric / NeoForge / Forge，
+    // 就必须统一到官方名——NeoForge 本来就只认它。
+    //
+    // 代价是源码里全是 `net.minecraft.world.level.Level` 这种长名字，收益是它到 26.x 都不会再变。
+    mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 }

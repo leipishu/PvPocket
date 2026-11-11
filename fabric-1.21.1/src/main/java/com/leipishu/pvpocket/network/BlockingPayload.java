@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
 import com.leipishu.pvpocket.PvPocket;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 /**
  * Client -> server intent: "I am holding / released a sword block".
@@ -13,16 +13,16 @@ import net.minecraft.network.packet.CustomPayload;
  * round and actually holding a sword before trusting it, so a modified client can at worst make
  * itself block while holding a sword — which it could do anyway.</p>
  */
-public record BlockingPayload(boolean blocking) implements CustomPayload {
+public record BlockingPayload(boolean blocking) implements CustomPacketPayload {
 
-    public static final CustomPayload.Id<BlockingPayload> ID =
-            new CustomPayload.Id<>(PvPocket.id("blocking"));
+    public static final CustomPacketPayload.Type<BlockingPayload> ID =
+            new CustomPacketPayload.Type<>(PvPocket.id("blocking"));
 
-    public static final PacketCodec<RegistryByteBuf, BlockingPayload> CODEC =
-            PacketCodec.tuple(PacketCodecs.BOOL, BlockingPayload::blocking, BlockingPayload::new);
+    public static final StreamCodec<RegistryFriendlyByteBuf, BlockingPayload> CODEC =
+            StreamCodec.composite(ByteBufCodecs.BOOL, BlockingPayload::blocking, BlockingPayload::new);
 
     @Override
-    public CustomPayload.Id<? extends CustomPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

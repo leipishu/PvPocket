@@ -12,9 +12,9 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -157,9 +157,9 @@ public class PresetOverlay extends PvWidget {
         int px = cardX();
         int py = cardY();
         int pw = cardW();
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
-        int labelW = Math.max(tr.getWidth(PvLang.str("pvpocket.gui.preset.name_label")),
-                tr.getWidth(PvLang.str("pvpocket.gui.preset.code_label"))) + 6;
+        Font tr = Minecraft.getInstance().font;
+        int labelW = Math.max(tr.width(PvLang.str("pvpocket.gui.preset.name_label")),
+                tr.width(PvLang.str("pvpocket.gui.preset.code_label"))) + 6;
         int fieldX = px + 12 + labelW;
         int fieldW = Math.max(60, pw - 12 - labelW - 4 - BTN_W - 12);
 
@@ -243,7 +243,7 @@ public class PresetOverlay extends PvWidget {
         switch (result.status()) {
             case PresetShareResultPayload.STATUS_PUBLISHED -> {
                 codeField.text(result.code());
-                MinecraftClient.getInstance().keyboard.setClipboard(result.code());
+                Minecraft.getInstance().keyboardHandler.setClipboard(result.code());
                 status("pvpocket.gui.preset.status.shared", false,
                         result.code(), result.ttlSeconds() / 60);
             }
@@ -277,14 +277,14 @@ public class PresetOverlay extends PvWidget {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         appearT = PvAnim.damp(appearT, 1F, d, 0.05F);
         layout();
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         // Darker than the screen's own scrim: this dialog sits on top of a panel that is already
         // dimmed, and equal darkness would leave the two reading as one surface.
@@ -346,7 +346,7 @@ public class PresetOverlay extends PvWidget {
     }
 
     /** Name on the left, three action words on the right, all measured rather than assumed. */
-    private void drawRow(DrawContext ctx, TextRenderer tr, Preset preset, int ry,
+    private void drawRow(GuiGraphics ctx, Font tr, Preset preset, int ry,
                          int mouseX, int mouseY) {
         int px = cardX();
         int pw = cardW();
@@ -358,9 +358,9 @@ public class PresetOverlay extends PvWidget {
         int textY = ry + (ROW_H - 8) / 2;
 
         int right = px + pw - 12;
-        int deleteX = right - tr.getWidth(actionDelete());
-        int shareX = deleteX - 10 - tr.getWidth(actionShare());
-        int loadX = shareX - 10 - tr.getWidth(actionLoad());
+        int deleteX = right - tr.width(actionDelete());
+        int shareX = deleteX - 10 - tr.width(actionShare());
+        int loadX = shareX - 10 - tr.width(actionLoad());
 
         PvDraw.text(ctx, tr, actionDelete(), deleteX, textY,
                 overWord(mouseX, mouseY, ry, deleteX, actionDelete()) ? PvTheme.DANGER : PvTheme.TEXT_MUTED);
@@ -375,7 +375,7 @@ public class PresetOverlay extends PvWidget {
     }
 
     private static boolean overWord(int mouseX, int mouseY, int rowY, int wordX, String word) {
-        int w = MinecraftClient.getInstance().textRenderer.getWidth(word);
+        int w = Minecraft.getInstance().font.width(word);
         return mouseY >= rowY && mouseY < rowY + ROW_H
                 && mouseX >= wordX - 3 && mouseX < wordX + w + 3;
     }
@@ -413,11 +413,11 @@ public class PresetOverlay extends PvWidget {
             if (index >= 0 && index < rows.size()) {
                 Preset preset = rows.get(index);
                 int ry = listTop() + (int) ((my - listTop()) / ROW_H) * ROW_H;
-                TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+                Font tr = Minecraft.getInstance().font;
                 int right = cardX() + cardW() - 12;
-                int deleteX = right - tr.getWidth(actionDelete());
-                int shareX = deleteX - 10 - tr.getWidth(actionShare());
-                int loadX = shareX - 10 - tr.getWidth(actionLoad());
+                int deleteX = right - tr.width(actionDelete());
+                int shareX = deleteX - 10 - tr.width(actionShare());
+                int loadX = shareX - 10 - tr.width(actionLoad());
                 if (overWord((int) mx, (int) my, ry, deleteX, actionDelete())) {
                     deletePreset(preset);
                 } else if (overWord((int) mx, (int) my, ry, shareX, actionShare())) {

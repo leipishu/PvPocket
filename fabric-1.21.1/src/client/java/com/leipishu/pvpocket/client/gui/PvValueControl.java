@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.function.IntConsumer;
 
@@ -35,5 +35,5 @@ public abstract class PvValueControl extends PvWidget {
     }
 
     @Override
-    public abstract void render(DrawContext ctx, int mouseX, int mouseY, float delta);
+    public abstract void render(GuiGraphics ctx, int mouseX, int mouseY, float delta);
 }

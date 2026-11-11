@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: "the home screen is open, send me what it shows".
@@ -15,15 +15,15 @@ import net.minecraft.util.Identifier;
  * <p>Sent on open and on an explicit refresh. The server throttles repeats, because a player
  * tapping the hotkey twice must not queue two full snapshots.</p>
  */
-public record HomeRequestPayload() implements CustomPayload {
+public record HomeRequestPayload() implements CustomPacketPayload {
 
-    public static final Id<HomeRequestPayload> ID = new Id<>(Identifier.of("pvpocket", "home_request"));
+    public static final Type<HomeRequestPayload> ID = new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "home_request"));
 
-    public static final PacketCodec<RegistryByteBuf, HomeRequestPayload> CODEC =
-            PacketCodec.unit(new HomeRequestPayload());
+    public static final StreamCodec<RegistryFriendlyByteBuf, HomeRequestPayload> CODEC =
+            StreamCodec.unit(new HomeRequestPayload());
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

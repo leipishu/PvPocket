@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "open the rule panel with this rule set".
@@ -21,7 +21,7 @@ import net.minecraft.util.Identifier;
  * racing the first — would let the panel open before the data it needs arrives.</p>
  */
 public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
     /**
      * The three panels one screen can be.
@@ -59,24 +59,24 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
     public record Details(String otherName, String loadoutCounts, int agreed, int total, int busyMaps,
                           String candidates) {
 
-        public static final PacketCodec<RegistryByteBuf, Details> CODEC = PacketCodec.tuple(
-                PacketCodecs.STRING, Details::otherName,
-                PacketCodecs.STRING, Details::loadoutCounts,
-                PacketCodecs.VAR_INT, Details::agreed,
-                PacketCodecs.VAR_INT, Details::total,
-                PacketCodecs.VAR_INT, Details::busyMaps,
-                PacketCodecs.STRING, Details::candidates,
+        public static final StreamCodec<RegistryFriendlyByteBuf, Details> CODEC = StreamCodec.composite(
+                ByteBufCodecs.STRING_UTF8, Details::otherName,
+                ByteBufCodecs.STRING_UTF8, Details::loadoutCounts,
+                ByteBufCodecs.VAR_INT, Details::agreed,
+                ByteBufCodecs.VAR_INT, Details::total,
+                ByteBufCodecs.VAR_INT, Details::busyMaps,
+                ByteBufCodecs.STRING_UTF8, Details::candidates,
                 Details::new);
     }
 
-    public static final Id<RulesOpenPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "rules_open"));
+    public static final Type<RulesOpenPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "rules_open"));
 
-    public static final PacketCodec<RegistryByteBuf, RulesOpenPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, RulesOpenPayload::sessionId,
-            PacketCodecs.STRING, RulesOpenPayload::rules,
-            PacketCodecs.VAR_INT, RulesOpenPayload::role,
-            PacketCodecs.VAR_INT, RulesOpenPayload::revision,
+    public static final StreamCodec<RegistryFriendlyByteBuf, RulesOpenPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, RulesOpenPayload::sessionId,
+            ByteBufCodecs.STRING_UTF8, RulesOpenPayload::rules,
+            ByteBufCodecs.VAR_INT, RulesOpenPayload::role,
+            ByteBufCodecs.VAR_INT, RulesOpenPayload::revision,
             Details.CODEC, RulesOpenPayload::details,
             RulesOpenPayload::new);
 
@@ -105,7 +105,7 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

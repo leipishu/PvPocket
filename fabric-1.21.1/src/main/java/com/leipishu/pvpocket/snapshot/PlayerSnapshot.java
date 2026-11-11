@@ -2,20 +2,20 @@ package com.leipishu.pvpocket.snapshot;
 
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtSizeTracker;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.scoreboard.Scoreboard;
-import net.minecraft.scoreboard.Team;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.scores.Scoreboard;
+import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.Identifier;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +38,7 @@ public final class PlayerSnapshot {
 
     private static final int FORMAT_VERSION = 1;
 
-    private final NbtCompound playerNbt;
+    private final CompoundTag playerNbt;
     private final String dimensionId;
     private final double x;
     private final double y;
@@ -50,7 +50,7 @@ public final class PlayerSnapshot {
     private final float fallDistance;
     private final String fingerprint;
 
-    private PlayerSnapshot(NbtCompound playerNbt, String dimensionId, double x, double y, double z,
+    private PlayerSnapshot(CompoundTag playerNbt, String dimensionId, double x, double y, double z,
                            float yaw, float pitch, String gameMode, String teamName,
                            float fallDistance, String fingerprint) {
         this.playerNbt = playerNbt;
@@ -66,22 +66,22 @@ public final class PlayerSnapshot {
         this.fingerprint = fingerprint;
     }
 
-    public static PlayerSnapshot capture(ServerPlayerEntity player) {
-        NbtCompound nbt = new NbtCompound();
-        player.writeNbt(nbt);
+    public static PlayerSnapshot capture(ServerPlayer player) {
+        CompoundTag nbt = new CompoundTag();
+        player.saveWithoutId(nbt);
 
         MinecraftServer server = player.getServer();
-        String dimension = player.getWorld().getRegistryKey().getValue().toString();
+        String dimension = player.level().dimension().location().toString();
 
         Scoreboard scoreboard = server.getScoreboard();
-        Team team = scoreboard.getScoreHolderTeam(player.getNameForScoreboard());
+        PlayerTeam team = scoreboard.getPlayersTeam(player.getScoreboardName());
 
         return new PlayerSnapshot(
                 nbt,
                 dimension,
                 player.getX(), player.getY(), player.getZ(),
-                player.getYaw(), player.getPitch(),
-                player.interactionManager.getGameMode().getName(),
+                player.getYRot(), player.getXRot(),
+                player.gameMode.getGameModeForPlayer().getName(),
                 team == null ? null : team.getName(),
                 player.fallDistance,
                 fingerprintOf(nbt)
@@ -95,17 +95,17 @@ public final class PlayerSnapshot {
      * (which restores position, inventory, effects and hunger), then fix up the fields that are not
      * part of the entity tag.</p>
      */
-    public void restore(ServerPlayerEntity player) {
+    public void restore(ServerPlayer player) {
         MinecraftServer server = player.getServer();
-        RegistryKey<World> key = RegistryKey.of(RegistryKeys.WORLD, Identifier.of(dimensionId));
-        ServerWorld world = server.getWorld(key);
+        ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dimensionId));
+        ServerLevel world = server.getLevel(key);
         if (world == null) {
             throw new IllegalStateException("Snapshot points at unknown dimension " + dimensionId);
         }
 
         player.stopRiding();
-        player.teleport(world, x, y, z, yaw, pitch);
-        player.readNbt(playerNbt.copy());
+        player.teleportTo(world, x, y, z, yaw, pitch);
+        player.load(playerNbt.copy());
 
         float maxHealth = player.getMaxHealth();
         if (player.getHealth() <= 0.0F || player.getHealth() > maxHealth) {
@@ -114,28 +114,28 @@ public final class PlayerSnapshot {
         player.fallDistance = fallDistance;
         // Authorised change: this is the restore path, and it runs while the player may still be
         // inside the arena dimension, where the sandbox rule refuses mode changes.
-        Sandbox.changeGameMode(player, GameMode.byName(gameMode, GameMode.SURVIVAL));
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        Sandbox.changeGameMode(player, GameType.byName(gameMode, GameType.SURVIVAL));
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
 
         if (teamName != null) {
-            Team team = server.getScoreboard().getTeam(teamName);
+            PlayerTeam team = server.getScoreboard().getPlayerTeam(teamName);
             if (team != null) {
-                server.getScoreboard().addScoreHolderToTeam(player.getNameForScoreboard(), team);
+                server.getScoreboard().addPlayerToTeam(player.getScoreboardName(), team);
             }
         }
 
-        player.playerScreenHandler.syncState();
-        player.currentScreenHandler.sendContentUpdates();
-        player.networkHandler.requestTeleport(x, y, z, yaw, pitch);
+        player.inventoryMenu.broadcastFullState();
+        player.containerMenu.broadcastChanges();
+        player.connection.teleport(x, y, z, yaw, pitch);
     }
 
     /**
      * Re-reads the player after a restore and compares against the snapshot. This is the self-check
      * that turns "restore silently lost an item" into a logged anomaly instead of a support ticket.
      */
-    public boolean verify(ServerPlayerEntity player) {
-        NbtCompound current = new NbtCompound();
-        player.writeNbt(current);
+    public boolean verify(ServerPlayer player) {
+        CompoundTag current = new CompoundTag();
+        player.saveWithoutId(current);
         return fingerprintOf(current).equals(fingerprint);
     }
 
@@ -144,7 +144,7 @@ public final class PlayerSnapshot {
     }
 
     public void writeTo(Path target) throws IOException {
-        NbtCompound root = new NbtCompound();
+        CompoundTag root = new CompoundTag();
         root.putInt("format", FORMAT_VERSION);
         root.put("player", playerNbt);
         root.putString("dimension", dimensionId);
@@ -167,19 +167,19 @@ public final class PlayerSnapshot {
     }
 
     public static PlayerSnapshot readFrom(Path source) throws IOException {
-        NbtCompound root = NbtIo.readCompressed(source, NbtSizeTracker.ofUnlimitedBytes());
+        CompoundTag root = NbtIo.readCompressed(source, NbtAccounter.unlimitedHeap());
         int format = root.getInt("format");
         if (format != FORMAT_VERSION) {
             throw new IOException("Unsupported snapshot format " + format + " in " + source);
         }
-        NbtCompound playerNbt = root.getCompound("player");
+        CompoundTag playerNbt = root.getCompound("player");
         return new PlayerSnapshot(
                 playerNbt,
                 root.getString("dimension"),
                 root.getDouble("x"), root.getDouble("y"), root.getDouble("z"),
                 root.getFloat("yaw"), root.getFloat("pitch"),
                 root.getString("gameMode"),
-                root.contains("team", NbtElement.STRING_TYPE) ? root.getString("team") : null,
+                root.contains("team", Tag.TAG_STRING) ? root.getString("team") : null,
                 root.getFloat("fallDistance"),
                 root.getString("fingerprint")
         );
@@ -196,10 +196,10 @@ public final class PlayerSnapshot {
             "active_effects", "Attributes", "abilities", "SelectedItemSlot"
     };
 
-    private static String fingerprintOf(NbtCompound nbt) {
-        NbtCompound subset = new NbtCompound();
+    private static String fingerprintOf(CompoundTag nbt) {
+        CompoundTag subset = new CompoundTag();
         for (String key : DIGEST_KEYS) {
-            NbtElement element = nbt.get(key);
+            Tag element = nbt.get(key);
             if (element != null) {
                 subset.put(key, element.copy());
             }

@@ -1,15 +1,15 @@
 package com.leipishu.pvpocket.combat;
 
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.item.BedItem;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.BucketItem;
-import net.minecraft.item.EndCrystalItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.item.MilkBucketItem;
-import net.minecraft.item.PotionItem;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.BedItem;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.BucketItem;
+import net.minecraft.world.item.EndCrystalItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.MilkBucketItem;
+import net.minecraft.world.item.PotionItem;
 
 /**
  * "May this stack be used right now" — the one place that answers it.
@@ -73,13 +73,13 @@ public final class UsePolicy {
             return BAN_BED;
         }
         // No RespawnAnchorItem exists — the anchor is a plain BlockItem, so it is named by item.
-        if (stack.isOf(Items.RESPAWN_ANCHOR)) {
+        if (stack.is(Items.RESPAWN_ANCHOR)) {
             return BAN_ANCHOR;
         }
         if (item instanceof EndCrystalItem) {
             return BAN_CRYSTAL;
         }
-        if (stack.isOf(Items.TNT)) {
+        if (stack.is(Items.TNT)) {
             return BAN_TNT;
         }
         if (item instanceof BucketItem) {
@@ -109,7 +109,7 @@ public final class UsePolicy {
         Item item = stack.getItem();
         return item instanceof PotionItem
                 || item instanceof MilkBucketItem
-                || stack.contains(DataComponentTypes.FOOD);
+                || stack.has(DataComponents.FOOD);
     }
 
     public static Denial placementDenial(int gate, int bans, ItemStack stack) {
@@ -128,7 +128,7 @@ public final class UsePolicy {
         if (ban != 0 && (bans & ban) != 0) {
             return Denial.BANNED;
         }
-        if ((gate & ALLOW_ENDER_PEARL) == 0 && stack.isOf(Items.ENDER_PEARL)) {
+        if ((gate & ALLOW_ENDER_PEARL) == 0 && stack.is(Items.ENDER_PEARL)) {
             return Denial.PEARL;
         }
         if ((gate & ALLOW_CONSUMABLES) == 0 && isConsumable(stack)) {
@@ -146,6 +146,6 @@ public final class UsePolicy {
      * shield that reaches an inventory some other way.</p>
      */
     public static Denial shieldDenial(boolean legacy, ItemStack stack) {
-        return legacy && stack.isOf(Items.SHIELD) ? Denial.SHIELD : Denial.NONE;
+        return legacy && stack.is(Items.SHIELD) ? Denial.SHIELD : Denial.NONE;
     }
 }

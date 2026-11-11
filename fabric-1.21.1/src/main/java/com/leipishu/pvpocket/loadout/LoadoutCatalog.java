@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,7 +54,7 @@ public final class LoadoutCatalog {
     /** One whitelisted item: the id it grants, and the key that names it. */
     public record Option(String id, String labelKey) {
 
-        public MutableText labelText() {
+        public MutableComponent labelText() {
             return PvLang.t(labelKey);
         }
 
@@ -89,7 +89,7 @@ public final class LoadoutCatalog {
      */
     public record EffectOption(String id, String labelKey, boolean buff, boolean durationMatters) {
 
-        public MutableText labelText() {
+        public MutableComponent labelText() {
             return PvLang.t(labelKey);
         }
 

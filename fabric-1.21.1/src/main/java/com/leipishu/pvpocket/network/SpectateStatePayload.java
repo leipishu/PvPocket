@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "you are watching this session, and the camera is on this player".
@@ -26,18 +26,18 @@ import net.minecraft.util.Identifier;
  */
 public record SpectateStatePayload(boolean active, String sessionId, String mapId, int round,
                                    int index, String targets)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
-    public static final Id<SpectateStatePayload> ID =
-            new Id<>(Identifier.of("pvpocket", "spectate_state"));
+    public static final Type<SpectateStatePayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "spectate_state"));
 
-    public static final PacketCodec<RegistryByteBuf, SpectateStatePayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.BOOL, SpectateStatePayload::active,
-            PacketCodecs.STRING, SpectateStatePayload::sessionId,
-            PacketCodecs.STRING, SpectateStatePayload::mapId,
-            PacketCodecs.VAR_INT, SpectateStatePayload::round,
-            PacketCodecs.VAR_INT, SpectateStatePayload::index,
-            PacketCodecs.STRING, SpectateStatePayload::targets,
+    public static final StreamCodec<RegistryFriendlyByteBuf, SpectateStatePayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.BOOL, SpectateStatePayload::active,
+            ByteBufCodecs.STRING_UTF8, SpectateStatePayload::sessionId,
+            ByteBufCodecs.STRING_UTF8, SpectateStatePayload::mapId,
+            ByteBufCodecs.VAR_INT, SpectateStatePayload::round,
+            ByteBufCodecs.VAR_INT, SpectateStatePayload::index,
+            ByteBufCodecs.STRING_UTF8, SpectateStatePayload::targets,
             SpectateStatePayload::new);
 
     /** The "stop drawing the bar" packet. Immutable, so one instance is enough. */
@@ -46,7 +46,7 @@ public record SpectateStatePayload(boolean active, String sessionId, String mapI
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

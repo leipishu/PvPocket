@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: one action taken on the home screen.
@@ -21,7 +21,7 @@ import net.minecraft.util.Identifier;
  * decodes to. The four operator actions are checked against the caller's permission level on the
  * server — the panel not offering them is a convenience, not the lock.</p>
  */
-public record HomeActionPayload(int action, String arg) implements CustomPayload {
+public record HomeActionPayload(int action, String arg) implements CustomPacketPayload {
 
     /** Open a fresh duel draft (or re-open the player's existing one). */
     public static final int ACTION_OPEN_DUEL = 0;
@@ -38,11 +38,11 @@ public record HomeActionPayload(int action, String arg) implements CustomPayload
     /** Operator: take one plot away from the map named in {@code arg}. */
     public static final int ACTION_ARENA_REMOVE = 6;
 
-    public static final Id<HomeActionPayload> ID = new Id<>(Identifier.of("pvpocket", "home_action"));
+    public static final Type<HomeActionPayload> ID = new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "home_action"));
 
-    public static final PacketCodec<RegistryByteBuf, HomeActionPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, HomeActionPayload::action,
-            PacketCodecs.STRING, HomeActionPayload::arg,
+    public static final StreamCodec<RegistryFriendlyByteBuf, HomeActionPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, HomeActionPayload::action,
+            ByteBufCodecs.STRING_UTF8, HomeActionPayload::arg,
             HomeActionPayload::new);
 
     public static HomeActionPayload duel() {
@@ -74,7 +74,7 @@ public record HomeActionPayload(int action, String arg) implements CustomPayload
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

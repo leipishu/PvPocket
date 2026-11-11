@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "here is every duel currently on this server" — the data behind
@@ -34,21 +34,21 @@ import net.minecraft.util.Identifier;
  *   <li>bit 2 — the reader is already watching this session</li>
  * </ul>
  */
-public record MatchListPayload(String entries) implements CustomPayload {
+public record MatchListPayload(String entries) implements CustomPacketPayload {
 
     public static final int FLAG_SPECTATABLE = 1;
     public static final int FLAG_PARTICIPANT = 1 << 1;
     public static final int FLAG_WATCHING = 1 << 2;
 
-    public static final Id<MatchListPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "match_list"));
+    public static final Type<MatchListPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "match_list"));
 
-    public static final PacketCodec<RegistryByteBuf, MatchListPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, MatchListPayload::entries,
+    public static final StreamCodec<RegistryFriendlyByteBuf, MatchListPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, MatchListPayload::entries,
             MatchListPayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

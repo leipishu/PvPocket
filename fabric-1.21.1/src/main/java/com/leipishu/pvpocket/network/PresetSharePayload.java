@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: "publish this preset as a code" or "give me the preset behind this code".
@@ -17,7 +17,7 @@ import net.minecraft.util.Identifier;
  * source of truth, so it never needs to understand the contents.</p>
  */
 public record PresetSharePayload(int action, String kind, String name, String encoded, String code)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
     /** Publish {@code kind}/{@code name}/{@code encoded}; the answer carries a code. */
     public static final int ACTION_PUBLISH = 0;
@@ -33,15 +33,15 @@ public record PresetSharePayload(int action, String kind, String name, String en
      */
     public static final int MAX_ENCODED = 16_384;
 
-    public static final Id<PresetSharePayload> ID =
-            new Id<>(Identifier.of("pvpocket", "preset_share"));
+    public static final Type<PresetSharePayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "preset_share"));
 
-    public static final PacketCodec<RegistryByteBuf, PresetSharePayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, PresetSharePayload::action,
-            PacketCodecs.STRING, PresetSharePayload::kind,
-            PacketCodecs.STRING, PresetSharePayload::name,
-            PacketCodecs.STRING, PresetSharePayload::encoded,
-            PacketCodecs.STRING, PresetSharePayload::code,
+    public static final StreamCodec<RegistryFriendlyByteBuf, PresetSharePayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, PresetSharePayload::action,
+            ByteBufCodecs.STRING_UTF8, PresetSharePayload::kind,
+            ByteBufCodecs.STRING_UTF8, PresetSharePayload::name,
+            ByteBufCodecs.STRING_UTF8, PresetSharePayload::encoded,
+            ByteBufCodecs.STRING_UTF8, PresetSharePayload::code,
             PresetSharePayload::new);
 
     public static PresetSharePayload publish(String kind, String name, String encoded) {
@@ -53,7 +53,7 @@ public record PresetSharePayload(int action, String kind, String name, String en
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.item.Item;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.MutableText;
-import net.minecraft.util.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 import java.util.Locale;
@@ -69,7 +69,7 @@ public enum ItemKind {
 
         public final String labelKey = "pvpocket.item.page." + name().toLowerCase(Locale.ROOT);
 
-        public MutableText labelText() {
+        public MutableComponent labelText() {
             return PvLang.t(labelKey);
         }
 
@@ -95,7 +95,7 @@ public enum ItemKind {
         this.defaultCount = defaultCount;
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 
@@ -121,8 +121,8 @@ public enum ItemKind {
      */
     public Item resolve(Material material) {
         String path = itemPath(material);
-        Identifier identifier = Identifier.of("minecraft", path);
-        return Registries.ITEM.containsId(identifier) ? Registries.ITEM.get(identifier) : null;
+        ResourceLocation identifier = ResourceLocation.fromNamespaceAndPath("minecraft", path);
+        return BuiltInRegistries.ITEM.containsKey(identifier) ? BuiltInRegistries.ITEM.get(identifier) : null;
     }
 
     /** The vanilla id this kind resolves to for {@code material}, without asking the registry. */
@@ -210,7 +210,7 @@ public enum ItemKind {
     }
 
     private static boolean registryHas(String path) {
-        return Registries.ITEM.containsId(Identifier.of("minecraft", path));
+        return BuiltInRegistries.ITEM.containsKey(ResourceLocation.fromNamespaceAndPath("minecraft", path));
     }
 
     /** True for kinds whose attributes (damage / armour / durability) are worth editing. */

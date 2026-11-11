@@ -2,7 +2,7 @@ package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.loadout.LoadoutLock;
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,13 +20,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * <p>Returning {@code false} is the honest answer to "did anything drop": the caller ignores it, but
  * a future caller reading the boolean should not be told a drop happened.</p>
  */
-@Mixin(ServerPlayerEntity.class)
+@Mixin(ServerPlayer.class)
 public abstract class ServerPlayerEntityMixin {
 
-    @Inject(method = "dropSelectedItem", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "drop(Z)Z", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noDropLocked(boolean entireStack, CallbackInfoReturnable<Boolean> cir) {
-        ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
-        if (LoadoutLock.isLocked(self.getMainHandStack())) {
+        ServerPlayer self = (ServerPlayer) (Object) this;
+        if (LoadoutLock.isLocked(self.getMainHandItem())) {
             SessionManager.reportDropDenial(self);
             cir.setReturnValue(false);
         }

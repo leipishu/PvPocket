@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: the answer to a {@link PresetSharePayload}, success or refusal.
@@ -17,7 +17,7 @@ import net.minecraft.util.Identifier;
  * name the sender chose, so "同事的弓" arrives as "同事的弓" rather than as "imported-1".</p>
  */
 public record PresetShareResultPayload(int status, String kind, String name, String encoded,
-                                       String code, int ttlSeconds) implements CustomPayload {
+                                       String code, int ttlSeconds) implements CustomPacketPayload {
 
     public static final int STATUS_PUBLISHED = 0;
     public static final int STATUS_FETCHED = 1;
@@ -28,16 +28,16 @@ public record PresetShareResultPayload(int status, String kind, String name, Str
     /** No room for another live code. */
     public static final int STATUS_FULL = 4;
 
-    public static final Id<PresetShareResultPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "preset_share_result"));
+    public static final Type<PresetShareResultPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "preset_share_result"));
 
-    public static final PacketCodec<RegistryByteBuf, PresetShareResultPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, PresetShareResultPayload::status,
-            PacketCodecs.STRING, PresetShareResultPayload::kind,
-            PacketCodecs.STRING, PresetShareResultPayload::name,
-            PacketCodecs.STRING, PresetShareResultPayload::encoded,
-            PacketCodecs.STRING, PresetShareResultPayload::code,
-            PacketCodecs.VAR_INT, PresetShareResultPayload::ttlSeconds,
+    public static final StreamCodec<RegistryFriendlyByteBuf, PresetShareResultPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, PresetShareResultPayload::status,
+            ByteBufCodecs.STRING_UTF8, PresetShareResultPayload::kind,
+            ByteBufCodecs.STRING_UTF8, PresetShareResultPayload::name,
+            ByteBufCodecs.STRING_UTF8, PresetShareResultPayload::encoded,
+            ByteBufCodecs.STRING_UTF8, PresetShareResultPayload::code,
+            ByteBufCodecs.VAR_INT, PresetShareResultPayload::ttlSeconds,
             PresetShareResultPayload::new);
 
     public boolean ok() {
@@ -59,7 +59,7 @@ public record PresetShareResultPayload(int status, String kind, String name, Str
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

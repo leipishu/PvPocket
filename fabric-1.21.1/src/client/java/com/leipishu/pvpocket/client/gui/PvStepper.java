@@ -1,11 +1,11 @@
 package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.rules.RuleDefinition;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 
 import java.util.function.IntFunction;
 
@@ -98,7 +98,7 @@ public class PvStepper extends PvValueControl {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -106,7 +106,7 @@ public class PvStepper extends PvValueControl {
         tickHover(d);
         tickFocus(d);
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         hotCap = enabled && contains(mouseX, mouseY) ? capAt(mouseX, mouseY) : -1;
 
         drawCap(ctx, minusX(), hotCap == 0, false);
@@ -124,7 +124,7 @@ public class PvStepper extends PvValueControl {
         drawFocusRing(ctx, PvTheme.RADIUS);
     }
 
-    private void drawCap(DrawContext ctx, int capX, boolean hot, boolean plus) {
+    private void drawCap(GuiGraphics ctx, int capX, boolean hot, boolean plus) {
         int cy = capY();
         int bg = !enabled ? PvTheme.SUNKEN
                 : hot ? PvTheme.CARD_ACTIVE
@@ -151,8 +151,8 @@ public class PvStepper extends PvValueControl {
         if (cap < 0) {
             return true;
         }
-        MinecraftClient.getInstance().getSoundManager()
-                .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
         step(cap == 1 ? 1 : -1);
         return true;
     }

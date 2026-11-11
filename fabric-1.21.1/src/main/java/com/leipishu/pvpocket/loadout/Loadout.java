@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -165,11 +165,11 @@ public final class Loadout {
      * <p>The two presets are stored as ids and translated here; anything else is a name that came
      * from disk, which is data rather than a string this mod owns, so it is shown as-is.</p>
      */
-    public Text displayName() {
+    public Component displayName() {
         return switch (name) {
             case "default" -> PvLang.t("pvpocket.loadout.name.default");
             case "default_duel" -> PvLang.t("pvpocket.loadout.name.default_duel");
-            default -> Text.literal(name);
+            default -> Component.literal(name);
         };
     }
 
@@ -239,8 +239,8 @@ public final class Loadout {
      * the client draws it in the footer, and the server quotes the first entry back in a chat line.
      * A string built on the server would be in the server's language, which is nobody's.</p>
      */
-    public List<Text> validate() {
-        List<Text> problems = new ArrayList<>();
+    public List<Component> validate() {
+        List<Component> problems = new ArrayList<>();
         if (entries.isEmpty()) {
             problems.add(PvLang.t("pvpocket.loadout.problem.empty"));
         }
@@ -251,7 +251,7 @@ public final class Loadout {
         boolean[] used = new boolean[41];
         for (int i = 0; i < entries.size(); i++) {
             LoadoutEntry entry = entries.get(i);
-            MutableText row = PvLang.t("pvpocket.loadout.problem.row",
+            MutableComponent row = PvLang.t("pvpocket.loadout.problem.row",
                     i + 1, entry.kind.labelText());
             if (entry.slot >= 0 && entry.slot < used.length) {
                 if (used[entry.slot]) {
@@ -264,8 +264,8 @@ public final class Loadout {
         return problems;
     }
 
-    private static List<Text> validateEntry(LoadoutEntry entry, MutableText row) {
-        List<Text> problems = new ArrayList<>();
+    private static List<Component> validateEntry(LoadoutEntry entry, MutableComponent row) {
+        List<Component> problems = new ArrayList<>();
         // Every kind, not only the materialised ones. A mace on 1.20.1 and a wind charge on 1.20.1
         // resolve to an empty stack exactly as quietly as a copper spear on 1.21.1, and the old
         // materialised-only guard let both through: the row validated clean and then granted nothing.

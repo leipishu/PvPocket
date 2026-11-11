@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: everything the home screen draws that the client cannot know by itself.
@@ -37,7 +37,7 @@ import net.minecraft.util.Identifier;
  * ignores the field costs nothing.</p>
  */
 public record HomeStatePayload(String stats, String history, String matches, int flags, String arena)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
     public static final int FLAG_IN_DUEL = 1;
     public static final int FLAG_SPECTATING = 1 << 1;
@@ -46,14 +46,14 @@ public record HomeStatePayload(String stats, String history, String matches, int
     /** The reader may reset the dimension, add copies and see the plot layout. */
     public static final int FLAG_OPERATOR = 1 << 4;
 
-    public static final Id<HomeStatePayload> ID = new Id<>(Identifier.of("pvpocket", "home_state"));
+    public static final Type<HomeStatePayload> ID = new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "home_state"));
 
-    public static final PacketCodec<RegistryByteBuf, HomeStatePayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, HomeStatePayload::stats,
-            PacketCodecs.STRING, HomeStatePayload::history,
-            PacketCodecs.STRING, HomeStatePayload::matches,
-            PacketCodecs.VAR_INT, HomeStatePayload::flags,
-            PacketCodecs.STRING, HomeStatePayload::arena,
+    public static final StreamCodec<RegistryFriendlyByteBuf, HomeStatePayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, HomeStatePayload::stats,
+            ByteBufCodecs.STRING_UTF8, HomeStatePayload::history,
+            ByteBufCodecs.STRING_UTF8, HomeStatePayload::matches,
+            ByteBufCodecs.VAR_INT, HomeStatePayload::flags,
+            ByteBufCodecs.STRING_UTF8, HomeStatePayload::arena,
             HomeStatePayload::new);
 
     public boolean has(int flag) {
@@ -61,7 +61,7 @@ public record HomeStatePayload(String stats, String history, String matches, int
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

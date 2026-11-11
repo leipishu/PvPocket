@@ -38,7 +38,7 @@ import com.leipishu.pvpocket.network.SpectateStatePayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 /**
  * Client entrypoint. PvPocket ships a mandatory client mod, so this is where the custom GUI layer,
@@ -83,18 +83,18 @@ public final class PvPocketClient implements ClientModInitializer {
 
         ClientPlayNetworking.registerGlobalReceiver(RulesClosePayload.ID, (payload, context) -> {
             context.client().execute(() -> {
-                boolean showing = context.client().currentScreen instanceof RuleScreen screen
+                boolean showing = context.client().screen instanceof RuleScreen screen
                         && screen.sessionId().equals(payload.sessionId());
                 PvPocket.LOGGER.info("Rules close for session {} (panel open: {})",
                         payload.sessionId(), showing);
                 if (showing) {
-                    ((RuleScreen) context.client().currentScreen).closeSilently();
+                    ((RuleScreen) context.client().screen).closeSilently();
                     return;
                 }
                 // The loadout editor is a child of the rule panel, so it has to go too: leaving it
                 // open over a finished session would let the player keep editing a loadout that can
                 // never be applied.
-                if (context.client().currentScreen instanceof LoadoutScreen editor
+                if (context.client().screen instanceof LoadoutScreen editor
                         && editor.sessionId().equals(payload.sessionId())) {
                     context.client().setScreen(null);
                 }
@@ -107,7 +107,7 @@ public final class PvPocketClient implements ClientModInitializer {
                 // The editor is opened from the rule panel and returns to it, so the panel instance is
                 // carried across rather than reconstructed: rebuilding it would throw away any rule
                 // edits the player had made but not yet sent.
-                RuleScreen parent = context.client().currentScreen instanceof RuleScreen screen ? screen : null;
+                RuleScreen parent = context.client().screen instanceof RuleScreen screen ? screen : null;
                 context.client().setScreen(new LoadoutScreen(payload, parent));
             });
         });
@@ -225,18 +225,18 @@ public final class PvPocketClient implements ClientModInitializer {
     private static String lastResultSession;
 
     private static void apply(CombatStatePayload payload) {
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client.player == null) {
             pending = payload;
             return;
         }
         pending = null;
-        CombatState.setMode(client.player.getUuid(),
+        CombatState.setMode(client.player.getUUID(),
                 payload.legacy() ? CombatMode.LEGACY_1_8 : CombatMode.MODERN);
-        CombatState.setBlocking(client.player.getUuid(), payload.blocking());
+        CombatState.setBlocking(client.player.getUUID(), payload.blocking());
         // Without this the client predicts a placement the server refuses and keeps a block only it
         // can see; the same mask makes both sides reach the same answer.
-        CombatState.setUseGate(client.player.getUuid(), payload.useGate(), payload.bans());
+        CombatState.setUseGate(client.player.getUUID(), payload.useGate(), payload.bans());
         // An explosion destroys blocks on whichever side runs it, so this has to reach the client or
         // it leaves holes the server never confirms.
         CombatState.setClientExplosivesAllowed(payload.explosives());

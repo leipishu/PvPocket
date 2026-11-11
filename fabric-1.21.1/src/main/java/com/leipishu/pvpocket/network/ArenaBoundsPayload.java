@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "the plot you are fighting on is this box".
@@ -32,17 +32,17 @@ public record ArenaBoundsPayload(boolean active,
                                  double x0, double z0, double x1, double z1,
                                  double floorY, double height,
                                  int mode)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
     /** {@code e.boundary = 拉回}: blue, walk-through. */
     public static final int MODE_PUSH_BACK = 0;
     /** {@code e.boundary = 判负}: red, walk-through, five-second countdown. */
     public static final int MODE_COUNTDOWN = 1;
 
-    public static final Id<ArenaBoundsPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "arena_bounds"));
+    public static final Type<ArenaBoundsPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "arena_bounds"));
 
-    public static final PacketCodec<RegistryByteBuf, ArenaBoundsPayload> CODEC = PacketCodec.of(
+    public static final StreamCodec<RegistryFriendlyByteBuf, ArenaBoundsPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
                 buf.writeDouble(value.x0);
@@ -69,7 +69,7 @@ public record ArenaBoundsPayload(boolean active,
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

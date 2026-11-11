@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: "save this loadout onto my side of the session".
@@ -14,18 +14,18 @@ import net.minecraft.util.Identifier;
  * before a single item is constructed, so the worst a tampered client can do is submit a loadout that
  * gets rejected.</p>
  */
-public record LoadoutSubmitPayload(String sessionId, String loadout) implements CustomPayload {
+public record LoadoutSubmitPayload(String sessionId, String loadout) implements CustomPacketPayload {
 
-    public static final Id<LoadoutSubmitPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "loadout_submit"));
+    public static final Type<LoadoutSubmitPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "loadout_submit"));
 
-    public static final PacketCodec<RegistryByteBuf, LoadoutSubmitPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, LoadoutSubmitPayload::sessionId,
-            PacketCodecs.STRING, LoadoutSubmitPayload::loadout,
+    public static final StreamCodec<RegistryFriendlyByteBuf, LoadoutSubmitPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, LoadoutSubmitPayload::sessionId,
+            ByteBufCodecs.STRING_UTF8, LoadoutSubmitPayload::loadout,
             LoadoutSubmitPayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

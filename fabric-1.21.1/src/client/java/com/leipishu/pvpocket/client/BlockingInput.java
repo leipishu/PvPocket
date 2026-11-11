@@ -2,7 +2,7 @@ package com.leipishu.pvpocket.client;
 
 import com.leipishu.pvpocket.network.BlockingPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 /**
  * Tracks whether the local player is holding a sword block and tells the server.
@@ -32,8 +32,8 @@ public final class BlockingInput {
                 return;
             }
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.getNetworkHandler() == null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.getConnection() == null) {
             last = false;
             sinceSend = 0;
             return;

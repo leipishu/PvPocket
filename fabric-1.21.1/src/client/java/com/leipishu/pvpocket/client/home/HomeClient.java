@@ -6,9 +6,9 @@ import com.leipishu.pvpocket.network.HomeRequestPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -26,15 +26,15 @@ import java.util.List;
  */
 public final class HomeClient {
 
-    private static KeyBinding home;
+    private static KeyMapping home;
 
     private HomeClient() {
     }
 
     public static void register() {
-        home = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+        home = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.pvpocket.home",
-                InputUtil.Type.KEYSYM,
+                InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_B,
                 "key.categories.pvpocket"));
 
@@ -42,20 +42,20 @@ public final class HomeClient {
                 client -> {
                     // Drained in a loop for the same reason the spectator keys are: two presses in
                     // one tick are two intents.
-                    while (home.wasPressed()) {
-                        if (client.currentScreen == null && client.player != null) {
+                    while (home.consumeClick()) {
+                        if (client.screen == null && client.player != null) {
                             client.setScreen(new HomeScreen());
                         }
                     }
                 });
     }
 
-    public static KeyBinding homeKey() {
+    public static KeyMapping homeKey() {
         return home;
     }
 
     /** The other keys the settings page can rebind, so one place lists every key this mod adds. */
-    public static List<KeyBinding> extraKeys() {
+    public static List<KeyMapping> extraKeys() {
         return SpectatorInput.bindings();
     }
 
@@ -100,8 +100,8 @@ public final class HomeClient {
 
     /** Opens the screen if it is legal to, for the inventory button and for command aliases. */
     public static void open() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.currentScreen == null && client.player != null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.screen == null && client.player != null) {
             client.setScreen(new HomeScreen());
         }
     }

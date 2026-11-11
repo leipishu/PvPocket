@@ -22,15 +22,15 @@ import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 
@@ -172,10 +172,10 @@ public class LoadoutScreen extends PvScreen {
      * and nothing more, and the cap keeps the column from growing on a wide window.</p>
      */
     private int sidebarWidth() {
-        TextRenderer tr = font();
+        Font tr = font();
         int widest = 0;
         for (String label : PAGE_LABELS) {
-            widest = Math.max(widest, tr.getWidth(label));
+            widest = Math.max(widest, tr.width(label));
         }
         // 34 = 2 x SIDE_PAD + 10px text inset + 12px for the dirty dot column.
         return PvLayout.clamp(widest + 34, SIDEBAR_MIN, SIDEBAR_MAX);
@@ -356,14 +356,14 @@ public class LoadoutScreen extends PvScreen {
         int right = panelX + panelW - 12;
         backButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.back"),
                 PvButton.Style.GHOST, this::requestBack);
-        backButton.size(font().getWidth(backButton.label()) + 16, PvButton.CHIP_H);
+        backButton.size(font().width(backButton.label()) + 16, PvButton.CHIP_H);
         backButton.x = right - backButton.width;
         backButton.y = chipY;
         roots.add(backButton);
 
         resetButton = new PvButton(PvLang.str("pvpocket.gui.loadout.button.reset"),
                 PvButton.Style.NORMAL, this::resetToPreset);
-        resetButton.size(font().getWidth(resetButton.label()) + 16, PvButton.CHIP_H);
+        resetButton.size(font().width(resetButton.label()) + 16, PvButton.CHIP_H);
         resetButton.x = backButton.x - 6 - resetButton.width;
         resetButton.y = chipY;
         roots.add(resetButton);
@@ -373,12 +373,12 @@ public class LoadoutScreen extends PvScreen {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        TextRenderer tr = font();
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+        Font tr = font();
 
         String title = PvLang.str("pvpocket.gui.loadout.title");
         PvDraw.text(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
-        int titleEnd = panelX + 14 + tr.getWidth(title) + 10;
+        int titleEnd = panelX + 14 + tr.width(title) + 10;
 
         String subtitle = isPersonal()
                 ? PvLang.str("pvpocket.gui.loadout.subtitle.personal")
@@ -388,7 +388,7 @@ public class LoadoutScreen extends PvScreen {
                                 : payload.otherName());
 
         String digest = loadout.digest();
-        int digestW = tr.getWidth(digest) + 12;
+        int digestW = tr.width(digest) + 12;
         // The digest is what the other side has to agree to, so it stays; the preset link is what
         // gives up its space when the title is long, by being pushed left of the digest.
         int digestX = presetButton.x - 6 - digestW;
@@ -410,13 +410,13 @@ public class LoadoutScreen extends PvScreen {
      * wide — narrower than a validation sentence. With the buttons moved out, the line has the width
      * of the well minus two chips, and a problem can be stated rather than truncated.</p>
      */
-    private void drawStatus(DrawContext ctx, TextRenderer tr) {
+    private void drawStatus(GuiGraphics ctx, Font tr) {
         int top = panelY + panelH - STATUS_H;
         int left = panelX + chromeW + 12;
         PvDraw.hLine(ctx, left, top, panelX + panelW - 12 - left, PvTheme.DIVIDER);
         int maxW = Math.max(0, statusRight - left);
 
-        List<Text> problems = loadout.validate();
+        List<Component> problems = loadout.validate();
         String text;
         int color;
         if (!problems.isEmpty()) {
@@ -450,8 +450,8 @@ public class LoadoutScreen extends PvScreen {
     /** {@code Identifier.tryParse} returns null on a malformed id, and {@code Registries.ITEM.get}
      * would then throw; an unresolvable variant has to render as "no icon", not as a crash. */
     private static Item itemById(String id) {
-        Identifier identifier = Identifier.tryParse(id);
-        return identifier == null ? null : Registries.ITEM.get(identifier);
+        ResourceLocation identifier = ResourceLocation.tryParse(id);
+        return identifier == null ? null : BuiltInRegistries.ITEM.get(identifier);
     }
 
     private static ItemStack iconOf(LoadoutEntry entry) {
@@ -587,7 +587,7 @@ public class LoadoutScreen extends PvScreen {
     }
 
     private void submit() {
-        List<Text> problems = loadout.validate();
+        List<Component> problems = loadout.validate();
         if (!problems.isEmpty()) {
             note = problems.get(0).getString();
             return;
@@ -645,12 +645,12 @@ public class LoadoutScreen extends PvScreen {
 
     /** Returns to the rule panel. Never cancels the negotiation — that is the 取消 button's job. */
     private void back() {
-        MinecraftClient.getInstance().setScreen(parent);
+        Minecraft.getInstance().setScreen(parent);
     }
 
     /** Esc and 返回 both go through {@link #requestBack}; only a clean panel leaves immediately. */
     @Override
-    public void close() {
+    public void onClose() {
         requestBack();
     }
 

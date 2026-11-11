@@ -1,11 +1,11 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.entity.projectile.AbstractWindChargeEntity;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-import net.minecraft.world.explosion.Explosion;
+import net.minecraft.world.entity.projectile.windcharge.AbstractWindCharge;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.Explosion;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -30,16 +30,16 @@ public abstract class ExplosionMixin {
 
     @Shadow
     @Final
-    private World world;
+    private Level world;
 
-    @Inject(method = "collectBlocksAndDamageEntities", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "explode", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noExplosionDamage(CallbackInfo ci) {
         if (!allowed()) {
             ci.cancel();
         }
     }
 
-    @Inject(method = "affectWorld", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "finalizeExplosion", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noExplosionWorld(boolean particles, CallbackInfo ci) {
         if (!allowed()) {
             ci.cancel();
@@ -53,7 +53,7 @@ public abstract class ExplosionMixin {
             // 玩家只会看到「我配了风弹但它什么都不做」。
             return true;
         }
-        Vec3d pos = ((Explosion) (Object) this).getPosition();
+        Vec3 pos = ((Explosion) (Object) this).center();
         return SessionManager.explosivesAllowed(world, pos);
     }
 
@@ -66,10 +66,10 @@ public abstract class ExplosionMixin {
      */
     private boolean isWindBurst() {
         Explosion self = (Explosion) (Object) this;
-        if (self.getEntity() instanceof AbstractWindChargeEntity) {
+        if (self.getDirectSourceEntity() instanceof AbstractWindCharge) {
             return true;
         }
-        return self.getSoundEvent() != null
-                && self.getSoundEvent().value() == SoundEvents.ENTITY_WIND_CHARGE_WIND_BURST.value();
+        return self.getExplosionSound() != null
+                && self.getExplosionSound().value() == SoundEvents.WIND_CHARGE_BURST.value();
     }
 }

@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.World;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 
 /**
  * The policy of the duel dimension: a player inside it is a guest with no admin rights.
@@ -55,7 +55,7 @@ public final class Sandbox {
     }
 
     /** True when this world is the duel dimension, where the sandbox policy applies. */
-    public static boolean isSandbox(World world) {
+    public static boolean isSandbox(Level world) {
         return ArenaManager.isArena(world);
     }
 
@@ -67,14 +67,14 @@ public final class Sandbox {
      * the whole point is to restrict players rather than to disable the command system in the
      * dimension.</p>
      */
-    public static boolean commandAllowed(ServerCommandSource source, String rawCommand) {
+    public static boolean commandAllowed(CommandSourceStack source, String rawCommand) {
         if (source == null || rawCommand == null) {
             return true;
         }
-        if (!(source.getEntity() instanceof ServerPlayerEntity player)) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
             return true;
         }
-        if (!isSandbox(player.getWorld())) {
+        if (!isSandbox(player.level())) {
             return true;
         }
         return ALLOWED_ROOT.equals(rootOf(rawCommand));
@@ -110,10 +110,10 @@ public final class Sandbox {
      * {@code ServerPlayerInteractionManagerMixin}, and the failure is silent — the round would
      * simply start in the wrong mode.</p>
      */
-    public static void changeGameMode(ServerPlayerEntity player, GameMode mode) {
+    public static void changeGameMode(ServerPlayer player, GameType mode) {
         beginAuthorised();
         try {
-            player.changeGameMode(mode);
+            player.setGameMode(mode);
         } finally {
             endAuthorised();
         }
@@ -148,8 +148,8 @@ public final class Sandbox {
     }
 
     /** Logged once per refusal so a silently ignored third-party change leaves a trace. */
-    public static void logRefusal(ServerPlayerEntity player, GameMode mode) {
+    public static void logRefusal(ServerPlayer player, GameType mode) {
         PvPocket.LOGGER.info("Refused game mode change to {} for {} inside the sandbox",
-                mode.getName(), player.getName().getString());
+                mode.getShortDisplayName(), player.getName().getString());
     }
 }

@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.List;
 
@@ -59,7 +59,7 @@ public class PvConfirm extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -69,7 +69,7 @@ public class PvConfirm extends PvWidget {
         PvDraw.roundPanel(ctx, cx, cy, CARD_W, CARD_H, PvTheme.RADIUS_PANEL, PvTheme.BORDER,
                 PvTheme.PANEL);
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         PvDraw.textFitLeft(ctx, tr, title, cx + 16, cy + 12, CARD_W - 32, PvTheme.TEXT);
         // Two lines of body at most: a third would collide with the buttons, and the sentence is a
         // warning, not documentation.

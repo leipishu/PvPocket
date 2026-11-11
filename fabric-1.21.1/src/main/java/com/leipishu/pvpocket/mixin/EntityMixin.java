@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.combat.CombatState;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -26,9 +26,9 @@ public abstract class EntityMixin {
     /** {@code Entity#getCollisionBorderSize} in 1.8.9. */
     private static final float LEGACY_TARGETING_MARGIN = 0.1F;
 
-    @Inject(method = "getTargetingMargin", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "getPickRadius", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyTargetingMargin(CallbackInfoReturnable<Float> cir) {
-        if ((Object) this instanceof PlayerEntity player && CombatState.isLegacy(player.getUuid())) {
+        if ((Object) this instanceof Player player && CombatState.isLegacy(player.getUUID())) {
             cir.setReturnValue(LEGACY_TARGETING_MARGIN);
         }
     }

@@ -3,16 +3,16 @@ package com.leipishu.pvpocket.mixin.client;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.item.ItemRenderer;
-import net.minecraft.client.render.model.json.ModelTransformationMode;
-import net.minecraft.client.render.model.json.Transformation;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.SwordItem;
-import net.minecraft.util.Arm;
-import net.minecraft.util.math.RotationAxis;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.entity.ItemRenderer;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.client.renderer.block.model.ItemTransform;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.entity.HumanoidArm;
+import com.mojang.math.Axis;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -78,17 +78,17 @@ public abstract class ItemRendererMixin {
      */
     private static final float GRIP = 0.40F;
 
-    @WrapOperation(method = "renderItem(Lnet/minecraft/item/ItemStack;"
-                    + "Lnet/minecraft/client/render/model/json/ModelTransformationMode;Z"
-                    + "Lnet/minecraft/client/util/math/MatrixStack;"
-                    + "Lnet/minecraft/client/render/VertexConsumerProvider;II"
-                    + "Lnet/minecraft/client/render/model/BakedModel;)V",
+    @WrapOperation(method = "render(Lnet/minecraft/world/item/ItemStack;"
+                    + "Lnet/minecraft/world/item/ItemDisplayContext;Z"
+                    + "Lcom/mojang/blaze3d/vertex/PoseStack;"
+                    + "Lnet/minecraft/client/renderer/MultiBufferSource;II"
+                    + "Lnet/minecraft/client/resources/model/BakedModel;)V",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/render/model/json/Transformation;apply("
-                            + "ZLnet/minecraft/client/util/math/MatrixStack;)V"))
-    private void pvpocket$legacyBlockPose(Transformation display, boolean leftHanded,
-                                          MatrixStack matrices, Operation<Void> original,
-                                          ItemStack stack, ModelTransformationMode renderMode) {
+                    target = "Lnet/minecraft/client/renderer/block/model/ItemTransform;apply("
+                            + "ZLcom/mojang/blaze3d/vertex/PoseStack;)V"))
+    private void pvpocket$legacyBlockPose(ItemTransform display, boolean leftHanded,
+                                          PoseStack matrices, Operation<Void> original,
+                                          ItemStack stack, ItemDisplayContext renderMode) {
         if (leftHanded || !wantsBlockPose(stack, renderMode)) {
             original.call(display, leftHanded, matrices);
             return;
@@ -101,27 +101,27 @@ public abstract class ItemRendererMixin {
 
         matrices.translate(HAND_OFFSET_X - gripX, HAND_OFFSET_Y - gripY, 0.0F);
         matrices.scale(HAND_SCALE, HAND_SCALE, HAND_SCALE);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(BLOCK_ROLL));
+        matrices.mulPose(Axis.ZP.rotationDegrees(BLOCK_ROLL));
 
         // ItemRenderer's own translate(-0.5, -0.5, -0.5) follows this call, so the quarter turn above
         // happens about the model's centre rather than its corner.
     }
 
-    private static boolean wantsBlockPose(ItemStack stack, ModelTransformationMode renderMode) {
+    private static boolean wantsBlockPose(ItemStack stack, ItemDisplayContext renderMode) {
         if (!(stack.getItem() instanceof SwordItem)) {
             return false;
         }
 
-        MinecraftClient client = MinecraftClient.getInstance();
-        PlayerEntity player = client.player;
-        if (player == null || !CombatState.isBlocking(player.getUuid())) {
+        Minecraft client = Minecraft.getInstance();
+        Player player = client.player;
+        if (player == null || !CombatState.isBlocking(player.getUUID())) {
             return false;
         }
 
         // Only the hand that is blocking: a sword in the off hand keeps its idle pose.
-        ModelTransformationMode mainHand = player.getMainArm() == Arm.RIGHT
-                ? ModelTransformationMode.FIRST_PERSON_RIGHT_HAND
-                : ModelTransformationMode.FIRST_PERSON_LEFT_HAND;
+        ItemDisplayContext mainHand = player.getMainArm() == HumanoidArm.RIGHT
+                ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
+                : ItemDisplayContext.FIRST_PERSON_LEFT_HAND;
         return renderMode == mainHand;
     }
 }

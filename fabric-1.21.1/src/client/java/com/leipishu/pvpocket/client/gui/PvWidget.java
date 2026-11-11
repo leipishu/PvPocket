@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * Base class for every custom widget.
@@ -101,7 +101,7 @@ public abstract class PvWidget {
     }
 
     /** Draws the accent ring when focus is (partly) on this widget. */
-    protected void drawFocusRing(DrawContext ctx, int radius) {
+    protected void drawFocusRing(GuiGraphics ctx, int radius) {
         if (focusT <= 0.02F) {
             return;
         }
@@ -109,7 +109,7 @@ public abstract class PvWidget {
                 PvTheme.alpha(PvTheme.ACCENT, focusT * 0.85F));
     }
 
-    public abstract void render(DrawContext ctx, int mouseX, int mouseY, float delta);
+    public abstract void render(GuiGraphics ctx, int mouseX, int mouseY, float delta);
 
     public boolean mouseClicked(double mx, double my, int button) {
         return false;

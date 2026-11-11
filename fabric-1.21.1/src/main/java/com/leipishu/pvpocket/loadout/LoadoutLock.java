@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.loadout;
 
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * The "Q does nothing on this item" mark, carried by the stack itself.
@@ -42,7 +42,7 @@ public final class LoadoutLock {
         if (stack.isEmpty()) {
             return;
         }
-        NbtComponent.set(DataComponentTypes.CUSTOM_DATA, stack, nbt -> nbt.putString(KEY, fingerprint));
+        CustomData.update(DataComponents.CUSTOM_DATA, stack, nbt -> nbt.putString(KEY, fingerprint));
     }
 
     /** Whether Q-key dropping is refused for this stack. Empty stacks are never locked. */
@@ -55,8 +55,8 @@ public final class LoadoutLock {
         if (stack.isEmpty()) {
             return "";
         }
-        NbtComponent data = stack.get(DataComponentTypes.CUSTOM_DATA);
-        return data == null ? "" : data.copyNbt().getString(KEY);
+        CustomData data = stack.get(DataComponents.CUSTOM_DATA);
+        return data == null ? "" : data.copyTag().getString(KEY);
     }
 
     /**
@@ -80,22 +80,22 @@ public final class LoadoutLock {
      * a stack we did grant is read from the loadout rather than guessed from the item, so two rows
      * granting the same item are handled without ambiguity (any row that still locks wins).</p>
      */
-    public static void restamp(PlayerEntity player, Loadout loadout) {
+    public static void restamp(Player player, Loadout loadout) {
         if (loadout == null) {
             return;
         }
         boolean changed = false;
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
             String fingerprint = fingerprint(stack);
             if (fingerprint.isEmpty() || loadout.locks(fingerprint)) {
                 continue;
             }
-            NbtComponent.set(DataComponentTypes.CUSTOM_DATA, stack, nbt -> nbt.remove(KEY));
+            CustomData.update(DataComponents.CUSTOM_DATA, stack, nbt -> nbt.remove(KEY));
             changed = true;
         }
         if (changed) {
-            player.currentScreenHandler.sendContentUpdates();
+            player.containerMenu.broadcastChanges();
         }
     }
 }

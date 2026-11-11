@@ -2,12 +2,12 @@ package com.leipishu.pvpocket.arena;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 
 /**
  * One duel plot inside the shared arena dimension.
@@ -142,7 +142,7 @@ public final class ArenaRegion {
     private final int[] padZ = new int[PAD_COUNT];
     private boolean padsResolved;
 
-    private final BlockPos.Mutable cursor = new BlockPos.Mutable();
+    private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
     ArenaRegion(String id, int index, int minX, int minZ, int sizeX, int sizeY, int sizeZ,
                 int cellMinX, int cellMinZ, int cellSizeX, int cellSizeZ,
@@ -197,19 +197,19 @@ public final class ArenaRegion {
      * <p>Checked against the block rather than assumed: a player who broke one during the countdown
      * (protection off) leaves air there, and writing air over air is a pointless block update.</p>
      */
-    public int clearScreens(ServerWorld world) {
+    public int clearScreens(ServerLevel world) {
         if (screens.isEmpty()) {
             return 0;
         }
-        BlockState barrier = Blocks.BARRIER.getDefaultState();
-        BlockState air = Blocks.AIR.getDefaultState();
+        BlockState barrier = Blocks.BARRIER.defaultBlockState();
+        BlockState air = Blocks.AIR.defaultBlockState();
         long[] keys = screens.toLongArray();
         screens.clear();
         int removed = 0;
         for (long key : keys) {
-            BlockPos pos = BlockPos.fromLong(key);
+            BlockPos pos = BlockPos.of(key);
             if (world.getBlockState(pos) == barrier) {
-                world.setBlockState(pos, air, Block.NOTIFY_LISTENERS);
+                world.setBlock(pos, air, Block.UPDATE_CLIENTS);
                 removed++;
             }
         }
@@ -225,7 +225,7 @@ public final class ArenaRegion {
      * a stone plain that is out of shot".</p>
      */
     public static BlockState flatBaseline(int y) {
-        return Blocks.AIR.getDefaultState();
+        return Blocks.AIR.defaultBlockState();
     }
 
     /**
@@ -255,7 +255,7 @@ public final class ArenaRegion {
      * free of any assumption about how the template stores its palette — whatever is in the world
      * after the paste is, by definition, what a revert should restore.</p>
      */
-    public void capture(ServerWorld world) {
+    public void capture(ServerLevel world) {
         template.clear();
         // Starts one below the map base so the flat arena's platform is captured too. Without that
         // the platform would not be part of the baseline, and the first revert of a duel would
@@ -288,7 +288,7 @@ public final class ArenaRegion {
      * nominal point when nothing is found keeps a pathological map from dropping players at the
      * origin of the dimension.</p>
      */
-    private void resolvePads(ServerWorld world) {
+    private void resolvePads(ServerLevel world) {
         for (int i = 0; i < PAD_COUNT; i++) {
             int[] found = findStand(world, nominalSpawnX(i), nominalSpawnZ(i));
             padX[i] = found[0];
@@ -313,7 +313,7 @@ public final class ArenaRegion {
     private static final int MAX_PAD_SEARCH = 24;
 
     /** Ring search around a target column. Returns {x, feetY, z}; feetY -1 means "nothing found". */
-    private int[] findStand(ServerWorld world, int targetX, int targetZ) {
+    private int[] findStand(ServerLevel world, int targetX, int targetZ) {
         for (int radius = 0; radius <= MAX_PAD_SEARCH; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
@@ -346,7 +346,7 @@ public final class ArenaRegion {
      * roofed arena has a solid ceiling well above the pit, and spawning on the roof drops the
      * player into the fight from above.</p>
      */
-    public int standY(ServerWorld world, int x, int z) {
+    public int standY(ServerLevel world, int x, int z) {
         int top = SURFACE_Y + sizeY;
         for (int y = PLATFORM_Y; y + 2 < top; y++) {
             BlockState floor = world.getBlockState(cursor.set(x, y, z));
@@ -564,8 +564,8 @@ public final class ArenaRegion {
         return y >= PLATFORM_Y - 8.0D && inBounds(x, z);
     }
 
-    public Box entityBox(int bottomY, int topY) {
-        return new Box(minX, bottomY, minZ, maxX() + 1.0D, topY, maxZ() + 1.0D);
+    public AABB entityBox(int bottomY, int topY) {
+        return new AABB(minX, bottomY, minZ, maxX() + 1.0D, topY, maxZ() + 1.0D);
     }
 
     /** True when this position currently deviates from the map baseline, i.e. a player changed it. */
@@ -615,7 +615,7 @@ public final class ArenaRegion {
      * <p>Iterating the set while mutating it is safe because {@code writeBaseline} is called with
      * recording suppressed — see {@link ArenaManager#suppressRecording()}.</p>
      */
-    public int revert(ServerWorld world) {
+    public int revert(ServerLevel world) {
         if (changed.isEmpty()) {
             return 0;
         }
@@ -623,8 +623,8 @@ public final class ArenaRegion {
         long[] keys = changed.toLongArray();
         changed.clear();
         for (long key : keys) {
-            BlockPos pos = BlockPos.fromLong(key);
-            world.setBlockState(pos, baseline(pos), Block.NOTIFY_LISTENERS);
+            BlockPos pos = BlockPos.of(key);
+            world.setBlock(pos, baseline(pos), Block.UPDATE_CLIENTS);
             reverted++;
         }
         return reverted;
@@ -660,8 +660,8 @@ public final class ArenaRegion {
      * @param clearSizeY how tall to scan. Pass the taller of the outgoing and incoming map, or the
      *                   outgoing one's upper floors survive the handover.
      */
-    public int reset(ServerWorld world, int clearSizeY) {
-        int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getTopY() - 1);
+    public int reset(ServerLevel world, int clearSizeY) {
+        int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getHeight() - 1);
         int restored = 0;
         int fromX = Math.min(cellMinX, minX) - BUFFER;
         int toX = Math.max(cellMinX + cellSizeX, maxX() + 1) + BUFFER;
@@ -676,7 +676,7 @@ public final class ArenaRegion {
                 for (int z = fromZ; z < toZ; z++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     if (world.getBlockState(pos) != want) {
-                        world.setBlockState(pos, want, Block.NOTIFY_LISTENERS);
+                        world.setBlock(pos, want, Block.UPDATE_CLIENTS);
                         restored++;
                     }
                 }

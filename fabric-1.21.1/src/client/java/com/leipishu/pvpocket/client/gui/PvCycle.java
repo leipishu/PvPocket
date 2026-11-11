@@ -2,11 +2,11 @@ package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.rules.RuleDefinition;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 
 import java.util.function.IntPredicate;
 
@@ -61,7 +61,7 @@ public class PvCycle extends PvValueControl {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -69,7 +69,7 @@ public class PvCycle extends PvValueControl {
         tickHover(d);
         tickFocus(d);
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         int fill = enabled
                 ? PvTheme.mix(PvTheme.CARD, PvTheme.CARD_HOVER, hoverT)
                 : PvTheme.SUNKEN;
@@ -159,8 +159,8 @@ public class PvCycle extends PvValueControl {
             }
         }
         value = next;
-        MinecraftClient.getInstance().getSoundManager()
-                .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.2F));
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.2F));
         emit();
     }
 

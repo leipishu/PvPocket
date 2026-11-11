@@ -15,9 +15,9 @@ import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.client.gui.rule.RuleRow;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * The item editor, as a modal over the loadout list.
@@ -138,13 +138,13 @@ public class LoadoutEditor extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         appearT = PvAnim.damp(appearT, 1F, d, 0.05F);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         placeChrome();
 
         // Darker than the screen's own backdrop: the modal sits over a panel that is already on a 77%

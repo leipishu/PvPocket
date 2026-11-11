@@ -5,11 +5,11 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 
 /**
  * One finished series in the history list.
@@ -48,13 +48,13 @@ public class HistoryRow extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         hotT = PvAnim.damp(hotT, hovered ? 1F : 0F, d, 0.09F);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         int h = H - 4;
         PvDraw.roundPanel(ctx, x, y, width, h, PvTheme.RADIUS,
@@ -77,7 +77,7 @@ public class HistoryRow extends PvWidget {
 
         String chip = PvLang.str(record.won()
                 ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss");
-        int chipW = tr.getWidth(chip) + 10;
+        int chipW = tr.width(chip) + 10;
         int chipX = textX + scoreW + 8;
         PvDraw.roundRect(ctx, chipX, line1 - 2, chipW, 12, 3,
                 record.won() ? PvTheme.ACCENT_SOFT : PvTheme.CARD_ACTIVE);
@@ -126,7 +126,7 @@ public class HistoryRow extends PvWidget {
      * four squares say the same thing at a glance. The strip is capped, and the cap is stated by the
      * card simply stopping — a series longer than twelve rounds is beyond what the rules allow.</p>
      */
-    private void drawDots(DrawContext ctx, int startX, int top) {
+    private void drawDots(GuiGraphics ctx, int startX, int top) {
         int i = 0;
         for (HomeState.Round round : rounds) {
             if (i >= MAX_DOTS) {
@@ -171,12 +171,12 @@ public class HistoryRow extends PvWidget {
     }
 
     private boolean fits(String s, int room) {
-        return floorWidth(net.minecraft.client.MinecraftClient.getInstance().textRenderer, s) <= room;
+        return floorWidth(net.minecraft.client.Minecraft.getInstance().font, s) <= room;
     }
 
     /** Width a string needs at the legibility floor — the least room that still shows every word. */
-    private static int floorWidth(TextRenderer tr, String s) {
-        return Math.round(tr.getWidth(s) * PvDraw.MIN_TEXT_SCALE);
+    private static int floorWidth(Font tr, String s) {
+        return Math.round(tr.width(s) * PvDraw.MIN_TEXT_SCALE);
     }
 
     @Override
@@ -194,8 +194,8 @@ public class HistoryRow extends PvWidget {
         if (!visible || button != 0 || !contains(mx, my)) {
             return false;
         }
-        MinecraftClient.getInstance().getSoundManager()
-                .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.1F));
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.1F));
         if (onClick != null) {
             onClick.run();
         }

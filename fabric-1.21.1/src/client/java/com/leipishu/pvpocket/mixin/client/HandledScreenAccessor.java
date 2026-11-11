@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.mixin.client;
 
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
@@ -12,12 +12,12 @@ import org.spongepowered.asm.mixin.gen.Accessor;
  * is the smallest possible coupling: no behaviour changes, and if the field is ever renamed the
  * build fails instead of the button landing somewhere arbitrary.</p>
  */
-@Mixin(HandledScreen.class)
+@Mixin(AbstractContainerScreen.class)
 public interface HandledScreenAccessor {
 
-    @Accessor("x")
+    @Accessor("leftPos")
     int pvpocket$panelX();
 
-    @Accessor("y")
+    @Accessor("topPos")
     int pvpocket$panelY();
 }

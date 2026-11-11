@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "draw this scoreboard over the arena".
@@ -36,20 +36,20 @@ public record MatchHudPayload(boolean active,
                               int round, int maxRounds, int winsNeeded,
                               String scores, String teams,
                               boolean showHealth)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
-    public static final Id<MatchHudPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "match_hud"));
+    public static final Type<MatchHudPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "match_hud"));
 
     /** Hand-written rather than {@code PacketCodec.tuple}: seven fields, two of them strings. */
-    public static final PacketCodec<RegistryByteBuf, MatchHudPayload> CODEC = PacketCodec.of(
+    public static final StreamCodec<RegistryFriendlyByteBuf, MatchHudPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
                 buf.writeVarInt(value.round);
                 buf.writeVarInt(value.maxRounds);
                 buf.writeVarInt(value.winsNeeded);
-                buf.writeString(value.scores);
-                buf.writeString(value.teams);
+                buf.writeUtf(value.scores);
+                buf.writeUtf(value.teams);
                 buf.writeBoolean(value.showHealth);
             },
             buf -> new MatchHudPayload(
@@ -57,8 +57,8 @@ public record MatchHudPayload(boolean active,
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
-                    buf.readString(),
-                    buf.readString(),
+                    buf.readUtf(),
+                    buf.readUtf(),
                     buf.readBoolean()));
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
@@ -67,7 +67,7 @@ public record MatchHudPayload(boolean active,
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

@@ -1,28 +1,28 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.PvPocket;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.AttributeModifierSlot;
-import net.minecraft.component.type.AttributeModifiersComponent;
-import net.minecraft.component.type.FireworksComponent;
-import net.minecraft.component.type.ItemEnchantmentsComponent;
-import net.minecraft.component.type.PotionContentsComponent;
-import net.minecraft.component.type.UnbreakableComponent;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.entity.attribute.EntityAttributeModifier;
-import net.minecraft.entity.attribute.EntityAttributes;
-import net.minecraft.entity.effect.StatusEffect;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.DynamicRegistryManager;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.EquipmentSlotGroup;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.component.Fireworks;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.Unbreakable;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.core.Holder;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Unit;
 
 import java.util.ArrayList;
@@ -62,7 +62,7 @@ public final class LoadoutBuilder {
      * Infinity, an end crystal and TNT each need a second item: the stack list is the only place
      * that can express "this entry produced two things".</p>
      */
-    public static List<ItemStack> build(Loadout loadout, DynamicRegistryManager registries, int teamIndex) {
+    public static List<ItemStack> build(Loadout loadout, RegistryAccess registries, int teamIndex) {
         List<ItemStack> stacks = new ArrayList<>();
         if (loadout == null) {
             return stacks;
@@ -119,12 +119,12 @@ public final class LoadoutBuilder {
     }
 
     /** Builds one stack. Returns {@link ItemStack#EMPTY} for anything the item registry cannot resolve. */
-    public static ItemStack toStack(LoadoutEntry entry, DynamicRegistryManager registries, int teamIndex) {
+    public static ItemStack toStack(LoadoutEntry entry, RegistryAccess registries, int teamIndex) {
         Item item = resolveItem(entry, teamIndex);
         if (item == null || item == Items.AIR) {
             return ItemStack.EMPTY;
         }
-        int count = Math.max(1, Math.min(entry.count, item.getMaxCount()));
+        int count = Math.max(1, Math.min(entry.count, item.getDefaultMaxStackSize()));
         ItemStack stack = new ItemStack(item, count);
 
         if (entry.kind == ItemKind.POTION) {
@@ -159,7 +159,7 @@ public final class LoadoutBuilder {
     private static Item resolveItem(LoadoutEntry entry, int teamIndex) {
         return switch (entry.kind) {
             case POTION -> Items.SPLASH_POTION;
-            case FOOD, BLOCK -> Registries.ITEM.get(teamAdjustedVariant(entry, teamIndex));
+            case FOOD, BLOCK -> BuiltInRegistries.ITEM.get(teamAdjustedVariant(entry, teamIndex));
             default -> entry.kind.resolve(entry.material);
         };
     }
@@ -171,43 +171,43 @@ public final class LoadoutBuilder {
      * structure from the opponent's at a glance. Only the sentinel id is rewritten; if a player
      * deliberately picks a specific colour, that choice wins.</p>
      */
-    private static Identifier teamAdjustedVariant(LoadoutEntry entry, int teamIndex) {
+    private static ResourceLocation teamAdjustedVariant(LoadoutEntry entry, int teamIndex) {
         String variant = entry.variant;
         if (entry.kind == ItemKind.BLOCK && "minecraft:white_wool".equals(variant)) {
             variant = "minecraft:" + LoadoutCatalog.teamColor(teamIndex) + "_wool";
         }
-        return Identifier.tryParse(variant);
+        return ResourceLocation.tryParse(variant);
     }
 
     private static void applyAttributes(ItemStack stack, LoadoutEntry entry) {
         if (entry.damageTenths <= 0 && entry.armorTenths <= 0) {
             return;
         }
-        AttributeModifiersComponent.Builder builder = AttributeModifiersComponent.builder();
+        ItemAttributeModifiers.Builder builder = ItemAttributeModifiers.builder();
         if (entry.damageTenths > 0) {
             // The field is total damage, the modifier is the bonus over a bare hand.
             double bonus = Math.max(0.0D, entry.damage() - BARE_HAND_DAMAGE);
-            builder.add(EntityAttributes.GENERIC_ATTACK_DAMAGE,
-                    new EntityAttributeModifier(PvPocket.id("loadout.damage"), bonus,
-                            EntityAttributeModifier.Operation.ADD_VALUE),
-                    AttributeModifierSlot.MAINHAND);
+            builder.add(Attributes.ATTACK_DAMAGE,
+                    new AttributeModifier(PvPocket.id("loadout.damage"), bonus,
+                            AttributeModifier.Operation.ADD_VALUE),
+                    EquipmentSlotGroup.MAINHAND);
         }
         if (entry.armorTenths > 0) {
-            builder.add(EntityAttributes.GENERIC_ARMOR,
-                    new EntityAttributeModifier(PvPocket.id("loadout.armor"), entry.armor(),
-                            EntityAttributeModifier.Operation.ADD_VALUE),
+            builder.add(Attributes.ARMOR,
+                    new AttributeModifier(PvPocket.id("loadout.armor"), entry.armor(),
+                            AttributeModifier.Operation.ADD_VALUE),
                     armorSlot(entry.kind));
         }
-        stack.set(DataComponentTypes.ATTRIBUTE_MODIFIERS, builder.build());
+        stack.set(DataComponents.ATTRIBUTE_MODIFIERS, builder.build());
     }
 
-    private static AttributeModifierSlot armorSlot(ItemKind kind) {
+    private static EquipmentSlotGroup armorSlot(ItemKind kind) {
         return switch (kind) {
-            case HELMET -> AttributeModifierSlot.HEAD;
-            case CHESTPLATE -> AttributeModifierSlot.CHEST;
-            case LEGGINGS -> AttributeModifierSlot.LEGS;
-            case BOOTS -> AttributeModifierSlot.FEET;
-            default -> AttributeModifierSlot.ARMOR;
+            case HELMET -> EquipmentSlotGroup.HEAD;
+            case CHESTPLATE -> EquipmentSlotGroup.CHEST;
+            case LEGGINGS -> EquipmentSlotGroup.LEGS;
+            case BOOTS -> EquipmentSlotGroup.FEET;
+            default -> EquipmentSlotGroup.ARMOR;
         };
     }
 
@@ -219,26 +219,26 @@ public final class LoadoutBuilder {
             return;
         }
         if (entry.durability == LoadoutEntry.DURABILITY_UNBREAKABLE) {
-            stack.set(DataComponentTypes.UNBREAKABLE, new UnbreakableComponent(true));
+            stack.set(DataComponents.UNBREAKABLE, new Unbreakable(true));
             return;
         }
         if (entry.durability > 0) {
-            stack.set(DataComponentTypes.MAX_DAMAGE, entry.durability);
+            stack.set(DataComponents.MAX_DAMAGE, entry.durability);
             // A fresh item must not start damaged: MAX_DAMAGE alone leaves the damage value from the
             // base item, which for a re-used stack would carry a previous round's wear into this one.
-            stack.set(DataComponentTypes.DAMAGE, 0);
+            stack.set(DataComponents.DAMAGE, 0);
         }
     }
 
-    private static void applyEnchantments(ItemStack stack, LoadoutEntry entry, DynamicRegistryManager registries) {
-        ItemEnchantmentsComponent.Builder builder =
-                new ItemEnchantmentsComponent.Builder(ItemEnchantmentsComponent.DEFAULT);
+    private static void applyEnchantments(ItemStack stack, LoadoutEntry entry, RegistryAccess registries) {
+        ItemEnchantments.Mutable builder =
+                new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
         boolean any = false;
         if (entry.knockback > 0) {
-            RegistryEntry<Enchantment> knockback = enchantment(registries,
-                    net.minecraft.enchantment.Enchantments.KNOCKBACK);
+            Holder<Enchantment> knockback = enchantment(registries,
+                    net.minecraft.world.item.enchantment.Enchantments.KNOCKBACK);
             if (knockback != null) {
-                builder.add(knockback, Math.min(entry.knockback, LoadoutCatalog.KNOCKBACK_MAX));
+                builder.set(knockback, Math.min(entry.knockback, LoadoutCatalog.KNOCKBACK_MAX));
                 any = true;
             }
         }
@@ -246,23 +246,23 @@ public final class LoadoutBuilder {
             if (!flag.appliesTo(entry.kind)) {
                 continue;
             }
-            RegistryEntry<Enchantment> enchantment = enchantment(registries, flag.enchantment);
+            Holder<Enchantment> enchantment = enchantment(registries, flag.enchantment);
             if (enchantment != null) {
-                builder.add(enchantment, 1);
+                builder.set(enchantment, 1);
                 any = true;
             }
         }
         // Trident style is an enchantment but not a flag: it is one of three exclusive values, and
         // it is written at its maximum level rather than at 1 like the boolean flags.
         if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle.enchantment != null) {
-            RegistryEntry<Enchantment> style = enchantment(registries, entry.tridentStyle.enchantment);
+            Holder<Enchantment> style = enchantment(registries, entry.tridentStyle.enchantment);
             if (style != null) {
-                builder.add(style, TridentStyle.LEVEL);
+                builder.set(style, TridentStyle.LEVEL);
                 any = true;
             }
         }
         if (any) {
-            stack.set(DataComponentTypes.ENCHANTMENTS, builder.build());
+            stack.set(DataComponents.ENCHANTMENTS, builder.toImmutable());
         }
     }
 
@@ -279,27 +279,27 @@ public final class LoadoutBuilder {
         }
         int flight = Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
                 Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, entry.fireworkFlight));
-        stack.set(DataComponentTypes.FIREWORKS, new FireworksComponent(flight, List.of()));
+        stack.set(DataComponents.FIREWORKS, new Fireworks(flight, List.of()));
     }
 
-    private static RegistryEntry<Enchantment> enchantment(DynamicRegistryManager registries,
-                                                          net.minecraft.registry.RegistryKey<Enchantment> key) {
-        return registries.get(RegistryKeys.ENCHANTMENT).getEntry(key).orElse(null);
+    private static Holder<Enchantment> enchantment(RegistryAccess registries,
+                                                          net.minecraft.resources.ResourceKey<Enchantment> key) {
+        return registries.registryOrThrow(Registries.ENCHANTMENT).getHolder(key).orElse(null);
     }
 
     private static void applyPotion(ItemStack stack, LoadoutEntry entry) {
-        Optional<RegistryEntry.Reference<StatusEffect>> effect =
-                Registries.STATUS_EFFECT.getEntry(Identifier.tryParse(entry.variant));
+        Optional<Holder.Reference<MobEffect>> effect =
+                BuiltInRegistries.MOB_EFFECT.getHolder(ResourceLocation.tryParse(entry.variant));
         if (effect.isEmpty()) {
             return;
         }
         // Duration is expressed in seconds in the editor and in ticks in the game. Instant effects
         // ignore it, which is why the editor greys the row out for those rather than pretending.
         int ticks = Math.max(20, entry.durationSec * 20);
-        StatusEffectInstance instance = new StatusEffectInstance(effect.get(), ticks, entry.amplifier);
-        int color = PotionContentsComponent.getColor(List.of(instance));
-        stack.set(DataComponentTypes.POTION_CONTENTS,
-                new PotionContentsComponent(Optional.empty(), Optional.of(color), List.of(instance)));
+        MobEffectInstance instance = new MobEffectInstance(effect.get(), ticks, entry.amplifier);
+        int color = PotionContents.getColor(List.of(instance));
+        stack.set(DataComponents.POTION_CONTENTS,
+                new PotionContents(Optional.empty(), Optional.of(color), List.of(instance)));
     }
 
     /**
@@ -309,16 +309,16 @@ public final class LoadoutBuilder {
      * method from {@link #grant}: clearing the inventory is correct at round start, where the snapshot
      * already holds the survival contents, and catastrophic anywhere else.</p>
      */
-    public static int give(ServerPlayerEntity player, Loadout loadout, int teamIndex) {
+    public static int give(ServerPlayer player, Loadout loadout, int teamIndex) {
         int given = 0;
-        for (ItemStack stack : build(loadout, player.getServerWorld().getRegistryManager(), teamIndex)) {
+        for (ItemStack stack : build(loadout, player.serverLevel().registryAccess(), teamIndex)) {
             if (stack.isEmpty()) {
                 continue;
             }
-            player.getInventory().offerOrDrop(stack);
+            player.getInventory().placeItemBackInInventory(stack);
             given++;
         }
-        player.currentScreenHandler.sendContentUpdates();
+        player.containerMenu.broadcastChanges();
         return given;
     }
 
@@ -328,19 +328,19 @@ public final class LoadoutBuilder {
      * <p>Called after the snapshot is on disk, never before: the snapshot is the only copy of the
      * survival inventory, and clearing first would delete it.</p>
      */
-    public static int grant(ServerPlayerEntity player, Loadout loadout, int teamIndex) {
-        PlayerInventory inventory = player.getInventory();
-        inventory.clear();
+    public static int grant(ServerPlayer player, Loadout loadout, int teamIndex) {
+        Inventory inventory = player.getInventory();
+        inventory.clearContent();
         int granted = 0;
         for (LoadoutEntry entry : loadout.entries) {
             if (entry.slot < 0 || entry.slot >= 41) {
                 continue;
             }
-            ItemStack stack = toStack(entry, player.getServerWorld().getRegistryManager(), teamIndex);
+            ItemStack stack = toStack(entry, player.serverLevel().registryAccess(), teamIndex);
             if (stack.isEmpty()) {
                 continue;
             }
-            inventory.setStack(entry.slot, stack);
+            inventory.setItem(entry.slot, stack);
             granted++;
         }
         // The companion is a second stack for one entry and has no slot of its own, so it goes to
@@ -350,11 +350,11 @@ public final class LoadoutBuilder {
             if (companion.isEmpty()) {
                 continue;
             }
-            if (!inventory.insertStack(companion)) {
-                player.dropItem(companion, false);
+            if (!inventory.add(companion)) {
+                player.drop(companion, false);
             }
         }
-        player.currentScreenHandler.sendContentUpdates();
+        player.containerMenu.broadcastChanges();
         return granted;
     }
 }

@@ -15,13 +15,13 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.arguments.StringArgumentType;
-import net.minecraft.command.argument.EntityArgumentType;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,70 +51,70 @@ public final class PvPocketCommands {
     private PvPocketCommands() {
     }
 
-    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        LiteralArgumentBuilder<ServerCommandSource> root = CommandManager.literal("pvpocket")
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("pvpocket")
                 .executes(PvPocketCommands::help);
 
         // No arguments. Who fights whom is a two-dimensional list, and Brigadier has no grammar for
         // one: a selector can say "everyone here" but cannot say "these two on one side and those
         // two on the other", which is the only thing that matters once a match has more than two
         // sides. The roster is built in the panel instead, and the sides are then explicit.
-        root.then(CommandManager.literal("duel").executes(PvPocketCommands::duel));
+        root.then(Commands.literal("duel").executes(PvPocketCommands::duel));
 
         // No accept/propose/deny here. Those three live on the rule panel and only there: the panel
         // is opened by the server at every point where one of them could be pressed, so a command
         // was a second path to the same three intents with nothing the panel cannot do — and three
         // lines of the help text spent explaining a slower way to click a button.
-        root.then(CommandManager.literal("help").executes(PvPocketCommands::help));
-        root.then(CommandManager.literal("review").executes(PvPocketCommands::review));
-        root.then(CommandManager.literal("surrender").executes(PvPocketCommands::surrender));
-        root.then(CommandManager.literal("status").executes(PvPocketCommands::status));
-        root.then(CommandManager.literal("arena")
+        root.then(Commands.literal("help").executes(PvPocketCommands::help));
+        root.then(Commands.literal("review").executes(PvPocketCommands::review));
+        root.then(Commands.literal("surrender").executes(PvPocketCommands::surrender));
+        root.then(Commands.literal("status").executes(PvPocketCommands::status));
+        root.then(Commands.literal("arena")
                 .executes(PvPocketCommands::arena)
                 // Operator-only: this destroys terrain and ends other people's matches.
-                .then(CommandManager.literal("reset")
-                        .requires(source -> source.hasPermissionLevel(3))
+                .then(Commands.literal("reset")
+                        .requires(source -> source.hasPermission(3))
                         .executes(PvPocketCommands::arenaReset))
                 // Operator-only: this decides how many duels the server can run at once, and it
                 // writes to the world's saved layout.
-                .then(CommandManager.literal("copy")
-                        .requires(source -> source.hasPermissionLevel(3))
-                        .then(CommandManager.argument("map", StringArgumentType.word())
+                .then(Commands.literal("copy")
+                        .requires(source -> source.hasPermission(3))
+                        .then(Commands.argument("map", StringArgumentType.word())
                                 .suggests(PvPocketCommands::suggestMaps)
                                 .executes(ctx -> arenaCopy(ctx, 1))
-                                .then(CommandManager.argument("count",
+                                .then(Commands.argument("count",
                                                 IntegerArgumentType.integer(1, 8))
                                         .executes(ctx -> arenaCopy(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "count"))))))
                 // Operator-only, same reason as copy: it writes the saved layout, and it erases a
                 // stamped arena while it does.
-                .then(CommandManager.literal("remove")
-                        .requires(source -> source.hasPermissionLevel(3))
-                        .then(CommandManager.argument("map", StringArgumentType.word())
+                .then(Commands.literal("remove")
+                        .requires(source -> source.hasPermission(3))
+                        .then(Commands.argument("map", StringArgumentType.word())
                                 .suggests(PvPocketCommands::suggestMaps)
                                 .executes(ctx -> arenaRemove(ctx, 1))
-                                .then(CommandManager.argument("count",
+                                .then(Commands.argument("count",
                                                 IntegerArgumentType.integer(1, 8))
                                         .executes(ctx -> arenaRemove(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "count")))))));
-        root.then(CommandManager.literal("guard")
+        root.then(Commands.literal("guard")
                 // Operator-only, because the flag is the one way to stay in the sandbox on purpose.
-                .requires(source -> source.hasPermissionLevel(2))
-                .then(CommandManager.argument("enabled", BoolArgumentType.bool())
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.argument("enabled", BoolArgumentType.bool())
                         .executes(ctx -> guard(ctx, BoolArgumentType.getBool(ctx, "enabled")))));
-        root.then(CommandManager.literal("list").executes(PvPocketCommands::list));
-        root.then(CommandManager.literal("spectate")
+        root.then(Commands.literal("list").executes(PvPocketCommands::list));
+        root.then(Commands.literal("spectate")
                 .executes(PvPocketCommands::spectateHelp)
-                .then(CommandManager.literal("leave").executes(PvPocketCommands::spectateLeave))
-                .then(CommandManager.argument("session", StringArgumentType.word())
+                .then(Commands.literal("leave").executes(PvPocketCommands::spectateLeave))
+                .then(Commands.argument("session", StringArgumentType.word())
                         .executes(ctx -> spectate(ctx, StringArgumentType.getString(ctx, "session")))));
-        root.then(CommandManager.literal("loadout")
+        root.then(Commands.literal("loadout")
                 .executes(PvPocketCommands::loadout)
-                .then(CommandManager.literal("give").executes(PvPocketCommands::loadoutGive))
-                .then(CommandManager.literal("edit").executes(PvPocketCommands::loadoutEdit))
-                .then(CommandManager.literal("accept").executes(PvPocketCommands::loadoutAccept))
-                .then(CommandManager.literal("decline").executes(PvPocketCommands::loadoutDecline))
-                .then(CommandManager.literal("reset").executes(PvPocketCommands::loadoutReset)));
+                .then(Commands.literal("give").executes(PvPocketCommands::loadoutGive))
+                .then(Commands.literal("edit").executes(PvPocketCommands::loadoutEdit))
+                .then(Commands.literal("accept").executes(PvPocketCommands::loadoutAccept))
+                .then(Commands.literal("decline").executes(PvPocketCommands::loadoutDecline))
+                .then(Commands.literal("reset").executes(PvPocketCommands::loadoutReset)));
 
         dispatcher.register(root);
     }
@@ -126,16 +126,16 @@ public final class PvPocketCommands {
      * accidentally translate {@code /pvpocket spectate leave} into something the dispatcher does not
      * accept.</p>
      */
-    private static void helpLine(ServerCommandSource source, String usage, String descriptionKey) {
+    private static void helpLine(CommandSourceStack source, String usage, String descriptionKey) {
         String pad = " ".repeat(Math.max(2, USAGE_COLUMN - usage.length()));
-        source.sendFeedback(() -> Text.literal(usage + pad).formatted(Formatting.GRAY)
+        source.sendSuccess(() -> Component.literal(usage + pad).withStyle(ChatFormatting.GRAY)
                 .append(PvLang.t(descriptionKey)), false);
     }
 
-    private static int help(CommandContext<ServerCommandSource> ctx) {
-        ServerCommandSource source = ctx.getSource();
-        source.sendFeedback(() -> PvLang.t("pvpocket.command.help.header", "/pvpocket help")
-                .formatted(Formatting.AQUA), false);
+    private static int help(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> PvLang.t("pvpocket.command.help.header", "/pvpocket help")
+                .withStyle(ChatFormatting.AQUA), false);
         helpLine(source, "/pvpocket duel", "pvpocket.command.help.duel");
         helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
         helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
@@ -151,14 +151,14 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket spectate leave", "pvpocket.command.help.spectate_leave");
         helpLine(source, "/pvpocket loadout [give|edit|reset]", "pvpocket.command.help.loadout");
         helpLine(source, "/pvpocket loadout [accept|decline]", "pvpocket.command.help.loadout_swap");
-        source.sendFeedback(() -> PvLang.t("pvpocket.command.help.footer")
-                .formatted(Formatting.DARK_GRAY), false);
+        source.sendSuccess(() -> PvLang.t("pvpocket.command.help.footer")
+                .withStyle(ChatFormatting.DARK_GRAY), false);
         return 1;
     }
 
-    private static int duel(CommandContext<ServerCommandSource> ctx) {
+    private static int duel(CommandContext<CommandSourceStack> ctx) {
         try {
-            ServerPlayerEntity self = ctx.getSource().getPlayerOrThrow();
+            ServerPlayer self = ctx.getSource().getPlayerOrException();
             SessionManager.get().openRoster(self);
             return 1;
         } catch (Exception e) {
@@ -166,78 +166,78 @@ public final class PvPocketCommands {
         }
     }
 
-    private static int review(CommandContext<ServerCommandSource> ctx) {
+    private static int review(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().review(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().review(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int surrender(CommandContext<ServerCommandSource> ctx) {
+    private static int surrender(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().surrender(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().surrender(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int status(CommandContext<ServerCommandSource> ctx) {
+    private static int status(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().status(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().status(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int arena(CommandContext<ServerCommandSource> ctx) {
-        ServerCommandSource source = ctx.getSource();
+    private static int arena(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
         var gallery = com.leipishu.pvpocket.arena.ArenaManager.gallery();
         var leased = com.leipishu.pvpocket.arena.ArenaManager.leased();
 
-        source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.header",
+        source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.header",
                         gallery.size(), com.leipishu.pvpocket.arena.ArenaManager.slotCount(),
                         leased.size())
-                .formatted(Formatting.AQUA), false);
+                .withStyle(ChatFormatting.AQUA), false);
 
         // The gallery is the point: every map sits in its own cell of the dimension, so "select the
         // colosseum" is a teleport to fixed coordinates rather than a paste at the origin.
         if (gallery.isEmpty()) {
-            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.empty")
-                    .formatted(Formatting.GRAY), false);
+            source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.empty")
+                    .withStyle(ChatFormatting.GRAY), false);
         } else {
-            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.regions")
-                    .formatted(Formatting.DARK_AQUA), false);
+            source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.regions")
+                    .withStyle(ChatFormatting.DARK_AQUA), false);
             for (var region : gallery) {
-                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.region_line",
+                source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.region_line",
                                 region.id, region.map.labelText(),
                                 region.sizeX, region.sizeY, region.sizeZ,
                                 region.minX, region.minZ,
                                 region.centerX(), region.centerZ())
-                        .formatted(Formatting.GRAY), false);
+                        .withStyle(ChatFormatting.GRAY), false);
             }
         }
 
         if (leased.isEmpty()) {
-            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.none_active")
-                    .formatted(Formatting.GRAY), false);
+            source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.none_active")
+                    .withStyle(ChatFormatting.GRAY), false);
             return 1;
         }
-        source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.active")
-                .formatted(Formatting.DARK_AQUA), false);
+        source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.active")
+                .withStyle(ChatFormatting.DARK_AQUA), false);
         for (var entry : leased) {
             var region = entry.getValue();
-            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.leased_line",
+            source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.leased_line",
                             region.id, region.map.labelText(),
                             region.minX, region.minZ,
                             region.changeCount(),
                             PvLang.t(region.protectTerrain
                                     ? "pvpocket.value.on" : "pvpocket.value.off"),
                             entry.getKey().substring(0, 8))
-                    .formatted(Formatting.GRAY), false);
+                    .withStyle(ChatFormatting.GRAY), false);
         }
         return 1;
     }
@@ -250,7 +250,7 @@ public final class PvPocketCommands {
      * id in the feedback so the operator can see which one they picked.</p>
      */
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
-            suggestMaps(CommandContext<ServerCommandSource> ctx,
+            suggestMaps(CommandContext<CommandSourceStack> ctx,
                         com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         String rest = builder.getRemainingLowerCase();
         for (var map : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
@@ -276,8 +276,8 @@ public final class PvPocketCommands {
      * copying the structure rather than re-pasting it somewhere: the copy is the same build at a
      * stable address.</p>
      */
-    private static int arenaCopy(CommandContext<ServerCommandSource> ctx, int count) {
-        ServerCommandSource source = ctx.getSource();
+    private static int arenaCopy(CommandContext<CommandSourceStack> ctx, int count) {
+        CommandSourceStack source = ctx.getSource();
         String id = StringArgumentType.getString(ctx, "map");
         com.leipishu.pvpocket.arena.ArenaMap map = null;
         for (var candidate : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
@@ -287,7 +287,7 @@ public final class PvPocketCommands {
             }
         }
         if (map == null) {
-            source.sendError(PvLang.t("pvpocket.command.arena.copy_unknown", id));
+            source.sendFailure(PvLang.t("pvpocket.command.arena.copy_unknown", id));
             return 0;
         }
         // Loop variables are not effectively final, and the feedback below is a lazy supplier — it
@@ -306,15 +306,15 @@ public final class PvPocketCommands {
             // blocks until a duel asks for a size, and an operator who flew there expecting a
             // platform would think the command had failed.
             if (region == null) {
-                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.copy_reserved",
+                source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.copy_reserved",
                         chosen.labelText(), centre[0], centre[1]), false);
             } else {
-                source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.copy_built",
+                source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.copy_built",
                         chosen.labelText(), region.id, centre[0], centre[1]), false);
             }
         }
         if (made == 0) {
-            source.sendError(PvLang.t("pvpocket.command.arena.copy_full",
+            source.sendFailure(PvLang.t("pvpocket.command.arena.copy_full",
                     com.leipishu.pvpocket.arena.ArenaManager.slotCount()));
             return 0;
         }
@@ -333,8 +333,8 @@ public final class PvPocketCommands {
      * stops offering it. That is the honest way to retire a map — the alternative would be a flag
      * that hides it from one panel while {@code allocate} still happily stamps it.</p>
      */
-    private static int arenaRemove(CommandContext<ServerCommandSource> ctx, int count) {
-        ServerCommandSource source = ctx.getSource();
+    private static int arenaRemove(CommandContext<CommandSourceStack> ctx, int count) {
+        CommandSourceStack source = ctx.getSource();
         String id = StringArgumentType.getString(ctx, "map");
         com.leipishu.pvpocket.arena.ArenaMap map = null;
         for (var candidate : com.leipishu.pvpocket.arena.ArenaMaps.ALL) {
@@ -344,7 +344,7 @@ public final class PvPocketCommands {
             }
         }
         if (map == null) {
-            source.sendError(PvLang.t("pvpocket.command.arena.copy_unknown", id));
+            source.sendFailure(PvLang.t("pvpocket.command.arena.copy_unknown", id));
             return 0;
         }
         final com.leipishu.pvpocket.arena.ArenaMap chosen = map;
@@ -358,7 +358,7 @@ public final class PvPocketCommands {
             gone++;
             final int left = com.leipishu.pvpocket.arena.ArenaManager.copiesOf(chosen);
             final int cell = last;
-            source.sendFeedback(() -> PvLang.t("pvpocket.command.arena.remove_done",
+            source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.remove_done",
                     chosen.labelText(), cell, left), false);
         }
         if (gone == 0) {
@@ -366,16 +366,16 @@ public final class PvPocketCommands {
             // statement about the map, and telling an operator to wait for a duel that does not
             // exist would be the wrong kind of wrong.
             if (last == com.leipishu.pvpocket.arena.ArenaManager.REMOVE_BUSY) {
-                source.sendError(PvLang.t("pvpocket.command.arena.remove_busy", chosen.labelText()));
+                source.sendFailure(PvLang.t("pvpocket.command.arena.remove_busy", chosen.labelText()));
             } else {
-                source.sendError(PvLang.t("pvpocket.command.arena.remove_none", chosen.labelText()));
+                source.sendFailure(PvLang.t("pvpocket.command.arena.remove_none", chosen.labelText()));
             }
             return 0;
         }
         if (com.leipishu.pvpocket.arena.ArenaManager.copiesOf(chosen) == 0) {
-            MutableText line = PvLang.t("pvpocket.command.arena.remove_empty", chosen.labelText())
-                    .formatted(Formatting.AQUA);
-            source.sendFeedback(() -> line, false);
+            MutableComponent line = PvLang.t("pvpocket.command.arena.remove_empty", chosen.labelText())
+                    .withStyle(ChatFormatting.AQUA);
+            source.sendSuccess(() -> line, false);
         }
         return gone;
     }
@@ -387,25 +387,25 @@ public final class PvPocketCommands {
      * without their consent and then freezes the world for a few seconds while the gallery
      * re-stamps, and a server that goes quiet for no visible reason reads as a crash.</p>
      */
-    private static int arenaReset(CommandContext<ServerCommandSource> ctx) {
-        ServerCommandSource source = ctx.getSource();
+    private static int arenaReset(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
         SessionManager manager = SessionManager.get();
         if (manager == null) {
-            source.sendError(PvLang.t("pvpocket.command.session_not_ready"));
+            source.sendFailure(PvLang.t("pvpocket.command.session_not_ready"));
             return 0;
         }
         int ended = manager.resetArena();
         if (ended < 0) {
-            source.sendError(PvLang.t("pvpocket.command.arena.rebuilding"));
+            source.sendFailure(PvLang.t("pvpocket.command.arena.rebuilding"));
             return 0;
         }
-        MutableText line = PvLang.t("pvpocket.command.arena.reset_done", ended)
-                .formatted(Formatting.AQUA);
-        source.sendFeedback(() -> line, true);
-        for (ServerPlayerEntity player : source.getServer().getPlayerManager().getPlayerList()) {
+        MutableComponent line = PvLang.t("pvpocket.command.arena.reset_done", ended)
+                .withStyle(ChatFormatting.AQUA);
+        source.sendSuccess(() -> line, true);
+        for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
             // The operator already got it through sendFeedback; a second copy reads as two events.
             if (player != source.getEntity()) {
-                player.sendMessage(line, false);
+                player.displayClientMessage(line, false);
             }
         }
         return ended;
@@ -418,25 +418,25 @@ public final class PvPocketCommands {
      * command that could hand it to somebody else would be a way to park a player in the sandbox
      * indefinitely without them ever seeing the prompt.</p>
      */
-    private static int guard(CommandContext<ServerCommandSource> ctx, boolean enabled) {
-        ServerCommandSource source = ctx.getSource();
-        ServerPlayerEntity player;
+    private static int guard(CommandContext<CommandSourceStack> ctx, boolean enabled) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player;
         try {
-            player = source.getPlayerOrThrow();
+            player = source.getPlayerOrException();
         } catch (Exception e) {
-            source.sendError(PvLang.t("pvpocket.command.guard.players_only"));
+            source.sendFailure(PvLang.t("pvpocket.command.guard.players_only"));
             return 0;
         }
         SessionManager manager = SessionManager.get();
         if (manager == null) {
-            source.sendError(PvLang.t("pvpocket.command.session_not_ready"));
+            source.sendFailure(PvLang.t("pvpocket.command.session_not_ready"));
             return 0;
         }
         boolean now = manager.setGuardEnabled(player, enabled);
-        player.sendMessage(PvLang.t(now
+        player.displayClientMessage(PvLang.t(now
                         ? "pvpocket.command.guard.on"
                         : "pvpocket.command.guard.off")
-                .formatted(now ? Formatting.GREEN : Formatting.YELLOW), false);
+                .withStyle(now ? ChatFormatting.GREEN : ChatFormatting.YELLOW), false);
         return 1;
     }
 
@@ -447,65 +447,65 @@ public final class PvPocketCommands {
      * spectator, and a chat line cannot be clicked. The server pushes the list as a payload and the
      * client draws it, which is the same split the rule panel uses.</p>
      */
-    private static int list(CommandContext<ServerCommandSource> ctx) {
+    private static int list(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().listMatches(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().listMatches(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int spectateHelp(CommandContext<ServerCommandSource> ctx) {
-        ServerCommandSource source = ctx.getSource();
-        source.sendFeedback(() -> PvLang.t("pvpocket.command.spectate.header")
-                .formatted(Formatting.AQUA), false);
+    private static int spectateHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> PvLang.t("pvpocket.command.spectate.header")
+                .withStyle(ChatFormatting.AQUA), false);
         helpLine(source, "  /pvpocket list", "pvpocket.command.spectate.list");
         helpLine(source, "  /pvpocket spectate <prefix>", "pvpocket.command.spectate.direct");
         helpLine(source, "  /pvpocket spectate leave", "pvpocket.command.spectate.leave");
-        source.sendFeedback(() -> Text.literal("  ").append(PvLang.t("pvpocket.command.spectate.key_hint"))
-                .formatted(Formatting.GRAY), false);
+        source.sendSuccess(() -> Component.literal("  ").append(PvLang.t("pvpocket.command.spectate.key_hint"))
+                .withStyle(ChatFormatting.GRAY), false);
         return 1;
     }
 
-    private static int spectateLeave(CommandContext<ServerCommandSource> ctx) {
+    private static int spectateLeave(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().stopSpectating(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().stopSpectating(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int spectate(CommandContext<ServerCommandSource> ctx, String prefix) {
+    private static int spectate(CommandContext<CommandSourceStack> ctx, String prefix) {
         try {
-            SessionManager.get().spectate(ctx.getSource().getPlayerOrThrow(), prefix);
+            SessionManager.get().spectate(ctx.getSource().getPlayerOrException(), prefix);
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int loadout(CommandContext<ServerCommandSource> ctx) {
+    private static int loadout(CommandContext<CommandSourceStack> ctx) {
         try {
-            ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
+            ServerPlayer player = ctx.getSource().getPlayerOrException();
             Loadout loadout = SessionManager.get().loadoutFor(player);
-            player.sendMessage(PvLang.t("pvpocket.command.loadout.header",
+            player.displayClientMessage(PvLang.t("pvpocket.command.loadout.header",
                             loadout.displayName(), loadout.size(), loadout.digest())
-                    .formatted(Formatting.AQUA), false);
+                    .withStyle(ChatFormatting.AQUA), false);
             for (int i = 0; i < loadout.entries.size(); i++) {
                 LoadoutEntry entry = loadout.entries.get(i);
-                player.sendMessage(Text.literal("  " + (i + 1) + ". ").formatted(Formatting.GRAY)
+                player.displayClientMessage(Component.literal("  " + (i + 1) + ". ").withStyle(ChatFormatting.GRAY)
                         .append(describe(entry)), false);
             }
             var problems = loadout.validate();
             if (problems.isEmpty()) {
-                player.sendMessage(PvLang.t("pvpocket.command.loadout.valid")
-                        .formatted(Formatting.GREEN), false);
+                player.displayClientMessage(PvLang.t("pvpocket.command.loadout.valid")
+                        .withStyle(ChatFormatting.GREEN), false);
             } else {
-                for (Text problem : problems) {
-                    player.sendMessage(Text.literal("  - ").formatted(Formatting.RED)
-                            .append(problem.copy().formatted(Formatting.RED)), false);
+                for (Component problem : problems) {
+                    player.displayClientMessage(Component.literal("  - ").withStyle(ChatFormatting.RED)
+                            .append(problem.copy().withStyle(ChatFormatting.RED)), false);
                 }
             }
             return 1;
@@ -514,14 +514,14 @@ public final class PvPocketCommands {
         }
     }
 
-    private static int loadoutGive(CommandContext<ServerCommandSource> ctx) {
+    private static int loadoutGive(CommandContext<CommandSourceStack> ctx) {
         try {
-            ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
+            ServerPlayer player = ctx.getSource().getPlayerOrException();
             Loadout loadout = SessionManager.get().loadoutFor(player);
             int given = com.leipishu.pvpocket.loadout.LoadoutBuilder.give(player, loadout, 0);
-            player.sendMessage(PvLang.t("pvpocket.command.loadout.given",
+            player.displayClientMessage(PvLang.t("pvpocket.command.loadout.given",
                             given, loadout.digest())
-                    .formatted(Formatting.GREEN), false);
+                    .withStyle(ChatFormatting.GREEN), false);
             return 1;
         } catch (Exception e) {
             return 0;
@@ -535,9 +535,9 @@ public final class PvPocketCommands {
      * the panel by accident, and the only way to drive the editor from the console during testing. It
      * works with no duel open at all — that is the "configure before challenging" case.</p>
      */
-    private static int loadoutEdit(CommandContext<ServerCommandSource> ctx) {
+    private static int loadoutEdit(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().onLoadoutRequest(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().onLoadoutRequest(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
@@ -552,26 +552,26 @@ public final class PvPocketCommands {
      * different feature. These two leaves are the first path to this decision, not a second one
      * beside a GUI.</p>
      */
-    private static int loadoutAccept(CommandContext<ServerCommandSource> ctx) {
+    private static int loadoutAccept(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().acceptLoadoutSwap(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().acceptLoadoutSwap(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int loadoutDecline(CommandContext<ServerCommandSource> ctx) {
+    private static int loadoutDecline(CommandContext<CommandSourceStack> ctx) {
         try {
-            SessionManager.get().declineLoadoutSwap(ctx.getSource().getPlayerOrThrow());
+            SessionManager.get().declineLoadoutSwap(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    private static int loadoutReset(CommandContext<ServerCommandSource> ctx) {        try {
-            SessionManager.get().resetPersonalLoadout(ctx.getSource().getPlayerOrThrow());
+    private static int loadoutReset(CommandContext<CommandSourceStack> ctx) {        try {
+            SessionManager.get().resetPersonalLoadout(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;
@@ -586,16 +586,16 @@ public final class PvPocketCommands {
      * language the reader's client is running. Separators stay literal: a space and a multiplication
      * sign mean the same thing everywhere.</p>
      */
-    private static MutableText describe(LoadoutEntry entry) {
-        MutableText out = entry.kind.labelText().copy();
+    private static MutableComponent describe(LoadoutEntry entry) {
+        MutableComponent out = entry.kind.labelText().copy();
         if (entry.kind.materialised) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.material", entry.material.labelText()));
         }
         if (!entry.variant.isEmpty()) {
             String key = LoadoutCatalog.labelKeyOf(entry.variant);
-            out.append(Text.literal(" ")).append(key == null ? Text.literal(entry.variant) : PvLang.t(key));
+            out.append(Component.literal(" ")).append(key == null ? Component.literal(entry.variant) : PvLang.t(key));
         }
-        out.append(Text.literal(" ×" + entry.count));
+        out.append(Component.literal(" ×" + entry.count));
         out.append(PvLang.t("pvpocket.command.loadout.entry.slot", entry.slot));
         if (entry.damageTenths > 0) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.damage", entry.damage()));
@@ -612,10 +612,10 @@ public final class PvPocketCommands {
             out.append(PvLang.t("pvpocket.command.loadout.entry.knockback", entry.knockback));
         }
         for (WeaponFlag flag : WeaponFlag.decode(entry.flags)) {
-            out.append(Text.literal(" ")).append(flag.labelText());
+            out.append(Component.literal(" ")).append(flag.labelText());
         }
         if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle != TridentStyle.NONE) {
-            out.append(Text.literal(" ")).append(entry.tridentStyle.labelText());
+            out.append(Component.literal(" ")).append(entry.tridentStyle.labelText());
         }
         if (entry.kind == ItemKind.FIREWORK_ROCKET) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.firework_flight", entry.fireworkFlight));

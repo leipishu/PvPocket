@@ -7,13 +7,13 @@ import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.home.HomeText;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import com.mojang.blaze3d.platform.NativeImage;
+import net.minecraft.client.Screenshot;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +44,7 @@ import java.util.List;
  * and captures the framebuffer to {@code screenshots/pvpocket/}. The capture has to happen in the same
  * frame as the draw, after a flush: {@code DrawContext.fill} batches its quads, and a
  * {@code glReadPixels} taken before the batch reaches the framebuffer reads the frame from before the
- * poster was drawn. Hence {@code ctx.draw()} immediately before {@link ScreenshotRecorder}.</p>
+ * poster was drawn. Hence {@code ctx.flush()} immediately before {@link ScreenshotRecorder}.</p>
  *
  * <p>The poster is laid out by the same code as the panel, at the full viewport instead of the panel
  * rect, and that is the point of it: at a 1280x720 window the panel is 400x216 logical, so the poster
@@ -84,7 +84,7 @@ public class SeriesResultScreen extends PvScreen {
                 PvButton.Style.NORMAL, this::requestPoster).size(64, 20);
         this.export.tooltip = PvLang.str("pvpocket.gui.result.export_hint");
         this.close = new PvButton(PvLang.str("pvpocket.gui.result.close"),
-                PvButton.Style.GHOST, this::close).size(48, 20);
+                PvButton.Style.GHOST, this::onClose).size(48, 20);
     }
 
     // ------------------------------------------------------------------ layout
@@ -121,7 +121,7 @@ public class SeriesResultScreen extends PvScreen {
     // ------------------------------------------------------------------ render
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (posterMode) {
             drawPoster(ctx);
             return;
@@ -130,8 +130,8 @@ public class SeriesResultScreen extends PvScreen {
     }
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        TextRenderer tr = font();
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
+        Font tr = font();
         int wx = panelX + PvTheme.PAD_L;
         int ww = panelW - PvTheme.PAD_L * 2;
         drawBand(ctx, tr);
@@ -174,7 +174,7 @@ public class SeriesResultScreen extends PvScreen {
         }
     }
 
-    private void drawBand(DrawContext ctx, TextRenderer tr) {
+    private void drawBand(GuiGraphics ctx, Font tr) {
         int band = chromeH;
         // A win gets one 2px rule along the top edge of the card, and nothing else changes.
         //
@@ -219,7 +219,7 @@ public class SeriesResultScreen extends PvScreen {
      * otherwise both be amber. The reader's own side gets a wash behind the whole row, which is the
      * one piece of state the card cannot express in words without adding a word to every row.</p>
      */
-    private void drawSide(DrawContext ctx, TextRenderer tr, MatchResult.Side side,
+    private void drawSide(GuiGraphics ctx, Font tr, MatchResult.Side side,
                           int x, int y, int w, int rowH) {
         boolean mine = side.index() == result.mySide();
         boolean took = side.index() == result.winnerSide();
@@ -230,7 +230,7 @@ public class SeriesResultScreen extends PvScreen {
                 took ? PvTheme.team(side.index()) : PvTheme.BORDER_STRONG);
 
         String score = Integer.toString(side.score());
-        int scoreW = tr.getWidth(score);
+        int scoreW = tr.width(score);
         String roster = mine
                 ? side.roster() + " · " + PvLang.str("pvpocket.gui.result.you")
                 : side.roster();
@@ -248,7 +248,7 @@ public class SeriesResultScreen extends PvScreen {
      * last slot says how many are missing instead of being spent on a round — a card that silently
      * drops the last four rounds of a series is worse than one that admits to it.</p>
      */
-    private void drawRounds(DrawContext ctx, TextRenderer tr, int x, int w,
+    private void drawRounds(GuiGraphics ctx, Font tr, int x, int w,
                             int labelY, int headerH, int bottom) {
         List<MatchResult.Round> rounds = result.rounds();
         if (rounds.isEmpty()) {
@@ -287,7 +287,7 @@ public class SeriesResultScreen extends PvScreen {
         // reaches.
         int labelW = 0;
         for (int i = 0; i < shown; i++) {
-            labelW = Math.max(labelW, tr.getWidth(
+            labelW = Math.max(labelW, tr.width(
                     PvLang.str("pvpocket.gui.home.detail.round", i + 1)));
         }
         for (int i = 0; i < shown; i++) {
@@ -309,7 +309,7 @@ public class SeriesResultScreen extends PvScreen {
             // strings drawn towards each other from opposite edges overlap in the middle, and which
             // round that happens on depends on the language.
             String tail = reasonLabel(round.reason()) + "  " + HomeText.duration(round.ms());
-            int tailRoom = rx + colW - (markX + tr.getWidth(mark)) - 5;
+            int tailRoom = rx + colW - (markX + tr.width(mark)) - 5;
             if (tailRoom > 8) {
                 PvDraw.textRight(ctx, tr, PvDraw.fit(tr, tail, tailRoom), rx + colW, ry,
                         PvTheme.TEXT_MUTED);
@@ -331,7 +331,7 @@ public class SeriesResultScreen extends PvScreen {
      * <p>No separate "opponents" line: the score block above already lists every side's roster, so
      * naming the opponents again would be the third time the card says who was in the match.</p>
      */
-    private void drawMeta(DrawContext ctx, TextRenderer tr, int x, int w, int top) {
+    private void drawMeta(GuiGraphics ctx, Font tr, int x, int w, int top) {
         String line1 = result.mapLabel()
                 + " · " + PvLang.str("legacy".equals(result.mode())
                 ? "pvpocket.gui.home.mode.legacy" : "pvpocket.gui.home.mode.modern")
@@ -377,7 +377,7 @@ public class SeriesResultScreen extends PvScreen {
      * of a twelve-row layout is how the two drift apart. The fields are restored afterwards so the
      * panel does not inherit the poster's geometry on the next frame.</p>
      */
-    private void drawPoster(DrawContext ctx) {
+    private void drawPoster(GuiGraphics ctx) {
         // Two pixels wider than the viewport on every side, and that is not padding. The GUI space is
         // the framebuffer divided by the GUI scale and rounded down, so at 1280x720 with scale 3 the
         // logical width is 426 and 426*3 is 1278: the last two physical columns belong to no logical
@@ -412,7 +412,7 @@ public class SeriesResultScreen extends PvScreen {
         // Flush first. `fill` batches its quads into a builder and the capture reads the
         // framebuffer, so a read taken before the batch is submitted returns the frame from before
         // the poster existed — which is the world, not the card.
-        ctx.draw();
+        ctx.flush();
         savePoster();
     }
 
@@ -424,23 +424,23 @@ public class SeriesResultScreen extends PvScreen {
      * files named after a moment.</p>
      */
     private void savePoster() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        NativeImage image = ScreenshotRecorder.takeScreenshot(client.getFramebuffer());
-        Path dir = client.runDirectory.toPath().resolve("screenshots").resolve("pvpocket");
+        Minecraft client = Minecraft.getInstance();
+        NativeImage image = Screenshot.takeScreenshot(client.getMainRenderTarget());
+        Path dir = client.gameDirectory.toPath().resolve("screenshots").resolve("pvpocket");
         Path file = dir.resolve("result-"
                 + LocalDateTime.now().format(FILE_STAMP) + ".png");
         try {
             Files.createDirectories(dir);
-            image.writeTo(file);
+            image.writeToFile(file);
             PvPocket.LOGGER.info("Result poster written to {}", file);
-            client.inGameHud.getChatHud().addMessage(PvLang.t("pvpocket.msg.result.saved",
-                    file.getFileName().toString()).formatted(Formatting.GRAY));
+            client.gui.getChat().addMessage(PvLang.t("pvpocket.msg.result.saved",
+                    file.getFileName().toString()).withStyle(ChatFormatting.GRAY));
         } catch (IOException | RuntimeException e) {
             // Runtime as well as IOException: the capture itself can throw if the framebuffer is
             // not readable (a lost GL context), and a failed export must not take the screen with it.
             PvPocket.LOGGER.error("Cannot write result poster to {}", file, e);
-            client.inGameHud.getChatHud().addMessage(
-                    PvLang.t("pvpocket.msg.result.save_failed").formatted(Formatting.RED));
+            client.gui.getChat().addMessage(
+                    PvLang.t("pvpocket.msg.result.save_failed").withStyle(ChatFormatting.RED));
         } finally {
             image.close();
         }

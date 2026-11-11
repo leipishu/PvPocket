@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.screen.slot.CraftingResultSlot;
-import net.minecraft.screen.slot.Slot;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ResultSlot;
+import net.minecraft.world.inventory.Slot;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -26,11 +26,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(Slot.class)
 public abstract class SlotMixin {
 
-    @Inject(method = "canTakeItems", at = @At("HEAD"), cancellable = true)
-    private void pvpocket$noCrafting(PlayerEntity player, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = "mayPickup", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$noCrafting(Player player, CallbackInfoReturnable<Boolean> cir) {
         if (player != null
-                && (Object) this instanceof CraftingResultSlot
-                && !SessionManager.craftingAllowed(player.getUuid())) {
+                && (Object) this instanceof ResultSlot
+                && !SessionManager.craftingAllowed(player.getUUID())) {
             cir.setReturnValue(false);
             SessionManager.reportCraftingDenial(player);
         }

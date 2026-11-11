@@ -8,10 +8,10 @@ import com.leipishu.pvpocket.network.SpectateStatePayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.DeltaTracker;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -70,21 +70,21 @@ public final class SpectatorHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(DrawContext ctx, RenderTickCounter tickCounter) {
+    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
         SpectateStatePayload payload = state;
         if (payload == null) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player == null || client.options.hudHidden) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null || client.options.hideGui) {
             // F1 hides the HUD, and a spectator bar that ignores that is a bar the player cannot
             // get rid of while trying to watch a fight cleanly.
             return;
         }
-        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
         appearT = PvAnim.damp(appearT, 1F, d, 0.07F);
         phase += d;
-        TextRenderer tr = client.textRenderer;
+        Font tr = client.font;
 
         List<String> names = new ArrayList<>();
         for (String pair : payload.targets().split(",")) {
@@ -115,12 +115,12 @@ public final class SpectatorHud implements HudRenderCallback {
                 ? who + counter + PvLang.str("pvpocket.gui.hud.keys_attached")
                 : who + PvLang.str("pvpocket.gui.hud.keys_detached");
 
-        int leftW = tr.getWidth(left);
-        int rightW = tr.getWidth(right);
+        int leftW = tr.width(left);
+        int rightW = tr.width(right);
         int width = PAD_X * 2 + leftW + 14 + rightW;
         int height = 18;
-        int x = (ctx.getScaledWindowWidth() - width) / 2;
-        int y = ctx.getScaledWindowHeight() - BOTTOM_GAP;
+        int x = (ctx.guiWidth() - width) / 2;
+        int y = ctx.guiHeight() - BOTTOM_GAP;
 
         PvDraw.shadow(ctx, x, y, width, height, PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS,

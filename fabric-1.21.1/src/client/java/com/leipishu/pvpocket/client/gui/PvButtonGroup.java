@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.List;
 
@@ -42,7 +42,7 @@ public class PvButtonGroup extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }

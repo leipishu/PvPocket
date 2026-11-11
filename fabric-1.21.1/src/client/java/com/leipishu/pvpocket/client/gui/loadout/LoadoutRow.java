@@ -5,10 +5,10 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.item.ItemStack;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * One line of the loadout list.
@@ -98,36 +98,36 @@ public class LoadoutRow extends PvWidget {
     }
 
     /** Left edge of the "remove" word, or -1 when the row has no actions. */
-    private int removeX(TextRenderer tr) {
+    private int removeX(Font tr) {
         if (onRemove == null) {
             return -1;
         }
-        return x + width - 6 - tr.getWidth(removeLabel());
+        return x + width - 6 - tr.width(removeLabel());
     }
 
     /** Left edge of the "edit" word, or -1 when the row cannot be edited. */
-    private int editX(TextRenderer tr) {
+    private int editX(Font tr) {
         if (onEdit == null) {
             return -1;
         }
         int right = onRemove == null ? x + width - 6 : removeX(tr) - ACTION_GAP;
-        return right - tr.getWidth(editLabel());
+        return right - tr.width(editLabel());
     }
 
-    private boolean overEdit(int mouseX, int mouseY, TextRenderer tr) {
+    private boolean overEdit(int mouseX, int mouseY, Font tr) {
         int ex = editX(tr);
         return ex >= 0 && mouseY >= y && mouseY < y + height
-                && mouseX >= ex - 3 && mouseX < ex + tr.getWidth(editLabel()) + 3;
+                && mouseX >= ex - 3 && mouseX < ex + tr.width(editLabel()) + 3;
     }
 
-    private boolean overRemove(int mouseX, int mouseY, TextRenderer tr) {
+    private boolean overRemove(int mouseX, int mouseY, Font tr) {
         int rx = removeX(tr);
         return rx >= 0 && mouseY >= y && mouseY < y + height
-                && mouseX >= rx - 3 && mouseX < rx + tr.getWidth(removeLabel()) + 3;
+                && mouseX >= rx - 3 && mouseX < rx + tr.width(removeLabel()) + 3;
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -136,7 +136,7 @@ public class LoadoutRow extends PvWidget {
         tickFocus(d);
         pressT = PvAnim.damp(pressT, pressed ? 1F : 0F, d, 0.05F);
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         if (type == Type.HEADER) {
             // The rule to the right of a section header is anchored to the drawn width, so a header
@@ -162,7 +162,7 @@ public class LoadoutRow extends PvWidget {
         drawFocusRing(ctx, PvTheme.RADIUS);
 
         if (!icon.isEmpty() && PvDraw.itemsVisible) {
-            ctx.drawItem(icon, x + 6, y + (height - ICON) / 2);
+            ctx.renderItem(icon, x + 6, y + (height - ICON) / 2);
         }
 
         int textY = y + (height - 8) / 2 + 1;
@@ -176,7 +176,7 @@ public class LoadoutRow extends PvWidget {
             int rx = removeX(tr);
             boolean hot = overRemove(mouseX, mouseY, tr);
             if (hot) {
-                PvDraw.roundRect(ctx, rx - 3, y + 3, tr.getWidth(removeLabel()) + 6, height - 6, 3,
+                PvDraw.roundRect(ctx, rx - 3, y + 3, tr.width(removeLabel()) + 6, height - 6, 3,
                         PvTheme.alpha(PvTheme.DANGER, 0.22F));
             }
             PvDraw.text(ctx, tr, removeLabel(), rx, textY, hot ? PvTheme.DANGER : PvTheme.TEXT_MUTED);
@@ -186,7 +186,7 @@ public class LoadoutRow extends PvWidget {
             int ex = editX(tr);
             boolean hot = overEdit(mouseX, mouseY, tr);
             if (hot) {
-                PvDraw.roundRect(ctx, ex - 3, y + 3, tr.getWidth(editLabel()) + 6, height - 6, 3,
+                PvDraw.roundRect(ctx, ex - 3, y + 3, tr.width(editLabel()) + 6, height - 6, 3,
                         PvTheme.CARD_ACTIVE);
             }
             PvDraw.text(ctx, tr, editLabel(), ex, textY, hot ? PvTheme.TEXT : PvTheme.TEXT_DIM);
@@ -240,7 +240,7 @@ public class LoadoutRow extends PvWidget {
         if (button != 0 || !contains(mx, my)) {
             return true;
         }
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         // The two words are hit-tested before the row: they sit inside it, so the row's own click
         // would otherwise swallow every press on them.
         if (overRemove((int) mx, (int) my, tr) && onRemove != null) {

@@ -2,7 +2,7 @@ package com.leipishu.pvpocket.mixin.client;
 
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.LoadoutLock;
-import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -25,14 +25,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * <p>No throttle: the drop key is edge-triggered, so holding Q produces one attempt, not one per
  * tick.</p>
  */
-@Mixin(ClientPlayerEntity.class)
+@Mixin(LocalPlayer.class)
 public abstract class ClientPlayerEntityMixin {
 
-    @Inject(method = "dropSelectedItem", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "drop(Z)Z", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noDropLocked(boolean entireStack, CallbackInfoReturnable<Boolean> cir) {
-        ClientPlayerEntity self = (ClientPlayerEntity) (Object) this;
-        if (LoadoutLock.isLocked(self.getMainHandStack())) {
-            self.sendMessage(PvLang.t("pvpocket.msg.loadout.no_drop"), false);
+        LocalPlayer self = (LocalPlayer) (Object) this;
+        if (LoadoutLock.isLocked(self.getMainHandItem())) {
+            self.displayClientMessage(PvLang.t("pvpocket.msg.loadout.no_drop"), false);
             cir.setReturnValue(false);
         }
     }

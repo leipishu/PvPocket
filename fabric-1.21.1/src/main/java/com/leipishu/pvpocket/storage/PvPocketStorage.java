@@ -3,7 +3,7 @@ package com.leipishu.pvpocket.storage;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.WorldSavePath;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -39,7 +39,7 @@ public final class PvPocketStorage {
     private final Path root;
 
     public PvPocketStorage(MinecraftServer server) {
-        this.root = server.getSavePath(WorldSavePath.ROOT).resolve("pvpocket");
+        this.root = server.getWorldPath(LevelResource.ROOT).resolve("pvpocket");
     }
 
     public Path root() {
