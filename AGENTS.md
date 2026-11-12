@@ -247,20 +247,27 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 
 ### 5c. 加载器边界
 
-**`src/main` 里除 `platform` 包之外，不许出现 `net.fabricmc` / `net.neoforged` 的 import。**
+**`src/main` 里除 `platform/<加载器>/` 之外，不许出现 `net.fabricmc` / `net.neoforged` 的 import。**
 这条线决定了移植一格的代价：守住了就是「写一个 200 行的实现类」，破了就是「重写一遍」。
 
-- 加载器接触面是 `platform/PvPlatform`：网络收发、生命周期、四个否决点。实现类（如
-  `platform/fabric/FabricPlatform`）只做转发，**不写判断**——实现类里出现 if，那个判断多半属于
-  `PvBootstrap`。
+```bash
+python scripts/check-boundary.py            # main 必须干净；client 目前只统计
+python scripts/check-boundary.py --strict   # client 也算失败（Day 3 之后用）
+```
+
+- 加载器接触面是 `platform/PvPlatform`：payload 注册与收发、生命周期、四个否决点。实现类
+  （如 `platform/fabric/FabricPlatform`）只做转发，**不写判断**——实现类里出现 if，那个判断
+  多半属于 `PvBootstrap`。
 - 「发生某事时该做什么」全部在 `platform/PvBootstrap.wire(platform)` 里，那部分不含加载器的名字。
-  入口类只做三件事：装平台、注册 payload、`wire`。
+- **入口类在 `platform/<加载器>/` 里**，根包的 `PvPocket` 只留 `MOD_ID` / `LOGGER` / `id()`。
+  身份被九十多处引用，必须对所有加载器是同一个类；入口每个加载器都不同。
 - 否决点只承诺**能不能发生**，不承诺**发生成什么样**。Fabric 的 `ALLOW_DAMAGE` 只能取消，
   NeoForge 能改伤害值——接口承诺后者就等于前者做不到，所以统一成 boolean。
-- payload 的 codec 注册不上升到接口：`PacketCodec`（Fabric）与 `StreamCodec`（NeoForge）是两种
-  类型，那处差异由各平台的网络层自己承担。**字段顺序只在 payload 类里写一次**，这是硬要求。
-- 端口顺序上的现实：`PvPocket.onInitialize()` 里不要加业务代码，那一刻平台还没装好，
-  `PvPlatform.get()` 会抛。
+- **线程切换归平台。** Fabric 的 receiver 跑在 netty 线程，必须跳回服务端线程；NeoForge 的
+  handler 本来就在服务端线程。所以 `PvPayloads` 的接收器里没有 `server.execute`。
+- **payload 的 codec 用原版的 `StreamCodec`，不要包一层自定义缓冲接口。** 1.20.5 起原版就有
+  这一套，Fabric 与 NeoForge 吃的是同一个类型，字段顺序只写在 payload 类里。只有 1.20.1
+  （1.20.5 之前）需要另写一层，那是那一格自己的事，不要为此把公共接口改复杂。
 
 ### 6. 沙盒
 

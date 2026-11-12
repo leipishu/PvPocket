@@ -7,8 +7,8 @@ import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.preset.PresetShareRegistry;
 import com.leipishu.pvpocket.platform.PvPlatform;
 import com.leipishu.pvpocket.session.SessionManager;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+
+
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -24,102 +24,6 @@ public final class PvPocketNetworking {
     private PvPocketNetworking() {
     }
 
-    public static void registerCommon() {
-        PayloadTypeRegistry.playC2S().register(BlockingPayload.ID, BlockingPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(RulesSubmitPayload.ID, RulesSubmitPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(LoadoutRequestPayload.ID, LoadoutRequestPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(PresetSharePayload.ID, PresetSharePayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(HomeRequestPayload.ID, HomeRequestPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(HomeActionPayload.ID, HomeActionPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(HomeStatePayload.ID, HomeStatePayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(CombatStatePayload.ID, CombatStatePayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(RulesClosePayload.ID, RulesClosePayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(MatchHudPayload.ID, MatchHudPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(ArenaBoundsPayload.ID, ArenaBoundsPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(PrepareScreensPayload.ID, PrepareScreensPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(MatchListPayload.ID, MatchListPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(SpectateStatePayload.ID, SpectateStatePayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(PossessPayload.ID, PossessPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(PresetShareResultPayload.ID, PresetShareResultPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(SeriesResultPayload.ID, SeriesResultPayload.CODEC);
-
-        ServerPlayNetworking.registerGlobalReceiver(SpectateRequestPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions != null) {
-                    sessions.onSpectateRequest(player, payload);
-                }
-            });
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(BlockingPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> applyBlocking(player, payload.blocking()));
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(RulesSubmitPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions != null) {
-                    sessions.onRulesSubmit(player, payload.action(), payload.rules(),
-                            payload.roster());
-                }
-            });
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(LoadoutRequestPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions != null) {
-                    sessions.onLoadoutRequest(player);
-                }
-            });
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(LoadoutSubmitPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions != null) {
-                    sessions.onLoadoutSubmit(player, payload.sessionId(), payload.loadout());
-                }
-            });
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(PresetSharePayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> onPresetShare(player, payload));
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(HomeRequestPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions == null || !allowHomeRequest(player.getUUID())) {
-                    return;
-                }
-                sessions.sendHomeState(player);
-            });
-        });
-
-        ServerPlayNetworking.registerGlobalReceiver(HomeActionPayload.ID, (payload, context) -> {
-            ServerPlayer player = context.player();
-            context.server().execute(() -> {
-                SessionManager sessions = SessionManager.get();
-                if (sessions != null) {
-                    sessions.onHomeAction(player, payload);
-                }
-            });
-        });
-    }
 
     /**
      * One snapshot per player per second.
@@ -131,7 +35,7 @@ public final class PvPocketNetworking {
      */
     private static final java.util.Map<java.util.UUID, Long> HOME_REQUESTS = new java.util.HashMap<>();
 
-    private static boolean allowHomeRequest(java.util.UUID uuid) {
+    static boolean allowHomeRequest(java.util.UUID uuid) {
         long now = System.currentTimeMillis();
         Long last = HOME_REQUESTS.get(uuid);
         if (last != null && now - last < 1000L) {
@@ -152,7 +56,7 @@ public final class PvPocketNetworking {
      * untrusted input arrives: an unknown kind, a blank name and an oversized string are all
      * rejected before anything is stored. The registry stays pure storage.</p>
      */
-    private static void onPresetShare(ServerPlayer player, PresetSharePayload payload) {
+    static void onPresetShare(ServerPlayer player, PresetSharePayload payload) {
         if (!PvPlatform.get().canSend(player, PresetShareResultPayload.ID)) {
             // A client without the channel would never see the answer, so there is nothing to do
             // that would not just be a log line. The mod is mandatory in practice; this is the
@@ -347,7 +251,7 @@ public final class PvPocketNetworking {
      * face value — but every reason to refuse it is checked here: wrong rule set, no sword in hand,
      * dead, spectator. A refusal is still echoed back so the client mirror cannot drift.</p>
      */
-    private static void applyBlocking(ServerPlayer player, boolean requested) {
+    static void applyBlocking(ServerPlayer player, boolean requested) {
         boolean accepted = requested
                 && CombatState.isLegacy(player.getUUID())
                 && player.getMainHandItem().getItem() instanceof SwordItem

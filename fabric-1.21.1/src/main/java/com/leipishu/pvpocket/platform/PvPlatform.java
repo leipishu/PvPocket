@@ -2,8 +2,10 @@ package com.leipishu.pvpocket.platform;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.ChatType;
 import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -13,6 +15,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.core.BlockPos;
 
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -49,7 +52,29 @@ public interface PvPlatform {
 
     // ------------------------------------------------------------------ 网络
     //
-    // 22 个 payload 的字段顺序只写一次（在 payload 类里），这里只处理「谁发给谁」。
+    // 22 个 payload 的字段顺序只写一次（在 payload 类里），这里只处理「注册、谁发给谁」。
+    //
+    // 参数类型能写成原版的 `StreamCodec` 而不是加载器自己的 codec，是因为 1.20.5 起原版就有了
+    // 这一套，Fabric 与 NeoForge 都直接吃它。**1.20.1 是唯一的例外**（那时候还没有
+    // `StreamCodec`，得用裸 `FriendlyByteBuf`），所以那一格要另写一层，而不是把这里改复杂。
+
+    /** 注册一个客户端 → 服务端的 payload。 */
+    <T extends CustomPacketPayload> void registerPlayToServer(
+            CustomPacketPayload.Type<T> type, StreamCodec<? super RegistryFriendlyByteBuf, T> codec);
+
+    /** 注册一个服务端 → 客户端的 payload。 */
+    <T extends CustomPacketPayload> void registerPlayToClient(
+            CustomPacketPayload.Type<T> type, StreamCodec<? super RegistryFriendlyByteBuf, T> codec);
+
+    /**
+     * 收到客户端发来的 payload 时做什么。
+     *
+     * <p>实现类负责把回调放到**服务端线程**上：Fabric 的 receiver 跑在 netty 线程，直接改世界
+     * 是未定义行为；NeoForge 的 handler 本来就在服务端线程，什么都不用做。这个差异属于平台，
+     * 不属于业务——所以接收方的代码里不该再出现 {@code server.execute}。</p>
+     */
+    <T extends CustomPacketPayload> void onServerReceive(
+            CustomPacketPayload.Type<T> type, BiConsumer<ServerPlayer, T> handler);
 
     /** 目标客户端是否装了这个模组、且能收这个 payload。 */
     boolean canSend(ServerPlayer player, CustomPacketPayload.Type<?> type);
