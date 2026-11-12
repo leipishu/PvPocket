@@ -459,6 +459,17 @@ public class LoadoutScreen extends PvScreen {
         return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
     }
 
+    /**
+     * The icon for a kind that is not in the loadout yet, i.e. for the "available" list.
+     *
+     * <p>A materialised kind shows its cheapest existing tier. A non-materialised one — {@code bow},
+     * {@code crossbow}, {@code trident}, {@code mace}, {@code fishing_rod}, {@code shield},
+     * {@code elytra}, {@code shears}, the consumables — has no tiers at all: its id <em>is</em> the
+     * item id, so {@code materials()} is empty by design. Passing {@code null} to
+     * {@link ItemKind#resolve} then yields the bare id, which is exactly what
+     * {@link #itemOf} does for a real entry. Reading an empty material list as "no item" was the bug
+     * that left every non-materialised row blank in the list.</p>
+     */
     private static ItemStack iconOf(ItemKind kind) {
         Item item = switch (kind) {
             case POTION -> Items.SPLASH_POTION;
@@ -468,7 +479,7 @@ public class LoadoutScreen extends PvScreen {
             // variant is missing would otherwise show no icon at all in the "available" list.
             default -> {
                 List<Material> materials = kind.materials();
-                yield materials.isEmpty() ? null : kind.resolve(materials.get(0));
+                yield kind.resolve(materials.isEmpty() ? null : materials.get(0));
             }
         };
         return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
