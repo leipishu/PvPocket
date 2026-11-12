@@ -30,7 +30,7 @@ after release, **leave a gap**.
 
 ## 2. Asset directory
 
-`fabric-1.21.1/arena-src/` is a local asset directory (not in version control) holding only the
+`arena-src/` is a local asset directory (not in version control) holding only the
 sources needed to rebuild the shipped maps:
 
 ```
@@ -62,11 +62,11 @@ template (gzip NBT).
 
 ```bash
 # 1. Probe: confirm size and palette
-python scripts/world2struct.py probe fabric-1.21.1/arena-src/_zzuf/maps/tdm/fun_house --palette
+python scripts/world2struct.py probe arena-src/_zzuf/maps/tdm/fun_house --palette
 
 # 2. Convert: write into the resources directory
-python scripts/world2struct.py convert fabric-1.21.1/arena-src/_zzuf/maps/tdm/fun_house \
-    --out fabric-1.21.1/src/main/resources/data/pvpocket/structure/arena_fun_house.nbt
+python scripts/world2struct.py convert arena-src/_zzuf/maps/tdm/fun_house \
+    --out src/main/resources/data/pvpocket/structure/arena_fun_house.nbt
 
 # 3. Verify: block-by-block comparison against a third-party reader
 python scripts/arena-verify.py
@@ -104,7 +104,7 @@ could be found — PGM community repositories publish XML without saves, and wor
 sites is all-rights-reserved by default, which cannot go inside a jar.
 
 ```bash
-python scripts/colosseum.py --out fabric-1.21.1/src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
+python scripts/colosseum.py --out src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
 ```
 
 The generator's `A_ARENA = 50` and `A_OUT` set the ratio between fighting area and bounding box;

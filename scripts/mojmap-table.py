@@ -307,7 +307,8 @@ def find_jar(mc):
     同一个工程里可能同时留着 Yarn 版和 Mojmap 版（切映射时旧的不删），所以按修改时间取最新的一份，
     不能按名字猜。
     """
-    base = os.path.join(ROOT, "fabric-1.21.1", ".gradle", "loom-cache", "minecraftMaven",
+    # loom 的缓存挂在**根工程**的 .gradle 下（Loom 有意跨 cell 共享它），不是各 cell 自己一份。
+    base = os.path.join(ROOT, ".gradle", "loom-cache", "minecraftMaven",
                         "net", "minecraft")
     found = []
     for kind in ("minecraft-common-*", "minecraft-clientOnly-*"):
@@ -384,7 +385,7 @@ def main():
 
     yarn = args.yarn
     if yarn is None:
-        properties = os.path.join(ROOT, "fabric-1.21.1", "gradle.properties")
+        properties = os.path.join(ROOT, "gradle.properties")
         with open(properties, encoding="utf-8") as handle:
             for line in handle:
                 if line.startswith("yarn_mappings="):

@@ -4,7 +4,8 @@
 >
 > 本文取代 v0.4 技术方案 §9.1 的视觉语言表（已归档到 `../archive/design/`）。凡与旧文档冲突，以本文为准。
 >
-> 适用范围：`fabric-1.21.1` 客户端自绘 GUI 层（`client/gui/**`）与三个 HUD（`client/hud/**`）。
+> 适用范围：`src/client` 里的客户端自绘 GUI 层（`client/gui/**`）与三个 HUD（`client/hud/**`），
+> 两个加载器共用同一份。
 
 ## 1. 设计目标
 

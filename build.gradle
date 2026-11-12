@@ -1,0 +1,22 @@
+// 根工程**不应用任何加载器插件**，也不产出 jar。
+//
+// Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与 remap，一个 project 只能有一个，所以
+// 「加载器」这一维落在子项目边界上（见 settings.gradle）。根工程只剩两件事：给所有 cell 一个共同
+// 的仓库面，以及一个能一次构建全部 cell 的聚合任务。
+//
+// 与加载器无关的公共配置（产物名、Java 级别、编码、许可、dev 客户端清单）在
+// gradle/pvpocket-cells.gradle 里，由每个 cell 自己 `apply from:` ——放进根里的 `subprojects {}`
+// 反而更差：那会让「这个 cell 到底被配了什么」变成要翻两个文件才能回答的问题。
+
+allprojects {
+    repositories {
+        mavenCentral()
+    }
+}
+
+// 一次构建全部 cell。CI 用这个；本地照常只构建自己在做的那一格。
+tasks.register('buildAll') {
+    group = 'build'
+    description = 'Builds every cell (versions/<cell>).'
+    dependsOn subprojects.collect { "${it.path}:build" }
+}

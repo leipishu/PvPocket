@@ -8,6 +8,40 @@
 
 ---
 
+## 2026-11-12
+
+### 仓库结构改成「一格一个 cell」，Fabric 与 NeoForge 平行
+
+`fabric-1.21.1/` 这个名字已经不成立了：它里面同时装着两个加载器，而 Gradle 根只能是其中一个。
+现在仓库根就是 Gradle 根，**一个 cell = 一个 Minecraft 版本 × 一个加载器 = 一个子项目**：
+
+```
+settings.gradle        cells 清单
+build.gradle           只放仓库面 + buildAll
+gradle/pvpocket-cells.gradle   两个 cell 共用：产物名、Java 级别、许可、dev 客户端清单
+src/                   共享源码，所有 cell 编译同一份
+versions/1.21.1-fabric/        Fabric 那一格
+versions/1.21.1-neoforge/      NeoForge 那一格，与上一行平行
+runs/<cell>/           运行目录，按 cell 分开
+legacy/                1.20.1 的独立根（FG4 要 Gradle 8）
+```
+
+命令从 `cd fabric-1.21.1 && ./gradlew runClient` 变成 `./gradlew :1.21.1-fabric:runClient`。
+
+**两个加载器现在有同一套 run 任务**：`runServer` + `runClient..runClient4`，同一批用户名
+（`Dev1..Dev4`）、同一个窗口尺寸、同一个自动进服地址。以前 NeoForge 那格只有 `runServer` 与
+`runClient` 且用户名是 `NeoDev1`，`scripts/dev-2clients.sh` 跑不了——那正是「两个加载器是主从关系」
+留下的痕迹。
+
+脚本随之参数化：`CELL=1.21.1-neoforge scripts/dev-2clients.sh`、`CELL=... scripts/audit-ui.sh`。
+`scripts/check-logic.sh` 的类路径不再读 Loom 的 `remapClasspath.txt`（mixin 注解处理器的副产物，
+不是稳定接口），改由每个 cell 的 `writeCompileClasspath` 任务写出 `build/compile-classpath.txt`，
+两个加载器走同一条路。
+
+产物名不变：`pvpocket-fabric-1.21.1-0.1.0.jar` / `pvpocket-neoforge-1.21.1-0.1.0.jar`。
+
+---
+
 ## 2026-11-11
 
 ### 规则配置项全量核对：五处「改了没反应」

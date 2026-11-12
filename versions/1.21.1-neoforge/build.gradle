@@ -1,11 +1,16 @@
-// NeoForge 1.21.1。与根项目（Fabric）共享 src/，只多出 src/neoforge 与 src/client-neoforge。
+// NeoForge 1.21.1 这一格。与 Fabric 那一格是**平行**的：共享 src/，自己只多出
+// src/neoforge 与 src/client-neoforge 两个目录。
 //
-// 为什么是子项目而不是同一个 project 上的另一套插件：Loom 与 ModDevGradle 都要接管
-// minecraft 依赖、run 任务与 remap，两个同时应用会互相覆盖。分项目是唯一干净的分法。
+// 为什么加载器必须落在 project 边界上：Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与
+// remap，两个同时应用会互相覆盖。这也是 settings.gradle 里一个 cell 一个子项目的原因。
 
 plugins {
-    id 'net.neoforged.moddev' version '2.0.148'
+    id 'net.neoforged.moddev' version "${moddev_version}"
 }
+
+// 与加载器无关的那一半：产物名、Java 级别、编码、许可、dev 客户端清单、statsCheck。
+// 和 Fabric 那一格是同一个文件——用户名、窗口尺寸、自动进服地址只写一次。
+apply from: rootProject.file('gradle/pvpocket-cells.gradle')
 
 // ---------------------------------------------------------------------------
 // 镜像：这一段是这台机器能不能构建的全部原因，别删。
@@ -52,19 +57,15 @@ repositories {
     }
 }
 
-version = rootProject.mod_version
-group = rootProject.maven_group
-
-base {
-    archivesName = 'pvpocket-neoforge-1.21.1'
-}
-
 // 源码：与 Fabric 那一格共享 src/main 与 src/client，只多两个加载器目录。
-// 与根项目一样，这里也是「同一个 source set、多个 srcDir」，隔离靠 scripts/check-boundary.py。
+// 同样是「同一个 source set、多个 srcDir」，隔离靠 scripts/check-boundary.py。
 //
 // **客户端代码也进 main**，与 Fabric 相反：Loom 的 splitEnvironmentSourceSets() 把客户端拆成独立
 // 源集，NeoForge 没有这个东西，它是单 jar——客户端类打进同一个包，靠「专用服务端永远不加载这些
 // 类」而不是靠源集隔离。所以这里只有一个 source set，四个 srcDir。
+//
+// 路径都要显式写 rootProject.file(...)：这个 project 的 projectDir 是 versions/1.21.1-neoforge，
+// 默认的 src/main/java 会解析到那里去，什么都没有。
 sourceSets {
     main {
         java.srcDir rootProject.file('src/main/java')
@@ -79,7 +80,7 @@ sourceSets {
 }
 
 neoForge {
-    version = '21.1.265'
+    version = project.neoforge_version
 
     // 源码已经是官方映射（Mojmap），NeoForge 用的也是它，所以不需要任何映射转换。
     // 这也正是当初全面改 Mojmap 的理由：移植一格的代价从「重写一遍」变成「换一个构建文件」。
@@ -90,29 +91,24 @@ neoForge {
         }
     }
 
-    // 运行目录按加载器分开，理由与 Fabric 那边一样：存档格式与 options.txt 不能共用。
-    // NeoForge 这边先只给一个服务端与一个客户端——四个客户端那套联调脚本还没参数化到 cell。
+    // 与 Fabric 那一格同一份清单、同一个 run 目录命名规则（runs/<cell>/<run>）。
+    // 字段名不同（gameDirectory / programArguments / jvmArguments），值全部来自
+    // gradle/pvpocket-cells.gradle。
     runs {
         server {
             server()
-            gameDirectory = rootProject.file('runs/neoforge/server')
+            gameDirectory = pvpocketRunDir('server')
         }
-        client {
-            client()
-            gameDirectory = rootProject.file('runs/neoforge/client1')
-            programArguments = ['--username', 'NeoDev1', '--width', '1280', '--height', '720']
+        pvpocketDevClients.each { spec ->
+            create(spec.name) {
+                client()
+                gameDirectory = pvpocketRunDir(spec.dir)
+                programArguments = pvpocketClientArgs(spec.user)
+                if (pvpocketQuickJoin != 'off' && !pvpocketQuickJoin.isEmpty()) {
+                    programArguments.addAll(['--quickPlayMultiplayer', pvpocketQuickJoin])
+                }
+                jvmArguments.addAll(pvpocketClientJvmArgs())
+            }
         }
     }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    it.options.encoding = 'UTF-8'
-    it.options.release = 21
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-    withSourcesJar()
 }

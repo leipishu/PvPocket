@@ -8,79 +8,93 @@
 
 ## 项目
 
-Minecraft Fabric 1.21.1 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生存完全隔离的决斗口袋，
-自定义配装、多局对抗、打完不留痕迹。
+Minecraft 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生存完全隔离的决斗口袋，
+自定义配装、多局对抗、打完不留痕迹。目标形态是 **6 个 Minecraft 版本 × 2 个加载器 = 12 格**
+（1.20.1 / 1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3，每版 fabric + neoforge；1.20.1 用 forge）。
+目前只有 1.21.1 的两个 cell 建好了。
 
 **服务端与客户端必须同版本。** 两端协议是自定义 payload，版本不一致时表现为面板不出现或规则不生效，
 而不是一个明确的报错。
 
-## 工作目录
+## 工作目录：一个 cell = 一个版本 × 一个加载器
 
-仓库根不是工程根。**所有 Gradle 命令都在 `fabric-1.21.1/` 下执行。**
+仓库根就是 Gradle 根。**没有「工程根」这一层了**——每个 cell 是根下的一个子项目，
+命令写成 `./gradlew :<cell>:<task>`。
+
+```
+PvPocket/
+├── settings.gradle           # cells 清单，一个 cell 一个子项目
+├── build.gradle              # 只放仓库面 + buildAll，不应用任何加载器插件
+├── gradle/pvpocket-cells.gradle   # 两个 cell 共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
+├── src/                      # 共享源码，所有 cell 编译同一份
+├── versions/<cell>/build.gradle   # 每格约 100 行：加载器插件 + 依赖 + run
+├── runs/<cell>/{server,client1..4}   # 运行目录，按 cell 分开
+├── legacy/1.20.1/            # 1.20.1 的独立 Gradle 根（FG6 要 Gradle 8）
+└── scripts/ docs/ arena-src/
+```
 
 | 路径 | 内容 |
 | --- | --- |
-| `fabric-1.21.1/src/main/java/` | **所有加载器共用**（`session`、`rules`、`loadout`、`preset`、`network`、`platform`）。这里不许出现加载器 import |
-| `fabric-1.21.1/src/fabric/java/` | Fabric 专用：`platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/neoforge/java/` |
-| `fabric-1.21.1/src/fabric/resources/` | Fabric 专用资源，目前只有 `fabric.mod.json` |
-| `fabric-1.21.1/src/client/java/` | 客户端里**与加载器无关**的部分：`client/gui`、`client/hud`、`client/render`、`client/platform/PvClientPlatform` |
-| `fabric-1.21.1/src/client-fabric/java/` | 客户端加载器接线：`client/platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/client-neoforge/java/` |
-| `fabric-1.21.1/src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
-| `fabric-1.21.1/runs/` | 运行目录，`server` 与 `client1..4`，**由 `build.gradle` 决定** |
+| `src/main/java/` | **所有加载器共用**（`session`、`rules`、`loadout`、`preset`、`network`、`platform`）。这里不许出现加载器 import |
+| `src/fabric/java/` | Fabric 专用：`platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/neoforge/java/` |
+| `src/fabric/resources/` | Fabric 专用资源，目前只有 `fabric.mod.json` |
+| `src/client/java/` | 客户端里**与加载器无关**的部分：`client/gui`、`client/hud`、`client/render`、`client/platform/PvClientPlatform` |
+| `src/client-fabric/java/` | 客户端加载器接线：`client/platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/client-neoforge/java/` |
+| `src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
+| `versions/<cell>/` | 一格一个：`build.gradle` + 该格自己的 `build/` |
+| `runs/<cell>/` | 运行目录，`server` 与 `client1..4`，**由 `gradle/pvpocket-cells.gradle` 决定** |
 | `docs/zh/`、`docs/en/` | 六篇规范，平行且一一对应 |
 | `docs/archive/` | 历史存档，**非规范**，不追改 |
-| `scripts/` | 联调、地图转换、界面自动化、自检 |
+| `scripts/` | 联调、地图转换、界面自动化、自检。多数脚本认 `CELL` 环境变量 |
 
-**放文件的判据**：这段代码要 import `net.fabricmc` 吗？要 → `src/*-fabric/java`；不要 → 不带后缀的
-那一层。判据不是「跟谁关系近」，因为这一条决定了移植一格的代价。服务端与客户端各有一对：
-`src/main` ↔ `src/fabric`，`src/client` ↔ `src/client-fabric`。
+**放文件的判据**：这段代码要 import `net.fabricmc` / `net.neoforged` 吗？要 → `src/*-fabric` 或
+`src/*-neoforge`；不要 → 不带后缀的那一层。判据不是「跟谁关系近」，因为这一条决定了移植一格的
+代价。服务端与客户端各有一对：`src/main` ↔ `src/fabric`，`src/client` ↔ `src/client-fabric`。
+
+**为什么加载器这一维落在子项目边界上**：Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与
+remap，一个 project 只能应用其中一个。塞进同一个 project 就是让两个插件互相覆盖。
 
 ## 构建与运行
 
 ```bash
-cd fabric-1.21.1
-./gradlew compileJava compileClientJava      # 唯一需要记的编译命令
+./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # 编译一格
+./gradlew buildAll                                                     # 全部 cell
 ```
 
-**五个 run 任务就是唯一入口**，在 IDEA 右侧 Gradle 面板 `Tasks > fabric` 里双击即可：
-`runServer`、`runClient`、`runClient2`、`runClient3`、`runClient4`。
+**五个 run 任务两个加载器完全一致**，在 IDEA 右侧 Gradle 面板 `Tasks > 1.21.1-fabric` 里双击即可：
+`runServer`、`runClient`、`runClient2`、`runClient3`、`runClient4`。换成 `1.21.1-neoforge` 是同一套
+名字、同一批用户名（Dev1..Dev4）。
 
 - 客户端默认 `--quickPlayMultiplayer localhost:25565` 直接进服，堆上限 1G。
 - `-PquickJoin=off` 停在标题界面；`-PclientHeap=<size>` 改堆上限。
-- datagen 是 client 环境的子 run，会继承客户端参数，`build.gradle` 里已清空它的 `programArgs`。
+- 用户名、窗口尺寸、run 目录**只写在 `gradle/pvpocket-cells.gradle` 一处**。两个 cell 各写一遍的
+  下场是联调脚本按 Dev1..Dev4 找人，另一边叫 NeoDev1，永远对不上。
+- datagen 只有 Fabric 有（`fabricApi.configureDataGeneration`），是 client 环境的子 run，
+  `1.21.1-fabric/build.gradle` 里已清空它的 `programArgs`。
 
 联调（服务端独占终端，客户端另起）：
 
 ```bash
-./gradlew runServer                                  # 终端 1
+./gradlew :1.21.1-fabric:runServer                   # 终端 1
 PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能测对局面板 + 观战
+CELL=1.21.1-neoforge PVP_CLIENTS=3 scripts/dev-2clients.sh   # 同一套脚本跑另一格
 ```
 
-日志：服务端 `runs/server/logs/latest.log`，客户端 `build/devlogs/client{1,2,3}.out`。
+日志：服务端 `runs/<cell>/server/logs/latest.log`，客户端 `versions/<cell>/build/devlogs/client{1,2,3}.out`。
 **「面板没出来」先看客户端日志里 `canSend=` 那一行。**
 
-### NeoForge 那一格（`neoforge/` 子项目）
+### 跑 NeoForge 的 run 任务前必须清代理
 
-Loom 与 ModDevGradle 都要接管 minecraft 依赖和 run 任务，**不能应用在同一个 project 上**，
-所以 NeoForge 是 `include 'neoforge'` 的子项目，借用根项目同一份 `src/`（单 source set，
-客户端也进 main——NeoForge 是单 jar，靠「专用服务端不加载这些类」而非源集隔离）。
-
-```bash
-./gradlew :neoforge:runServer     # 或 :neoforge:runClient
-```
-
-**跑之前必须先清掉代理环境变量**，否则卡死在 `:neoforge:downloadAssets` 的 `DL .../17.json`
-那一行、CPU 归零、没有任何报错：
+NeoFormRuntime 会走系统代理（本机 `127.0.0.1:6494`），而该代理对 `piston-meta.mojang.com` 只挂不回；
+直连 3 秒就好。症状是**卡住不是报错**：`:1.21.1-neoforge:downloadAssets` 打印 `DL .../17.json` 之后
+CPU 归零，没有任何报错。
 
 ```bash
-env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ./gradlew :neoforge:runServer
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ./gradlew :1.21.1-neoforge:runServer
 ```
 
-原因是 NeoFormRuntime 会走系统代理（`127.0.0.1:6494`），而该代理对 `piston-meta.mojang.com`
-只挂不回；直连 3 秒就好。症状是**卡住不是报错**——和 Gradle 仓库那条坑同源。
-
-`neoforge/build.gradle` 里 `repositories.clear()` 不能删：ModDevGradle 在 apply 时自动塞两个
-`maven.neoforged.net` 仓库，那个域名在本机连不上，Gradle 会换 CDN 节点逐个等到超时。
+`versions/1.21.1-neoforge/build.gradle` 里 `repositories.clear()` 不能删：ModDevGradle 在 apply 时自动
+塞两个 `maven.neoforged.net` 仓库，那个域名在本机连不上，Gradle 会换 CDN 节点逐个等到超时。
 现用的是 `neoforged.forgecdn.net`（`/releases` + `/mojang-meta`），路径结构与官方逐字相同。
 
 ## 硬性约定
@@ -362,7 +376,7 @@ python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
 ## 验证
 
 **编译通过不等于可用。** 规则类改动至少要在两端跑一局，服务端 journal
-（`runs/server/world/pvpocket/journal/*.jsonl`）里有 `ROUND_STARTED`、`RULES_ACCEPTED` 等事件，
+（`runs/<cell>/server/world/pvpocket/journal/*.jsonl`）里有 `ROUND_STARTED`、`RULES_ACCEPTED` 等事件，
 能直接回答「这一局按哪版规则打的」。注意 journal 里的 `=` 是 `\u003d`，`grep 'c.maxHealth='` 匹配不到。
 
 **改完界面先跑遮挡审计**，不要靠眼睛过六十个布局：
@@ -382,7 +396,7 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 不需要 Minecraft 运行时的逻辑用自检类验证，一条命令：
 
 ```bash
-./gradlew statsCheck          # 统计文件的幂等、上限、跨重启、坏行容错
+./gradlew :<cell>:statsCheck  # 统计文件的幂等、上限、跨重启、坏行容错
 ```
 
 统计文件是**唯一一类 bug 会永久留下**的东西：重复的历史行、丢错端的上限，都不会当场报错，
@@ -392,7 +406,7 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 
 ```bash
 python scripts/audit-rules.py --docs                       # 静态：读取点 / 默认值 / 语言键 / 文档一致性
-python scripts/audit-rules.py --coverage fabric-1.21.1/runs/server/world
+python scripts/audit-rules.py --coverage runs/1.21.1-fabric/server/world
                                                            # 历史：哪些规则从未以非默认值跑过
 scripts/check-logic.sh                                     # 运行时：规则切换 + 配装目录的版本可用性
 ```
@@ -425,7 +439,7 @@ OK」的静态报告只能说明线接上了，说明不了它会变。改规则
 模组代码按 **GNU Lesser General Public License v3.0** 分发，全文见 [`LICENSE`](LICENSE)；
 它引用 GPL-3.0 的条款，副本见 [`LICENSE-GPL-3.0.txt`](LICENSE-GPL-3.0.txt)。
 
-**这两份（外加 `THIRD-PARTY-NOTICES.md`）会被打进 jar 根目录**，由 `fabric-1.21.1/build.gradle` 的
+**这两份（外加 `THIRD-PARTY-NOTICES.md`）会被打进 jar 根目录**，由 `gradle/pvpocket-cells.gradle` 的
 `processResources` 从仓库根复制。**不要**在 `src/main/resources` 里再放一份副本——许可全文只能有
 一处来源。改文件名要同步 `legalFiles`，对不上时构建会直接失败。
 

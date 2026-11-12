@@ -8,7 +8,7 @@ apart.
 
     python scripts/arena-map.py [world_dir] [out.png]
 
-`world_dir` defaults to fabric-1.21.1/runs/server/world. The script reads
+`world_dir` defaults to runs/1.21.1-fabric/server/world. The script reads
 `dimensions/pvpocket/arena/region/*.mca`, decodes the paletted block states itself (anvil-parser2's
 per-block accessor is far too slow for a whole dimension), and writes a 1-pixel-per-block PNG plus
 an ASCII overview at 16 blocks per character.
@@ -245,7 +245,7 @@ def overview(height, origin, step=16):
 
 
 def main():
-    world_dir = sys.argv[1] if len(sys.argv) > 1 else "fabric-1.21.1/runs/server/world"
+    world_dir = sys.argv[1] if len(sys.argv) > 1 else "runs/1.21.1-fabric/server/world"
     out = sys.argv[2] if len(sys.argv) > 2 else "arena-map.png"
 
     height, names, origin = build(world_dir)

@@ -31,10 +31,11 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.path.join(ROOT, "fabric-1.21.1")
-SRC_DIRS = [os.path.join(PROJECT, "src", "main", "java"),
-            os.path.join(PROJECT, "src", "client", "java")]
-LANG_DIR = os.path.join(PROJECT, "src", "main", "resources", "assets", "pvpocket", "lang")
+# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+SRC_ROOT = ROOT
+SRC_DIRS = [os.path.join(SRC_ROOT, "src", "main", "java"),
+            os.path.join(SRC_ROOT, "src", "client", "java")]
+LANG_DIR = os.path.join(SRC_ROOT, "src", "main", "resources", "assets", "pvpocket", "lang")
 ZH = os.path.join(LANG_DIR, "zh_cn.json")
 EN = os.path.join(LANG_DIR, "en_us.json")
 

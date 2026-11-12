@@ -1,0 +1,162 @@
+// versions/<cell>/build.gradle 共用的那一半。**与加载器无关**的东西放这里。
+//
+// 这里放什么：产物名、Java 级别、编码、许可文件、dev 客户端清单、不碰 Minecraft 的自检任务。
+// 这里不放什么：Loom / ModDevGradle、minecraft 依赖、mixin 配置。那两个插件的 DSL 连字段名都
+// 不一样（programArgs / programArguments、runDir / gameDirectory、client() 之后的行为），
+// 硬统一只会得到一层没人看得懂的适配层，而适配层出错时两个 cell 会一起坏。
+//
+// 但**值**必须统一：用户名、窗口尺寸、自动进服地址、堆上限、-P 开关。两个 cell 各写一遍的下场
+// 是联调脚本按 Dev1..Dev4 找人，NeoForge 那边叫 NeoDev1，永远对不上——这正是这次重组的理由之一。
+
+// cell 的 Java 级别。26.x 的 cell 在 `apply from:` **之前** 设 `ext.pvpocketJavaVersion = 25`。
+// 默认 21 是 1.21.x 的值；1.20.1 不在这套里（它有独立的根）。
+def javaLevel = (project.findProperty('pvpocketJavaVersion') ?: 21) as int
+
+group = project.maven_group
+version = project.mod_version
+
+// cell 名就是 `<mc>-<loader>`，产物名倒过来：1.21.1-fabric → pvpocket-fabric-1.21.1。
+// 写成派生而不是每个 cell 抄一个字符串，是因为抄的那个迟早会和目录名不一致。
+def cellParts = project.name.split('-')
+base {
+    archivesName = "pvpocket-${cellParts[1]}-${cellParts[0]}"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(javaLevel)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = javaLevel
+}
+
+// 许可文件进 jar，不是只放在仓库里。
+//
+// LGPL-3.0 §4 要求拿到目标代码的人同时拿到许可副本，它又建立在 GPL-3.0 §1 上，要求相同。仓库里
+// 有一份 LICENSE 并不满足这一条：被分发出去的是 jar——人们把它丢进 modpack 文件夹，而 modpack
+// 作者永远看不到这个仓库。所以三个法律文件打在 jar 根目录，那里 unzip 就能看见，也是许可扫描器
+// 第一个看的地方。
+def legalFiles = ['LICENSE', 'LICENSE-GPL-3.0.txt', 'THIRD-PARTY-NOTICES.md']
+legalFiles.each { name ->
+    def file = rootProject.file(name)
+    if (!file.isFile()) {
+        // 在这里失败而不是打出一个没有许可的 jar：悄悄丢掉许可的发行版，是没人会发现它不合规的那种。
+        throw new GradleException("missing ${file} — the jar has to ship a copy of the licence")
+    }
+}
+tasks.named('processResources') {
+    from(legalFiles.collect { rootProject.file(it) })
+}
+
+// ---------------------------------------------------------------------------
+// dev 客户端：一个服务端 + 四个客户端，两个加载器一模一样。
+//
+// 四个客户端各有理由，不是「多开几个保险」：
+//   client1/2  一场对决的两端（面板、配装、开打、结算）
+//   client3    观战——两个人都在对决里，观战没法用两个人测
+//   client4    同时开两场——Dev1+Dev2 占掉一场后，第二场要两个空闲玩家
+//
+// 每个 run 目录都是独立的，这是硬要求不是洁癖：
+//   - Minecraft 用滚动 appender 写 logs/latest.log，两个 JVM 在同一个目录会抢同一个文件，输的
+//     那个静默丢日志，而日志是这个项目主要的调试面。
+//   - options.txt、saves、资源索引、截图同样会打架。
+// 用户名也必须不同：否则第二个客户端是同一个玩家，进服直接被拒。
+ext.pvpocketDevClients = [
+        [name: 'client',  dir: 'client1', user: 'Dev1'],
+        [name: 'client2', dir: 'client2', user: 'Dev2'],
+        [name: 'client3', dir: 'client3', user: 'Dev3'],
+        [name: 'client4', dir: 'client4', user: 'Dev4'],
+]
+
+// 1280x720 是仍能压到面板最挤分支的最小窗口；默认 dev 窗口约 427x240 虚拟像素，那里每个布局都
+// 处在最挤的分支，截图没法看。
+ext.pvpocketClientArgs = { String user ->
+    ['--username', user, '--width', '1280', '--height', '720']
+}
+
+// 覆盖：-PquickJoin=<host:port> 指别处，-PquickJoin=off 停在标题界面（房间没起的时候）。
+ext.pvpocketQuickJoin = project.hasProperty('quickJoin')
+        ? project.property('quickJoin').toString()
+        : 'localhost:25565'
+ext.pvpocketClientHeap = project.hasProperty('clientHeap')
+        ? project.property('clientHeap').toString()
+        : '1G'
+
+// 运行目录按 cell 分：runs/<cell>/<run>。**不同版本的存档格式不兼容，绝不能共用 runs 目录。**
+//
+// 两个形态，值只有一个来源：MDG 的 `gameDirectory` 要 File；Loom 的 `runDir` **只接受相对
+// projectDir 的 String**（传 File 会报 `no method runDir(File)`，传绝对路径会被拼在 projectDir
+// 后面变成 `versions/<cell>/D:\...`）。所以 Loom 那边用 relativize 算出来的相对路径。
+ext.pvpocketRunDir = { String dir ->
+    rootProject.file("runs/${project.name}/${dir}")
+}
+ext.pvpocketRunDirRelative = { String dir ->
+    project.projectDir.toPath()
+            .relativize(pvpocketRunDir(dir).toPath())
+            .toString()
+}
+
+// 客户端 JVM 参数里与加载器无关的那几条。返回列表而不是直接往 run 里塞，因为两个加载器塞的
+// 方法名不一样（vmArg / jvmArguments）。
+ext.pvpocketClientJvmArgs = {
+    def args = ["-Xmx${pvpocketClientHeap}".toString()]
+    // -PdebugBlocking 让这个客户端自称正在用剑格挡，第一/第三人称姿势不用开一局就能看。
+    if (project.hasProperty('debugBlocking')) {
+        args << '-Dpvpocket.debug.blocking=true'
+    }
+    // -PuiAudit 跑布局审计而不是进游戏：客户端打开每个面板、每页、每个对话框，在两种画布尺寸下
+    // 报告重叠的矩形，然后退出。scripts/audit-ui.sh 包着它，有任何发现就失败。
+    if (project.hasProperty('uiAudit')) {
+        args << '-Dpvpocket.audit=true' << '-Dpvpocket.audit.exit=true'
+    }
+    // -PmixinDebug 把每个被改写的类导出到 <runDir>/.mixin.out/class/，并让 Mixin 记录每次注入。
+    // 这个模组改写了 PlayerEntity#attack 这类热路径，「启动不报错」只证明匹配上了，不证明匹配对了
+    // ——导出之后 javap 一下才算数。默认关，因为导出费时间也费磁盘。
+    if (project.hasProperty('mixinDebug')) {
+        args << '-Dmixin.debug.export=true' << '-Dmixin.debug.verbose=true'
+    }
+    args
+}
+
+// ---------------------------------------------------------------------------
+// 把编译期类路径写到 build/compile-classpath.txt，给 scripts/check-logic.sh 用。
+//
+// 那些检查要现场编译一小段 Java 去反射真实的类，所以需要一个**和编译期一模一样**的类路径——
+// 而它只有 Gradle 知道。以前靠 Loom 的 .gradle/loom-cache/remapClasspath.txt，那是 mixin 注解
+// 处理器的副产物、不是稳定接口：关掉 legacy AP 或换 Loom 版本它就没了，而症状是「找不到
+// Minecraft 类」这种和真正原因毫无关系的报错。
+//
+// 两个 cell 用同一个任务，所以 check-logic 不再需要「Fabric 这样取、NeoForge 那样取」的分叉。
+// client 源集存在时（Loom 的 splitEnvironmentSourceSets）把它的类路径也并进来：检查里要反射
+// net.minecraft.client.* 的类。
+tasks.register('writeCompileClasspath') {
+    group = 'verification'
+    description = 'Writes the compile classpath to build/compile-classpath.txt.'
+    def clientSourceSet = sourceSets.findByName('client')
+    def classpath = clientSourceSet == null
+            ? files(sourceSets.main.compileClasspath)
+            : files(sourceSets.main.compileClasspath, clientSourceSet.compileClasspath)
+    def output = layout.buildDirectory.file('compile-classpath.txt')
+    outputs.file(output)
+    doLast {
+        def file = output.get().asFile
+        file.parentFile.mkdirs()
+        file.text = classpath.files.join(File.pathSeparator)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 不碰 Minecraft 运行时的自检。
+//
+// `./gradlew :<cell>:statsCheck` —— 战绩文件是这个项目里唯一一类 bug 会永久留痕的东西（重复的
+// 历史行、裁剪时砍掉最新的而不是最旧的），而靠打两百场去验证那不叫测试。
+tasks.register('statsCheck', JavaExec) {
+    group = 'verification'
+    description = 'Runs the duel-stats self-check against a temporary directory.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.leipishu.pvpocket.stats.DuelStatsCheck'
+}

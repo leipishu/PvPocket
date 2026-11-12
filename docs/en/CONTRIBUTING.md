@@ -41,13 +41,24 @@ JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 
 ## Build
 
-**Every Gradle command runs inside `fabric-1.21.1/`. The repository root is not the project root.**
+**The repository root is the Gradle root.** A **cell** is one Minecraft version x one loader, and it
+is a subproject, so commands read `./gradlew :<cell>:<task>`. There are two cells today:
+`1.21.1-fabric` and `1.21.1-neoforge`.
 
 ```bash
-cd fabric-1.21.1
-./gradlew compileJava compileClientJava   # compile only, fastest feedback, one line is enough to check
-./gradlew build                           # output in fabric-1.21.1/build/libs/
+./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # one cell, fastest feedback
+./gradlew :1.21.1-fabric:build            # output in versions/1.21.1-fabric/build/libs/
+./gradlew buildAll                        # every cell
 ```
+
+The two loaders are **parallel**, with no primary one: `versions/1.21.1-fabric/` and
+`versions/1.21.1-neoforge/` each have a `build.gradle` and share the `src/` at the root. Everything
+that does not depend on the loader (archive name, Java level, licence files, dev client list) lives
+in `gradle/pvpocket-cells.gradle`, which both cells `apply from:`.
+
+> Why a loader has to be a subproject rather than a second configuration on one project: Loom and
+> ModDevGradle both take over the minecraft dependency, the run tasks and remapping, and a project
+> can only apply one of them.
 
 **The jar root carries three legal files**: `LICENSE`, `LICENSE-GPL-3.0.txt` and
 `THIRD-PARTY-NOTICES.md`. They are not in `src/main/resources`; `processResources` in `build.gradle`
@@ -64,28 +75,29 @@ Sources are split across two source sets, and the boundary must hold:
 | `src/main/java/` | Shared by both sides: `session`, `rules`, `loadout`, `preset`, `network`, `arena` | **Loaded by the dedicated server**, so no client classes |
 | `src/client/java/` | Client only: `client/gui`, `client/hud`, `client/preset` | May reference `src/main`, never the reverse |
 
-Open `fabric-1.21.1/` in IDEA (not the repository root) and import it as a Gradle project.
+Open the repository root in IDEA and import it as a Gradle project; `1.21.1-fabric` and
+`1.21.1-neoforge` show up as two projects.
 
 ## Development testing
 
 A duel needs at least two players, so four clients are configured. **They cannot share a run
 directory**: two JVMs in the same directory fight over `logs/latest.log` (the loser silently loses
 its log), and `options.txt`, `saves` and the resource index overwrite each other. Run directories are
-decided by `build.gradle` and all live under `fabric-1.21.1/runs/` (not in version control):
+decided by `gradle/pvpocket-cells.gradle` and all live under `runs/<cell>/` (not in version control):
 
 | Run configuration | Directory | Username | Purpose |
 | --- | --- | --- | --- |
-| `runServer` | `runs/server/` | — | Shared server (world save and `pvpocket/journal` live here) |
-| `runClient` | `runs/client1/` | `Dev1` | Client 1 |
-| `runClient2` | `runs/client2/` | `Dev2` | Client 2 |
-| `runClient3` | `runs/client3/` | `Dev3` | Client 3, **only needed to test spectating** |
-| `runClient4` | `runs/client4/` | `Dev4` | Client 4, **only needed to test "one map cannot host two matches"** |
+| `runServer` | `runs/<cell>/server/` | — | Shared server (world save and `pvpocket/journal` live here) |
+| `runClient` | `runs/<cell>/client1/` | `Dev1` | Client 1 |
+| `runClient2` | `runs/<cell>/client2/` | `Dev2` | Client 2 |
+| `runClient3` | `runs/<cell>/client3/` | `Dev3` | Client 3, **only needed to test spectating** |
+| `runClient4` | `runs/<cell>/client4/` | `Dev4` | Client 4, **only needed to test "one map cannot host two matches"** |
 
 Usernames must differ too: a development client logs in with the operating-system username by
 default, so two clients become the same player and the later join kicks the earlier one out.
 
-All five are Gradle tasks, **double-click them in IDEA's Gradle tool window** (`fabric-1.21.1 >
-Tasks > fabric > runClient` … `runServer`) — no terminal, no run configurations to maintain. The
+All five are Gradle tasks, **double-click them in IDEA's Gradle tool window** (`Tasks > 1.21.1-fabric >
+runClient` … `runServer`; `1.21.1-neoforge` exposes the same names) — no terminal, no run configurations to maintain. The
 client already connects to `localhost:25565` with a 1G heap, so it is playable as soon as it opens:
 
 | Parameter | Default | Purpose |
@@ -97,7 +109,7 @@ client already connects to `localhost:25565` with a 1G heap, so it is playable a
 
 ```bash
 # Terminal 1: shared server, keep it in the foreground (so the console still accepts stop / op / pvpocket)
-cd fabric-1.21.1 && ./gradlew runServer
+./gradlew :1.21.1-fabric:runServer
 
 # Terminal 2: once "Done (...)" appears, launch clients that join automatically
 scripts/dev-2clients.sh                       # two clients
@@ -139,16 +151,23 @@ PvPocket/
 │   ├── arena-map.py           Renders an arena save top-down to confirm the cells really separate
 │   ├── rcon.py                Sends RCON commands to the dev server (scripted testing)
 │   └── agent/                 Screenshot and input scripts for AI agents; not needed for normal work
-├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 project
-│   ├── build.gradle           Five run configurations and their run directories
-│   ├── settings.gradle
-│   ├── gradle.properties
-│   ├── gradlew / gradlew.bat
-│   ├── runs/                  Run directories (clients 1–4 + server, not in version control)
-│   ├── arena-src/             Map sources (not in version control, see docs/zh/06-maps.md)
-│   └── src/
-│       ├── main/              common: shared by server and client
-│       └── client/            Client only (split source set)
+├── settings.gradle            Cell list: one cell, one subproject
+├── build.gradle               Only repositories + buildAll; applies no loader plugin
+├── gradle.properties          Version numbers for the cells
+├── gradle/
+│   ├── pvpocket-cells.gradle  The half both cells share: archive name, Java level, licence, dev clients
+│   └── wrapper/
+├── src/                       Shared sources, compiled by every cell
+│   ├── main/                  common: shared by server and client
+│   ├── client/                Client only, loader-agnostic
+│   ├── fabric/ client-fabric/ Fabric wiring
+│   └── neoforge/ client-neoforge/   NeoForge wiring
+├── versions/
+│   ├── 1.21.1-fabric/         The Fabric cell: loader plugin + dependencies + runs
+│   └── 1.21.1-neoforge/       The NeoForge cell, parallel to the line above
+├── legacy/1.20.1/             Separate Gradle root for 1.20.1 (FG6 needs Gradle 8; not built yet)
+├── runs/<cell>/               Run directories (clients 1–4 + server, not in version control)
+├── arena-src/                 Map sources (not in version control, see docs/zh/06-maps.md)
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md            This file's Chinese original
 ├── AGENTS.md                  Notes for coding agents: commands, hard rules, traps

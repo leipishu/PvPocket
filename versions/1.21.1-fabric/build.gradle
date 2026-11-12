@@ -1,0 +1,125 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+    id 'maven-publish'
+}
+
+// 与加载器无关的那一半：产物名、Java 级别、编码、许可、dev 客户端清单、statsCheck。
+apply from: rootProject.file('gradle/pvpocket-cells.gradle')
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+// splitEnvironmentSourceSets() 必须先于 sourceSets 块：它才是创建 `client` 源集的那个人，
+// 先写 sourceSets { client { } } 会报 "SourceSet with that name already exists"（反过来的意思：
+// 它还不存在，是 split 之后才有的）。
+loom {
+    splitEnvironmentSourceSets()
+
+    mods {
+        "pvpocket" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+// 源码分四处，各管一段：
+//
+//   src/main/java          所有加载器共用（服务端那一半）。**这里不许出现 net.fabricmc**。
+//   src/fabric/java        Fabric 的服务端入口与平台实现。NeoForge 那一格换成 src/neoforge/java。
+//   src/client/java        客户端里与加载器无关的部分：界面、HUD、渲染、镜像。
+//   src/client-fabric/java 客户端的加载器接线。NeoForge 那一格换成 src/client-neoforge/java。
+//
+// 判据只有一条：这段代码要 import net.fabricmc 吗？要就进 src/*-fabric，不要就留在不带后缀的那
+// 一层。这条判据决定移植一格的代价是「写一个实现类」还是「重写一遍」，所以它得是能机械判定的，
+// 不能靠「跟谁关系近」——`scripts/check-boundary.py` 就是它的执行版本。
+//
+// 路径都要显式写 rootProject.file(...)：这个 project 的 projectDir 是 versions/1.21.1-fabric，
+// 默认的 src/main/java 会解析成 versions/1.21.1-fabric/src/main/java，那里什么都没有。
+sourceSets {
+    main {
+        java.srcDir rootProject.file('src/main/java')
+        resources.srcDir rootProject.file('src/main/resources')
+        java.srcDir rootProject.file('src/fabric/java')
+        resources.srcDir rootProject.file('src/fabric/resources')
+    }
+    client {
+        java.srcDir rootProject.file('src/client/java')
+        resources.srcDir rootProject.file('src/client/resources')
+        java.srcDir rootProject.file('src/client-fabric/java')
+        resources.srcDir rootProject.file('src/client-fabric/resources')
+    }
+}
+
+// Loom **预先注册**了 client 与 server 两个 run，所以直接 create 同名会报
+// "RunConfigSettings with that name already exists"。这个 helper 是「有就配置、没有就建」，
+// 也是这一格唯一需要知道 Loom 这个脾气的对方——NeoForge 那边没有预注册，用的是 create。
+def configureRun = { String name, Closure action ->
+    def run = loom.runs.findByName(name)
+    if (run == null) {
+        run = loom.runs.create(name)
+    }
+    action.call(run)
+}
+
+// 一个服务端 + 四个客户端，名字与用户名与 NeoForge 那一格完全一致（清单在
+// gradle/pvpocket-cells.gradle）。这样 scripts/dev-2clients.sh 只要换 cell 名就能跑在任一
+// 加载器上，不用记「NeoForge 那边叫 NeoDev1」。
+configureRun('server') { run ->
+    run.server()
+    run.configName = 'Minecraft Server (shared room)'
+    run.runDir(pvpocketRunDirRelative('server'))
+}
+
+pvpocketDevClients.each { spec ->
+    configureRun(spec.name) { run ->
+        run.client()
+        run.configName = "Minecraft Client (${spec.user})"
+        run.runDir(pvpocketRunDirRelative(spec.dir))
+        run.programArgs(pvpocketClientArgs(spec.user) as String[])
+        if (pvpocketQuickJoin != 'off' && !pvpocketQuickJoin.isEmpty()) {
+            run.programArgs(['--quickPlayMultiplayer', pvpocketQuickJoin] as String[])
+        }
+        pvpocketClientJvmArgs().each { run.vmArg(it) }
+    }
+}
+
+// Data generation is a client run as far as Loom is concerned, but it never opens a window and
+// must not be told to connect to a server; it is the one client run that is not a dev client.
+// It gets no username and no window size either — nothing above touches it.
+fabricApi {
+    configureDataGeneration {
+        client = true
+    }
+}
+loom.runs.named("datagen") { it.programArgs.clear() }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // 官方映射（Mojmap），不是 Yarn。
+    //
+    // 26.1 起 Minecraft 不再混淆，官方名成了运行时里真实存在的名字，也是唯一一套不会随加载器过期的
+    // 命名；Yarn 是社区映射，只能跟着官方名翻译。要一份源码同时喂 Fabric / NeoForge / Forge，
+    // 就必须统一到官方名——NeoForge 本来就只认它。
+    //
+    // 代价是源码里全是 `net.minecraft.world.level.Level` 这种长名字，收益是它到 26.x 都不会再变。
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": inputs.properties.version
+    }
+}
+
+jar {
+    inputs.property "archivesName", project.base.archivesName
+}

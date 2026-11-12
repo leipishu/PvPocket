@@ -33,8 +33,9 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.path.join(ROOT, "fabric-1.21.1")
-SRC = os.path.join(PROJECT, "src")
+# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+SRC_ROOT = ROOT
+SRC = os.path.join(SRC_ROOT, "src")
 RULES_PKG = os.path.join(SRC, "main", "java", "com", "leipishu", "pvpocket", "rules")
 CATALOG = os.path.join(RULES_PKG, "RuleCatalog.java")
 RULEBOOK = os.path.join(RULES_PKG, "Rulebook.java")

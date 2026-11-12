@@ -26,16 +26,17 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.path.join(ROOT, "fabric-1.21.1")
-MAIN = os.path.join(PROJECT, "src", "main", "java")
-CLIENT = os.path.join(PROJECT, "src", "client", "java")
+# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+SRC_ROOT = ROOT
+MAIN = os.path.join(SRC_ROOT, "src", "main", "java")
+CLIENT = os.path.join(SRC_ROOT, "src", "client", "java")
 # 加载器源根：这里**应该**有加载器 import，只做计数，不判定。列出来是为了让人确认它们确实在，
 # 而不是被误删——一个空的 src/fabric 与一个「接线写进了业务代码」的仓库，症状完全不同。
-LOADER_ROOTS = (("fabric", os.path.join(PROJECT, "src", "fabric", "java")),
-                ("client-fabric", os.path.join(PROJECT, "src", "client-fabric", "java")),
-                ("neoforge", os.path.join(PROJECT, "src", "neoforge", "java")),
-                ("client-neoforge", os.path.join(PROJECT, "src", "client-neoforge", "java")),
-                ("forge", os.path.join(PROJECT, "src", "forge", "java")))
+LOADER_ROOTS = (("fabric", os.path.join(SRC_ROOT, "src", "fabric", "java")),
+                ("client-fabric", os.path.join(SRC_ROOT, "src", "client-fabric", "java")),
+                ("neoforge", os.path.join(SRC_ROOT, "src", "neoforge", "java")),
+                ("client-neoforge", os.path.join(SRC_ROOT, "src", "client-neoforge", "java")),
+                ("forge", os.path.join(SRC_ROOT, "src", "forge", "java")))
 
 # 加载器 API 的包前缀。`net.fabricmc.api` 也在内——入口类自己就该待在加载器源根里。
 LOADER_PACKAGES = ("net.fabricmc.", "net.neoforged.", "net.minecraftforge.")
