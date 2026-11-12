@@ -9,9 +9,12 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -19,6 +22,7 @@ import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.item.ItemStack;
 import com.mojang.brigadier.CommandDispatcher;
 
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -38,6 +42,29 @@ public final class FabricPlatform implements PvPlatform {
     }
 
     // ------------------------------------------------------------------ 网络
+
+    @Override
+    public <T extends CustomPacketPayload> void registerPlayToServer(
+            CustomPacketPayload.Type<T> type, StreamCodec<? super RegistryFriendlyByteBuf, T> codec) {
+        PayloadTypeRegistry.playC2S().register(type, codec);
+    }
+
+    @Override
+    public <T extends CustomPacketPayload> void registerPlayToClient(
+            CustomPacketPayload.Type<T> type, StreamCodec<? super RegistryFriendlyByteBuf, T> codec) {
+        PayloadTypeRegistry.playS2C().register(type, codec);
+    }
+
+    @Override
+    public <T extends CustomPacketPayload> void onServerReceive(
+            CustomPacketPayload.Type<T> type, BiConsumer<ServerPlayer, T> handler) {
+        // Fabric 的 receiver 跑在 netty 线程上，碰世界就是未定义行为。这个跳线程属于平台，
+        // 所以接收方的代码里看不到 `server.execute`——NeoForge 那边本来就在服务端线程，不必跳。
+        ServerPlayNetworking.registerGlobalReceiver(type, (payload, context) -> {
+            ServerPlayer player = context.player();
+            context.server().execute(() -> handler.accept(player, payload));
+        });
+    }
 
     @Override
     public boolean canSend(ServerPlayer player, CustomPacketPayload.Type<?> type) {

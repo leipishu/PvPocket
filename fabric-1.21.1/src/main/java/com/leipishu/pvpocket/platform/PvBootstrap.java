@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.command.PvPocketCommands;
+import com.leipishu.pvpocket.network.PvPayloads;
 import com.leipishu.pvpocket.preset.PresetShareRegistry;
 import com.leipishu.pvpocket.session.SessionManager;
 import net.minecraft.world.item.ItemStack;
@@ -32,6 +33,9 @@ public final class PvBootstrap {
 
     /** 挂上全部接线。每个入口类调一次。 */
     public static void wire(PvPlatform platform) {
+        // payload 必须先注册再绑接收器：上行包的接收器在注册时就要用到类型。
+        PvPayloads.register(platform);
+
         platform.onServerStarted(server -> {
             SessionManager manager = SessionManager.create(server);
             manager.load();

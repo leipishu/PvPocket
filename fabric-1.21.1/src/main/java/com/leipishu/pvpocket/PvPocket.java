@@ -1,38 +1,28 @@
 package com.leipishu.pvpocket;
 
-import com.leipishu.pvpocket.network.PvPocketNetworking;
-import com.leipishu.pvpocket.platform.PvBootstrap;
-import com.leipishu.pvpocket.platform.PvPlatform;
-import com.leipishu.pvpocket.platform.fabric.FabricPlatform;
-import net.fabricmc.api.ModInitializer;
 import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Fabric 入口：装平台、注册 payload、挂接线。就这三件事。
+ * 模组的身份与常量：id、日志、命名空间下的 {@link ResourceLocation}。
  *
- * <p>所有「发生某事时该做什么」都在 {@link PvBootstrap} 里，那部分不含加载器的名字，所以
- * NeoForge / Forge 的入口类写出来和这里一样短，只是换一个 {@link PvPlatform} 实现。</p>
+ * <p><b>这里没有加载器的东西，也不该有。</b>入口点不在这个类里——Fabric 的入口是
+ * {@code platform.fabric.FabricEntrypoint}，NeoForge 的会是另一个。</p>
  *
- * <p>{@link #onInitialize()} 里不要加业务代码：这个类被加载的那一刻平台还没装好，
- * 任何走 {@code PvPlatform.get()} 的调用都会抛。</p>
+ * <p>身份与入口分开的理由很实际：身份被九十多处引用，它必须对所有加载器是同一个类；而入口
+ * 每个加载器都不一样，还要 import 各自的 {@code ModInitializer}。混在一起的结果就是这个类
+ * 出现在「加载器边界」的违规清单里。</p>
  */
-public final class PvPocket implements ModInitializer {
+public final class PvPocket {
 
     public static final String MOD_ID = "pvpocket";
     public static final Logger LOGGER = LoggerFactory.getLogger("PvPocket");
 
-    public static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+    private PvPocket() {
     }
 
-    @Override
-    public void onInitialize() {
-        PvPlatform.install(new FabricPlatform());
-        // payload 的注册留在网络层：codec 的类型是 Fabric 独有的（`PacketCodec`），
-        // 而 NeoForge 用的是 `StreamCodec`。这一处差异由各自的网络层承担，不上升到平台接口。
-        PvPocketNetworking.registerCommon();
-        PvBootstrap.wire(PvPlatform.get());
+    public static ResourceLocation id(String path) {
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 }
