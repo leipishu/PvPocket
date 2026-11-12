@@ -7,3 +7,6 @@
 gradlew text eol=lf
 gradlew.bat text eol=crlf
 *.bat text eol=crlf
+# cmd.exe parses a .cmd with the OEM codepage and is only reliable with CRLF; an LF
+# checkout breaks `for` blocks in a way that reads as "the script is broken".
+*.cmd text eol=crlf
