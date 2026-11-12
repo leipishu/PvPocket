@@ -73,13 +73,22 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能�
 改完语言文件跑一次：
 
 ```bash
-cd fabric-1.21.1 && python -c "
-import json,re
-z=json.load(open('src/main/resources/assets/pvpocket/lang/zh_cn.json',encoding='utf-8'))
-e=json.load(open('src/main/resources/assets/pvpocket/lang/en_us.json',encoding='utf-8'))
-print(len(z),len(e),set(z)^set(e))
-print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'%s',e[k]))])"
+python scripts/check-lang.py
 ```
+
+它查的不只是键集与 `%s` 数量，还有三件编译不会报的事：代码引用了不存在的键（面板上直接显示
+键名）、`PvLang.t("key", ...)` 的实参个数与占位符对不上（消息末尾挂一个 `%s`）、以及
+`.label` 有而 `.hint` 没有。`--strict` 把「语言文件里有、源码里没人用」也算失败。
+
+配装内容的版本门槛在 `scripts/content-manifest.tsv`，逐格核对用：
+
+```bash
+python scripts/check-content.py 1.21.11-neoforge            # 这一格能给出哪些物品
+python scripts/check-content.py --all                       # 12 格总表
+python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # 对着真实 jar 对账
+```
+
+移植每一格时都要跑一次 `--verify-jar`：清单里 `declared` 的条目只有对着 jar 才能变成结论。
 
 ### 2. 指令面收敛
 
