@@ -31,17 +31,23 @@ import net.minecraft.resources.ResourceLocation;
  * <p>{@code active=false} means "hide". It carries no other meaning, and the client treats every
  * other field as garbage in that case — the server sends it on the final round, on surrender, on
  * void, and whenever a player leaves the arena.</p>
+ *
+ * <p>{@code secondsLeft} is the intermission countdown, or {@code 0} when a round is live. It is
+ * pushed every second while it is non-zero, because a countdown is the one value on this payload
+ * that changes without the server deciding anything. Sent as whole seconds rather than as a
+ * deadline so the client never has to reason about clock skew between the two sides.</p>
  */
 public record MatchHudPayload(boolean active,
                               int round, int maxRounds, int winsNeeded,
                               String scores, String teams,
-                              boolean showHealth)
+                              boolean showHealth,
+                              int secondsLeft)
         implements CustomPacketPayload {
 
     public static final Type<MatchHudPayload> ID =
             new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "match_hud"));
 
-    /** Hand-written rather than {@code PacketCodec.tuple}: seven fields, two of them strings. */
+    /** Hand-written rather than {@code PacketCodec.tuple}: eight fields, two of them strings. */
     public static final StreamCodec<RegistryFriendlyByteBuf, MatchHudPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
@@ -51,6 +57,7 @@ public record MatchHudPayload(boolean active,
                 buf.writeUtf(value.scores);
                 buf.writeUtf(value.teams);
                 buf.writeBoolean(value.showHealth);
+                buf.writeVarInt(value.secondsLeft);
             },
             buf -> new MatchHudPayload(
                     buf.readBoolean(),
@@ -59,11 +66,12 @@ public record MatchHudPayload(boolean active,
                     buf.readVarInt(),
                     buf.readUtf(),
                     buf.readUtf(),
-                    buf.readBoolean()));
+                    buf.readBoolean(),
+                    buf.readVarInt()));
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
     public static MatchHudPayload hidden() {
-        return new MatchHudPayload(false, 0, 0, 0, "", "", false);
+        return new MatchHudPayload(false, 0, 0, 0, "", "", false, 0);
     }
 
     @Override

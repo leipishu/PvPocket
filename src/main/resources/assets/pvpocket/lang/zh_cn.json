@@ -607,6 +607,7 @@
   "pvpocket.msg.round.timeout.draw": "时间到：双方血量相同，本局平局。",
   "pvpocket.msg.round.timeout.double": "时间到：双方均判负。",
   "pvpocket.msg.round.eliminated": "你已出局，这一局剩下的时间只能旁观。",
+  "pvpocket.hud.next_round": "下一局 %s 秒后开始",
   "pvpocket.msg.series.ended": "决斗结束：%s（%s比分 %s）。",
   "pvpocket.msg.series.winner": "%s 获胜",
   "pvpocket.msg.series.no_winner": "无人获胜",

@@ -87,10 +87,14 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
 
     /** Called on the client thread when a payload arrives. */
     public static void update(MatchHudPayload payload) {
-        state = payload != null && payload.active() ? payload : null;
-        if (state != null) {
+        MatchHudPayload next = payload != null && payload.active() ? payload : null;
+        // Fade in on appear, not on every payload. The intermission countdown re-pushes this packet
+        // once a second, and resetting the animation there made the whole bar blink for the length
+        // of the intermission — the countdown looked like it was being redrawn from scratch.
+        if (state == null && next != null) {
             appearT = 0F;
         }
+        state = next;
     }
 
     /** Dropped on disconnect so a stale scoreboard cannot survive into the next server. */
@@ -99,6 +103,18 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         appearT = 0F;
         flashT = 0F;
         lastScore = "";
+    }
+
+    /**
+     * Whether a match HUD is currently on screen.
+     *
+     * <p>Used by the death-screen gate: a player who dies inside an arena round must not be shown
+     * the vanilla "You Died" screen, because the next round starts on its own and that screen only
+     * exists to make them click Respawn. Outside a match the screen is untouched — dying in the
+     * survival world is still a normal death.</p>
+     */
+    public static boolean isActive() {
+        return state != null;
     }
 
     @Override
@@ -170,6 +186,28 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         if (bar != null) {
             drawTeamStrips(ctx, bar, scale, centreX);
         }
+        // The intermission countdown, under the bar rather than in the middle of the screen: it
+        // answers "how long do I wait", which nobody needs to read while aiming, and a centred
+        // number is exactly what a player stares at instead of the arena.
+        if (payload.secondsLeft() > 0) {
+            drawCountdown(ctx, tr, payload.secondsLeft(), centreX, scale);
+        }
+    }
+
+    /**
+     * "Next round in N" under the scoreboard.
+     *
+     * <p>Drawn on a plate rather than as bare text: the countdown is read while the arena behind it
+     * is being reverted, so the background is whatever map is coming next — a colour that no text
+     * colour is guaranteed to contrast with.</p>
+     */
+    private static void drawCountdown(GuiGraphics ctx, Font tr, int seconds, int centreX, float scale) {
+        String text = PvLang.str("pvpocket.hud.next_round", seconds);
+        int w = tr.width(text);
+        int y = TOP + Math.round(34F * scale);
+        PvDraw.roundRect(ctx, centreX - w / 2 - 6, y - 3, w + 12, 15, PvTheme.RADIUS,
+                PvTheme.alpha(PvTheme.CARD, 0.78F));
+        PvDraw.text(ctx, tr, text, centreX - w / 2, y, PvTheme.ACCENT);
     }
 
     // ------------------------------------------------------------------ two sides

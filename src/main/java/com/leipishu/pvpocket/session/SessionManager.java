@@ -158,6 +158,14 @@ public final class SessionManager {
     private final Map<String, Long> roundStartedAt = new HashMap<>();
     /** Session id -> wall-clock time the next round may begin, for the intermission. */
     private final Map<String, Long> roundReadyAt = new HashMap<>();
+    /**
+     * Session id -> the intermission second last pushed to clients.
+     *
+     * <p>The HUD is otherwise pushed only when something the server decided changes; a countdown
+     * changes every second on its own, so it needs its own push. Storing the last value keeps that
+     * to one packet per second per session instead of one per tick.</p>
+     */
+    private final Map<String, Integer> countdownPushed = new HashMap<>();
     /** Players currently outside their plot, waiting out the boundary countdown. */
     private final Map<String, BoundaryExit> boundaryExits = new HashMap<>();
     /**
@@ -498,6 +506,35 @@ public final class SessionManager {
                 homes.rescue(online);
             }
         });
+    }
+
+    /**
+     * Pushes the intermission countdown, at most once per second per session.
+     *
+     * <p>The rest of the HUD is pushed on change; a countdown is the exception because it changes
+     * by itself. Comparing against {@link #countdownPushed} keeps that to one packet per second
+     * instead of one per tick, which at twenty ticks a second would be twenty times the traffic for
+     * nineteen redundant frames.</p>
+     */
+    private void tickIntermissionCountdown() {
+        if (roundReadyAt.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, Long> entry : roundReadyAt.entrySet()) {
+            DuelSession session = sessions.get(entry.getKey());
+            if (session == null || session.stage != SessionStage.ROUND_READY) {
+                continue;
+            }
+            long ms = entry.getValue() - now;
+            int seconds = ms <= 0L ? 0 : (int) ((ms + 999L) / 1000L);
+            Integer last = countdownPushed.get(entry.getKey());
+            if (last != null && last == seconds) {
+                continue;
+            }
+            countdownPushed.put(entry.getKey(), seconds);
+            broadcastHud(session, true);
+        }
     }
 
     /**
@@ -1057,19 +1094,43 @@ public final class SessionManager {
         if (me == null || me.eliminated) {
             return;
         }
-        // Marked here but settled on respawn: a dead player cannot be teleported, and the settle
-        // path teleports people. The decision is recorded now so a crash between death and respawn
-        // still leaves a journalled outcome.
+        // Marked here and settled below: the decision is recorded now so a crash between death and
+        // the settle still leaves a journalled outcome.
         me.eliminated = true;
         recordDeath(session, me, player);
+        int winner = lastTeamStanding(session);
         session.pendingWinner = me.uuid;
         session.pendingReason = "DEATH";
-        session.pendingWinnerTeam = lastTeamStanding(session);
+        session.pendingWinnerTeam = winner;
         journal(session).append("ROUND_DECIDED", "reason", "DEATH",
                 "player", me.name,
-                "winnerTeam", session.pendingWinnerTeam,
+                "winnerTeam", winner,
                 "alive", survivorsOf(session));
         persist(session);
+
+        // **中间局当场结算，不等玩家在死亡屏幕上点「重生」。**
+        //
+        // 以前的实现把结算挂在 respawn 上，理由是「死者不能被传送，而结算会传送人」。现在
+        // beginIntermission 不传送任何人了（间隔期改由 parkForIntermission 把人停到出生点上方，
+        // 见那里），所以那条理由不成立——而代价是每一局之间都要等输家手点一次重生，否则整场
+        // 比赛停在那里。1v1 里这个等待永远是「赢家站着看输家的死亡屏幕」。
+        //
+        // 决胜局仍然等 respawn：finishSeries 要把快照恢复到一个活着的实体上（恢复会传送并写
+        // 物品栏），死者的实体做不了这件事。那条路本来就只有一局一次，多等一次重生可以接受。
+        if (winner >= 0 && !decidesSeries(session, winner)) {
+            deferred.add(() -> settle(session, "DEATH", winner));
+        }
+    }
+
+    /**
+     * Whether a win by {@code winner} would end the series.
+     *
+     * <p>Asked before the win is recorded ({@code settle} does that), so the count is off by one on
+     * purpose: this answers "would the next win decide it".</p>
+     */
+    private static boolean decidesSeries(DuelSession session, int winner) {
+        return session.wins(winner) + 1 >= session.winsNeeded
+                || session.round >= session.maxRounds;
     }
 
     /**
@@ -1086,7 +1147,20 @@ public final class SessionManager {
             return;
         }
         DuelSession session = sessions.get(sessionId);
-        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+        if (session == null) {
+            return;
+        }
+        if (session.stage == SessionStage.ROUND_READY) {
+            // 间隔期：刚在死亡屏幕上复活的死者。不这么做他会站在主世界的出生点等下一局开始，
+            // 而下一局的开场传送会把他从那里拽回来——中间那几秒他看到的是一张完全无关的地图。
+            Participant p = session.participant(player.getStringUUID());
+            ArenaRegion region = ArenaManager.region(session.id);
+            if (p != null) {
+                deferred.add(() -> parkForIntermission(session, player, p, region));
+            }
+            return;
+        }
+        if (session.stage != SessionStage.ROUND_ACTIVE) {
             return;
         }
         if (session.pendingWinnerTeam >= 0) {
@@ -1128,6 +1202,27 @@ public final class SessionManager {
                 .withStyle(ChatFormatting.GRAY), false);
     }
 
+    /**
+     * 间隔期把一个人停到出生点上方：旁观模式，能动但不能打。
+     *
+     * <p>抬高三格不是装饰：出生点在地面上，而间隔期地形正在逐块还原，贴地停着的玩家会随着
+     * 脚下方块消失往下掉，看起来像卡进了地图。三格足够高到不碰地形，又低到还看得清竞技场。</p>
+     *
+     * <p>旁观模式而不是生存 + 无敌：无敌挡不住「下一局开始前一秒再补一刀」，而旁观连攻击
+     * 都发不出去。这也和团队赛里「死了的队员看队友打完」用的是同一个状态，玩家不用学两套。</p>
+     */
+    private void parkForIntermission(DuelSession session, ServerPlayer player, Participant p,
+                                     ArenaRegion region) {
+        if (region == null) {
+            return;
+        }
+        Sandbox.changeGameMode(player, GameType.SPECTATOR);
+        int members = Math.max(1, session.teamMembers(p.teamIndex()).size());
+        if (ArenaManager.teleportToSpawn(player, region, p.teamIndex(), p.member, members)) {
+            player.teleportTo(player.getX(), player.getY() + 3.0D, player.getZ());
+        }
+    }
+
     // ------------------------------------------------------------------ tick
 
     /**
@@ -1153,6 +1248,10 @@ public final class SessionManager {
         }
         flushPendingRestores();
         startDueRounds();
+        // After startDueRounds, not before: a round that just started has already dropped its
+        // roundReadyAt entry, and pushing a countdown for it in the same tick would draw "0" over
+        // the first second of a live round.
+        tickIntermissionCountdown();
         tickPrepare();
         // Spectators: drops watchers of finished series and repairs cameras pointing at a body that
         // was replaced by a respawn. Empty in the common case, so the cost is one isEmpty check.
@@ -3485,6 +3584,7 @@ public final class SessionManager {
         }
         for (String id : due) {
             prepareDeadlines.remove(id);
+            countdownPushed.remove(id);
             DuelSession session = sessions.get(id);
             if (session == null || session.stage != SessionStage.ROUND_READY) {
                 continue;
@@ -3627,6 +3727,7 @@ public final class SessionManager {
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
+        countdownPushed.remove(session.id);
 
         ArenaRegion region = ArenaManager.region(session.id);
         var arenaWorld = ArenaManager.world(server);
@@ -4330,7 +4431,22 @@ public final class SessionManager {
         }
         int seconds = DuelRules.decode(session.rules).get("a.intermission");
         roundReadyAt.put(session.id, System.currentTimeMillis() + seconds * 1000L);
+        countdownPushed.remove(session.id);
         transition(session, SessionStage.ROUND_READY);
+        // 间隔期没有人应该还能走动：全部切旁观、停在出生点上方等下一局。
+        //
+        // 为什么不是「站着别动」：地形正在还原，站着的人会踩在正在消失的方块上、掉进还原出来
+        // 的坑里；而且赢家还握着武器，下一局开始前的那几秒足够他再补一刀。旁观模式一次解决
+        // 三件事——不会受伤、不会被地形推挤、也不需要额外的移动锁。
+        //
+        // 死者在这里跳过：他的实体还没活过来，做不了传送。他 respawn 之后由 onRespawn 补上。
+        for (Participant p : session.participants) {
+            ServerPlayer player = online(p);
+            if (player == null || p.rejected || !player.isAlive()) {
+                continue;
+            }
+            parkForIntermission(session, player, p, region);
+        }
         broadcastHud(session, true);
         // Two keys rather than one with an optional name: in a 1v1 "who won" is the same question as
         // "who lost", but with three or four sides the score alone ("1:0:1") does not say which row
@@ -4541,7 +4657,7 @@ public final class SessionManager {
      * between sides, {@code |} between a name and its uuid. None of those three characters can occur
      * in a Minecraft username or in a uuid string, so no escaping is needed.</p>
      */
-    private static MatchHudPayload buildHud(DuelSession session) {
+    private MatchHudPayload buildHud(DuelSession session) {
         int teams = Math.max(1, session.teamCount);
         StringBuilder scores = new StringBuilder();
         StringBuilder roster = new StringBuilder();
@@ -4570,7 +4686,23 @@ public final class SessionManager {
             }
         }
         return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
-                scores.toString(), roster.toString(), session.rulebook().showOpponentHealth());
+                scores.toString(), roster.toString(), session.rulebook().showOpponentHealth(),
+                intermissionSecondsLeft(session));
+    }
+
+    /**
+     * 间隔期还剩几整秒；不在间隔期返回 {@code 0}。
+     *
+     * <p>向上取整：3 秒的间隔第一帧就该显示「3」而不是「2」，因为显示 0 的那一刻下一局已经
+     * 开始了。用剩余毫秒而不是「结束时刻」发出去，客户端就不用比较两边的时钟。</p>
+     */
+    private int intermissionSecondsLeft(DuelSession session) {
+        Long until = roundReadyAt.get(session.id);
+        if (until == null) {
+            return 0;
+        }
+        long ms = until - System.currentTimeMillis();
+        return ms <= 0L ? 0 : (int) ((ms + 999L) / 1000L);
     }
 
     /**
@@ -4680,6 +4812,7 @@ public final class SessionManager {
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
+        countdownPushed.remove(session.id);
         ArenaManager.removePrepareWall(ArenaManager.world(server), ArenaManager.region(session.id));
         spectators.ejectAll(session.id, "ABORTED");
         broadcastHud(session, false);

@@ -3,9 +3,13 @@ package com.leipishu.pvpocket.mixin.client;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.BlockingInput;
 import com.leipishu.pvpocket.client.PvPocketClient;
+import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.DeathScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.world.item.SwordItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -50,6 +54,30 @@ public abstract class MinecraftClientMixin {
     @Inject(method = "tick", at = @At("HEAD"))
     private void pvpocket$applyPendingState(CallbackInfo ci) {
         PvPocketClient.applyPendingState();
+    }
+
+    /**
+     * 对局里死亡不弹「你死了」屏幕。
+     *
+     * <p>原版那张屏幕只做一件事：等玩家点「重生」。而竞技场的一局结束是服务端判的，下一局
+     * 会自己开始——中间多出来的是一次必须完成的点击，点慢了整场比赛就停在那里，赢家只能站着
+     * 看输家的死亡屏幕。所以这里替玩家把重生请求发出去，并且不让屏幕出现。</p>
+     *
+     * <p>判定用 HUD 是否激活，而不是「在不在 arena 维度」：观战者也在那个维度里，但他们死了
+     * 应当照常看到屏幕；而对局中的人在间隔期仍然有 HUD。</p>
+     */
+    @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$skipArenaDeathScreen(Screen screen, CallbackInfo ci) {
+        if (!(screen instanceof DeathScreen)) {
+            return;
+        }
+        Minecraft client = (Minecraft) (Object) this;
+        if (client.player == null || client.getConnection() == null || !MatchHud.isActive()) {
+            return;
+        }
+        client.getConnection().send(new ServerboundClientCommandPacket(
+                ServerboundClientCommandPacket.Action.PERFORM_RESPAWN));
+        ci.cancel();
     }
 
     @Inject(method = "tick", at = @At("TAIL"))
