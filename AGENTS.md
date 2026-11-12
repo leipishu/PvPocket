@@ -107,7 +107,8 @@ CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
 服务端的 stdin 必须挂在一个**永不 EOF** 的管道上：后台进程的 stdin 默认是 `/dev/null`，
 Minecraft 读到 EOF 会立刻自己关服。`dev-duel.sh` 用 `mkfifo` + `exec 3<>` 实现，并且
 **不要以为往那个 FIFO 里写 `stop` 就能关服**——Windows 上 Gradle 不转发 stdin，实测无效，
-脚本最后是按端口 `taskkill` 兜底。
+脚本最后是按端口 `taskkill` 兜底。那个 FIFO **用完不删**：`rm` 在本机被替换成「移到回收站」，
+回收站不认 FIFO，删除会失败，而下一次 `mkfifo` 会因文件还在而报错——脚本就再也起不来了。
 
 日志：服务端 `runs/<cell>/server/logs/latest.log`，客户端 `versions/<cell>/build/devlogs/client{1,2,3}.out`。
 **「面板没出来」先看客户端日志里 `canSend=` 那一行。**

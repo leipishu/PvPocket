@@ -77,6 +77,9 @@ CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
 Minecraft 读到 EOF 会立刻关服。**往那个 FIFO 里写 `stop` 在 Windows 上无效**（Gradle 不转发 stdin，
 实测过），所以退出时按端口 `taskkill` 兜底，顺带避免孤儿 JVM 占着 25565 让下次启动误判成「服务端还活着」。
 
+FIFO 用完**不删**：`rm` 在某些环境里被替换成「移到回收站」，而回收站不认 FIFO，删除会失败；失败
+本身无害，但下一次 `mkfifo` 会因为文件还在而报错，脚本就再也起不来了。留着复用即可。
+
 `client2` 首次启动会把 `client1/options.txt` 复制过去，两个窗口的界面设置一致。
 
 ---

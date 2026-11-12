@@ -86,7 +86,7 @@ cleanup() {
     if [ "$FIFO_OPEN" = "1" ]; then
         exec 3>&-
     fi
-    rm -f "$FIFO"
+    # FIFO 故意留着：见上面建它那段（删除在某些环境会失败，而且留着下次直接复用）。
 }
 trap cleanup EXIT INT TERM
 
@@ -107,10 +107,16 @@ else
     # FIFO 是为了不让服务端读到 EOF：后台进程的 stdin 默认是 /dev/null，而 Minecraft 一读到
     # EOF 就自己关服（症状是日志里刚打印 Done 紧接着就是 Stopping server）。`<>` 同时持读写
     # 两端，管道永远不会空。它顺带留了一条「往服务端敲命令」的路，但 Windows 上走不通，见 cleanup。
-    rm -f "$FIFO"
-    if ! mkfifo "$FIFO" 2>/dev/null; then
-        echo "[duel] 建不了 $FIFO（Windows 上需要 MSYS 的 mkfifo）"
-        exit 1
+    #
+    # **FIFO 用完不删**：`rm` 在某些环境里被替换成「移到回收站」，而回收站不认 FIFO，删除会失败
+    # （`[safe-delete] ... 系统找不到指定的文件`）。失败本身无害，但下一次 `mkfifo` 会因为文件
+    # 还在而报错，脚本就再也起不来了。留着复用：它是特殊文件，`exec 3<>` 直接打开就行。
+    if [ ! -p "$FIFO" ]; then
+        rm -f "$FIFO" 2>/dev/null
+        if ! mkfifo "$FIFO" 2>/dev/null; then
+            echo "[duel] 建不了 $FIFO（Windows 上需要 MSYS 的 mkfifo）"
+            exit 1
+        fi
     fi
     exec 3<> "$FIFO"
     FIFO_OPEN=1
