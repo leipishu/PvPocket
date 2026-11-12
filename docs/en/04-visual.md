@@ -5,8 +5,8 @@
 > This document supersedes the visual language table in §9.1 of the v0.4 technical plan (archived
 > under `../archive/design/`). Where they disagree, this wins.
 >
-> Scope: the self-drawn GUI layer (`client/gui/**`) and the three HUDs (`client/hud/**`) of
-> `fabric-1.21.1`.
+> Scope: the self-drawn GUI layer (`client/gui/**`) and the three HUDs (`client/hud/**`) under
+> `src/client`, shared by both loaders.
 
 ## 1. Goals
 

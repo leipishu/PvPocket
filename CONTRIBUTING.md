@@ -40,18 +40,27 @@ JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 
 ## 构建
 
-**所有 Gradle 命令都在 `fabric-1.21.1/` 下执行。仓库根不是工程根。**
+**仓库根就是 Gradle 根。** 一个 **cell** = 一个 Minecraft 版本 × 一个加载器，是一个子项目，
+命令写成 `./gradlew :<cell>:<task>`。现在有两格：`1.21.1-fabric` 与 `1.21.1-neoforge`。
 
 ```bash
-cd fabric-1.21.1
-./gradlew compileJava compileClientJava   # 只编译，最快的反馈，改一行就能验
-./gradlew build                           # 产物在 fabric-1.21.1/build/libs/
+./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # 只编译一格，最快反馈
+./gradlew :1.21.1-fabric:build            # 产物在 versions/1.21.1-fabric/build/libs/
+./gradlew buildAll                        # 全部 cell
 ```
 
+两个加载器是**平行的**，没有主次：`versions/1.21.1-fabric/` 与 `versions/1.21.1-neoforge/` 各一个
+`build.gradle`，共享根下的 `src/`。与加载器无关的那一半配置（产物名、Java 级别、许可、dev 客户端
+清单）在 `gradle/pvpocket-cells.gradle`，两个 cell 都 `apply from:` 它。
+
+> 为什么加载器必须是子项目而不是同一个 project 的两套配置：Loom 与 ModDevGradle 都要接管 minecraft
+> 依赖、run 任务与 remap，一个 project 只能应用其中一个。
+
 **jar 根目录里带三份法律文件**：`LICENSE`、`LICENSE-GPL-3.0.txt`、`THIRD-PARTY-NOTICES.md`。
-它们不放在 `src/main/resources` 里，而是由 `build.gradle` 的 `processResources` 从仓库根复制进去——
+它们不放在 `src/main/resources` 里，而是由 `gradle/pvpocket-cells.gradle` 的 `processResources`
+从仓库根复制进去——
 许可全文只该有一份，仓库根那份是唯一来源，复制品会漂移。LGPL-3.0 §4 要求收到二进制的人同时收到
-许可副本，而分发的是 jar 不是仓库。改这几个文件名时要同步 `build.gradle` 里的 `legalFiles`，
+许可副本，而分发的是 jar 不是仓库。改这几个文件名时要同步 `gradle/pvpocket-cells.gradle` 里的 `legalFiles`，
 文件名对不上会直接让构建失败，不会悄悄打出一个没有许可的 jar。
 
 源码分两个 source set，边界不能破：
@@ -61,27 +70,27 @@ cd fabric-1.21.1
 | `src/main/java/` | 两端共用：`session`、`rules`、`loadout`、`preset`、`network`、`arena` | **会被专用服务端加载**，不许引用客户端类 |
 | `src/client/java/` | 只在客户端：`client/gui`、`client/hud`、`client/preset` | 可以引用 `src/main`，反之不行 |
 
-IDEA 直接打开 `fabric-1.21.1/`（不是仓库根）并导入 Gradle 项目。
+IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现 `1.21.1-fabric` 与 `1.21.1-neoforge` 两个。
 
 ## 开发联调
 
 决斗至少需要两名玩家，所以配了四个客户端。**它们不能共用一个运行目录**：同一目录下两个 JVM 会抢
 `logs/latest.log`（输的一方静默丢日志），`options.txt`、`saves`、资源索引也会互相覆盖。运行目录
-由 `build.gradle` 决定，全在 `fabric-1.21.1/runs/` 下（不进版本库）：
+由 `gradle/pvpocket-cells.gradle` 决定，全在 `runs/<cell>/` 下（不进版本库）：
 
 | 运行配置 | 目录 | 用户名 | 用途 |
 | --- | --- | --- | --- |
-| `runServer` | `runs/server/` | — | 共享服务端（存档与 `pvpocket/journal` 都在这里） |
-| `runClient` | `runs/client1/` | `Dev1` | 客户端 1 |
-| `runClient2` | `runs/client2/` | `Dev2` | 客户端 2 |
-| `runClient3` | `runs/client3/` | `Dev3` | 客户端 3，**只在测观战时需要** |
-| `runClient4` | `runs/client4/` | `Dev4` | 客户端 4，**只在测「同一张图不能开两场」时需要** |
+| `runServer` | `runs/<cell>/server/` | — | 共享服务端（存档与 `pvpocket/journal` 都在这里） |
+| `runClient` | `runs/<cell>/client1/` | `Dev1` | 客户端 1 |
+| `runClient2` | `runs/<cell>/client2/` | `Dev2` | 客户端 2 |
+| `runClient3` | `runs/<cell>/client3/` | `Dev3` | 客户端 3，**只在测观战时需要** |
+| `runClient4` | `runs/<cell>/client4/` | `Dev4` | 客户端 4，**只在测「同一张图不能开两场」时需要** |
 
 用户名也必须不同：开发客户端默认用操作系统用户名登录，两个客户端会变成同一个玩家，后加入的会把
 先加入的顶掉。
 
-五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`fabric-1.21.1 >
-Tasks > fabric > runClient` … `runServer`），不用开终端，也不用维护运行配置。客户端默认已经连到
+五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`Tasks > 1.21.1-fabric >
+runClient` … `runServer`；换成 `1.21.1-neoforge` 是同一套名字），不用开终端，也不用维护运行配置。客户端默认已经连到
 `localhost:25565` 且堆上限 1G，点开就是可玩状态：
 
 | 参数 | 默认 | 用途 |
@@ -93,7 +102,7 @@ Tasks > fabric > runClient` … `runServer`），不用开终端，也不用维�
 
 ```bash
 # 终端 1：共享服务端，保持前台运行（这样控制台还能输入 stop / op / pvpocket）
-cd fabric-1.21.1 && ./gradlew runServer
+./gradlew :1.21.1-fabric:runServer
 
 # 终端 2：等看到 "Done (...)" 后，拉起客户端并自动连接
 scripts/dev-2clients.sh                       # 两个客户端
@@ -101,7 +110,7 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh         # 三个，第三个用来看观�
 PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
 ```
 
-脚本只是 `runClient` / `runClient2` / … 的批量包装，单独起某一个用任务名即可（`./gradlew runClient3`），
+脚本只是 `runClient` / `runClient2` / … 的批量包装，单独起某一个用任务名即可（`./gradlew :1.21.1-fabric:runClient3`），
 在 IDEA 的 Gradle 面板里则是分别双击。
 
 三个 JVM 对一台开发机来说是重的，第三个客户端有时会在标题界面卡住不自动加入（`quickPlay` 没触发），
@@ -132,16 +141,23 @@ PvPocket/
 │   ├── arena-map.py           把场地存档渲染成俯视图，确认分区真的分开了
 │   ├── rcon.py                向开发服务端发 RCON 指令（脚本化测试用）
 │   └── agent/                 截图与按键脚本，供 AI Agent 做界面验证，普通开发不需要
-├── fabric-1.21.1/             Fabric / Minecraft 1.21.1 工程
-│   ├── build.gradle           五个 run 配置与运行目录都在这里
-│   ├── settings.gradle
-│   ├── gradle.properties
-│   ├── gradlew / gradlew.bat
-│   ├── runs/                  运行目录（客户端 1–4 + 服务端，不进版本库）
-│   ├── arena-src/             地图源素材（不进版本库，见 docs/zh/06-maps.md）
-│   └── src/
-│       ├── main/              common：服务端与客户端共用
-│       └── client/            客户端专用（split source set）
+├── settings.gradle            cells 清单：一个 cell 一个子项目
+├── build.gradle               只放仓库面 + buildAll，不应用任何加载器插件
+├── gradle.properties          各 cell 的版本号
+├── gradle/
+│   ├── pvpocket-cells.gradle  两个 cell 共用的那一半：产物名、Java 级别、许可、dev 客户端清单
+│   └── wrapper/
+├── src/                       共享源码，所有 cell 编译同一份
+│   ├── main/                  common：服务端与客户端共用
+│   ├── client/                客户端专用，与加载器无关
+│   ├── fabric/ client-fabric/ Fabric 接线
+│   └── neoforge/ client-neoforge/   NeoForge 接线
+├── versions/
+│   ├── 1.21.1-fabric/         Fabric 那一格：加载器插件 + 依赖 + run
+│   └── 1.21.1-neoforge/       NeoForge 那一格，与上一行平行
+├── legacy/1.20.1/             1.20.1 的独立 Gradle 根（FG6 要 Gradle 8，未建）
+├── runs/<cell>/               运行目录（客户端 1–4 + 服务端，不进版本库）
+├── arena-src/                 地图源素材（不进版本库，见 docs/zh/06-maps.md）
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md            本文件
 ├── AGENTS.md                  给编码代理的说明：命令、硬约定、雷区

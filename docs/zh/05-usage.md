@@ -309,4 +309,4 @@ OP 等级 3 的玩家打开主页（默认按键 `B`）后，侧栏会多出一�
 | 玩家物品丢失 | 看 `pvpocket/journal/` 里该会话的 `SNAPSHOT_TAKEN` / `RESTORED` 序列 |
 | 界面上的字很糊、中文尤其糊 | 不是模组的问题，是客户端字体。原版中文是 16×16 点阵压进 9px 行高，换一个中英双语 TrueType 字体资源包即可，见 [`README`](../../README.md) 开头的说明 |
 
-日志位置：服务端 `<world>/logs/latest.log`；开发环境客户端 `fabric-1.21.1/build/devlogs/client*.out`。
+日志位置：服务端 `<world>/logs/latest.log`；开发环境客户端 `versions/<cell>/build/devlogs/client*.out`。

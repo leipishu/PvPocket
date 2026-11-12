@@ -29,7 +29,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCES = os.path.join(ROOT, "fabric-1.21.1", "src")
+# 源码在仓库根：cell 只决定怎么编译 src/，源码本身不分版本也不分加载器。
+SOURCES = os.path.join(ROOT, "src")
 
 COMMENT_LINE = re.compile(r"^\s*(//|/\*|\*)")
 

@@ -10,18 +10,19 @@
 #   scripts/dev-2clients.sh                     # 两个客户端（Dev1 / Dev2），默认
 #   PVP_CLIENTS=3 scripts/dev-2clients.sh       # 三个客户端（Dev3 用来观战）
 #   PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
+#   CELL=1.21.1-neoforge scripts/dev-2clients.sh   # 换一格（任务名与目录随之切换）
 #
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT="$ROOT/fabric-1.21.1"
-LOGS="$PROJECT/build/devlogs"
+CELL="${CELL:-1.21.1-fabric}"
+LOGS="$ROOT/versions/$CELL/build/devlogs"
 ADDR="${PVP_ADDR:-localhost:25565}"
 PORT="${ADDR##*:}"
 # 观战需要第三个玩家：两个参与者都在决斗里，没人能站在旁边看。
 COUNT="${PVP_CLIENTS:-2}"
 
-cd "$PROJECT" || { echo "[dev] 找不到 $PROJECT"; exit 1; }
+cd "$ROOT" || { echo "[dev] 找不到 $ROOT"; exit 1; }
 mkdir -p "$LOGS"
 
 port_open() {
@@ -30,7 +31,7 @@ port_open() {
 
 if ! port_open; then
     echo "[dev] 端口 $PORT 没有在监听。请先在另一个终端启动服务端："
-    echo "        cd fabric-1.21.1 && ./gradlew runServer"
+    echo "        ./gradlew :$CELL:runServer"
     exit 1
 fi
 echo "[dev] 服务端在 $ADDR 已就绪"
@@ -39,13 +40,13 @@ echo "[dev] 服务端在 $ADDR 已就绪"
 #   - 同一个目录会让两个 JVM 抢 logs/latest.log，输的一方静默丢日志；
 #   - 同一个用户名会被服务端当成同一个玩家，第二个连接直接顶掉第一个。
 #
-# Gradle 任务名：第一个客户端是 runClient（loom 的默认名），之后是 runClient2 / runClient3。
-# 运行目录由 build.gradle 决定，统一在 fabric-1.21.1/runs/client<N>，脚本不参与。
+# Gradle 任务名两个加载器完全一致：runClient / runClient2 / runClient3 / runClient4。
+# 运行目录由 gradle/pvpocket-cells.gradle 决定，统一在 runs/<cell>/client<N>，脚本不参与。
 PIDS=()
 for i in $(seq 1 "$COUNT"); do
     if [ "$i" -eq 1 ]; then TASK="runClient"; else TASK="runClient${i}"; fi
-    echo "[dev] 启动 Dev${i} (runs/client${i}) ..."
-    ./gradlew "$TASK" --console=plain -PquickJoin="$ADDR" > "$LOGS/client${i}.out" 2>&1 &
+    echo "[dev] 启动 Dev${i} (runs/$CELL/client${i}) ..."
+    ./gradlew ":$CELL:$TASK" --console=plain -PquickJoin="$ADDR" > "$LOGS/client${i}.out" 2>&1 &
     PIDS+=($!)
 done
 

@@ -1,0 +1,40 @@
+pluginManagement {
+    repositories {
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'pvpocket'
+
+// 一个 **cell** = 一个 Minecraft 版本 × 一个加载器，一个 cell 就是一个子项目。
+//
+// cell 名 = 目录名 = 任务前缀：`./gradlew :1.21.1-fabric:runClient`。
+// 用 `project(':1.21.1-fabric').projectDir = file('versions/1.21.1-fabric')` 把工程路径压平成
+// 一级，是为了让任务名短一点——`include 'versions:1.21.1-fabric'` 会得到 `:versions:…:runClient`。
+//
+// **为什么加载器这一维必须落在 project 边界上**：Loom 与 ModDevGradle 都要接管 minecraft 依赖、
+// run 任务与 remap，一个 project 只能应用其中一个。塞进同一个 project 就是让两个插件互相覆盖。
+def cells = [
+        '1.21.1-fabric',
+        '1.21.1-neoforge',
+]
+
+cells.each { cell ->
+    include ":$cell"
+    project(":$cell").projectDir = file("versions/$cell")
+}
+
+// 还没建的格子，矩阵与建法见 versions/README.md。加一格 = 建目录 + 把名字加进上面的 cells。
+//
+//   '1.21.11-fabric'   '1.21.11-neoforge'
+//   '26.1-fabric'      '26.1-neoforge'
+//   '26.2-fabric'      '26.2-neoforge'
+//   '26.3-fabric'      '26.3-neoforge'
+//
+// 1.20.1 不在这里：FG6 绑 Gradle 8.x，现代 Loom / NeoGradle 要 Gradle 9，两者不能在同一个
+// Gradle 进程里共存。它有自己的根，见 legacy/1.20.1/。

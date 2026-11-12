@@ -39,9 +39,10 @@ import sys
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT = os.path.join(ROOT, "fabric-1.21.1")
-LOADOUT = os.path.join(PROJECT, "src", "main", "java", "com", "leipishu", "pvpocket", "loadout")
-LANG_DIR = os.path.join(PROJECT, "src", "main", "resources", "assets", "pvpocket", "lang")
+# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+SRC_ROOT = ROOT
+LOADOUT = os.path.join(SRC_ROOT, "src", "main", "java", "com", "leipishu", "pvpocket", "loadout")
+LANG_DIR = os.path.join(SRC_ROOT, "src", "main", "resources", "assets", "pvpocket", "lang")
 MANIFEST = os.path.join(ROOT, "scripts", "content-manifest.tsv")
 
 # 版本维按时间顺序。顺序本身是数据：门槛比较靠它，`--all` 的列序也靠它。

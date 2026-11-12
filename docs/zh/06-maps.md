@@ -27,7 +27,7 @@
 
 ## 2. 素材目录
 
-`fabric-1.21.1/arena-src/` 是本地素材目录（不进版本库），只保留能重建成品图的源：
+`arena-src/` 是本地素材目录（不进版本库），只保留能重建成品图的源：
 
 ```
 arena-src/
@@ -56,11 +56,11 @@ gamarudos-gladiator-arena、pvp-castle），全部否决，投影文件已删除
 
 ```bash
 # 1. 探查：确认尺寸与调色板
-python scripts/world2struct.py probe fabric-1.21.1/arena-src/_zzuf/maps/tdm/fun_house --palette
+python scripts/world2struct.py probe arena-src/_zzuf/maps/tdm/fun_house --palette
 
 # 2. 转换：输出到资源目录
-python scripts/world2struct.py convert fabric-1.21.1/arena-src/_zzuf/maps/tdm/fun_house \
-    --out fabric-1.21.1/src/main/resources/data/pvpocket/structure/arena_fun_house.nbt
+python scripts/world2struct.py convert arena-src/_zzuf/maps/tdm/fun_house \
+    --out src/main/resources/data/pvpocket/structure/arena_fun_house.nbt
 
 # 3. 校验：与第三方读取器逐块比对
 python scripts/arena-verify.py
@@ -92,7 +92,7 @@ python scripts/arena-map.py
 保留所有权利，那种东西不能塞进 jar。
 
 ```bash
-python scripts/colosseum.py --out fabric-1.21.1/src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
+python scripts/colosseum.py --out src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
 ```
 
 生成器的 `A_ARENA = 50`、`A_OUT` 决定战斗区与包围盒的比例，改这两个值就能改形状。
