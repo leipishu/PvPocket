@@ -82,6 +82,27 @@ FIFO 用完**不删**：`rm` 在某些环境里被替换成「移到回收站」
 
 `client2` 首次启动会把 `client1/options.txt` 复制过去，两个窗口的界面设置一致。
 
+### 测试脚本按加载器分开，并清掉 Fabric 单格时代的遗留
+
+```bash
+scripts/dev-fabric.sh        # 或 Windows 上 scripts\dev-fabric.cmd
+scripts/dev-neoforge.sh      # 或 Windows 上 scripts\dev-neoforge.cmd
+```
+
+两个脚本只是给 `dev-duel.sh` 固定 `CELL` 的壳。Windows 上**不要**用 `/usr/bin/env bash`（那是 Linux
+写法），也不要指望 PATH 上的 `bash`——那多半是 WSL 启动器，看不到 Windows 的 `taskkill`/`netstat`，
+清理孤儿 JVM 会失效。`.cmd` 外壳只认 Git Bash，找不到就报错而不是回退。
+
+删掉五个只在「单格 Fabric」时成立的界面/测试脚本：`shot-client.ps1`、`press-shot.ps1`、
+`wait-shot.ps1`、`post-click.ps1`、`series-test.py`。前四个各自被 `shot-window.ps1` /
+`post-key.ps1` / `click-frac.ps1` 取代（CopyFromScreen 拍到的是壁纸，绝对像素点击活不过窗口
+缩放），且前三个还在用 `--username` 直接匹配命令行——NeoForge 客户端把参数写在
+`clientRunProgramArgs.txt` 里，那套查找在那一格根本找不到窗口。`series-test.py` 发的
+`pvpocket propose` / `pvpocket accept` 命令早已不存在，规则和名单现在只在面板里。
+
+界面自动化的入口收敛成两个：抓图 `scripts/agent/shot-window.ps1`，点击
+`scripts/agent/click-frac.ps1`（比例，不用绝对像素）。
+
 ---
 
 ## 2026-11-11

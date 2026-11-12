@@ -1,7 +1,7 @@
 # Finds a dev client's java process by the username it runs as.
 #
-# Why this is a shared file: five scripts (shot-window, click-frac, post-key, post-click,
-# post-type, raise-client) all need the same lookup, and all of them got it wrong in the same
+# Why this is a shared file: the scripts that touch a client window (shot-window, click-frac,
+# post-key, post-type, raise-client) all need the same lookup, and they got it wrong in the same
 # way, so the bug is in the lookup rather than in any one of them.
 #
 # The arguments are not necessarily on the command line. ModDevGradle writes them to
