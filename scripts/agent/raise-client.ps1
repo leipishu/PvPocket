@@ -29,9 +29,8 @@ public class RaiseWin {
 }
 "@
 
-$proc = Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
-    Where-Object { $_.CommandLine -like "*--username $Username*" } |
-    Select-Object -First 1
+. "$PSScriptRoot/client-proc.ps1"
+$proc = Find-ClientProcess $Username
 if (-not $proc) { Write-Error "no client process for $Username"; exit 1 }
 $hwnd = (Get-Process -Id $proc.ProcessId).MainWindowHandle
 if ($hwnd -eq 0) { Write-Error "no window handle for $Username"; exit 1 }
