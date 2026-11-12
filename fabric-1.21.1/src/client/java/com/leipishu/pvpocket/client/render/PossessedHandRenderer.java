@@ -5,10 +5,7 @@ import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.network.PossessPayload;
 import com.mojang.blaze3d.platform.GlConst;
 import com.mojang.blaze3d.systems.RenderSystem;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.CameraType;
@@ -52,10 +49,14 @@ import org.joml.Quaternionf;
  * block along world +X". Multiplying the two back together cancels out, which is why the hand ends
  * up fixed to the screen while the world rotates around it.</p>
  *
- * <p>{@link WorldRenderEvents#LAST} fires at the tail of {@code WorldRenderer.render}, after the
- * model view pop but while the stack still holds the view rotation (the pop happens a few
+ * <p>{@code PvClientPlatform#onWorldRenderLast} fires at the tail of {@code WorldRenderer.render},
+ * after the model view pop but while the stack still holds the view rotation (the pop happens a few
  * instructions later, around {@code renderChunkDebugInfo}). So the stack is already in the state
  * {@code renderHand} expects and only the position-matrix inverse has to be supplied.</p>
+ *
+ * <p>「最后一刻」这个位置是平台承诺的，不是加载器名字：Fabric 那边是
+ * {@code WorldRenderEvents.LAST}，NeoForge 那边是 {@code RenderLevelStageEvent} 的
+ * {@code AFTER_LEVEL}。栈的状态在两边相同，所以这段推导可以原样搬过去。</p>
  *
  * <h2>Depth</h2>
  *
@@ -64,7 +65,6 @@ import org.joml.Quaternionf;
  * passes left are the block outline debug overlay and the GUI, neither of which reads depth.
  * Disabling the depth test instead would break face sorting <em>within</em> the item model.</p>
  */
-@Environment(EnvType.CLIENT)
 public final class PossessedHandRenderer {
 
     /**
@@ -80,10 +80,10 @@ public final class PossessedHandRenderer {
     private static int lastLoggedTarget = -1;
 
     public static void register() {
-        WorldRenderEvents.LAST.register(PossessedHandRenderer::render);
+        PvClientPlatform.get().onWorldRenderLast(PossessedHandRenderer::render);
     }
 
-    private static void render(WorldRenderContext context) {
+    private static void render(PvClientPlatform.WorldFrame frame) {
         PossessPayload payload = PossessionHud.state();
         if (payload == null || payload.targetId() < 0) {
             return;
@@ -105,11 +105,11 @@ public final class PossessedHandRenderer {
             return;
         }
 
-        float tickDelta = context.tickCounter().getGameTimeDeltaPartialTick(true);
+        float tickDelta = frame.delta().getGameTimeDeltaPartialTick(true);
         // The view rotation the world was just rendered with, rebuilt from the same camera so this
         // stays correct even if the stack were left dirty by another renderer.
         Matrix4f viewRotation = new Matrix4f()
-                .rotation(context.camera().rotation().conjugate(new Quaternionf()));
+                .rotation(frame.camera().rotation().conjugate(new Quaternionf()));
 
         PoseStack matrices = new PoseStack();
         matrices.pushPose();
@@ -121,7 +121,7 @@ public final class PossessedHandRenderer {
         RenderSystem.clear(GlConst.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
-        context.lightmapTextureManager().turnOnLightLayer();
+        frame.lightmap().turnOnLightLayer();
 
         ItemStack main = target.getMainHandItem();
         ItemStack off = target.getOffhandItem();
@@ -129,7 +129,7 @@ public final class PossessedHandRenderer {
         drawHand(client, matrices, consumers, target, tickDelta, InteractionHand.OFF_HAND, off, light);
         consumers.endBatch();
 
-        context.lightmapTextureManager().turnOffLightLayer();
+        frame.lightmap().turnOffLightLayer();
         matrices.popPose();
 
         if (lastLoggedTarget != payload.targetId()) {

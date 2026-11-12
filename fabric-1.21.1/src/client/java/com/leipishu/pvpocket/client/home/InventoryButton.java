@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.client.home;
 
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.mixin.client.HandledScreenAccessor;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
-import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import com.leipishu.pvpocket.mixin.client.ScreenInvoker;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.Button;
@@ -32,10 +32,9 @@ public final class InventoryButton {
     }
 
     public static void register() {
-        // AFTER_INIT, not once: init() runs again on every resize, and the screen builds a fresh
-        // widget list each time — a button added once would vanish the first time the window changed
-        // size.
-        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+        // 每次 init 都要加，不是只加一次：窗口大小一变，界面就重建自己的控件列表，只加过一次的
+        // 按钮会在第一次改变窗口大小时消失。平台的钩子承诺的正是「每次 init 之后」。
+        PvClientPlatform.get().onScreenInit((client, screen) -> {
             if (!(screen instanceof InventoryScreen inventory)) {
                 return;
             }
@@ -50,7 +49,10 @@ public final class InventoryButton {
                     .bounds(bx, by, W, H)
                     .build();
             button.setTooltip(Tooltip.create(PvLang.t("pvpocket.gui.home.inventory.tip")));
-            Screens.getButtons(screen).add(button);
+            // 原版把 addRenderableWidget 设成 protected，公开的 children() 又是只读视图。这里走
+            // 一个 @Invoker，而不是像 Fabric 那样把那个列表强转回可写形态——强转的那一行正是
+            // 客户端搬不到别的加载器上的直接原因。
+            ((ScreenInvoker) screen).pvpocket$addRenderableWidget(button);
         });
     }
 }

@@ -6,9 +6,7 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchHudPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -58,8 +56,7 @@ import java.util.UUID;
  * are both things a player can be right about and neither is something this class can decide for them.
  * </p>
  */
-@Environment(EnvType.CLIENT)
-public final class MatchHud implements HudRenderCallback {
+public final class MatchHud implements PvClientPlatform.HudLayer {
 
     private static final int ROW_H = 16;
     private static final int HEAD = 14;
@@ -85,7 +82,7 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     public static void register() {
-        HudRenderCallback.EVENT.register(new MatchHud());
+        PvClientPlatform.get().onHudRender(new MatchHud());
     }
 
     /** Called on the client thread when a payload arrives. */
@@ -105,7 +102,7 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
         MatchHudPayload payload = state;
         if (payload == null) {
             return;

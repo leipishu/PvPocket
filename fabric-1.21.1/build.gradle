@@ -83,12 +83,16 @@ loom {
     }
 }
 
-// 源码分三处，各管一段：
+// 源码分四处，各管一段：
 //
-//   src/main/java     所有加载器共用。**这里不许出现 net.fabricmc**，`scripts/check-boundary.py`
-//                     会盯着这条线——它决定了移植一格的代价是「写一个实现类」还是「重写一遍」。
-//   src/fabric/java   Fabric 的入口与平台实现。NeoForge 那一格换成 src/neoforge/java。
-//   src/client/java   客户端（加载器无关的部分；分层还没做完，目前仍有一批 Fabric 依赖）。
+//   src/main/java          所有加载器共用（服务端那一半）。**这里不许出现 net.fabricmc**。
+//   src/fabric/java        Fabric 的服务端入口与平台实现。NeoForge 那一格换成 src/neoforge/java。
+//   src/client/java        客户端里与加载器无关的部分：界面、HUD、渲染、镜像。
+//   src/client-fabric/java 客户端的加载器接线。NeoForge 那一格换成 src/client-neoforge/java。
+//
+// 判据只有一条：这段代码要 import net.fabricmc 吗？要就进 src/*-fabric，不要就留在不带后缀的那
+// 一层。这条判据决定移植一格的代价是「写一个实现类」还是「重写一遍」，所以它得是能机械判定的，
+// 不能靠「跟谁关系近」——`scripts/check-boundary.py` 就是它的执行版本。
 //
 // 目录分了，但**仍是同一个 source set**：多一个 source set 就要额外处理 jar 打包与 remap，
 // 而这里要的只是"文件放对地方"，不是"编译期隔离"（隔离由边界检查保证）。
@@ -96,6 +100,10 @@ sourceSets {
     main {
         java.srcDir 'src/fabric/java'
         resources.srcDir 'src/fabric/resources'
+    }
+    client {
+        java.srcDir 'src/client-fabric/java'
+        resources.srcDir 'src/client-fabric/resources'
     }
 }
 

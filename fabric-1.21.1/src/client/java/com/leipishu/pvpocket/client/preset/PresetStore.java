@@ -6,7 +6,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
-import net.fabricmc.loader.api.FabricLoader;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -66,7 +66,7 @@ public final class PresetStore {
 
     public static PresetStore get() {
         if (instance == null) {
-            Path dir = FabricLoader.getInstance().getConfigDir().resolve("pvpocket");
+            Path dir = PvClientPlatform.get().configDir().resolve("pvpocket");
             instance = new PresetStore(dir.resolve("presets.json"));
         }
         return instance;

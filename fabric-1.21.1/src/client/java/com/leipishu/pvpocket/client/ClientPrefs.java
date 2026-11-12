@@ -5,7 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
-import net.fabricmc.loader.api.FabricLoader;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -93,7 +93,7 @@ public final class ClientPrefs {
     }
 
     private static Path file() {
-        return FabricLoader.getInstance().getConfigDir().resolve("pvpocket").resolve("client.json");
+        return PvClientPlatform.get().configDir().resolve("pvpocket").resolve("client.json");
     }
 
     /** Reads the file once and installs what it says. Safe to call more than once. */

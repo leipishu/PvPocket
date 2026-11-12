@@ -2,10 +2,7 @@ package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -53,7 +50,6 @@ import org.joml.Matrix4f;
  * this: {@code POSITION_COLOR} vertices, translucent, culling disabled. Culling off is why each quad
  * is emitted once and still visible from both sides.</p>
  */
-@Environment(EnvType.CLIENT)
 public final class BoundaryRenderer {
 
     private static final ResourceKey<Level> ARENA_WORLD =
@@ -108,17 +104,17 @@ public final class BoundaryRenderer {
     }
 
     public static void register() {
-        WorldRenderEvents.AFTER_TRANSLUCENT.register(BoundaryRenderer::render);
+        PvClientPlatform.get().onWorldRenderAfterTranslucent(BoundaryRenderer::render);
     }
 
-    private static void render(WorldRenderContext context) {
+    private static void render(PvClientPlatform.WorldFrame frame) {
         // Either overlay is worth drawing on its own: the screens exist only during the countdown,
         // when the bounds are always up as well, but a client that lost the bounds packet must not
         // also lose the wall it is standing behind.
         if (!ArenaBounds.active() && PrepareScreens.get().isEmpty()) {
             return;
         }
-        ClientLevel world = context.world();
+        ClientLevel world = frame.level();
         Minecraft client = Minecraft.getInstance();
         if (world == null || client.player == null) {
             return;
@@ -129,13 +125,13 @@ public final class BoundaryRenderer {
         if (!world.dimension().equals(ARENA_WORLD)) {
             return;
         }
-        PoseStack matrices = context.matrixStack();
-        MultiBufferSource consumers = context.consumers();
+        PoseStack matrices = frame.poses();
+        MultiBufferSource consumers = frame.buffers();
         if (matrices == null || consumers == null) {
             return;
         }
 
-        Vec3 cam = context.camera().getPosition();
+        Vec3 cam = frame.camera().getPosition();
         matrices.pushPose();
         // Vertices are sent in world coordinates, so the camera has to be cancelled out here. Vanilla
         // does the same thing when it draws the debug frustum.

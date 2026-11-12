@@ -82,11 +82,13 @@ for source in $SOURCES; do
     if [ -n "$MC_CLIENT" ]; then
         "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
             -classpath "build/classes/java/main;$OUT;$MC_COMMON;$MC_CLIENT;$LOOM_CP" "$CLASS" \
-            --mcjar "$MC_CLIENT" --src src/main/java --src src/client/java --src src/fabric/java || FAILED=1
+            --mcjar "$MC_CLIENT" --src src/main/java --src src/client/java \
+                --src src/fabric/java --src src/client-fabric/java || FAILED=1
     else
         "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
             -classpath "build/classes/java/main;$OUT;$MC_COMMON;$LOOM_CP" "$CLASS" \
-            --src src/main/java --src src/client/java --src src/fabric/java || FAILED=1
+            --src src/main/java --src src/client/java \
+            --src src/fabric/java --src src/client-fabric/java || FAILED=1
     fi
 done
 exit $FAILED

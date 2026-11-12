@@ -27,7 +27,7 @@ import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
 import com.leipishu.pvpocket.rules.Rulebook;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -721,8 +721,8 @@ public class RuleScreen extends PvScreen {
 
     /** Asks the server to open the loadout editor; the server answers with a {@code loadout_open}. */
     private void openLoadout() {
-        if (ClientPlayNetworking.canSend(LoadoutRequestPayload.ID)) {
-            ClientPlayNetworking.send(new LoadoutRequestPayload());
+        if (PvClientPlatform.get().canSend(LoadoutRequestPayload.ID)) {
+            PvClientPlatform.get().send(new LoadoutRequestPayload());
         }
     }
 
@@ -1070,14 +1070,14 @@ public class RuleScreen extends PvScreen {
     }
 
     private void send(int action) {
-        if (!ClientPlayNetworking.canSend(RulesSubmitPayload.ID)) {
+        if (!PvClientPlatform.get().canSend(RulesSubmitPayload.ID)) {
             return;
         }
         // The roster rides on every submit and is empty once the invite is out: the server ignores
         // it outside the draft, and sending it again from a reviewer would be a second way to
         // rearrange sides that the reviewer has no business having.
         String roster = rosterEditable() ? board.encode() : "";
-        ClientPlayNetworking.send(new RulesSubmitPayload(action, edited.encode(), roster));
+        PvClientPlatform.get().send(new RulesSubmitPayload(action, edited.encode(), roster));
     }
 
     /**

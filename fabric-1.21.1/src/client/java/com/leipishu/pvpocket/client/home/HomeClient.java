@@ -1,11 +1,10 @@
 package com.leipishu.pvpocket.client.home;
 
 import com.leipishu.pvpocket.client.SpectatorInput;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeRequestPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.KeyMapping;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -32,22 +31,23 @@ public final class HomeClient {
     }
 
     public static void register() {
-        home = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+        home = new KeyMapping(
                 "key.pvpocket.home",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_B,
-                "key.categories.pvpocket"));
+                "key.categories.pvpocket");
+        PvClientPlatform.get().registerKeyMapping(home);
 
-        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(
-                client -> {
-                    // Drained in a loop for the same reason the spectator keys are: two presses in
-                    // one tick are two intents.
-                    while (home.consumeClick()) {
-                        if (client.screen == null && client.player != null) {
-                            client.setScreen(new HomeScreen());
-                        }
-                    }
-                });
+        PvClientPlatform.get().onClientTick(() -> {
+            Minecraft client = Minecraft.getInstance();
+            // Drained in a loop for the same reason the spectator keys are: two presses in
+            // one tick are two intents.
+            while (home.consumeClick()) {
+                if (client.screen == null && client.player != null) {
+                    client.setScreen(new HomeScreen());
+                }
+            }
+        });
     }
 
     public static KeyMapping homeKey() {
@@ -67,21 +67,21 @@ public final class HomeClient {
      * "loading" line on a single-player world with an older build.</p>
      */
     public static void request() {
-        if (ClientPlayNetworking.canSend(HomeRequestPayload.ID)) {
-            ClientPlayNetworking.send(new HomeRequestPayload());
+        if (PvClientPlatform.get().canSend(HomeRequestPayload.ID)) {
+            PvClientPlatform.get().send(new HomeRequestPayload());
         }
     }
 
     public static void send(HomeActionPayload payload) {
-        if (ClientPlayNetworking.canSend(HomeActionPayload.ID)) {
-            ClientPlayNetworking.send(payload);
+        if (PvClientPlatform.get().canSend(HomeActionPayload.ID)) {
+            PvClientPlatform.get().send(payload);
         }
     }
 
     /** Spectating from the home screen goes through the channel the match list already uses. */
     public static void send(com.leipishu.pvpocket.network.SpectateRequestPayload payload) {
-        if (ClientPlayNetworking.canSend(com.leipishu.pvpocket.network.SpectateRequestPayload.ID)) {
-            ClientPlayNetworking.send(payload);
+        if (PvClientPlatform.get().canSend(com.leipishu.pvpocket.network.SpectateRequestPayload.ID)) {
+            PvClientPlatform.get().send(payload);
         }
     }
 
@@ -95,7 +95,7 @@ public final class HomeClient {
      * server that answered the request in the same tick.</p>
      */
     public static boolean supported() {
-        return ClientPlayNetworking.canSend(HomeRequestPayload.ID);
+        return PvClientPlatform.get().canSend(HomeRequestPayload.ID);
     }
 
     /** Opens the screen if it is legal to, for the inventory button and for command aliases. */

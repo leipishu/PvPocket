@@ -11,6 +11,7 @@ import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.home.HomeClient;
 import com.leipishu.pvpocket.client.home.HomeState;
 import com.leipishu.pvpocket.client.home.InventoryButton;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.client.preset.PresetShare;
 import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
@@ -35,143 +36,120 @@ import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 
 /**
- * Client entrypoint. PvPocket ships a mandatory client mod, so this is where the custom GUI layer,
- * HUD and combat feedback rendering are registered.
+ * 客户端接线。**这里不该出现任何加载器名字**——入口与平台实现都在
+ * {@code src/client-fabric}，与 {@code src/fabric} 那一半对称。
  *
- * <p>Two jobs so far. The combat state mirror keeps the local copy of the authoritative rule set in
- * sync — the client never decides which rules apply, it copies what the server says. The rule panel
- * receiver opens the negotiation screen, which is a pure presentation layer: it edits a local copy
- * and sends it back as an intent, and every permission check happens on the server.</p>
+ * <p>形状照抄服务端的 {@code PvBootstrap}：一个 {@code wire(platform)} 装完所有东西，入口类只剩
+ * 「装平台、调 wire」两行。这样 NeoForge 那一格要写的是一个新的平台实现，而不是第二份接线。</p>
+ *
+ * <p>三件事：把服务端说了算的状态镜像下来、按 payload 决定开哪个界面、把渲染钩子挂上去。镜像的
+ * 那一半永远只是拷贝——客户端从不决定哪条规则生效。</p>
  */
-public final class PvPocketClient implements ClientModInitializer {
+public final class PvPocketClient {
 
-    @Override
-    public void onInitializeClient() {
+    private PvPocketClient() {
+    }
+
+    public static void wire(PvClientPlatform platform) {
         // Before anything can draw: the palette is read at draw time now that its tokens are no
         // longer compile-time constants, so loading the saved theme here is what decides whether the
         // first panel the player opens is light or dark.
         ClientPrefs.load();
         PvTheme.apply(ClientPrefs.theme());
 
-        ClientPlayNetworking.registerGlobalReceiver(CombatStatePayload.ID, (payload, context) -> {
-            context.client().execute(() -> apply(payload));
-        });
+        platform.onServerPacket(CombatStatePayload.ID, PvPocketClient::apply);
 
         // The home panel's snapshot. Not a reason to open a screen — the player may have closed the
         // panel before the answer arrived — so it only refreshes the cache and lets an open panel
         // repaint on its next frame.
-        ClientPlayNetworking.registerGlobalReceiver(HomeStatePayload.ID, (payload, context) -> {
-            context.client().execute(() -> HomeState.update(payload));
+        platform.onServerPacket(HomeStatePayload.ID, HomeState::update);
+
+        // Somebody else's block, so it can be drawn. The platform hops to the client thread, because
+        // the render thread reads the same set every frame.
+        platform.onServerPacket(BlockingStatePayload.ID,
+                payload -> CombatState.setBlocking(payload.player(), payload.blocking()));
+
+        platform.onServerPacket(RulesOpenPayload.ID, payload -> {
+            PvPocket.LOGGER.info("Received rules_open for session {} role {}",
+                    payload.sessionId(), payload.role());
+            Minecraft.getInstance().setScreen(new RuleScreen(payload));
         });
 
-        // Somebody else's block, so it can be drawn. Lands on the client thread because the render
-        // thread reads the same set every frame.
-        ClientPlayNetworking.registerGlobalReceiver(BlockingStatePayload.ID, (payload, context) -> {
-            context.client().execute(() -> CombatState.setBlocking(payload.player(), payload.blocking()));
+        platform.onServerPacket(RulesClosePayload.ID, payload -> {
+            Minecraft client = Minecraft.getInstance();
+            boolean showing = client.screen instanceof RuleScreen screen
+                    && screen.sessionId().equals(payload.sessionId());
+            PvPocket.LOGGER.info("Rules close for session {} (panel open: {})",
+                    payload.sessionId(), showing);
+            if (showing) {
+                ((RuleScreen) client.screen).closeSilently();
+                return;
+            }
+            // The loadout editor is a child of the rule panel, so it has to go too: leaving it
+            // open over a finished session would let the player keep editing a loadout that can
+            // never be applied.
+            if (client.screen instanceof LoadoutScreen editor
+                    && editor.sessionId().equals(payload.sessionId())) {
+                client.setScreen(null);
+            }
         });
 
-        ClientPlayNetworking.registerGlobalReceiver(RulesOpenPayload.ID, (payload, context) -> {
-            PvPocket.LOGGER.info("Received rules_open for session {} role {}", payload.sessionId(), payload.role());
-            context.client().execute(() -> context.client().setScreen(new RuleScreen(payload)));
-        });
-
-        ClientPlayNetworking.registerGlobalReceiver(RulesClosePayload.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                boolean showing = context.client().screen instanceof RuleScreen screen
-                        && screen.sessionId().equals(payload.sessionId());
-                PvPocket.LOGGER.info("Rules close for session {} (panel open: {})",
-                        payload.sessionId(), showing);
-                if (showing) {
-                    ((RuleScreen) context.client().screen).closeSilently();
-                    return;
-                }
-                // The loadout editor is a child of the rule panel, so it has to go too: leaving it
-                // open over a finished session would let the player keep editing a loadout that can
-                // never be applied.
-                if (context.client().screen instanceof LoadoutScreen editor
-                        && editor.sessionId().equals(payload.sessionId())) {
-                    context.client().setScreen(null);
-                }
-            });
-        });
-
-        ClientPlayNetworking.registerGlobalReceiver(LoadoutOpenPayload.ID, (payload, context) -> {
+        platform.onServerPacket(LoadoutOpenPayload.ID, payload -> {
             PvPocket.LOGGER.info("Received loadout_open for session {}", payload.sessionId());
-            context.client().execute(() -> {
-                // The editor is opened from the rule panel and returns to it, so the panel instance is
-                // carried across rather than reconstructed: rebuilding it would throw away any rule
-                // edits the player had made but not yet sent.
-                RuleScreen parent = context.client().screen instanceof RuleScreen screen ? screen : null;
-                context.client().setScreen(new LoadoutScreen(payload, parent));
-            });
+            Minecraft client = Minecraft.getInstance();
+            // The editor is opened from the rule panel and returns to it, so the panel instance is
+            // carried across rather than reconstructed: rebuilding it would throw away any rule
+            // edits the player had made but not yet sent.
+            RuleScreen parent = client.screen instanceof RuleScreen screen ? screen : null;
+            client.setScreen(new LoadoutScreen(payload, parent));
         });
 
-        ClientPlayNetworking.registerGlobalReceiver(MatchHudPayload.ID, (payload, context) -> {
-            // No log line: this arrives at every round boundary for every participant, and it would
-            // bury the panel lines that a developer actually needs to see.
-            context.client().execute(() -> MatchHud.update(payload));
-        });
-
-        ClientPlayNetworking.registerGlobalReceiver(ArenaBoundsPayload.ID, (payload, context) -> {
-            context.client().execute(() -> ArenaBounds.update(payload));
-        });
-
-        ClientPlayNetworking.registerGlobalReceiver(PrepareScreensPayload.ID, (payload, context) -> {
-            context.client().execute(() -> PrepareScreens.update(payload));
-        });
+        // No log line for the HUD payload: it arrives at every round boundary for every participant,
+        // and it would bury the panel lines that a developer actually needs to see.
+        platform.onServerPacket(MatchHudPayload.ID, MatchHud::update);
+        platform.onServerPacket(ArenaBoundsPayload.ID, ArenaBounds::update);
+        platform.onServerPacket(PrepareScreensPayload.ID, PrepareScreens::update);
 
         // The match list always opens a fresh screen rather than patching an open one. Refresh is
         // implemented by asking the server again, so a payload arriving while the panel is open
         // means the list genuinely changed — and rebuilding it is the only way to get the row
         // buttons to match the new rows.
-        ClientPlayNetworking.registerGlobalReceiver(MatchListPayload.ID, (payload, context) -> {
-            context.client().execute(() -> context.client().setScreen(new MatchListScreen(payload)));
-        });
+        platform.onServerPacket(MatchListPayload.ID,
+                payload -> Minecraft.getInstance().setScreen(new MatchListScreen(payload)));
 
-        ClientPlayNetworking.registerGlobalReceiver(SpectateStatePayload.ID, (payload, context) -> {
-            context.client().execute(() -> SpectatorHud.update(payload));
-        });
+        platform.onServerPacket(SpectateStatePayload.ID, SpectatorHud::update);
 
         // The possessed body's hotbar. Separate from the spectator bar because it changes on a
         // different clock: the bar only moves when the camera does, the hotbar whenever the target
         // swaps a slot or takes damage.
-        ClientPlayNetworking.registerGlobalReceiver(PossessPayload.ID, (payload, context) -> {
-            context.client().execute(() -> PossessionHud.update(payload));
-        });
+        platform.onServerPacket(PossessPayload.ID, PossessionHud::update);
 
-        // Share-code answers. Hopped onto the client thread because the dialog that consumes them
-        // lives on the render thread and mutates its own widgets.
-        ClientPlayNetworking.registerGlobalReceiver(PresetShareResultPayload.ID, (payload, context) -> {
-            context.client().execute(() -> PresetShare.receive(payload));
-        });
+        // Share-code answers. Hopped onto the client thread by the platform, because the dialog that
+        // consumes them lives on the render thread and mutates its own widgets.
+        platform.onServerPacket(PresetShareResultPayload.ID, PresetShare::receive);
 
         // The result card. Unlike the panel openers above, this one can decline to open at all: the
         // settings page has a switch, and the server does not know about it — it sends the card to
         // every participant and lets each client decide. That is the right split, because the
         // preference belongs to the installation, not to the account.
-        ClientPlayNetworking.registerGlobalReceiver(SeriesResultPayload.ID, (payload, context) -> {
-            context.client().execute(() -> {
-                if (!ClientPrefs.resultScreen()) {
-                    return;
-                }
-                MatchResult result = MatchResult.parse(payload);
-                if (result == null || result.sessionId().equals(lastResultSession)) {
-                    return;
-                }
-                lastResultSession = result.sessionId();
-                context.client().setScreen(new SeriesResultScreen(result));
-            });
+        platform.onServerPacket(SeriesResultPayload.ID, payload -> {
+            if (!ClientPrefs.resultScreen()) {
+                return;
+            }
+            MatchResult result = MatchResult.parse(payload);
+            if (result == null || result.sessionId().equals(lastResultSession)) {
+                return;
+            }
+            lastResultSession = result.sessionId();
+            Minecraft.getInstance().setScreen(new SeriesResultScreen(result));
         });
 
         // A stale mirror after leaving a world would make the next join start with a phantom block
         // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+        platform.onDisconnect(() -> {
             CombatState.clearAll();
             BlockingInput.reset();
             clearPendingState();
@@ -201,7 +179,7 @@ public final class PvPocketClient implements ClientModInitializer {
         // the rectangles that collide. See PvAudit.
         PvAuditHarness.register();
 
-        PvPocket.LOGGER.info("PvPocket client bootstrap complete");
+        PvPocket.LOGGER.info("PvPocket client bootstrap complete (platform: {})", platform.name());
     }
 
     /**

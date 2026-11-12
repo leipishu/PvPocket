@@ -21,7 +21,7 @@ import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
-import net.fabricmc.loader.api.FabricLoader;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -623,9 +623,9 @@ public class HomeScreen extends PvScreen {
     }
 
     private static String version() {
-        return FabricLoader.getInstance().getModContainer("pvpocket")
-                .map(container -> container.getMetadata().getVersion().getFriendlyString())
-                .orElse("?");
+        // 版本号只能由加载器回答（各自的元数据格式不同），所以这是平台接口上少数几个不转发
+        // 事件、而是直接取值的方法之一。
+        return PvClientPlatform.get().modVersion();
     }
 
     /**

@@ -1,8 +1,6 @@
 package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 
 import java.util.List;
 
@@ -19,7 +17,6 @@ import java.util.List;
  * live. Folding them into one payload would mean the boundary packet had to be re-sent to change
  * something that is not the boundary.</p>
  */
-@Environment(EnvType.CLIENT)
 public final class PrepareScreens {
 
     private static List<PrepareScreensPayload.Screen> current = List.of();

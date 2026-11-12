@@ -21,7 +21,7 @@ import com.leipishu.pvpocket.loadout.TridentStyle;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -593,7 +593,7 @@ public class LoadoutScreen extends PvScreen {
             return;
         }
         loadout.autoAssignSlots();
-        if (!ClientPlayNetworking.canSend(LoadoutSubmitPayload.ID)) {
+        if (!PvClientPlatform.get().canSend(LoadoutSubmitPayload.ID)) {
             // Staying on the panel is the whole point: this used to fall through to back() and look
             // exactly like a save. The player walked away believing the change had landed, and the
             // next round handed out the previous loadout — which reads as "the switch does nothing".
@@ -602,7 +602,7 @@ public class LoadoutScreen extends PvScreen {
                     LoadoutSubmitPayload.ID.id());
             return;
         }
-        ClientPlayNetworking.send(new LoadoutSubmitPayload(payload.sessionId(), loadout.encode()));
+        PvClientPlatform.get().send(new LoadoutSubmitPayload(payload.sessionId(), loadout.encode()));
         PvPocket.LOGGER.info("Loadout submit -> {} ({} items, digest {})",
                 isPersonal() ? "personal" : payload.sessionId(), loadout.size(), loadout.digest());
         back();

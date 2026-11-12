@@ -14,7 +14,7 @@ import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 
 import java.util.ArrayList;
@@ -79,7 +79,9 @@ public final class PvAuditHarness {
         if (!PvAudit.ON) {
             return;
         }
-        ClientTickEvents.END_CLIENT_TICK.register(PvAuditHarness::tick);
+        // 审计跑的是真实的界面，所以它必须挂在真实的客户端 tick 上——与游戏里那一次启动
+        // 走同一条路径，否则「审计通过」就不能说明「玩家看到的不遮挡」。
+        PvClientPlatform.get().onClientTick(() -> tick(Minecraft.getInstance()));
         System.out.println("[pvaudit] harness armed");
     }
 

@@ -3,11 +3,7 @@ package com.leipishu.pvpocket.client;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.client.hud.SpectatorHud;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.KeyMapping;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
@@ -29,7 +25,6 @@ import org.lwjgl.glfw.GLFW;
  * <p>Requests are only sent while the spectator bar is up, so a player who is not spectating cannot
  * spam the server with actions it would have to refuse.</p>
  */
-@Environment(EnvType.CLIENT)
 public final class SpectatorInput {
 
     private static KeyMapping cycle;
@@ -53,20 +48,24 @@ public final class SpectatorInput {
     }
 
     public static void register() {
-        cycle = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+        // A key, not a name: the controls screen translates the category with
+        // Text.translatable, which is how vanilla's own "Movement" heading is produced.
+        cycle = new KeyMapping(
                 "key.pvpocket.cycle_spectator",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_V,
-                // A key, not a name: the controls screen translates the category with
-                // Text.translatable, which is how vanilla's own "Movement" heading is produced.
-                "key.categories.pvpocket"));
-        detach = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.categories.pvpocket");
+        detach = new KeyMapping(
                 "key.pvpocket.detach_spectator",
                 InputConstants.Type.KEYSYM,
                 GLFW.GLFW_KEY_G,
-                "key.categories.pvpocket"));
+                "key.categories.pvpocket");
+        // Registering is what makes the controls page list them; polling below is what makes them
+        // do something. Two steps because the two loaders split them differently.
+        PvClientPlatform.get().registerKeyMapping(cycle);
+        PvClientPlatform.get().registerKeyMapping(detach);
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+        PvClientPlatform.get().onClientTick(() -> {
             // Drained in a loop rather than checked once: two presses inside one tick are two
             // intents, and dropping one makes the key feel unreliable at high frame rates.
             while (cycle.consumeClick()) {
@@ -83,8 +82,8 @@ public final class SpectatorInput {
     }
 
     private static void send(SpectateRequestPayload payload) {
-        if (SpectatorHud.active() && ClientPlayNetworking.canSend(SpectateRequestPayload.ID)) {
-            ClientPlayNetworking.send(payload);
+        if (SpectatorHud.active() && PvClientPlatform.get().canSend(SpectateRequestPayload.ID)) {
+            PvClientPlatform.get().send(payload);
         }
     }
 }

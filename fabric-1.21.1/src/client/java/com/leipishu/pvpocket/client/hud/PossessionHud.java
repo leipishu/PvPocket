@@ -5,9 +5,7 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.PossessPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -34,8 +32,7 @@ import net.minecraft.resources.ResourceLocation;
  * <p>Nothing here is interactive. A spectator cannot press 1-9 to change somebody else's held item,
  * and a HUD that looked clickable would be lying.</p>
  */
-@Environment(EnvType.CLIENT)
-public final class PossessionHud implements HudRenderCallback {
+public final class PossessionHud implements PvClientPlatform.HudLayer {
 
     private static final int SLOT = 20;
     private static final int PANEL_W = SLOT * 9 + 2;
@@ -56,7 +53,7 @@ public final class PossessionHud implements HudRenderCallback {
     }
 
     public static void register() {
-        HudRenderCallback.EVENT.register(new PossessionHud());
+        PvClientPlatform.get().onHudRender(new PossessionHud());
     }
 
     /** Called on the client thread when a payload arrives. */
@@ -136,7 +133,7 @@ public final class PossessionHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
         if (state == null) {
             return;
         }

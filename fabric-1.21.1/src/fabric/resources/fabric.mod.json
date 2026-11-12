@@ -16,7 +16,7 @@
       "com.leipishu.pvpocket.platform.fabric.FabricEntrypoint"
     ],
     "client": [
-      "com.leipishu.pvpocket.client.PvPocketClient"
+      "com.leipishu.pvpocket.client.platform.fabric.FabricClientEntrypoint"
     ]
   },
   "mixins": [

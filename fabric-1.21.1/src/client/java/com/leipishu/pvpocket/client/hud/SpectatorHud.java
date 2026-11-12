@@ -5,9 +5,7 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -31,8 +29,7 @@ import java.util.List;
  * <p>The position counter ("1 / 2") is what makes the cycle key usable. Pressing V with no feedback
  * is indistinguishable from pressing V on a key that does nothing.</p>
  */
-@Environment(EnvType.CLIENT)
-public final class SpectatorHud implements HudRenderCallback {
+public final class SpectatorHud implements PvClientPlatform.HudLayer {
 
     private static final int PAD_X = 11;
     private static final int PAD_Y = 6;
@@ -48,7 +45,7 @@ public final class SpectatorHud implements HudRenderCallback {
     }
 
     public static void register() {
-        HudRenderCallback.EVENT.register(new SpectatorHud());
+        PvClientPlatform.get().onHudRender(new SpectatorHud());
     }
 
     /** Called on the client thread when a payload arrives. */
@@ -70,7 +67,7 @@ public final class SpectatorHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
         SpectateStatePayload payload = state;
         if (payload == null) {
             return;

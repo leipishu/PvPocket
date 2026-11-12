@@ -8,7 +8,7 @@ import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -375,8 +375,8 @@ public class MatchListScreen extends PvScreen {
     }
 
     private static void send(SpectateRequestPayload payload) {
-        if (ClientPlayNetworking.canSend(SpectateRequestPayload.ID)) {
-            ClientPlayNetworking.send(payload);
+        if (PvClientPlatform.get().canSend(SpectateRequestPayload.ID)) {
+            PvClientPlatform.get().send(payload);
         }
     }
 

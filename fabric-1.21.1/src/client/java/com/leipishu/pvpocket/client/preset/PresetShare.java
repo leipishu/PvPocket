@@ -3,7 +3,7 @@ package com.leipishu.pvpocket.client.preset;
 import com.leipishu.pvpocket.network.PresetSharePayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 
 import java.util.function.Consumer;
 
@@ -31,18 +31,18 @@ public final class PresetShare {
     }
 
     public static boolean publish(PresetKind kind, String name, String encoded) {
-        if (!ClientPlayNetworking.canSend(PresetSharePayload.ID)) {
+        if (!PvClientPlatform.get().canSend(PresetSharePayload.ID)) {
             return false;
         }
-        ClientPlayNetworking.send(PresetSharePayload.publish(kind.id, name, encoded));
+        PvClientPlatform.get().send(PresetSharePayload.publish(kind.id, name, encoded));
         return true;
     }
 
     public static boolean fetch(String code) {
-        if (!ClientPlayNetworking.canSend(PresetSharePayload.ID)) {
+        if (!PvClientPlatform.get().canSend(PresetSharePayload.ID)) {
             return false;
         }
-        ClientPlayNetworking.send(PresetSharePayload.fetch(code));
+        PvClientPlatform.get().send(PresetSharePayload.fetch(code));
         return true;
     }
 

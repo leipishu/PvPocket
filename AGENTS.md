@@ -23,15 +23,17 @@ Minecraft Fabric 1.21.1 模组「口袋决斗」（`pvpocket`）：在 SMP 里�
 | `fabric-1.21.1/src/main/java/` | **所有加载器共用**（`session`、`rules`、`loadout`、`preset`、`network`、`platform`）。这里不许出现加载器 import |
 | `fabric-1.21.1/src/fabric/java/` | Fabric 专用：`platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/neoforge/java/` |
 | `fabric-1.21.1/src/fabric/resources/` | Fabric 专用资源，目前只有 `fabric.mod.json` |
-| `fabric-1.21.1/src/client/java/` | 只在客户端（`client/gui`、`client/hud`、`client/preset`）；加载器依赖还没分出去 |
+| `fabric-1.21.1/src/client/java/` | 客户端里**与加载器无关**的部分：`client/gui`、`client/hud`、`client/render`、`client/platform/PvClientPlatform` |
+| `fabric-1.21.1/src/client-fabric/java/` | 客户端加载器接线：`client/platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/client-neoforge/java/` |
 | `fabric-1.21.1/src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
 | `fabric-1.21.1/runs/` | 运行目录，`server` 与 `client1..4`，**由 `build.gradle` 决定** |
 | `docs/zh/`、`docs/en/` | 六篇规范，平行且一一对应 |
 | `docs/archive/` | 历史存档，**非规范**，不追改 |
 | `scripts/` | 联调、地图转换、界面自动化、自检 |
 
-**放文件的判据**：这段代码要 import `net.fabricmc` 吗？要 → `src/fabric/java`；不要 → `src/main/java`。
-判据不是「跟谁关系近」，因为这一条决定了移植一格的代价。
+**放文件的判据**：这段代码要 import `net.fabricmc` 吗？要 → `src/*-fabric/java`；不要 → 不带后缀的
+那一层。判据不是「跟谁关系近」，因为这一条决定了移植一格的代价。服务端与客户端各有一对：
+`src/main` ↔ `src/fabric`，`src/client` ↔ `src/client-fabric`。
 
 ## 构建与运行
 
@@ -252,12 +254,12 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 
 ### 5c. 加载器边界
 
-**`src/main` 里除 `platform/<加载器>/` 之外，不许出现 `net.fabricmc` / `net.neoforged` 的 import。**
-这条线决定了移植一格的代价：守住了就是「写一个 200 行的实现类」，破了就是「重写一遍」。
+**`src/main` 与 `src/client` 里一个加载器 import 都不许有。** 这条线决定了移植一格的代价：
+守住了就是「写一个 200 行的实现类」，破了就是「重写一遍」。
 
 ```bash
-python scripts/check-boundary.py            # main 必须干净；client 目前只统计
-python scripts/check-boundary.py --strict   # client 也算失败（Day 3 之后用）
+python scripts/check-boundary.py            # main 与 client 都必须干净，退出码 1 即失败
+python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
 ```
 
 - 加载器接触面是 `platform/PvPlatform`：payload 注册与收发、生命周期、四个否决点。实现类
@@ -273,6 +275,16 @@ python scripts/check-boundary.py --strict   # client 也算失败（Day 3 之后
 - **payload 的 codec 用原版的 `StreamCodec`，不要包一层自定义缓冲接口。** 1.20.5 起原版就有
   这一套，Fabric 与 NeoForge 吃的是同一个类型，字段顺序只写在 payload 类里。只有 1.20.1
   （1.20.5 之前）需要另写一层，那是那一格自己的事，不要为此把公共接口改复杂。
+- **客户端有第二个接触面 `client/platform/PvClientPlatform`**（网络、tick、断线、界面初始化、
+  按键、HUD、世界渲染、配置目录、版本号）。它必须待在 `src/client`，不能并进 `PvPlatform`：
+  它的每个参数都来自 `net.minecraft.client`，并进公共接口就等于让专用服务端去解析 `Minecraft`。
+- **渲染钩子按「栈的状态」分，不按加载器的名字分。** `onWorldRenderAfterTranslucent` 与
+  `onWorldRenderLast` 是两个方法，因为 `PossessedHandRenderer` 依赖后者触发时模型视图栈仍持有
+  视图旋转；合成一个就得让实现类去猜调用方要的是哪一个。
+- **`@Environment(EnvType.CLIENT)` 一律不写。** 它只是文档，源码集已经保证了这件事；写了反而
+  多一个加载器依赖。
+- **往已初始化的界面里加控件走 `mixin/client/ScreenInvoker`**（`@Invoker("addRenderableWidget")`），
+  不要用加载器的 `Screens.getButtons` 那种「把只读列表强转回可写」的绕法。
 
 ### 6. 沙盒
 

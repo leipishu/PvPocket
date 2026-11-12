@@ -8,7 +8,8 @@
     "InGameHudMixin",
     "ItemRendererMixin",
     "MinecraftClientMixin",
-    "PlayerEntityRendererMixin"
+    "PlayerEntityRendererMixin",
+    "ScreenInvoker"
   ],
   "injectors": {
     "defaultRequire": 1

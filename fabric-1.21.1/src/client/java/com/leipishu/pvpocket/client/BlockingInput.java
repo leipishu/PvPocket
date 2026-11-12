@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.client;
 
 import com.leipishu.pvpocket.network.BlockingPayload;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -40,7 +40,7 @@ public final class BlockingInput {
         }
         last = blocking;
         sinceSend = 0;
-        ClientPlayNetworking.send(new BlockingPayload(blocking));
+        PvClientPlatform.get().send(new BlockingPayload(blocking));
     }
 
     /** Called when leaving a world so the next join starts from a clean state. */

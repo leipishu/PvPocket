@@ -1,8 +1,6 @@
 package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 
 /**
  * Client-side copy of the plot outline the server is currently enforcing.
@@ -15,7 +13,6 @@ import net.fabricmc.api.Environment;
  * <p>{@link #clear()} is called on disconnect. A stale box would otherwise be drawn in the next world
  * the player joins, at coordinates that mean nothing there.</p>
  */
-@Environment(EnvType.CLIENT)
 public final class ArenaBounds {
 
     private static ArenaBoundsPayload current = ArenaBoundsPayload.hidden();
