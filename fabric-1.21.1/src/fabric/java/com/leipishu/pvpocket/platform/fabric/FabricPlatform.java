@@ -141,7 +141,9 @@ public final class FabricPlatform implements PvPlatform {
 
     @Override
     public void onAllowChat(ChatVeto veto) {
-        ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(veto::allow);
+        // Fabric 给的是「未装饰的内容 + 装饰参数」，拼成整行是平台的事——见 ChatVeto 的注释。
+        ServerMessageEvents.ALLOW_CHAT_MESSAGE.register((message, sender, params) ->
+                veto.allow(sender, params.decorate(message.decoratedContent())));
     }
 
     @Override

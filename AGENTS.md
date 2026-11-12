@@ -59,6 +59,30 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能�
 日志：服务端 `runs/server/logs/latest.log`，客户端 `build/devlogs/client{1,2,3}.out`。
 **「面板没出来」先看客户端日志里 `canSend=` 那一行。**
 
+### NeoForge 那一格（`neoforge/` 子项目）
+
+Loom 与 ModDevGradle 都要接管 minecraft 依赖和 run 任务，**不能应用在同一个 project 上**，
+所以 NeoForge 是 `include 'neoforge'` 的子项目，借用根项目同一份 `src/`（单 source set，
+客户端也进 main——NeoForge 是单 jar，靠「专用服务端不加载这些类」而非源集隔离）。
+
+```bash
+./gradlew :neoforge:runServer     # 或 :neoforge:runClient
+```
+
+**跑之前必须先清掉代理环境变量**，否则卡死在 `:neoforge:downloadAssets` 的 `DL .../17.json`
+那一行、CPU 归零、没有任何报错：
+
+```bash
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY ./gradlew :neoforge:runServer
+```
+
+原因是 NeoFormRuntime 会走系统代理（`127.0.0.1:6494`），而该代理对 `piston-meta.mojang.com`
+只挂不回；直连 3 秒就好。症状是**卡住不是报错**——和 Gradle 仓库那条坑同源。
+
+`neoforge/build.gradle` 里 `repositories.clear()` 不能删：ModDevGradle 在 apply 时自动塞两个
+`maven.neoforged.net` 仓库，那个域名在本机连不上，Gradle 会换 CDN 节点逐个等到超时。
+现用的是 `neoforged.forgecdn.net`（`/releases` + `/mojang-meta`），路径结构与官方逐字相同。
+
 ## 硬性约定
 
 ### 1. 本地化（最容易忘的一条）

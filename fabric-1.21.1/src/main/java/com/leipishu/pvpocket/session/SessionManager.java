@@ -43,8 +43,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.network.protocol.game.ClientboundClearTitlesPacket;
-import net.minecraft.network.chat.ChatType;
-import net.minecraft.network.chat.PlayerChatMessage;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.chat.MutableComponent;
@@ -874,8 +872,7 @@ public final class SessionManager {
      * <p>Scoped to {@code ROUND_ACTIVE} like the damage veto, and for the same reason: a rule that
      * outlives the round would silently mute the lobby for anybody who shares a session.</p>
      */
-    public static boolean allowChat(PlayerChatMessage message, ServerPlayer sender,
-                                    ChatType.Bound params) {
+    public static boolean allowChat(ServerPlayer sender, Component decorated) {
         SessionManager manager = instance;
         if (manager == null) {
             return true;
@@ -888,7 +885,6 @@ public final class SessionManager {
         if (scope == Rulebook.ChatScope.SERVER) {
             return true;
         }
-        Component decorated = params.decorate(message.decoratedContent());
         if (scope == Rulebook.ChatScope.MUTED) {
             warnThrottled(sender, PvLang.t("pvpocket.msg.chat.muted"));
             return false;

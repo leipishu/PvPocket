@@ -1,0 +1,118 @@
+// NeoForge 1.21.1。与根项目（Fabric）共享 src/，只多出 src/neoforge 与 src/client-neoforge。
+//
+// 为什么是子项目而不是同一个 project 上的另一套插件：Loom 与 ModDevGradle 都要接管
+// minecraft 依赖、run 任务与 remap，两个同时应用会互相覆盖。分项目是唯一干净的分法。
+
+plugins {
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+// ---------------------------------------------------------------------------
+// 镜像：这一段是这台机器能不能构建的全部原因，别删。
+//
+// ModDevGradle 在 apply 时往 repositories 里塞三个仓库，其中两个在 maven.neoforged.net 上：
+//
+//     https://maven.neoforged.net/mojang-meta/
+//     https://libraries.minecraft.net/
+//     https://maven.neoforged.net/releases/
+//
+// 那个域名在本机 DNS 被污染（解析出来是 104.244.46.x / 182.50.139.x 这类不相干的地址），
+// TCP 连上去停在 SYN_SENT 永远不回。Gradle 的失败方式是「换下一个 CDN 节点再等一次」，
+// 所以症状不是报错而是**卡死**：`createMinecraftArtifacts` 十几分钟一行日志都不出。
+//
+// exclusiveContent 在这里没用——它解决的是「同一个模块该问哪个仓库」，而这里的问题是
+// 「问了就挂住」，压根走不到「这个仓库没有」那一步。唯一有效的做法是把整个容器清空重来。
+//
+// **repositories.clear() 必须写在下面的 repositories 块之前**：写在后面就等于先声明镜像、
+// 再让插件的原地址排到前面，等于没改。
+repositories.clear()
+
+repositories {
+    // neoforged.forgecdn.net 是 NeoForged 的官方 CDN，路径结构与 maven.neoforged.net 逐字相同，
+    // 所以换的只是主机名，坐标一个都不用改。`/releases` 末尾没有斜杠、也不能少那个 s。
+    maven {
+        name = 'NeoForgedReleases'
+        url = 'https://neoforged.forgecdn.net/releases'
+    }
+    // 原仓库里的 mojang-meta 是「Mojang 版本清单 + 客户端/服务端 jar」的代理，这一份同样要换，
+    // 否则前面清空的那两个仓库里会剩下这一个仍然挂在原地。
+    maven {
+        name = 'NeoForgedMojangMeta'
+        url = 'https://neoforged.forgecdn.net/mojang-meta'
+    }
+    maven {
+        name = 'MojangLibraries'
+        url = 'https://libraries.minecraft.net/'
+    }
+    mavenCentral()
+    // sponge-mixin：NeoForge 的 POM 依赖 net.fabricmc:sponge-mixin。
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+
+base {
+    archivesName = 'pvpocket-neoforge-1.21.1'
+}
+
+// 源码：与 Fabric 那一格共享 src/main 与 src/client，只多两个加载器目录。
+// 与根项目一样，这里也是「同一个 source set、多个 srcDir」，隔离靠 scripts/check-boundary.py。
+//
+// **客户端代码也进 main**，与 Fabric 相反：Loom 的 splitEnvironmentSourceSets() 把客户端拆成独立
+// 源集，NeoForge 没有这个东西，它是单 jar——客户端类打进同一个包，靠「专用服务端永远不加载这些
+// 类」而不是靠源集隔离。所以这里只有一个 source set，四个 srcDir。
+sourceSets {
+    main {
+        java.srcDir rootProject.file('src/main/java')
+        java.srcDir rootProject.file('src/client/java')
+        java.srcDir rootProject.file('src/neoforge/java')
+        java.srcDir rootProject.file('src/client-neoforge/java')
+        resources.srcDir rootProject.file('src/main/resources')
+        resources.srcDir rootProject.file('src/client/resources')
+        resources.srcDir rootProject.file('src/neoforge/resources')
+        resources.srcDir rootProject.file('src/client-neoforge/resources')
+    }
+}
+
+neoForge {
+    version = '21.1.265'
+
+    // 源码已经是官方映射（Mojmap），NeoForge 用的也是它，所以不需要任何映射转换。
+    // 这也正是当初全面改 Mojmap 的理由：移植一格的代价从「重写一遍」变成「换一个构建文件」。
+
+    mods {
+        pvpocket {
+            sourceSet sourceSets.main
+        }
+    }
+
+    // 运行目录按加载器分开，理由与 Fabric 那边一样：存档格式与 options.txt 不能共用。
+    // NeoForge 这边先只给一个服务端与一个客户端——四个客户端那套联调脚本还没参数化到 cell。
+    runs {
+        server {
+            server()
+            gameDirectory = rootProject.file('runs/neoforge/server')
+        }
+        client {
+            client()
+            gameDirectory = rootProject.file('runs/neoforge/client1')
+            programArguments = ['--username', 'NeoDev1', '--width', '1280', '--height', '720']
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = 21
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}

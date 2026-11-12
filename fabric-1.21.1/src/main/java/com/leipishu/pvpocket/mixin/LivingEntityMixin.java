@@ -10,6 +10,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
@@ -30,6 +31,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {
+
+    /**
+     * 原版的护甲耐久扣减，1.8 的护甲计算里也要跑。
+     *
+     * <p>{@code hurtArmor} 是 {@code protected}，跨包直接调 {@code self.hurtArmor(...)} 在 javac
+     * 眼里是非法访问（JLS 6.6.2：跨包访问 protected 成员要求限定类型是访问者的子类）。
+     * Loom 的编译路径不知为何放行了这一处，ModDevGradle 那边立刻报错——也就是说这行代码一直
+     * 是靠一个加载器的宽容活着的。用 {@code @Shadow} 声明一次是 mixin 的正规做法，两边都合法，
+     * 而且 {@code MixinTargetCheck} 会核对它确实存在于目标类上。</p>
+     */
+    @Shadow
+    protected abstract void hurtArmor(DamageSource source, float amount);
 
     /**
      * 1.8 blocking damage reduction, applied at the same point in the pipeline as the original.
@@ -73,7 +86,7 @@ public abstract class LivingEntityMixin {
                 || !CombatState.isLegacy(player.getUUID())) {
             return;
         }
-        self.hurtArmor(source, amount);
+        hurtArmor(source, amount);
         cir.setReturnValue(LegacyCombatValues.applyArmor(amount, self.getArmorValue()));
     }
 
