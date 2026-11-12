@@ -94,6 +94,16 @@ trap cleanup EXIT INT TERM
 # 服务端
 
 if port_open; then
+    # 复用是给「服务端已经在另一个终端跑着」用的。但如果那个服务端是**另一格**起的，两个加载器的
+    # 客户端照样能连上（协议一样、mod id 一样），测试的人却以为在测自己刚编的那一格——世界目录、
+    # jar 全都不是他以为的那个。所以起服务端时留一个标记文件，复用前对一下。
+    RUNNING_CELL=""
+    [ -f "$LOGS/.server-cell" ] && RUNNING_CELL="$(cat "$LOGS/.server-cell")"
+    if [ -n "$RUNNING_CELL" ] && [ "$RUNNING_CELL" != "$CELL" ]; then
+        echo "[duel] $ADDR 上跑的是 $RUNNING_CELL 的服务端，不是 $CELL。"
+        echo "       两个加载器共用 25565，先停掉它（或换个端口），否则测的不是你以为的那一格。"
+        exit 1
+    fi
     echo "[duel] $ADDR 已经在监听，复用现有服务端（本脚本不负责它的生命周期）"
 else
     # 预热编译：两个客户端是两个独立的 Gradle 进程，同时启动时会抢同一个 build 目录的锁，
@@ -122,6 +132,7 @@ else
     FIFO_OPEN=1
 
     echo "[duel] 启动服务端（日志 $SERVER_LOG）..."
+    printf '%s\n' "$CELL" > "$LOGS/.server-cell"
     ./gradlew ":$CELL:runServer" --console=plain < "$FIFO" > "$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
 
