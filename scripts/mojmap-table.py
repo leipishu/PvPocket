@@ -374,10 +374,38 @@ def expand_inherited(methods, fields, yarn_to_mojang, hierarchy, warn):
 
 # --------------------------------------------------------------------------- 主流程
 
+def catalog_version(mc, key):
+    """从 gradle/catalogs/<mc>.toml 的 [versions] 里取一个值，取不到返回 None。
+
+    版本号在 cell 结构里分了两层：跨 MC 版本共享的进 gradle/libs.versions.toml，每版本一份的进
+    gradle/catalogs/<mc>.toml。这个脚本要的是后者（Yarn 版本号带 MC 前缀）。
+
+    tomllib 是 3.11 才有的，所以留一条逐行回退：这些 TOML 的 [versions] 全是 `key = "value"`，
+    回退路径够用，而它保证脚本在更老的 Python 上不会因为一个版本号直接崩。
+    """
+    path = os.path.join(ROOT, "gradle", "catalogs", mc + ".toml")
+    if not os.path.isfile(path):
+        return None
+    try:
+        import tomllib
+    except ImportError:
+        tomllib = None
+    if tomllib is not None:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle).get("versions", {}).get(key)
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            name, sep, value = line.partition("=")
+            if sep and name.strip() == key:
+                return value.strip().strip('"')
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mc", required=True)
-    parser.add_argument("--yarn", default=None, help="Yarn 版本号；省略时从 gradle.properties 读")
+    parser.add_argument("--yarn", default=None,
+                        help="Yarn 版本号；省略时从 gradle/catalogs/<mc>.toml 读")
     parser.add_argument("--out", default=None)
     parser.add_argument("--no-hierarchy", action="store_true",
                         help="跳过继承展开（只按声明类出表，成员改名会漏掉继承来的那些）")
@@ -385,13 +413,9 @@ def main():
 
     yarn = args.yarn
     if yarn is None:
-        properties = os.path.join(ROOT, "gradle.properties")
-        with open(properties, encoding="utf-8") as handle:
-            for line in handle:
-                if line.startswith("yarn_mappings="):
-                    yarn = line.split("=", 1)[1].strip()
+        yarn = catalog_version(args.mc, "yarn")
     if yarn is None:
-        raise SystemExit("没有 --yarn，gradle.properties 里也没有 yarn_mappings")
+        raise SystemExit("没有 --yarn，gradle/catalogs/%s.toml 里也没有 yarn" % args.mc)
 
     os.makedirs(CACHE, exist_ok=True)
     detail = version_json(args.mc)

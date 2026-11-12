@@ -1,5 +1,8 @@
 plugins {
-    id 'fabric-loom' version "${loom_version}"
+    // 版本在 gradle/libs.versions.toml 的 [plugins] 里。写成 alias 而不是
+    // `id 'fabric-loom' version "${loom_version}"`，是因为后者的版本号来自 gradle.properties，
+    // 而那份文件是全局的——两个加载器各要一个版本号时它只能有一个值。
+    alias(libs.plugins.fabricLoom)
     id 'maven-publish'
 }
 

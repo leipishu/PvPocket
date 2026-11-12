@@ -143,9 +143,11 @@ PvPocket/
 │   └── agent/                 截图与按键脚本，供 AI Agent 做界面验证，普通开发不需要
 ├── settings.gradle            cells 清单：一个 cell 一个子项目
 ├── build.gradle               只放仓库面 + buildAll，不应用任何加载器插件
-├── gradle.properties          各 cell 的版本号
+├── gradle.properties          JDK 路径、Loom 下载源、模组身份（mod_id / mod_version / maven_group）
 ├── gradle/
 │   ├── pvpocket-cells.gradle  两个 cell 共用的那一半：产物名、Java 级别、许可、dev 客户端清单
+│   ├── libs.versions.toml     加载器工具链版本（fabric-loader / Loom / ModDevGradle）+ 插件坐标
+│   ├── catalogs/<mc>.toml     每个 MC 版本一份版本号：minecraft / fabricApi / neoforge
 │   └── wrapper/
 ├── src/                       共享源码，所有 cell 编译同一份
 │   ├── main/                  common：服务端与客户端共用

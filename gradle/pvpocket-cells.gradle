@@ -12,6 +12,35 @@
 // 默认 21 是 1.21.x 的值；1.20.1 不在这套里（它有独立的根）。
 def javaLevel = (project.findProperty('pvpocketJavaVersion') ?: 21) as int
 
+// ---------------------------------------------------------------------------
+// 版本号从版本目录里取，不再读 gradle.properties。
+//
+// **catalog 名由 cell 名派生**（`1.21.1-fabric` → `v1_21_1`），不是每格手写一遍：手写的那份迟早
+// 会和目录名不一致，而不一致的表现是「编译过了但类属于另一版」——构建期不会报错。
+//
+// 取出来挂成 project 属性，是为了让两个 cell 的 build.gradle 继续写 `project.minecraft_version`：
+// 那里是 Loom / ModDevGradle 各自的 DSL，多改一个名字只会多一处要同步的东西。
+//
+// 用 findVersion 而不是 `catalog.versions.minecraft`：后者是 Kotlin/Groovy 给默认 catalog `libs`
+// **生成**的 accessor，动态命名取到的 `VersionCatalog` 上没有这些方法。
+def pickVersion = { String catalogName, String alias ->
+    project.versionCatalogs.named(catalogName)
+            .findVersion(alias)
+            .orElseThrow {
+                new GradleException("no version '$alias' in catalog '$catalogName' "
+                        + "(see gradle/catalogs/ and gradle/libs.versions.toml)")
+            }
+            .requiredVersion
+}
+
+def cellCatalogName = 'v' + project.name.split('-')[0].replaceAll('[^0-9A-Za-z]', '_')
+
+ext.minecraft_version = pickVersion(cellCatalogName, 'minecraft')
+ext.fabric_version = pickVersion(cellCatalogName, 'fabricApi')
+ext.neoforge_version = pickVersion(cellCatalogName, 'neoforge')
+// fabric-loader 跨 MC 版本共享，在默认目录里。
+ext.loader_version = pickVersion('libs', 'fabricLoader')
+
 group = project.maven_group
 version = project.mod_version
 

@@ -26,6 +26,8 @@ PvPocket/
 ├── settings.gradle           # cells 清单，一个 cell 一个子项目
 ├── build.gradle              # 只放仓库面 + buildAll，不应用任何加载器插件
 ├── gradle/pvpocket-cells.gradle   # 两个 cell 共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
+├── gradle/catalogs/<mc>.toml      # 每个 MC 版本一份版本号，注册成 catalog `v<mc>`
+├── gradle/libs.versions.toml      # 加载器工具链版本 + 插件坐标，catalog `libs`
 ├── src/                      # 共享源码，所有 cell 编译同一份
 ├── versions/<cell>/build.gradle   # 每格约 100 行：加载器插件 + 依赖 + run
 ├── runs/<cell>/{server,client1..4}   # 运行目录，按 cell 分开
@@ -42,6 +44,9 @@ PvPocket/
 | `src/client-fabric/java/` | 客户端加载器接线：`client/platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/client-neoforge/java/` |
 | `src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
 | `versions/<cell>/` | 一格一个：`build.gradle` + 该格自己的 `build/` |
+| `gradle/catalogs/<mc>.toml` | 一个 MC 版本一份：`minecraft` / `fabricApi` / `neoforge`。**加版本 = 加文件** |
+| `gradle/libs.versions.toml` | 跨版本共享：`fabric-loader` / Loom / ModDevGradle，以及 `[plugins]` 的插件坐标 |
+| `gradle.properties` | 只剩 `org.gradle.*`、Loom 下载源、`mod_id` / `mod_name` / `mod_version` / `maven_group` |
 | `runs/<cell>/` | 运行目录，`server` 与 `client1..4`，**由 `gradle/pvpocket-cells.gradle` 决定** |
 | `docs/zh/`、`docs/en/` | 六篇规范，平行且一一对应 |
 | `docs/archive/` | 历史存档，**非规范**，不追改 |
@@ -53,6 +58,13 @@ PvPocket/
 
 **为什么加载器这一维落在子项目边界上**：Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与
 remap，一个 project 只能应用其中一个。塞进同一个 project 就是让两个插件互相覆盖。
+
+**为什么版本号按 MC 版本分文件**：`gradle/catalogs/<mc>.toml` 里的键名在每个文件里完全一样
+（`minecraft` / `fabricApi` / `neoforge`），区分靠 catalog 名。catalog 名由 cell 名派生
+（`1.21.1-fabric` → `v1_21_1`，见 `gradle/pvpocket-cells.gradle`），所以 cell 的 `build.gradle`
+里**看不到 catalog 名**，复制一格不会漏改版本号。全塞进单个 `libs.versions.toml` 的话键名全局
+唯一，第二个 MC 版本必然要叫 `minecraft2` 之类，而填错的表现是「编译过了但类属于另一版」——
+构建期不报错。**不要把版本号写回 `gradle.properties`。**
 
 ## 构建与运行
 

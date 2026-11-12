@@ -23,9 +23,12 @@
 
 ## 加一格
 
-1. 建目录 `versions/<mc>-<loader>/`，放一个 `build.gradle`（照抄同名加载器现有的那一份）。
-2. 把 cell 名加进 `settings.gradle` 的 `cells` 列表。
-3. 跑 `./gradlew :<cell>:compileJava`。
+1. **版本号**：这个 MC 版本还没有 `gradle/catalogs/<mc>.toml` 的话，复制一份现有的改三个版本号
+   （`minecraft` / `fabricApi` / `neoforge`）。catalog 名由文件名派生，不用注册，见
+   `gradle/catalogs/README.md`。
+2. 建目录 `versions/<mc>-<loader>/`，放一个 `build.gradle`（照抄同名加载器现有的那一份）。
+3. 把 cell 名加进 `settings.gradle` 的 `cells` 列表。
+4. 跑 `./gradlew :<cell>:compileJava`。
 
 产物名从 cell 名派生，不用写：`1.21.1-fabric` → `pvpocket-fabric-1.21.1-<mod_version>.jar`。
 
@@ -38,10 +41,21 @@ Stonecutter 的 `//? if` 预处理在共享的 `src/` 里表达，一个版本�
 
 ## 版本号放哪
 
-现在两个 cell 都是 1.21.1，所以版本号还放在根 `gradle.properties`，没有歧义。
+三层，各管一段：
 
-**加第二个 Minecraft 版本之前必须搬去 `gradle/libs.versions.toml`**：`minecraft_version` 这个名字
-在两个版本之间会打架，而打架的表现是「编译过了但类属于另一版」——最难查的那种。
+| 位置 | 内容 | 谁读 |
+| --- | --- | --- |
+| `gradle/catalogs/<mc>.toml` | `minecraft` / `fabricApi` / `neoforge` | 同版本的两个 cell |
+| `gradle/libs.versions.toml` | `fabric-loader` / `fabricLoom` / `neoforgeModdev` | 全部 cell |
+| `gradle.properties` | `mod_id` / `mod_name` / `mod_version` / `maven_group` | 全部 cell，12 格必须一致 |
+
+cell 的 `build.gradle` 不直接读这些文件：`gradle/pvpocket-cells.gradle` 按 cell 名派生 catalog 名
+（`1.21.1-fabric` → `v1_21_1`），取出来挂成 `project.minecraft_version` 这类属性。所以
+`build.gradle` 里看不到 catalog 名字，复制格子也不会漏改版本号。
+
+**加第二个 MC 版本之前要做的只有一件事：建那个 `.toml`。** 早期把版本号放在 `gradle.properties`
+的做法已经废掉了——那里的键全局唯一，两个版本同时存在必然打架，而打架的表现是「编译过了但类属于
+另一版」，构建期不报错。
 
 ## 运行目录
 

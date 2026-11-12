@@ -40,6 +40,26 @@ legacy/                1.20.1 的独立根（FG4 要 Gradle 8）
 
 产物名不变：`pvpocket-fabric-1.21.1-0.1.0.jar` / `pvpocket-neoforge-1.21.1-0.1.0.jar`。
 
+### 版本号搬进版本目录，一个 Minecraft 版本一份
+
+版本号原来写在根 `gradle.properties`，那里的键全局唯一——加第二个 MC 版本时 `minecraft_version`
+只能有一个值，另一个版本就得叫别的名字，而填错的表现是「编译过了但类属于另一版」。
+
+现在分三层：
+
+```
+gradle/catalogs/<mc>.toml   每个 MC 版本一份：minecraft / fabricApi / neoforge
+gradle/libs.versions.toml   跨版本共享：fabric-loader / Loom / ModDevGradle + 插件坐标
+gradle.properties           只剩 org.gradle.*、Loom 下载源、mod_id / mod_name / mod_version / maven_group
+```
+
+`settings.gradle` 扫 `gradle/catalogs/` 自动注册 catalog（`1.21.1.toml` → `v1_21_1`），**加一个
+MC 版本 = 加一个文件**。cell 的 `build.gradle` 里看不到 catalog 名：`gradle/pvpocket-cells.gradle`
+按 cell 名派生，取出来挂成 `project.minecraft_version`，所以复制一格不会漏改版本号。
+
+两个 cell 的 `plugins` 块改成 `alias(libs.plugins.fabricLoom)` / `alias(libs.plugins.neoforgeModdev)`，
+插件版本也进目录。`yarn_mappings` 删掉了——全面改 Mojmap 之后没有地方读它。
+
 ---
 
 ## 2026-11-11

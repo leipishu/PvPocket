@@ -5,7 +5,8 @@
 // remap，两个同时应用会互相覆盖。这也是 settings.gradle 里一个 cell 一个子项目的原因。
 
 plugins {
-    id 'net.neoforged.moddev' version "${moddev_version}"
+    // 与 Fabric 那一格同理：版本在 gradle/libs.versions.toml 的 [plugins] 里，不读 gradle.properties。
+    alias(libs.plugins.neoforgeModdev)
 }
 
 // 与加载器无关的那一半：产物名、Java 级别、编码、许可、dev 客户端清单、statsCheck。

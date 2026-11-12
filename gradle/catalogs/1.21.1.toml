@@ -1,0 +1,19 @@
+# Minecraft 1.21.1 的版本目录。
+#
+# 一个 MC 版本一个文件，注册成 catalog `v1_21_1`（settings.gradle 按文件名派生）。**文件之间的
+# 键名刻意完全一样**——每个文件都有 `minecraft` / `fabricApi` / `neoforge`，靠 catalog 名区分
+# 而不是靠键名前缀。这样复制一个新版本的文件时不需要改名，也就不会出现「改了 3 个键忘了第 4 个」。
+#
+# 为什么不用单个 TOML + 前缀键：`minecraft1211` 与 `minecraft12111` 只差一个 1，肉眼分不出，
+# 而填错的表现是「编译过了但类属于另一版」——这类错误不会在构建期报出来。
+
+[versions]
+minecraft = "1.21.1"
+# Fabric API 的版本号自带 MC 后缀，两个都要跟着走。
+fabricApi = "0.116.17+1.21.1"
+# NeoForge 的版本号前缀就是 MC 版本（21.1 = 1.21.1）。
+neoforge = "21.1.265"
+# **构建不读这个键。** 只有 scripts/mojmap-table.py 读：生成 Yarn→Mojmap 对照表时要下载 Yarn
+# 映射，而那份映射的坐标带这个版本号。源码已经是 Mojmap，日常构建用不到 Yarn，所以它不属于
+# 「依赖坐标」；留在这里是因为它和 minecraft 版本严格绑定，分开存必然不同步。
+yarn = "1.21.1+build.3"

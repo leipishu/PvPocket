@@ -153,9 +153,11 @@ PvPocket/
 │   └── agent/                 Screenshot and input scripts for AI agents; not needed for normal work
 ├── settings.gradle            Cell list: one cell, one subproject
 ├── build.gradle               Only repositories + buildAll; applies no loader plugin
-├── gradle.properties          Version numbers for the cells
+├── gradle.properties          JDK path, Loom download mirrors, mod identity (mod_id / mod_version / maven_group)
 ├── gradle/
 │   ├── pvpocket-cells.gradle  The half both cells share: archive name, Java level, licence, dev clients
+│   ├── libs.versions.toml     Loader toolchain versions (fabric-loader / Loom / ModDevGradle) + plugin coordinates
+│   ├── catalogs/<mc>.toml     One file per MC version: minecraft / fabricApi / neoforge
 │   └── wrapper/
 ├── src/                       Shared sources, compiled by every cell
 │   ├── main/                  common: shared by server and client
