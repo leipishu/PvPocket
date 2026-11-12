@@ -86,6 +86,27 @@ public final class SessionManager {
     private static final int SWEEP_INTERVAL = 60;
 
     /**
+     * How long the first round waits for a participant who accepted while dead, in server ticks.
+     *
+     * <p>Ten seconds is a death screen plus a click, with room for a slow machine. It is not a
+     * grace period for the dead: it is the difference between "you died at the same moment you
+     * accepted, respawn and we go" and voiding a match over a coincidence.</p>
+     */
+    private static final int START_WAIT_TICKS = 200;
+
+    /**
+     * How long the first round tolerates a participant who is <em>not in the player list at all</em>,
+     * in server ticks.
+     *
+     * <p>Much shorter than {@link #START_WAIT_TICKS}, because this is not a state the player can
+     * click their way out of. Two seconds is still worth spending: a login puts the entry in the
+     * list a tick or two after the accept packet can arrive, and a match voided over that is a match
+     * voided over nothing. Anything longer is a disconnect, and a disconnect voids the series on
+     * its own.</p>
+     */
+    private static final int ABSENT_GRACE_TICKS = 40;
+
+    /**
      * Upper bound on how long a participant can stay "not yet on the plot" before the boundary rule
      * applies to them anyway, in milliseconds.
      *
@@ -598,7 +619,13 @@ public final class SessionManager {
         }
         List<UUID> ready = new ArrayList<>();
         for (Map.Entry<UUID, String> entry : pendingRestore.entrySet()) {
-            if (server.getPlayerList().getPlayer(entry.getKey()) != null) {
+            // Not merely "in the player list": a player caught mid-respawn is listed but already
+            // discarded, and a restore applied to that entity is lost the moment the new one takes
+            // over. A dead player has the same problem one step earlier — the respawn they have not
+            // clicked yet will replace the entity. Waiting costs nothing; restoring onto a corpse
+            // costs the player their inventory.
+            ServerPlayer candidate = server.getPlayerList().getPlayer(entry.getKey());
+            if (candidate != null && !candidate.isRemoved() && candidate.isAlive()) {
                 ready.add(entry.getKey());
             }
         }
@@ -1142,6 +1169,12 @@ public final class SessionManager {
      * behaviour a team match needs and a 1v1 never reaches.</p>
      */
     public void onRespawn(ServerPlayer player) {
+        // A respawn replaces the server-side entity but not the client. Whatever the HUD was
+        // showing is still on screen, and every push that would have changed it was addressed to the
+        // entity that no longer exists — so a player who respawns at the wrong moment keeps a duel
+        // bar (or a plot outline) for a match they are no longer in. Re-sending the current state is
+        // the only thing that can clear it, because nothing else will push until the next boundary.
+        pushHudTo(player);
         String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             return;
@@ -2480,14 +2513,109 @@ public final class SessionManager {
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
         closePanels(session);
-        try {
-            freeze(session);
-            transition(session, SessionStage.ROUND_READY);
-            startRound(session);
-        } catch (RuntimeException e) {
-            PvPocket.LOGGER.error("Failed to start session {}", session.id, e);
-            abort(session, "START_FAILED");
+        beginStart(session, 0);
+    }
+
+    /**
+     * Freezes and starts the first round — but only once every participant is actually standing.
+     *
+     * <p>Accepting a duel at the moment you die in the overworld used to throw straight out of the
+     * network handler. The participant's entity had already been discarded by the death itself,
+     * {@code setHealth} cannot revive a corpse, so {@link #startRound} threw "cannot revive
+     * participant" and the series was voided. The abort that followed then restored the snapshot
+     * onto that same discarded entity and marked the participant restored — so the player kept
+     * neither their items nor a match, which is the "half in a duel, still in the overworld"
+     * state.</p>
+     *
+     * <p>So the start waits instead of throwing. A dead participant is not a failure: they are
+     * looking at a death screen and will click respawn, usually within a second or two. Only an
+     * offline participant, or one who stays dead past {@link #START_WAIT_TICKS}, voids the series.</p>
+     *
+     * <p>Waiting happens <em>before</em> {@link #freeze}, not after, and that ordering is the whole
+     * point: the snapshot must describe the player the round will actually start with. Freezing a
+     * corpse writes {@code Health: 0} and an empty inventory into the file that is later restored,
+     * so the match would start (and end) with the participant owning nothing.</p>
+     *
+     * <p>Note that a death in 1.21.1 also removes the entity: the {@code ServerPlayer} is discarded
+     * when it dies and only replaced on respawn, so "dead" arrives here as both
+     * {@code !isAlive()} and {@code isRemoved()}. Anything that writes state has to wait for the
+     * respawn, which is why {@link #restoreParticipant} and {@link #flushPendingRestores} test
+     * {@code isAlive()} instead of trusting the player list.</p>
+     */
+    private void beginStart(DuelSession session, int waited) {
+        if (session.stage != SessionStage.NEGOTIATING) {
+            return;   // voided or forfeited while we were waiting
         }
+        // "Not standing yet" has three shapes and they are not interchangeable. Only one of them is
+        // something the player can fix, and only that one deserves a long wait.
+        //
+        // The order of the tests matters: in 1.21.1 a dead player is *also* removed — the entity is
+        // discarded at death and only replaced when the player respawns, so the PlayerList entry
+        // outlives the entity it points at. Testing isRemoved first would file every death under the
+        // short "replaced" grace and void the match a second after it began waiting.
+        Participant blocked = null;
+        ServerPlayer blockedPlayer = null;
+        String reason = null;
+        for (Participant p : session.participants) {
+            ServerPlayer player = online(p);
+            if (player == null) {
+                blocked = p;
+                reason = "PARTICIPANT_OFFLINE";
+            } else if (!player.isAlive()) {
+                blocked = p;
+                blockedPlayer = player;
+                reason = "PARTICIPANT_DEAD";
+            } else if (player.isRemoved()) {
+                blocked = p;
+                blockedPlayer = player;
+                reason = "PARTICIPANT_REPLACED";   // alive, but the entity is already on its way out
+            }
+            if (blocked != null) {
+                break;
+            }
+        }
+        if (blocked == null) {
+            try {
+                freeze(session);
+                transition(session, SessionStage.ROUND_READY);
+                startRound(session);
+            } catch (RuntimeException e) {
+                PvPocket.LOGGER.error("Failed to start session {}", session.id, e);
+                broadcastParticipants(session, PvLang.t("pvpocket.msg.duel.start_failed"));
+                abort(session, "START_FAILED");
+            }
+            return;
+        }
+        if (waited == 0) {
+            journal(session).append("START_WAITING", "player", blocked.name, "reason", reason);
+            if (!"PARTICIPANT_DEAD".equals(reason)) {
+                // Neither a disconnect nor a half-swapped entity is something the player can act on,
+                // so this goes to the log rather than to chat. The names on the server are the one
+                // piece of context that turns "somebody vanished" into a fact worth acting on.
+                PvPocket.LOGGER.warn("Session {} cannot start: {} is {} (online: {})", session.id,
+                        blocked.name, reason, server.getPlayerList().getPlayers().stream()
+                                .map(p -> p.getGameProfile().getName()).toList());
+            } else {
+                // Said once rather than once per tick: the player is on a death screen, and the one
+                // thing they need to know is that the duel is waiting for them and not broken.
+                blockedPlayer.displayClientMessage(
+                        PvLang.t("pvpocket.msg.duel.waiting_respawn")
+                                .withStyle(ChatFormatting.YELLOW), false);
+            }
+        }
+        int limit = "PARTICIPANT_DEAD".equals(reason) ? START_WAIT_TICKS : ABSENT_GRACE_TICKS;
+        if (waited >= limit) {
+            journal(session).append("SESSION_ABORTED", "reason", reason,
+                    "player", blocked.name, "waited", waited);
+            // Say why. A voided match with no explanation reads as the mod losing the request, and
+            // the next thing the player does is try again — which works, and teaches them nothing.
+            broadcastParticipants(session, PvLang.t("PARTICIPANT_DEAD".equals(reason)
+                    ? "pvpocket.msg.duel.start_blocked_dead"
+                    : "pvpocket.msg.duel.start_blocked_offline", blocked.name));
+            abort(session, reason);
+            return;
+        }
+        deferred.add(() -> beginStart(session, waited + 1));
     }
 
     /**
@@ -4839,9 +4967,15 @@ public final class SessionManager {
         // otherwise a later round would start with a stale legacy flag.
         CombatState.clear(uuid);
         ServerPlayer player = online(p);
-        if (player == null) {
+        // Dead counts as absent, for the same reason a discarded entity does. A restore writes
+        // health, inventory and position onto the entity, and the respawn that follows replaces
+        // that entity wholesale — the write is lost, and because the participant is then marked
+        // restored it is never retried. Waiting for the respawn costs a tick; not waiting costs
+        // the player everything they were carrying.
+        if (player == null || !player.isAlive()) {
             pendingRestore.put(uuid, session.id);
-            journal(session).append("RESTORE_DEFERRED", "player", p.name);
+            journal(session).append("RESTORE_DEFERRED", "player", p.name,
+                    "reason", player == null ? "OFFLINE" : "DEAD");
             return false;
         }
         // Cleared above, so this is the unconditional push: an offline-then-online player would
@@ -4876,9 +5010,15 @@ public final class SessionManager {
             sessionByPlayer.remove(player.getUUID());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {
+                // Naming the field is the difference between a line somebody can act on and a line
+                // that only says "something differs". The digest is a hash; without this the next
+                // reader has to reconstruct both states by hand to learn that it was, say, Health.
+                String diff = snapshot.mismatch(player);
                 journal(session).append("ANOMALY", "player", p.name,
-                        "detail", "state digest mismatch after restore");
-                PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}", p.name, session.id);
+                        "detail", "state digest mismatch after restore",
+                        "fields", diff);
+                PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}: {}",
+                        p.name, session.id, diff);
             }
             player.displayClientMessage(PvLang.t("pvpocket.msg.series.restored")
                     .withStyle(ChatFormatting.GREEN), false);
@@ -4939,6 +5079,11 @@ public final class SessionManager {
     }
 
     ServerPlayer online(Participant p) {
+        // Deliberately "in the player list", not "standing": a dead player is still listed, and the
+        // callers that must not touch a corpse say so themselves ({@link #restoreParticipant},
+        // {@link #flushPendingRestores}, {@link #beginStart}). Folding that into this method would
+        // make every count of "who is present" — win conditions, forfeits, HUD pushes — disagree
+        // with the player list during the seconds a death lasts.
         return server.getPlayerList().getPlayer(UUID.fromString(p.uuid));
     }
 

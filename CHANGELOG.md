@@ -103,6 +103,41 @@ scripts/dev-neoforge.sh      # 或 Windows 上 scripts\dev-neoforge.cmd
 界面自动化的入口收敛成两个：抓图 `scripts/agent/shot-window.ps1`，点击
 `scripts/agent/click-frac.ps1`（比例，不用绝对像素）。
 
+### 离开竞技场后血量上限不再留在 40
+
+在 arena 里把生命上限设成 40，回到主世界以后血条还是两行——快照存了属性，但存的是**整个
+`attributes` 列表**，而原版 `AttributeMap.save()` 只写「被改动过」的属性：停在默认值的那几条根本
+不落盘。恢复时 `player.load()` 是**合并**不是重置，快照里没有的属性就保留着 arena 写进去的值。
+
+现在 `PlayerSnapshot` 显式记 `max_health` / `knockback_resistance` 的基值（格式版本升到 2，老快照
+读得到、缺字段按「未知」处理），恢复时先 `load()` 再写回基值，未知的基值退回
+`DefaultAttributes.getSupplier(EntityType.PLAYER)` —— 也就是「服务器正常是多少就是多少」，不是硬编码 20。
+
+顺带发现 `verify()` 从上线起就是瞎的：`DIGEST_KEYS` 里写的是 `Attributes` / `exhaustion`，而 1.20.5 起
+真实键名是小写 `attributes` / `foodExhaustionLevel`，指纹里从来没算过属性——这正是「两行血」能隐身
+两个月的原因。现在算上了，`attributes` 走规范化（丢掉停在默认值的条目、按 id 排序）以免误报，真出
+差异时 `ANOMALY` 会写出**具体是哪个字段**变了，而不只是一句 digest mismatch。
+
+### 在接受决斗的那一瞬间死亡，不再把对局炸成「半个决斗」
+
+复现路径：接收方点「接受」的同一刻在主世界被打死。旧代码在 `startRound` 里 `setHealth` 想复活，
+而 1.21.1 里**死亡就会 discard 实体**（`PlayerList` 里的条目还在，实体已经没了），复活必然失败，
+异常直接抛出网络处理器 → 作废整场 → 作废时又把快照写到那具已经 discard 的尸体上并标记「已恢复」
+→ 玩家既没了物品也没有对局，人还站在主世界。
+
+现在开局**先等再冻结**：`beginStart` 把「还没站好」分成三种——不在玩家列表（掉线）、
+`!isAlive()`（死亡，正在看死亡屏幕）、`isRemoved()` 但还活着（实体正在被换掉）——死亡等 10 秒
+（死亡屏幕 + 一次点击），另外两种只等 2 秒。等的时候给当事人发一条「决斗等你重生后开始」，等到
+超时就作废并在聊天栏说明原因（`start_blocked_dead` / `start_blocked_offline`），不再只留一行日志。
+
+顺序是这次修复的要点：**等待必须在 `freeze` 之前**。冻结一具尸体等于把 `Health: 0` 和空背包写进
+之后要恢复的那个文件，比赛会以「一无所有」开局。
+
+同一类问题在恢复侧也一起堵了：`restoreParticipant` 现在把死亡当作「不在」，恢复推迟到重生之后
+（`flushPendingRestores` 同样要求 `isAlive()`），否则写进旧实体的状态会随重生一起消失、而参与者已被
+标记「已恢复」再也不会重试。`online()` 仍然只表示「在玩家列表里」——把它改成「站着」会让所有统计
+在场人数的判断（胜负条件、掉线判负、HUD 推送）在死亡的几秒里集体失准。
+
 ---
 
 ## 2026-11-11

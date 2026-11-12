@@ -210,6 +210,42 @@ public final class PlayerSnapshot {
         return fingerprintOf(current).equals(fingerprint);
     }
 
+    /**
+     * Which digest keys differ from the snapshot, with both values, for the anomaly line.
+     *
+     * <p>Empty when {@link #verify} passes. The digest is a hash, so without this the only thing an
+     * anomaly says is "something differs" — and the next reader has to reconstruct two player states
+     * by hand to find out that it was, say, {@code Health}. Values are truncated because the point is
+     * to name the field, not to dump an inventory into a log line.</p>
+     */
+    public String mismatch(ServerPlayer player) {
+        CompoundTag current = new CompoundTag();
+        player.saveWithoutId(current);
+        List<String> out = new ArrayList<>();
+        for (String key : DIGEST_KEYS) {
+            String before = describe(key, playerNbt);
+            String after = describe(key, current);
+            if (!before.equals(after)) {
+                out.add(key + " " + before + " -> " + after);
+            }
+        }
+        return out.isEmpty() ? "(none)" : String.join("; ", out);
+    }
+
+    private static String describe(String key, CompoundTag nbt) {
+        Tag element = nbt.get(key);
+        if (element == null) {
+            return "<absent>";
+        }
+        // Same normalisation the fingerprint uses, otherwise every restore would report a
+        // difference in `attributes` that the digest itself considers equal.
+        Tag shown = key.equals("attributes") && element instanceof ListTag list
+                ? canonicalAttributes(list)
+                : element;
+        String text = shown.toString();
+        return text.length() <= 60 ? text : text.substring(0, 60) + "...";
+    }
+
     public String fingerprint() {
         return fingerprint;
     }
