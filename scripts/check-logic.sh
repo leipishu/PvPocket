@@ -91,4 +91,28 @@ for source in $SOURCES; do
             --src src/fabric/java --src src/client-fabric/java || FAILED=1
     fi
 done
+
+# --- NeoForge 那一格的 mixin 目标 --------------------------------------------------------------
+# 同一处 @At(target = "Lnet/minecraft/…") 在两个加载器上未必都成立：NeoForge 会把原版的调用点
+# 换成自己的钩子。MixinTargetCheck 只回答「这个类 / 这个成员还在不在」，注入点被搬到别处它看不出来
+# ——那一类只有真开一局才知道。但「NeoForge 把整个方法删了」它是能抓的，所以值得多跑一遍。
+#
+# 依赖 :neoforge:compileJava 生成的产物（含 MDG 算好的完整类路径），没有就跳过并提示，不判失败：
+# 只编 Fabric 的机器上不该因为这个红。
+NF_JAR="$(ls neoforge/build/moddev/artifacts/neoforge-*.jar 2>/dev/null \
+    | grep -vE 'sources|merged|client-extra' | head -1)"
+NF_CP_FILE="neoforge/build/moddev/clientLegacyClasspath.txt"
+if [ -n "$NF_JAR" ] && [ -f "$NF_CP_FILE" ]; then
+    # 类路径文件是 CRLF 换行的，不 tr -d '\r' 的话每一条都带个回车，所有 jar 都加载不到，
+    # 症状是「每个 mixin 都找不到目标类」——比不跑还误导。
+    NF_CP="$OUT;$(tr -d '\r' < "$NF_CP_FILE" | tr '\n' ';')$NF_JAR"
+    echo "[logic] NeoForge 的 mixin 目标（$NF_JAR）"
+    "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
+        -classpath "$NF_CP" MixinTargetCheck --mcjar "$NF_JAR" \
+        --src src/main/java --src src/client/java \
+        --src src/neoforge/java --src src/client-neoforge/java || FAILED=1
+else
+    echo "[logic] 跳过 NeoForge 的 mixin 核对（先跑一次 ./gradlew :neoforge:compileJava）"
+fi
+
 exit $FAILED

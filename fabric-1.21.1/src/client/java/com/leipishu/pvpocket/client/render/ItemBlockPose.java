@@ -1,23 +1,24 @@
-package com.leipishu.pvpocket.mixin.client;
+package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.combat.CombatState;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
-import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.entity.ItemRenderer;
-import net.minecraft.world.item.ItemDisplayContext;
-import net.minecraft.client.renderer.block.model.ItemTransform;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SwordItem;
-import net.minecraft.world.entity.HumanoidArm;
-import com.mojang.math.Axis;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
 
 /**
- * The 1.8 first-person sword block.
+ * The 1.8 first-person sword block: the pose itself, with no loader in it.
+ *
+ * <p><b>Why this is not a mixin.</b> The two loaders do not agree on where the display transform is
+ * applied. Fabric leaves {@code ItemRenderer.render} calling
+ * {@code ItemTransforms.getTransform(ctx).apply(leftHand, poseStack)}; NeoForge replaces that line
+ * with {@code ClientHooks.handleCameraTransforms(poseStack, model, ctx, leftHand)}. Same behaviour,
+ * different call site, so the injection has to live per loader — but the numbers must not be copied
+ * into both. This class is the half that does not depend on which call site exists.</p>
  *
  * <p><b>Why the display transform is replaced rather than added to.</b> 1.8's first person never
  * applied {@code item/handheld}'s {@code firstperson_righthand} transform — {@code
@@ -50,8 +51,7 @@ import org.spongepowered.asm.mixin.injection.At;
  * itself would flip its winding and make it invisible from the front, so there is no cheap correct
  * answer here; the crosshair brackets still show the block is up.</p>
  */
-@Mixin(ItemRenderer.class)
-public abstract class ItemRendererMixin {
+public final class ItemBlockPose {
 
     /**
      * 1.8's own hand scale is 0.4, and it is what 1.8 shipped — but 1.8 also drew the sprite at a
@@ -78,36 +78,16 @@ public abstract class ItemRendererMixin {
      */
     private static final float GRIP = 0.40F;
 
-    @WrapOperation(method = "render(Lnet/minecraft/world/item/ItemStack;"
-                    + "Lnet/minecraft/world/item/ItemDisplayContext;Z"
-                    + "Lcom/mojang/blaze3d/vertex/PoseStack;"
-                    + "Lnet/minecraft/client/renderer/MultiBufferSource;II"
-                    + "Lnet/minecraft/client/resources/model/BakedModel;)V",
-            at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/renderer/block/model/ItemTransform;apply("
-                            + "ZLcom/mojang/blaze3d/vertex/PoseStack;)V"))
-    private void pvpocket$legacyBlockPose(ItemTransform display, boolean leftHanded,
-                                          PoseStack matrices, Operation<Void> original,
-                                          ItemStack stack, ItemDisplayContext renderMode) {
-        if (leftHanded || !wantsBlockPose(stack, renderMode)) {
-            original.call(display, leftHanded, matrices);
-            return;
-        }
-
-        // Where the quarter turn puts the hilt, measured from the anchor. Rotating +90 about Z maps
-        // (-GRIP, -GRIP) to (+GRIP, -GRIP), so the lift that cancels it is exactly its negation.
-        float gripX = GRIP * HAND_SCALE;
-        float gripY = -GRIP * HAND_SCALE;
-
-        matrices.translate(HAND_OFFSET_X - gripX, HAND_OFFSET_Y - gripY, 0.0F);
-        matrices.scale(HAND_SCALE, HAND_SCALE, HAND_SCALE);
-        matrices.mulPose(Axis.ZP.rotationDegrees(BLOCK_ROLL));
-
-        // ItemRenderer's own translate(-0.5, -0.5, -0.5) follows this call, so the quarter turn above
-        // happens about the model's centre rather than its corner.
+    private ItemBlockPose() {
     }
 
-    private static boolean wantsBlockPose(ItemStack stack, ItemDisplayContext renderMode) {
+    /**
+     * Whether this particular render pass should get the 1.8 block pose.
+     *
+     * @param stack      the stack being rendered
+     * @param renderMode which hand / perspective this pass is for
+     */
+    public static boolean wants(ItemStack stack, ItemDisplayContext renderMode) {
         if (!(stack.getItem() instanceof SwordItem)) {
             return false;
         }
@@ -123,5 +103,23 @@ public abstract class ItemRendererMixin {
                 ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
                 : ItemDisplayContext.FIRST_PERSON_LEFT_HAND;
         return renderMode == mainHand;
+    }
+
+    /**
+     * Builds the whole hand pose. The caller must have skipped the display transform — this replaces
+     * it, it does not compose with it.
+     */
+    public static void apply(PoseStack matrices) {
+        // Where the quarter turn puts the hilt, measured from the anchor. Rotating +90 about Z maps
+        // (-GRIP, -GRIP) to (+GRIP, -GRIP), so the lift that cancels it is exactly its negation.
+        float gripX = GRIP * HAND_SCALE;
+        float gripY = -GRIP * HAND_SCALE;
+
+        matrices.translate(HAND_OFFSET_X - gripX, HAND_OFFSET_Y - gripY, 0.0F);
+        matrices.scale(HAND_SCALE, HAND_SCALE, HAND_SCALE);
+        matrices.mulPose(Axis.ZP.rotationDegrees(BLOCK_ROLL));
+
+        // ItemRenderer's own translate(-0.5, -0.5, -0.5) follows this call, so the quarter turn above
+        // happens about the model's centre rather than its corner.
     }
 }

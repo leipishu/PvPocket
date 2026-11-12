@@ -28,8 +28,29 @@ public class Pw {
 }
 "@
 
+# Find the client by --username, not by window title: all four Fabric clients share a title.
+#
+# The arguments are not necessarily on the command line. ModDevGradle writes them to
+# `clientRunProgramArgs.txt` and hands DevLaunch an @argfile, so CommandLine contains only the file
+# path and `--username NeoDev1` lives inside it. Without expanding argfiles the NeoForge client is
+# never found and the error reads "no client process", which looks like the client never started.
+#
+# ASCII only: this file has no BOM and Windows PowerShell 5.1 reads it with the ANSI codepage.
+function Get-EffectiveCommandLine($proc) {
+    $cl = $proc.CommandLine
+    if (-not $cl) { return "" }
+    $extra = ""
+    foreach ($m in [regex]::Matches($cl, '@([^\s"]+\.txt)')) {
+        $path = $m.Groups[1].Value.Replace('\\', '\')
+        if (Test-Path -LiteralPath $path) {
+            $extra += " " + ((Get-Content -LiteralPath $path -Raw) -replace '\s+', ' ')
+        }
+    }
+    return "$cl $extra"
+}
+
 $proc = Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
-    Where-Object { $_.CommandLine -like "*--username $Username*" } |
+    Where-Object { (Get-EffectiveCommandLine $_) -like "*--username $Username*" } |
     Select-Object -First 1
 if (-not $proc) { Write-Error "no client process for $Username"; exit 1 }
 $hwnd = (Get-Process -Id $proc.ProcessId).MainWindowHandle

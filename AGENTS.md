@@ -309,6 +309,23 @@ python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
   多一个加载器依赖。
 - **往已初始化的界面里加控件走 `mixin/client/ScreenInvoker`**（`@Invoker("addRenderableWidget")`），
   不要用加载器的 `Screens.getButtons` 那种「把只读列表强转回可写」的绕法。
+- **注入点被加载器搬走过的 mixin，一个类写不成两份行为。** NeoForge 会 patch 原版方法体，把
+  `@At(target = "…")` 指的那条调用换掉（`ItemRenderer.render` 里的
+  `ItemTransform.apply` → `ClientHooks.handleCameraTransforms`）。这时 Fabric 的 mixin 在 NeoForge 上
+  匹配到 0 个候选，客户端在加载 `RenderType` 时就崩：`Critical injection failure … (0/1) succeeded`。
+  做法是**两个文件、同一个全限定名**，分别放在 `src/client-fabric` 与 `src/client-neoforge`——
+  每个构建只看得见其中一个，所以 `pvpocket.client.mixins.json` 仍然只有一条。**数字与判据
+  （pose、比例、条件）必须提到 `src/client` 里的普通类**（如 `client/render/ItemBlockPose`），
+  两份 mixin 只保留「在哪个调用点拦」这一句差异。
+- **`MixinTargetCheck` 抓不到这一类**：类和成员都还在，是调用点搬走了。`scripts/check-logic.sh`
+  因此跑两遍（Fabric 一遍、NeoForge 一遍），能抓的是「NeoForge 把整个方法删了」那种。
+
+### 5d. 脚本
+
+- **`.ps1` 一律 ASCII**，注释也一样。这些文件没有 BOM，Windows PowerShell 5.1 按 ANSI 代码页读，
+  中文注释会让它解析失败，报的是**下一个 `}` 处的语法错误**——离真正的原因隔着十几行。
+- `scripts/agent/shot-window.ps1` 按 `--username` 认客户端。ModDevGradle 把程序参数写进
+  `@clientRunProgramArgs.txt`，命令行里只有文件路径，所以脚本会把 argfile 展开再匹配。
 
 ### 6. 沙盒
 

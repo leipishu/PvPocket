@@ -2,7 +2,7 @@ param(
     # Brings a dev client's window back on screen and reports what the window manager says about it.
     #
     # Why this exists: a client that has been minimised by another script's -HideOthers, or that
-    # ended up behind a maximised editor, still reports a plausible GetWindowRect — so a capture
+    # ended up behind a maximised editor, still reports a plausible GetWindowRect -- so a capture
     # "succeeds" and writes a picture of the desktop wallpaper. Nothing in that failure names the
     # window, which is why this prints visibility and iconic state instead of just restoring.
     [string]$Username = "Dev1",
@@ -49,7 +49,7 @@ if ([RaiseWin]::IsIconic($hwnd)) {
 [void][RaiseWin]::SetWindowPos($hwnd, [IntPtr](-1), 0, 0, 0, 0, 0x0013)
 Start-Sleep -Milliseconds 300
 
-# SWP_NOSIZE (0x0001) | SWP_NOZORDER (0x0004) | SWP_NOACTIVATE (0x0010) — move only.
+# SWP_NOSIZE (0x0001) | SWP_NOZORDER (0x0004) | SWP_NOACTIVATE (0x0010) -- move only.
 if ($X -ge 0 -and $Y -ge 0) {
     [void][RaiseWin]::SetWindowPos($hwnd, [IntPtr]::Zero, $X, $Y, 0, 0, 0x0015)
     Start-Sleep -Milliseconds 200
