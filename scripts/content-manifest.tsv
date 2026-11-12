@@ -1,0 +1,54 @@
+﻿# 内容清单：某个物品 id 从哪个 MC 版本开始存在。
+#
+# 没列在这里的物品一律视为 1.20.1 就有——所以这张表只记"新增"，不记全量。全量由
+# `ItemKind` / `Material` / `LoadoutCatalog` 在 Java 里声明，这里只管版本门槛。
+#
+# 为什么要单独一张表：`ItemKind.available()` 问的是**运行时注册表**，那是对的做法（版本差异
+# 不该硬编码进枚举），但它意味着"这个版本到底有没有长矛"在离线状态下无处可查。移植时最怕的
+# 就是这一格：面板上多出一行、点了给不到东西。所以把门槛写成数据，让 `check-content.py`
+# 能在不开游戏的前提下逐格核对。
+#
+# 第三列是**依据**。`verified` 表示对着真实 jar 核过（`check-content.py --verify-jar` 会
+# 把它变成这个值）；`declared` 表示按发布说明填的，还没用 jar 核过。移植每一格时先用该格的
+# jar 跑一次 `--verify-jar`，把 declared 逐个消掉。
+#
+# 格式：item_id <TAB> 起始版本 <TAB> 依据
+# 以 # 开头是注释，空行忽略。
+
+# ---- 从来没有过：原版没有木制与石制护甲 ----
+# `Material` 是与种类正交的枚举，所以 `ItemKind × Material` 的叉积里有这些组合、游戏里没有。
+# 运行时由 `available()` 问注册表挡掉（面板上看不见），这张表只是把同一件事写下来，好让
+# 离线核对不把它们当成"漏了"。铁制护甲起才有——`iron_helmet` 在 jar 里，`wooden_helmet` 不在。
+wooden_helmet	never	verified
+stone_helmet	never	verified
+wooden_chestplate	never	verified
+stone_chestplate	never	verified
+wooden_leggings	never	verified
+stone_leggings	never	verified
+wooden_boots	never	verified
+stone_boots	never	verified
+
+# ---- 1.21 Tricky Trials（2024-06-13）：重锤与风弹 ----
+mace	1.21	verified
+wind_charge	1.21	verified
+
+# ---- 1.21.9 The Copper Age（2025-09-30）：铜制工具、武器、护甲 ----
+# 配装目录用到的是剑/斧/镐与四件护甲；铜锄与铜铲不在目录里，故不列。
+copper_sword	1.21.9	declared
+copper_axe	1.21.9	declared
+copper_pickaxe	1.21.9	declared
+copper_helmet	1.21.9	declared
+copper_chestplate	1.21.9	declared
+copper_leggings	1.21.9	declared
+copper_boots	1.21.9	declared
+
+# ---- 1.21.11 Mounts of Mayhem（2025-12-09）：长矛 ----
+# 长矛是材质化的（`wooden_spear` … `netherite_spear`）。木制那一种最可疑：原版的矛可能
+# 从石制起算，这一条等 1.21.11 的 jar 到手后立刻核。
+wooden_spear	1.21.11	declared
+stone_spear	1.21.11	declared
+copper_spear	1.21.11	declared
+iron_spear	1.21.11	declared
+golden_spear	1.21.11	declared
+diamond_spear	1.21.11	declared
+netherite_spear	1.21.11	declared

@@ -73,13 +73,22 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能�
 改完语言文件跑一次：
 
 ```bash
-cd fabric-1.21.1 && python -c "
-import json,re
-z=json.load(open('src/main/resources/assets/pvpocket/lang/zh_cn.json',encoding='utf-8'))
-e=json.load(open('src/main/resources/assets/pvpocket/lang/en_us.json',encoding='utf-8'))
-print(len(z),len(e),set(z)^set(e))
-print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'%s',e[k]))])"
+python scripts/check-lang.py
 ```
+
+它查的不只是键集与 `%s` 数量，还有三件编译不会报的事：代码引用了不存在的键（面板上直接显示
+键名）、`PvLang.t("key", ...)` 的实参个数与占位符对不上（消息末尾挂一个 `%s`）、以及
+`.label` 有而 `.hint` 没有。`--strict` 把「语言文件里有、源码里没人用」也算失败。
+
+配装内容的版本门槛在 `scripts/content-manifest.tsv`，逐格核对用：
+
+```bash
+python scripts/check-content.py 1.21.11-neoforge            # 这一格能给出哪些物品
+python scripts/check-content.py --all                       # 12 格总表
+python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # 对着真实 jar 对账
+```
+
+移植每一格时都要跑一次 `--verify-jar`：清单里 `declared` 的条目只有对着 jar 才能变成结论。
 
 ### 2. 指令面收敛
 
@@ -232,8 +241,26 @@ print([k for k in z if k in e and len(re.findall(r'%s',z[k]))!=len(re.findall(r'
   （`COPPER` 就插在中间），而序号一旦落进预设就是静默错位。
 - **校验要分两句**：`item_missing`（这个版本没有这类物品，只能删掉这一行）与 `no_such_item`
   （这个材质建不出这个物品，换一个材质就好）。混成一句会让玩家不知道该怎么修。
-- 新增物品或材质之后跑 `scripts/check-logic.sh`，`LoadoutContentCheck` 会用三份手写的版本清单
-  断言每个版本应当看到什么。
+- 新增物品或材质之后跑 `scripts/check-logic.sh`（`LoadoutContentCheck` 用三份手写的版本清单断言
+  每个版本应当看到什么），再跑 `python scripts/check-content.py --all` 看 12 格总表——后者把版本
+  门槛放在 `scripts/content-manifest.tsv` 里，新增一格时用 `--verify-jar <该格客户端 jar>` 对账。
+
+### 5c. 加载器边界
+
+**`src/main` 里除 `platform` 包之外，不许出现 `net.fabricmc` / `net.neoforged` 的 import。**
+这条线决定了移植一格的代价：守住了就是「写一个 200 行的实现类」，破了就是「重写一遍」。
+
+- 加载器接触面是 `platform/PvPlatform`：网络收发、生命周期、四个否决点。实现类（如
+  `platform/fabric/FabricPlatform`）只做转发，**不写判断**——实现类里出现 if，那个判断多半属于
+  `PvBootstrap`。
+- 「发生某事时该做什么」全部在 `platform/PvBootstrap.wire(platform)` 里，那部分不含加载器的名字。
+  入口类只做三件事：装平台、注册 payload、`wire`。
+- 否决点只承诺**能不能发生**，不承诺**发生成什么样**。Fabric 的 `ALLOW_DAMAGE` 只能取消，
+  NeoForge 能改伤害值——接口承诺后者就等于前者做不到，所以统一成 boolean。
+- payload 的 codec 注册不上升到接口：`PacketCodec`（Fabric）与 `StreamCodec`（NeoForge）是两种
+  类型，那处差异由各平台的网络层自己承担。**字段顺序只在 payload 类里写一次**，这是硬要求。
+- 端口顺序上的现实：`PvPocket.onInitialize()` 里不要加业务代码，那一刻平台还没装好，
+  `PvPlatform.get()` 会抛。
 
 ### 6. 沙盒
 

@@ -120,6 +120,7 @@ public final class MixinTargetCheck {
             checkMethodTargets(where, source, targetClass);
             checkAtTargets(where, source);
             checkMemberAccessors(where, source, targetClass);
+            checkShadowMembers(where, source, targetClass);
         }
     }
 
@@ -179,6 +180,96 @@ public final class MixinTargetCheck {
                 }
             }
         }
+    }
+
+    /**
+     * {@code @Shadow} 声明的字段/方法：目标类上真的有这个成员吗。
+     *
+     * <p>这一条是改名留下的坑，而且是最阴的一种：`@Shadow private Level world;` 里的字段名
+     * 不会因为类型从 {@code World} 改成 {@code Level} 就跟着改成 {@code level}。mixin 绑不上
+     * 字段时只在编译期打一行警告（{@code Cannot find target for @Shadow field}），游戏里那个
+     * 字段恒为 null——`ExplosionMixin` 的 `f.allowExplosives` 就这么静默失效了一整轮，
+     * 而界面审计不会引爆 TNT，所以什么都没报。</p>
+     */
+    private static void checkShadowMembers(String where, String source, Class<?> targetClass) {
+        int index = 0;
+        while ((index = source.indexOf("@Shadow", index)) >= 0) {
+            index += "@Shadow".length();
+            String decl = declarationAfter(source, index);
+            if (decl == null) {
+                continue;
+            }
+            int paren = decl.indexOf('(');
+            int semi = decl.indexOf(';');
+            if (paren >= 0 && (semi < 0 || paren < semi)) {
+                // 方法：只核对名字存在。参数类型的比对交给 @Inject 那一侧，它带描述符。
+                String name = decl.substring(0, paren).trim();
+                int space = name.lastIndexOf(' ');
+                if (space >= 0) {
+                    name = name.substring(space + 1).trim();
+                }
+                referenceCount++;
+                if (!name.isEmpty() && anyDeclared(targetClass, name) == null) {
+                    fail(where + "：@Shadow 的方法 " + name + " 在 " + targetClass.getName() + " 上不存在");
+                }
+                continue;
+            }
+            // 字段。分号可能在剥修饰符时已经被去掉，所以不能拿 `semi < 0` 当"不是字段"。
+            String body = semi >= 0 ? decl.substring(0, semi).trim() : decl.trim();
+            int space = body.lastIndexOf(' ');
+            if (space < 0) {
+                continue;
+            }
+            String declaredType = body.substring(0, space).trim();
+            String name = body.substring(space + 1).trim();
+            referenceCount++;
+            Field field = findField(targetClass, name);
+            if (field == null) {
+                fail(where + "：@Shadow 的字段 " + name + " 在 " + targetClass.getName()
+                        + " 上不存在（改名时漏了？）");
+                continue;
+            }
+            // 类型也比一遍：字段名撞对了、类型没跟上，同样是 null 或 ClassCastException。
+            String wanted = declaredType.substring(declaredType.lastIndexOf('.') + 1).trim();
+            String actual = field.getType().getSimpleName();
+            if (!wanted.equals(actual)) {
+                fail(where + "：@Shadow 的字段 " + name + " 声明成 " + wanted + "，而 "
+                        + targetClass.getName() + " 上是 " + actual);
+            }
+        }
+    }
+
+    /**
+     * 从注解之后取一段声明文本（到 {@code ;} 或 <code>{</code> 为止），并剥掉其间的注解与修饰符。
+     *
+     * <p>{@code @Shadow} 与真正的声明之间常常还有 {@code @Final}、{@code @Mutable}，所以不能
+     * 只看下一个 token。</p>
+     */
+    private static String declarationAfter(String source, int from) {
+        int end = -1;
+        for (int i = from; i < source.length(); i++) {
+            char c = source.charAt(i);
+            if (c == ';' || c == '{') {
+                end = i;
+                break;
+            }
+            // 注解里可能出现括号与逗号，但不该出现分号；遇到 ')' 之后继续即可。
+        }
+        if (end < 0) {
+            return null;
+        }
+        String decl = source.substring(from, end).trim();
+        // 剥掉开头的注解（可能带参数）与修饰符。
+        while (true) {
+            String before = decl;
+            decl = decl.replaceFirst("^@[\\w.]+\\s*(\\([^)]*\\))?\\s*", "");
+            decl = decl.replaceFirst(
+                    "^(?:public|protected|private|final|static|transient|volatile|abstract)\\s+", "");
+            if (decl.equals(before)) {
+                break;
+            }
+        }
+        return decl.isEmpty() ? null : decl;
     }
 
     /** {@code @Accessor("x")} / {@code @Invoker("y")}：直接写在注解值里的成员名。 */

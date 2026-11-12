@@ -30,7 +30,7 @@ public abstract class ExplosionMixin {
 
     @Shadow
     @Final
-    private Level world;
+    private Level level;
 
     @Inject(method = "explode", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noExplosionDamage(CallbackInfo ci) {
@@ -54,7 +54,7 @@ public abstract class ExplosionMixin {
             return true;
         }
         Vec3 pos = ((Explosion) (Object) this).center();
-        return SessionManager.explosivesAllowed(world, pos);
+        return SessionManager.explosivesAllowed(level, pos);
     }
 
     /**
