@@ -3,11 +3,11 @@ package com.leipishu.pvpocket.mixin;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.mojang.brigadier.ParseResults;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <p><b>Hooked at {@code execute}, not at {@code executeWithPrefix}.</b> That is not the obvious
  * choice and it is the one that matters: a command typed into chat is parsed by
  * {@code ServerPlayNetworkHandler} itself and arrives as
- * {@code CommandManager.execute(ParseResults, String)}. Only the console and RCON go through
+ * {@code CommandManager.performCommand(ParseResults, String)}. Only the console and RCON go through
  * {@code executeWithPrefix}, which parses and then calls {@code execute}. Hooking the prefix
  * variant would have blocked the operator and left the players — the entire point — untouched.</p>
  *
@@ -34,19 +34,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <p>Only player sources are filtered — see {@link Sandbox} for why the console and RCON keep
  * working.</p>
  */
-@Mixin(CommandManager.class)
+@Mixin(Commands.class)
 public abstract class CommandManagerMixin {
 
-    @Inject(method = "execute", at = @At("HEAD"), cancellable = true)
-    private void pvpocket$refuseCommandsInSandbox(ParseResults<ServerCommandSource> parse,
+    @Inject(method = "performCommand", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$refuseCommandsInSandbox(ParseResults<CommandSourceStack> parse,
                                                   String command, CallbackInfo ci) {
-        ServerCommandSource source = parse.getContext().getSource();
+        CommandSourceStack source = parse.getContext().getSource();
         if (Sandbox.commandAllowed(source, command)) {
             return;
         }
-        if (source.getEntity() instanceof ServerPlayerEntity player) {
-            player.sendMessage(PvLang.t("pvpocket.msg.sandbox.command_denied")
-                    .formatted(Formatting.RED), false);
+        if (source.getEntity() instanceof ServerPlayer player) {
+            player.displayClientMessage(PvLang.t("pvpocket.msg.sandbox.command_denied")
+                    .withStyle(ChatFormatting.RED), false);
         }
         ci.cancel();
     }
@@ -65,18 +65,18 @@ public abstract class CommandManagerMixin {
      * or they are {@code /pvpocket} commands, which do not change game modes through the command
      * system at all.</p>
      */
-    @Inject(method = "execute", at = @At("HEAD"))
-    private void pvpocket$beginOperatorScope(ParseResults<ServerCommandSource> parse,
+    @Inject(method = "performCommand", at = @At("HEAD"))
+    private void pvpocket$beginOperatorScope(ParseResults<CommandSourceStack> parse,
                                              String command, CallbackInfo ci) {
-        if (!(parse.getContext().getSource().getEntity() instanceof ServerPlayerEntity)) {
+        if (!(parse.getContext().getSource().getEntity() instanceof ServerPlayer)) {
             Sandbox.beginAuthorised();
         }
     }
 
-    @Inject(method = "execute", at = @At("RETURN"))
-    private void pvpocket$endOperatorScope(ParseResults<ServerCommandSource> parse,
+    @Inject(method = "performCommand", at = @At("RETURN"))
+    private void pvpocket$endOperatorScope(ParseResults<CommandSourceStack> parse,
                                            String command, CallbackInfo ci) {
-        if (!(parse.getContext().getSource().getEntity() instanceof ServerPlayerEntity)) {
+        if (!(parse.getContext().getSource().getEntity() instanceof ServerPlayer)) {
             Sandbox.endAuthorised();
         }
     }

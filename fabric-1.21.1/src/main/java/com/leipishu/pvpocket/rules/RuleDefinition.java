@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.rules;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
 
 /**
  * One configurable rule.
@@ -146,11 +146,11 @@ public final class RuleDefinition {
 
     // ------------------------------------------------------------------ text
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 
-    public MutableText hintText() {
+    public MutableComponent hintText() {
         return PvLang.t(hintKey);
     }
 
@@ -169,9 +169,9 @@ public final class RuleDefinition {
     }
 
     /** The Nth choice as {@link Text}, for chat. Out-of-range values clamp to the first choice. */
-    public MutableText choiceText(int value) {
+    public MutableComponent choiceText(int value) {
         if (choiceCount() == 0) {
-            return Text.empty();
+            return Component.empty();
         }
         int i = Math.max(0, Math.min(choiceKeys.length - 1, value));
         return PvLang.t(choiceKeys[i]);
@@ -251,19 +251,19 @@ public final class RuleDefinition {
      * no language, so a value it formatted itself would arrive on a client speaking something else
      * with the wrong words already baked in.</p>
      */
-    public MutableText formatText(int value) {
+    public MutableComponent formatText(int value) {
         switch (kind) {
             case TOGGLE:
                 return PvLang.t(value == 0 ? "pvpocket.value.off" : "pvpocket.value.on");
             case ENUM:
                 return choiceText(value);
             case MULTI: {
-                MutableText out = Text.empty();
+                MutableComponent out = Component.empty();
                 boolean first = true;
                 for (int i = 0; i < choiceCount(); i++) {
                     if ((value & (1 << i)) != 0) {
                         if (!first) {
-                            out.append(Text.literal("·"));
+                            out.append(Component.literal("·"));
                         }
                         out.append(PvLang.t(choiceKeys[i]));
                         first = false;
@@ -275,12 +275,12 @@ public final class RuleDefinition {
                 return choiceText(0);
             default:
                 if (percent) {
-                    return Text.literal(value + "%");
+                    return Component.literal(value + "%");
                 }
                 String number = divisor > 1
                         ? String.format("%.1f", value / (double) divisor)
                         : Integer.toString(value);
-                return unitKey == null ? Text.literal(number) : PvLang.t(unitKey, number);
+                return unitKey == null ? Component.literal(number) : PvLang.t(unitKey, number);
         }
     }
 

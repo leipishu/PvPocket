@@ -8,14 +8,14 @@ import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.ClickEvent;
-import net.minecraft.text.HoverEvent;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.WorldSavePath;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -86,7 +86,7 @@ final class ArenaGuard {
     }
 
     static ArenaGuard load(SessionManager sessions, MinecraftServer server) {
-        Path file = server.getSavePath(WorldSavePath.ROOT).resolve("pvpocket").resolve("guard.json");
+        Path file = server.getWorldPath(LevelResource.ROOT).resolve("pvpocket").resolve("guard.json");
         ArenaGuard guard = new ArenaGuard(sessions, file);
         if (!Files.exists(file)) {
             return guard;
@@ -143,8 +143,8 @@ final class ArenaGuard {
         MinecraftServer server = sessions.server();
         long now = System.currentTimeMillis();
 
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            UUID uuid = player.getUuid();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID uuid = player.getUUID();
             if (!shouldLeave(player, uuid)) {
                 // Covers every legitimate exit: joined a session, started spectating, left the
                 // dimension, died, or flipped the flag. In all of them the countdown simply stops.
@@ -168,8 +168,8 @@ final class ArenaGuard {
                 deadline.shown = second;
                 // Action bar, not chat: five chat lines in five seconds pushes everything else off
                 // the screen, and the countdown is not worth that.
-                player.sendMessage(PvLang.t("pvpocket.msg.guard.countdown", second)
-                        .formatted(Formatting.YELLOW), true);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.guard.countdown", second)
+                        .withStyle(ChatFormatting.YELLOW), true);
             }
         }
 
@@ -178,7 +178,7 @@ final class ArenaGuard {
         if (!pending.isEmpty()) {
             Iterator<UUID> it = pending.keySet().iterator();
             while (it.hasNext()) {
-                if (server.getPlayerManager().getPlayer(it.next()) == null) {
+                if (server.getPlayerList().getPlayer(it.next()) == null) {
                     it.remove();
                 }
             }
@@ -186,8 +186,8 @@ final class ArenaGuard {
     }
 
     /** The three legitimate reasons to be in the dimension, plus the two reasons to wait. */
-    private boolean shouldLeave(ServerPlayerEntity player, UUID uuid) {
-        if (!ArenaManager.isArena(player.getWorld())) {
+    private boolean shouldLeave(ServerPlayer player, UUID uuid) {
+        if (!ArenaManager.isArena(player.level())) {
             return false;
         }
         // A dead player is on the respawn screen. Moving them would teleport a corpse; they get
@@ -217,23 +217,23 @@ final class ArenaGuard {
      * escape and then denies it. Everyone else just gets the sentence, which is accurate — there is
      * nothing they can do about it and nothing they should be doing in there.</p>
      */
-    private void announce(ServerPlayerEntity player) {
-        player.sendMessage(PvLang.t("pvpocket.msg.guard.stray")
-                .formatted(Formatting.YELLOW)
+    private void announce(ServerPlayer player) {
+        player.displayClientMessage(PvLang.t("pvpocket.msg.guard.stray")
+                .withStyle(ChatFormatting.YELLOW)
                 .append(PvLang.t("pvpocket.msg.guard.will_move", COUNTDOWN_SECONDS)
-                        .formatted(Formatting.YELLOW)), false);
+                        .withStyle(ChatFormatting.YELLOW)), false);
 
-        if (!player.hasPermissionLevel(2)) {
+        if (!player.hasPermissions(2)) {
             return;
         }
-        MutableText button = PvLang.t("pvpocket.msg.guard.button").setStyle(Style.EMPTY
-                .withColor(Formatting.AQUA)
+        MutableComponent button = PvLang.t("pvpocket.msg.guard.button").setStyle(Style.EMPTY
+                .withColor(ChatFormatting.AQUA)
                 .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
                         "/pvpocket guard false"))
                 .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
                         PvLang.t("pvpocket.msg.guard.button_hover"))));
-        player.sendMessage(button.append(PvLang.t("pvpocket.msg.guard.button_hint")
-                .formatted(Formatting.DARK_GRAY)), false);
+        player.displayClientMessage(button.append(PvLang.t("pvpocket.msg.guard.button_hint")
+                .withStyle(ChatFormatting.DARK_GRAY)), false);
     }
 
     // ------------------------------------------------------------------ persistence

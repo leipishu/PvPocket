@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: "I want to edit my loadout".
@@ -13,16 +13,16 @@ import net.minecraft.util.Identifier;
  * round is running the answer is no, and the client has to be told that rather than quietly editing
  * a copy that will never be applied.</p>
  */
-public record LoadoutRequestPayload() implements CustomPayload {
+public record LoadoutRequestPayload() implements CustomPacketPayload {
 
-    public static final Id<LoadoutRequestPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "loadout_request"));
+    public static final Type<LoadoutRequestPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "loadout_request"));
 
-    public static final PacketCodec<RegistryByteBuf, LoadoutRequestPayload> CODEC =
-            PacketCodec.unit(new LoadoutRequestPayload());
+    public static final StreamCodec<RegistryFriendlyByteBuf, LoadoutRequestPayload> CODEC =
+            StreamCodec.unit(new LoadoutRequestPayload());
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

@@ -15,7 +15,7 @@ import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,7 +83,7 @@ public final class PvAuditHarness {
         System.out.println("[pvaudit] harness armed");
     }
 
-    private static void tick(MinecraftClient client) {
+    private static void tick(Minecraft client) {
         if (finished) {
             return;
         }
@@ -114,14 +114,14 @@ public final class PvAuditHarness {
         cursor++;
     }
 
-    private static void finish(MinecraftClient client) {
+    private static void finish(Minecraft client) {
         finished = true;
         clearPresets();
         int total = PvAudit.summary("layout audit");
         System.out.println("[pvaudit] " + (total == 0 ? "CLEAN" : "FOUND " + total + " overlap(s)"));
         if (Boolean.getBoolean("pvpocket.audit.exit")) {
             client.setScreen(null);
-            client.scheduleStop();
+            client.stop();
         }
     }
 

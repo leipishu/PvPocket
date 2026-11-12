@@ -3,8 +3,8 @@ package com.leipishu.pvpocket.rules;
 import com.leipishu.pvpocket.arena.ArenaMap;
 import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -175,7 +175,7 @@ public final class DuelRules {
      * chat line, so a pre-formatted string would freeze one language into a message read by
      * somebody speaking the other.</p>
      */
-    public MutableText summaryText() {
+    public MutableComponent summaryText() {
         RuleDefinition mode = RuleCatalog.byId("c.mode");
         RuleDefinition sizeX = RuleCatalog.byId("e.sizeX");
         RuleDefinition sizeZ = RuleCatalog.byId("e.sizeZ");
@@ -190,18 +190,18 @@ public final class DuelRules {
         // players who agreed on "斗兽场" had no way to tell from the summary that they were about to
         // be dropped into the fun house. The size is still printed because it is what the flat map
         // actually uses, but for any other map the name is the fact that matters.
-        return Text.empty()
+        return Component.empty()
                 .append(PvLang.t("pvpocket.rule.series.short", maxRounds, winsNeeded))
-                .append(Text.literal(" · "))
+                .append(Component.literal(" · "))
                 .append(mode.formatText(get("c.mode")))
-                .append(Text.literal(" · "))
+                .append(Component.literal(" · "))
                 .append(PvLang.t("pvpocket.rule.b.teamSlot", get("b.teamSize")))
-                .append(Text.literal(" · "))
+                .append(Component.literal(" · "))
                 .append(map.labelText())
-                .append(Text.literal(" "))
+                .append(Component.literal(" "))
                 .append(PvLang.t("pvpocket.rule.e.size", sizeX.formatText(get("e.sizeX")),
                         sizeZ.formatText(get("e.sizeZ"))))
-                .append(Text.literal(" · "))
+                .append(Component.literal(" · "))
                 .append(PvLang.t("pvpocket.rule.c.maxHealthShort", get("c.maxHealth")));
     }
 

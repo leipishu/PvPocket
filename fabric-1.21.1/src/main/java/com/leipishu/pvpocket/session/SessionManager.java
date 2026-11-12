@@ -33,27 +33,27 @@ import com.leipishu.pvpocket.stats.PlayerStats;
 import com.leipishu.pvpocket.storage.HomePositions;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
-import net.minecraft.entity.attribute.EntityAttributes;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.damage.DamageTypes;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.tag.DamageTypeTags;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.network.packet.s2c.play.ClearTitleS2CPacket;
-import net.minecraft.network.message.MessageType;
-import net.minecraft.network.message.SignedMessage;
-import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
-import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.GameRules;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.network.protocol.game.ClientboundClearTitlesPacket;
+import net.minecraft.network.chat.ChatType;
+import net.minecraft.network.chat.PlayerChatMessage;
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.Level;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -382,8 +382,8 @@ public final class SessionManager {
      *
      * @return the new state, i.e. whether the guard is enabled for this player
      */
-    public boolean setGuardEnabled(ServerPlayerEntity player, boolean enabled) {
-        boolean now = guard.setEnabled(player.getUuid(), enabled);
+    public boolean setGuardEnabled(ServerPlayer player, boolean enabled) {
+        boolean now = guard.setEnabled(player.getUUID(), enabled);
         PvPocket.LOGGER.info("Stray-player guard {} for {} ({} exemptions on record)",
                 enabled ? "enabled" : "disabled", player.getName().getString(), guard.exemptCount());
         return now;
@@ -449,7 +449,7 @@ public final class SessionManager {
         }
         spectators.ejectEverything("ARENA_RESET");
         int ended = forceEndAll("ARENA_RESET");
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             // No-op for everybody the sessions already sent home; this is for the player who was in
             // the dimension for a reason that no longer exists.
             homes.evict(player);
@@ -471,7 +471,7 @@ public final class SessionManager {
 
     // ------------------------------------------------------------------ player events
 
-    public void onJoin(ServerPlayerEntity player) {
+    public void onJoin(ServerPlayer player) {
         // Unconditional, because the client mirror is a correctness requirement rather than a hint:
         // a stale legacy flag would leave the player with a permanent block penalty. One tiny packet
         // per join is a cheap price for never having to reason about how the state got there.
@@ -493,9 +493,9 @@ public final class SessionManager {
         // position packet has not gone out yet, so a teleport issued now would be overwritten by
         // the one the join sequence sends a few lines later. Looked up by uuid rather than captured
         // because a respawn inside the same tick replaces the entity.
-        UUID joining = player.getUuid();
+        UUID joining = player.getUUID();
         deferred.add(() -> {
-            ServerPlayerEntity online = server.getPlayerManager().getPlayer(joining);
+            ServerPlayer online = server.getPlayerList().getPlayer(joining);
             if (online != null) {
                 homes.rescue(online);
             }
@@ -563,13 +563,13 @@ public final class SessionManager {
         }
         List<UUID> ready = new ArrayList<>();
         for (Map.Entry<UUID, String> entry : pendingRestore.entrySet()) {
-            if (server.getPlayerManager().getPlayer(entry.getKey()) != null) {
+            if (server.getPlayerList().getPlayer(entry.getKey()) != null) {
                 ready.add(entry.getKey());
             }
         }
         for (UUID uuid : ready) {
             String sessionId = pendingRestore.remove(uuid);
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+            ServerPlayer player = server.getPlayerList().getPlayer(uuid);
             if (player == null || sessionId == null) {
                 continue;
             }
@@ -583,20 +583,20 @@ public final class SessionManager {
                 continue;
             }
             if (!restoreParticipant(session, p)) {
-                player.sendMessage(PvLang.t("pvpocket.msg.restore.failed", sessionId)
-                        .formatted(Formatting.RED), false);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.restore.failed", sessionId)
+                        .withStyle(ChatFormatting.RED), false);
                 continue;
             }
             // A deferred restore has two causes and they read very differently to a player: the
             // session was voided by a crash, or it finished normally and they simply left early.
-            MutableText note = PvLang.t(session.voidReason == null
+            MutableComponent note = PvLang.t(session.voidReason == null
                     ? "pvpocket.msg.restore.done"
                     : "pvpocket.msg.restore.done_voided");
-            player.sendMessage(note.formatted(Formatting.YELLOW), false);
+            player.displayClientMessage(note.withStyle(ChatFormatting.YELLOW), false);
         }
     }
 
-    public void onDisconnect(ServerPlayerEntity player) {
+    public void onDisconnect(ServerPlayer player) {
         // Before the participant check below, because a spectator is by definition not a
         // participant. Their game mode is restored here rather than deferred, so the playerdata
         // written during this same disconnect records survival rather than spectator — otherwise
@@ -606,15 +606,15 @@ public final class SessionManager {
         // player is gone, and a disconnect is the one moment the saved home is guaranteed current.
         homes.remember(player);
         homes.flush();
-        String sessionId = sessionByPlayer.get(player.getUuid());
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             // A negotiation is not in sessionByPlayer — nothing has started yet — but a player who
             // drops out of one leaves everybody else waiting for an answer that can no longer
             // arrive, and the panel on their side cannot tell "still thinking" from "gone".
             // Deferred so the session is not mutated in the middle of the disconnect unwinding.
-            DuelSession open = findOpenSession(player.getUuid());
+            DuelSession open = findOpenSession(player.getUUID());
             if (open != null && open.stage == SessionStage.NEGOTIATING) {
-                String uuid = player.getUuidAsString();
+                String uuid = player.getStringUUID();
                 deferred.add(() -> dropNegotiator(open, uuid));
             }
             return;
@@ -623,7 +623,7 @@ public final class SessionManager {
         if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         if (me == null) {
             return;
         }
@@ -647,8 +647,8 @@ public final class SessionManager {
      * those stages would silently block damage in the survival world for anybody who happened to
      * share a session.</p>
      */
-    public boolean allowDamage(ServerPlayerEntity victim, DamageSource source) {
-        String sessionId = sessionByPlayer.get(victim.getUuid());
+    public boolean allowDamage(ServerPlayer victim, DamageSource source) {
+        String sessionId = sessionByPlayer.get(victim.getUUID());
         if (sessionId == null) {
             return true;
         }
@@ -659,15 +659,15 @@ public final class SessionManager {
         if (!allowEnvironmentDamage(session, source)) {
             return false;
         }
-        if (!(source.getAttacker() instanceof ServerPlayerEntity attacker)
+        if (!(source.getEntity() instanceof ServerPlayer attacker)
                 || attacker == victim) {
             return true;
         }
         if (session.rulebook().friendlyFire()) {
             return true;
         }
-        Participant mine = session.participant(victim.getUuidAsString());
-        Participant theirs = session.participant(attacker.getUuidAsString());
+        Participant mine = session.participant(victim.getStringUUID());
+        Participant theirs = session.participant(attacker.getStringUUID());
         if (mine == null || theirs == null || mine.teamIndex() != theirs.teamIndex()) {
             return true;
         }
@@ -694,16 +694,16 @@ public final class SessionManager {
      */
     private boolean allowEnvironmentDamage(DuelSession session, DamageSource source) {
         Rulebook book = session.rulebook();
-        if (source.isIn(DamageTypeTags.IS_FALL)) {
+        if (source.is(DamageTypeTags.IS_FALL)) {
             return book.fallDamage();
         }
-        if (source.isOf(DamageTypes.LAVA)) {
+        if (source.is(DamageTypes.LAVA)) {
             return book.lavaHazard();
         }
-        if (source.isOf(DamageTypes.OUT_OF_WORLD)) {
+        if (source.is(DamageTypes.FELL_OUT_OF_WORLD)) {
             return book.voidHazard();
         }
-        if (source.isOf(DamageTypes.STARVE)) {
+        if (source.is(DamageTypes.STARVE)) {
             return book.hunger();
         }
         return true;
@@ -753,11 +753,11 @@ public final class SessionManager {
      * whichever side runs it, so a client that has not been told would carve holes that the server
      * never confirms — a crater only the person who lit the fuse can see.</p>
      */
-    public static boolean explosivesAllowed(World world, Vec3d pos) {
+    public static boolean explosivesAllowed(Level world, Vec3 pos) {
         if (world == null) {
             return true;
         }
-        if (world.isClient()) {
+        if (world.isClientSide()) {
             return CombatState.clientExplosivesAllowed();
         }
         SessionManager manager = instance;
@@ -774,8 +774,8 @@ public final class SessionManager {
     }
 
     /** The same answer for one player, which is what the client mirror is built from. */
-    public static boolean explosivesAllowedFor(ServerPlayerEntity player) {
-        DuelSession session = activeSessionOf(player.getUuid());
+    public static boolean explosivesAllowedFor(ServerPlayer player) {
+        DuelSession session = activeSessionOf(player.getUUID());
         return session == null || session.rulebook().explosives();
     }
 
@@ -811,11 +811,11 @@ public final class SessionManager {
      * right-click with a banned block re-attempts the placement every few ticks, and five lines a
      * second is not an explanation, it is a wall.</p>
      */
-    public static void reportUseDenial(PlayerEntity player, UsePolicy.Denial denial, ItemStack stack) {
-        if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayerEntity server)) {
+    public static void reportUseDenial(Player player, UsePolicy.Denial denial, ItemStack stack) {
+        if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayer server)) {
             return;
         }
-        MutableText message = switch (denial) {
+        MutableComponent message = switch (denial) {
             case PLACE -> PvLang.t("pvpocket.msg.use.place");
             // Named, not generic: "方块限制" is five switches, and "something is banned" leaves the
             // player ticking all five to find out which one they tripped.
@@ -835,8 +835,8 @@ public final class SessionManager {
      * <p>Worth a sentence, unlike a refused pickup: an item that stays on the ground explains
      * itself, but a crafting result that simply will not come out looks like a broken slot.</p>
      */
-    public static void reportCraftingDenial(PlayerEntity player) {
-        if (player instanceof ServerPlayerEntity server) {
+    public static void reportCraftingDenial(Player player) {
+        if (player instanceof ServerPlayer server) {
             warnThrottled(server, PvLang.t("pvpocket.msg.use.craft"));
         }
     }
@@ -852,8 +852,8 @@ public final class SessionManager {
      * remove the stack for a frame, but it does not speak — a sentence from there would be a local
      * guess at why the server said no.</p>
      */
-    public static void reportDropDenial(PlayerEntity player) {
-        if (player instanceof ServerPlayerEntity server) {
+    public static void reportDropDenial(Player player) {
+        if (player instanceof ServerPlayer server) {
             warnThrottled(server, PvLang.t("pvpocket.msg.loadout.no_drop"));
         }
     }
@@ -874,13 +874,13 @@ public final class SessionManager {
      * <p>Scoped to {@code ROUND_ACTIVE} like the damage veto, and for the same reason: a rule that
      * outlives the round would silently mute the lobby for anybody who shares a session.</p>
      */
-    public static boolean allowChat(SignedMessage message, ServerPlayerEntity sender,
-                                    MessageType.Parameters params) {
+    public static boolean allowChat(PlayerChatMessage message, ServerPlayer sender,
+                                    ChatType.Bound params) {
         SessionManager manager = instance;
         if (manager == null) {
             return true;
         }
-        DuelSession session = activeSessionOf(sender.getUuid());
+        DuelSession session = activeSessionOf(sender.getUUID());
         if (session == null) {
             return true;
         }
@@ -888,25 +888,25 @@ public final class SessionManager {
         if (scope == Rulebook.ChatScope.SERVER) {
             return true;
         }
-        Text decorated = params.applyChatDecoration(message.getContent());
+        Component decorated = params.decorate(message.decoratedContent());
         if (scope == Rulebook.ChatScope.MUTED) {
             warnThrottled(sender, PvLang.t("pvpocket.msg.chat.muted"));
             return false;
         }
-        Participant mine = session.participant(sender.getUuidAsString());
+        Participant mine = session.participant(sender.getStringUUID());
         if (mine == null) {
             // In the session but not on a side — a spectator. There is no team to talk to, so the
             // line goes back to them alone rather than to every side at once.
-            sender.sendMessage(decorated, false);
+            sender.displayClientMessage(decorated, false);
             return false;
         }
         for (Participant p : session.participants) {
             if (p.teamIndex() != mine.teamIndex()) {
                 continue;
             }
-            ServerPlayerEntity target = manager.online(p);
+            ServerPlayer target = manager.online(p);
             if (target != null) {
-                target.sendMessage(decorated, false);
+                target.displayClientMessage(decorated, false);
             }
         }
         return false;
@@ -918,7 +918,7 @@ public final class SessionManager {
      * <p>Throttled because every caller sits on a path the client retries while a button is held:
      * five lines a second is not an explanation, it is a wall.</p>
      */
-    private static void warnThrottled(ServerPlayerEntity player, MutableText message) {
+    private static void warnThrottled(ServerPlayer player, MutableComponent message) {
         if (message == null) {
             return;
         }
@@ -926,13 +926,13 @@ public final class SessionManager {
         if (mc == null) {
             return;
         }
-        int now = mc.getTicks();
-        Integer last = useWarnAt.get(player.getUuid());
+        int now = mc.getTickCount();
+        Integer last = useWarnAt.get(player.getUUID());
         if (last != null && now - last < USE_WARN_COOLDOWN) {
             return;
         }
-        useWarnAt.put(player.getUuid(), now);
-        player.sendMessage(message.formatted(Formatting.GRAY), true);
+        useWarnAt.put(player.getUUID(), now);
+        player.displayClientMessage(message.withStyle(ChatFormatting.GRAY), true);
     }
 
     /**
@@ -942,7 +942,7 @@ public final class SessionManager {
      * combat layer's bit layout: the rulebook answers "is placing allowed", the gate is how that
      * answer is shipped.</p>
      */
-    private static void applyUseGate(DuelSession session, ServerPlayerEntity player) {
+    private static void applyUseGate(DuelSession session, ServerPlayer player) {
         Rulebook book = session.rulebook();
         int gate = 0;
         if (book.allowPlace()) {
@@ -954,7 +954,7 @@ public final class SessionManager {
         if (book.allowEnderPearl()) {
             gate |= UsePolicy.ALLOW_ENDER_PEARL;
         }
-        CombatState.setUseGate(player.getUuid(), gate, book.blockBans());
+        CombatState.setUseGate(player.getUUID(), gate, book.blockBans());
     }
 
     /**
@@ -993,14 +993,14 @@ public final class SessionManager {
             case DOUBLE_LOSS -> "pvpocket.msg.round.timeout.double";
         };
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player == null) {
                 continue;
             }
             // Built per player rather than once and reused: a Text that is mutated for one recipient
             // is the same object the next one would get.
-            MutableText line = byHealth ? PvLang.t(key, teamName(session, winner)) : PvLang.t(key);
-            player.sendMessage(line.formatted(Formatting.YELLOW), false);
+            MutableComponent line = byHealth ? PvLang.t(key, teamName(session, winner)) : PvLang.t(key);
+            player.displayClientMessage(line.withStyle(ChatFormatting.YELLOW), false);
         }
 
         String reason = switch (verdict) {
@@ -1028,7 +1028,7 @@ public final class SessionManager {
             if (p.rejected) {
                 continue;
             }
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             double hp = player != null && player.isAlive() && !p.eliminated ? player.getHealth() : 0D;
             totals.merge(p.teamIndex(), hp, Double::sum);
         }
@@ -1048,8 +1048,8 @@ public final class SessionManager {
         return tie ? -1 : best;
     }
 
-    public void onDeath(ServerPlayerEntity player) {
-        String sessionId = sessionByPlayer.get(player.getUuid());
+    public void onDeath(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             return;
         }
@@ -1057,7 +1057,7 @@ public final class SessionManager {
         if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         if (me == null || me.eliminated) {
             return;
         }
@@ -1084,8 +1084,8 @@ public final class SessionManager {
      * the dead player is put back into the plot as a spectator so they can watch it. That is the
      * behaviour a team match needs and a 1v1 never reaches.</p>
      */
-    public void onRespawn(ServerPlayerEntity player) {
-        String sessionId = sessionByPlayer.get(player.getUuid());
+    public void onRespawn(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             return;
         }
@@ -1110,16 +1110,16 @@ public final class SessionManager {
      * and more honest: they are still in the match, they just cannot affect it. The round start puts
      * them back into survival and at their spawn.</p>
      */
-    private void watchRestOfRound(DuelSession session, ServerPlayerEntity player) {
+    private void watchRestOfRound(DuelSession session, ServerPlayer player) {
         if (session.stage != SessionStage.ROUND_ACTIVE || !player.isAlive()) {
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         ArenaRegion region = ArenaManager.region(session.id);
         if (me == null || region == null || !me.eliminated) {
             return;
         }
-        Sandbox.changeGameMode(player, GameMode.SPECTATOR);
+        Sandbox.changeGameMode(player, GameType.SPECTATOR);
         ArenaManager.teleportToSpawn(player, region, me.teamIndex(), me.member,
                 Math.max(1, session.teamMembers(me.teamIndex()).size()));
         // The round is still live, so the "decided but unapplied" record is stale: it named this
@@ -1128,8 +1128,8 @@ public final class SessionManager {
         session.pendingWinner = null;
         session.pendingReason = null;
         persist(session);
-        player.sendMessage(PvLang.t("pvpocket.msg.round.eliminated")
-                .formatted(Formatting.GRAY), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.round.eliminated")
+                .withStyle(ChatFormatting.GRAY), false);
     }
 
     // ------------------------------------------------------------------ tick
@@ -1143,7 +1143,7 @@ public final class SessionManager {
      * disconnects from inside the arena.</p>
      */
     private void tickHomes() {
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             homes.remember(player);
         }
         homes.flushIfDue();
@@ -1189,7 +1189,7 @@ public final class SessionManager {
                 continue;
             }
             for (Participant p : session.participants) {
-                ServerPlayerEntity player = online(p);
+                ServerPlayer player = online(p);
                 if (player == null) {
                     continue;
                 }
@@ -1202,11 +1202,11 @@ public final class SessionManager {
                     // stops leaves the player unsure whether they are still at risk.
                     if (boundaryExits.remove(key) != null) {
                         journal(session).append("BOUNDARY_RETURNED", "player", p.name);
-                        player.sendMessage(PvLang.t("pvpocket.msg.boundary.returned")
-                                .formatted(Formatting.GREEN), false);
+                        player.displayClientMessage(PvLang.t("pvpocket.msg.boundary.returned")
+                                .withStyle(ChatFormatting.GREEN), false);
                         // Wipes the big number instead of leaving a stale "1" hanging in the middle
                         // of the screen after the player has already saved themselves.
-                        player.networkHandler.sendPacket(new ClearTitleS2CPacket(false));
+                        player.connection.send(new ClientboundClearTitlesPacket(false));
                     }
                     continue;
                 }
@@ -1238,11 +1238,11 @@ public final class SessionManager {
                             "region", region.id,
                             "pos", String.format("%.2f,%.2f,%.2f",
                                     player.getX(), player.getY(), player.getZ()),
-                            "world", player.getWorld().getRegistryKey().getValue().toString(),
+                            "world", player.level().dimension().location().toString(),
                             "countdownMs", BOUNDARY_COUNTDOWN_MS);
-                    player.sendMessage(PvLang.t("pvpocket.msg.boundary.left",
+                    player.displayClientMessage(PvLang.t("pvpocket.msg.boundary.left",
                                     BOUNDARY_COUNTDOWN_MS / 1000)
-                            .formatted(Formatting.RED), false);
+                            .withStyle(ChatFormatting.RED), false);
                     announceBoundary(player, 5);
                     continue;
                 }
@@ -1251,7 +1251,7 @@ public final class SessionManager {
                     boundaryExits.remove(key);
                     journal(session).append("BOUNDARY_FORFEIT", "player", p.name,
                             "elapsedMs", now - exit.since());
-                    player.networkHandler.sendPacket(new ClearTitleS2CPacket(false));
+                    player.connection.send(new ClientboundClearTitlesPacket(false));
                     // Through eliminate() rather than settle(): leaving the plot removes one player,
                     // and in a 2v2 that is not the same thing as losing the round.
                     deferred.add(() -> eliminate(session, p, "OUT_OF_BOUNDS"));
@@ -1307,7 +1307,7 @@ public final class SessionManager {
      * identical {@code BOUNDARY_PUSHED_BACK} rows for one player leaning on the edge is noise, not
      * evidence.</p>
      */
-    private void notifyPushBack(DuelSession session, ServerPlayerEntity player, String key, boolean settling) {
+    private void notifyPushBack(DuelSession session, ServerPlayer player, String key, boolean settling) {
         long now = System.currentTimeMillis();
         Long last = boundaryNotices.get(key);
         if (last != null && now - last < BOUNDARY_NOTICE_GAP_MS) {
@@ -1316,10 +1316,10 @@ public final class SessionManager {
         boundaryNotices.put(key, now);
         journal(session).append("BOUNDARY_PUSHED_BACK", "player", player.getName().getString(),
                 "settling", settling, "rule", settling ? "pending" : "push_back");
-        player.sendMessage(PvLang.t(settling
+        player.displayClientMessage(PvLang.t(settling
                         ? "pvpocket.msg.boundary.pushing_back"
                         : "pvpocket.msg.boundary.at_edge")
-                .formatted(Formatting.YELLOW), true);
+                .withStyle(ChatFormatting.YELLOW), true);
     }
 
     /**
@@ -1330,13 +1330,13 @@ public final class SessionManager {
      * one-second stay, short fade-out so each number replaces the previous one instead of queueing
      * behind it.</p>
      */
-    private static void announceBoundary(ServerPlayerEntity player, int second) {
-        player.networkHandler.sendPacket(new TitleFadeS2CPacket(0, 22, 4));
+    private static void announceBoundary(ServerPlayer player, int second) {
+        player.connection.send(new ClientboundSetTitlesAnimationPacket(0, 22, 4));
         // Not bold: vanilla bold is a second draw of the same glyph shifted one pixel, which the
         // bundled bitmap font has a hand-made sheet for but a resource pack's TrueType font does
         // not — the number reads as smeared at the four-times scale a title is drawn at.
-        player.networkHandler.sendPacket(new TitleS2CPacket(
-                Text.literal(String.valueOf(second)).formatted(Formatting.RED)));
+        player.connection.send(new ClientboundSetTitleTextPacket(
+                Component.literal(String.valueOf(second)).withStyle(ChatFormatting.RED)));
     }
 
     /**
@@ -1383,12 +1383,12 @@ public final class SessionManager {
      * record per negotiation rather than a client-side draft plus a server-side session, and it is
      * what lets the proposer close the panel and come back with {@code /pvpocket review}.</p>
      */
-    public void openRoster(ServerPlayerEntity proposer) {
-        if (sessionByPlayer.containsKey(proposer.getUuid())) {
+    public void openRoster(ServerPlayer proposer) {
+        if (sessionByPlayer.containsKey(proposer.getUUID())) {
             fail(proposer, "pvpocket.msg.duel.self_busy");
             return;
         }
-        if (proposer.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+        if (proposer.gameMode.getGameModeForPlayer() == GameType.SPECTATOR) {
             fail(proposer, "pvpocket.msg.duel.spectator");
             return;
         }
@@ -1396,7 +1396,7 @@ public final class SessionManager {
             fail(proposer, "pvpocket.msg.duel.arena_not_ready");
             return;
         }
-        DuelSession open = findOpenSession(proposer.getUuid());
+        DuelSession open = findOpenSession(proposer.getUUID());
         if (open != null) {
             if (open.stage != SessionStage.DRAFT) {
                 // Somebody else is waiting on an answer here, so the old invite is not the
@@ -1418,18 +1418,18 @@ public final class SessionManager {
         session.id = UUID.randomUUID().toString();
         session.createdAt = System.currentTimeMillis();
         session.updatedAt = session.createdAt;
-        Participant me = new Participant(proposer.getUuidAsString(),
+        Participant me = new Participant(proposer.getStringUUID(),
                 proposer.getName().getString(), 0, 0);
         // The proposer's own book becomes the match's set. Everyone invited after this inherits it
         // instead of bringing their own — see seedLoadout.
-        seedLoadout(me, loadouts.get(proposer.getUuid()));
+        seedLoadout(me, loadouts.get(proposer.getUUID()));
         session.participants.add(me);
         session.teamCount = MIN_TEAMS;
 
         DuelRules rules = DuelRules.defaults();
         applyRulesToSession(session, rules);
         session.rulesRevision = 0;
-        session.rulesAuthor = proposer.getUuidAsString();
+        session.rulesAuthor = proposer.getStringUUID();
 
         sessions.put(session.id, session);
         journal(session).append("SESSION_DRAFTED", "proposer", me.name);
@@ -1450,7 +1450,7 @@ public final class SessionManager {
      *
      * @return true when the roster was accepted and the session moved to negotiation
      */
-    private boolean submitRoster(DuelSession session, ServerPlayerEntity proposer, String encoded,
+    private boolean submitRoster(DuelSession session, ServerPlayer proposer, String encoded,
                                  DuelRules rules) {
         List<List<UUID>> sides = new ArrayList<>();
         for (String sideText : encoded.split(";", -1)) {
@@ -1502,7 +1502,7 @@ public final class SessionManager {
             fail(proposer, "pvpocket.msg.roster.not_enough", total);
             return false;
         }
-        if (!seen.contains(proposer.getUuid())) {
+        if (!seen.contains(proposer.getUUID())) {
             fail(proposer, "pvpocket.msg.roster.self_missing");
             return false;
         }
@@ -1526,12 +1526,12 @@ public final class SessionManager {
             List<UUID> side = playing.get(team);
             for (int member = 0; member < side.size(); member++) {
                 UUID uuid = side.get(member);
-                ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+                ServerPlayer player = server.getPlayerList().getPlayer(uuid);
                 if (player == null) {
                     fail(proposer, "pvpocket.msg.roster.offline", nameOf(uuid));
                     return false;
                 }
-                if (!uuid.equals(proposer.getUuid())) {
+                if (!uuid.equals(proposer.getUUID())) {
                     if (sessionByPlayer.containsKey(uuid)) {
                         fail(proposer, "pvpocket.msg.duel.target_busy",
                                 player.getName().getString());
@@ -1542,7 +1542,7 @@ public final class SessionManager {
                                 player.getName().getString());
                         return false;
                     }
-                    if (player.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+                    if (player.gameMode.getGameModeForPlayer() == GameType.SPECTATOR) {
                         fail(proposer, "pvpocket.msg.duel.spectator");
                         return false;
                     }
@@ -1649,7 +1649,7 @@ public final class SessionManager {
 
     /** A display name for a uuid that may not be online, for refusal messages. */
     private String nameOf(UUID uuid) {
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+        ServerPlayer player = server.getPlayerList().getPlayer(uuid);
         if (player != null) {
             return player.getName().getString();
         }
@@ -1669,7 +1669,7 @@ public final class SessionManager {
      * play". What is refused is a side that is over the size cap, and a roster that leaves fewer
      * than two sides with anybody on them, because that is a match with nobody to fight.</p>
      */
-    private boolean validateRoster(DuelSession session, DuelRules rules, ServerPlayerEntity player) {
+    private boolean validateRoster(DuelSession session, DuelRules rules, ServerPlayer player) {
         int teamSize = rules.get("b.teamSize");
         int total = 0;
         for (int team = 0; team < session.teamCount; team++) {
@@ -1744,7 +1744,7 @@ public final class SessionManager {
     }
 
     /** Sends (or re-sends) the panel to a player. Used by the packet path and by /pvpocket review. */
-    private void openPanel(ServerPlayerEntity player, DuelSession session, int role) {
+    private void openPanel(ServerPlayer player, DuelSession session, int role) {
         // The tally on the panel is "how many have pressed Accept", not "how many have agreed to the
         // loadout": with three or more players the second number is always zero until the last
         // person answers, so showing it would tell everybody the negotiation is going nowhere.
@@ -1755,7 +1755,7 @@ public final class SessionManager {
                 role,
                 session.rulesRevision,
                 new RulesOpenPayload.Details(
-                        otherName(session, player.getUuidAsString()),
+                        otherName(session, player.getStringUUID()),
                         loadoutCounts(session),
                         agreed,
                         liveCount(session),
@@ -1781,14 +1781,14 @@ public final class SessionManager {
      * <p>Ordered by name so the list does not reshuffle between two opens, and capped by the caller
      * through {@code b.maxPlayers} rather than here: this is the pool, not the roster.</p>
      */
-    private String candidates(ServerPlayerEntity reader) {
+    private String candidates(ServerPlayer reader) {
         List<String> out = new ArrayList<>();
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            if (player.interactionManager.getGameMode() == GameMode.SPECTATOR) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.gameMode.getGameModeForPlayer() == GameType.SPECTATOR) {
                 continue;
             }
-            UUID uuid = player.getUuid();
-            if (!uuid.equals(reader.getUuid())) {
+            UUID uuid = player.getUUID();
+            if (!uuid.equals(reader.getUUID())) {
                 if (sessionByPlayer.containsKey(uuid) || findOpenSession(uuid) != null) {
                     continue;
                 }
@@ -1913,7 +1913,7 @@ public final class SessionManager {
         session.awaitingUuid = changed.uuid;
         persist(session);
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
                 openPanel(player, session, p.uuid.equals(changed.uuid)
                         ? RulesOpenPayload.ROLE_PROPOSER
@@ -1922,17 +1922,17 @@ public final class SessionManager {
         }
         String name = changed.name;
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
-                player.sendMessage(PvLang.t("pvpocket.msg.rules.loadout_changed", name)
-                        .formatted(Formatting.GOLD), false);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.rules.loadout_changed", name)
+                        .withStyle(ChatFormatting.GOLD), false);
             }
         }
     }
 
     /** Re-opens the panel for whoever is currently expected to answer. Command fallback path. */
-    public void review(ServerPlayerEntity player) {
-        DuelSession session = findOpenSession(player.getUuid());
+    public void review(ServerPlayer player) {
+        DuelSession session = findOpenSession(player.getUUID());
         if (session == null) {
             fail(player, "pvpocket.msg.rules.none_pending");
             return;
@@ -1948,13 +1948,13 @@ public final class SessionManager {
         // follow the pen.
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_DRAFT
-                : player.getUuidAsString().equals(session.rulesAuthor)
+                : player.getStringUUID().equals(session.rulesAuthor)
                 ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
         openPanel(player, session, role);
-        player.sendMessage(PvLang.t("pvpocket.msg.rules.version",
+        player.displayClientMessage(PvLang.t("pvpocket.msg.rules.version",
                         session.rulesRevision, shortDigest(session))
-                .formatted(Formatting.DARK_GRAY), false);
+                .withStyle(ChatFormatting.DARK_GRAY), false);
     }
 
     /**
@@ -1964,10 +1964,10 @@ public final class SessionManager {
      * wants to do, never whether it is allowed to: only the player the session is waiting on may
      * act, and only the author of the current revision may replace it.</p>
      */
-    public void onRulesSubmit(ServerPlayerEntity player, int action, String encoded,
+    public void onRulesSubmit(ServerPlayer player, int action, String encoded,
                               String encodedRoster) {
-        String uuid = player.getUuidAsString();
-        DuelSession session = findOpenSession(player.getUuid());
+        String uuid = player.getStringUUID();
+        DuelSession session = findOpenSession(player.getUUID());
         if (session == null) {
             fail(player, "pvpocket.msg.rules.none_pending");
             return;
@@ -1997,8 +1997,8 @@ public final class SessionManager {
                             "revision", session.rulesRevision,
                             "playingTeams", session.playingTeams().size());
                     persist(session);
-                    player.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
-                            .formatted(Formatting.GRAY), false);
+                    player.displayClientMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
+                            .withStyle(ChatFormatting.GRAY), false);
                     broadcastNegotiation(session, uuid,
                             PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
                     settleNegotiation(session, player);
@@ -2034,8 +2034,8 @@ public final class SessionManager {
                     "remaining", session.participants.size() - rejectedCount(session),
                     "playingTeams", session.playingTeams().size());
             persist(session);
-            player.sendMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
-                    .formatted(Formatting.GRAY), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
+                    .withStyle(ChatFormatting.GRAY), false);
             broadcastNegotiation(session, uuid,
                     PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
             settleNegotiation(session, player);
@@ -2099,24 +2099,24 @@ public final class SessionManager {
                     others.add(p.name);
                 }
             }
-            player.sendMessage(PvLang.t("pvpocket.msg.rules.sent",
+            player.displayClientMessage(PvLang.t("pvpocket.msg.rules.sent",
                             session.rulesRevision, String.join(", ", others))
-                    .formatted(Formatting.GRAY), false);
+                    .withStyle(ChatFormatting.GRAY), false);
             for (Participant p : session.participants) {
                 if (p.uuid.equals(uuid) || p.rejected) {
                     continue;
                 }
                 inviteByTarget.put(UUID.fromString(p.uuid), session.id);
-                ServerPlayerEntity target = online(p);
+                ServerPlayer target = online(p);
                 if (target == null) {
                     continue;
                 }
-                target.sendMessage(PvLang.t("pvpocket.msg.rules.incoming",
+                target.displayClientMessage(PvLang.t("pvpocket.msg.rules.incoming",
                                 player.getName().getString(), session.rulesRevision,
                                 proposed.summaryText())
-                        .formatted(Formatting.GOLD), false);
-                target.sendMessage(PvLang.t("pvpocket.msg.rules.panel_hint")
-                        .formatted(Formatting.DARK_GRAY), false);
+                        .withStyle(ChatFormatting.GOLD), false);
+                target.displayClientMessage(PvLang.t("pvpocket.msg.rules.panel_hint")
+                        .withStyle(ChatFormatting.DARK_GRAY), false);
                 openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
             }
             // A re-proposal invalidates every earlier yes, so the proposer's own panel has to come
@@ -2167,9 +2167,9 @@ public final class SessionManager {
             // which is the one place the problem is not.
             if (!allResponded(session)) {
                 int agreed = acceptedCount(session);
-                player.sendMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
+                player.displayClientMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
                                 agreed, liveCount(session))
-                        .formatted(Formatting.GRAY), false);
+                        .withStyle(ChatFormatting.GRAY), false);
                 openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
                 broadcastNegotiation(session, uuid,
                         PvLang.t("pvpocket.msg.rules.other_accepted",
@@ -2236,7 +2236,7 @@ public final class SessionManager {
      * refusal out of four is a match, not an error. Two acceptances that both landed on the same
      * side are not.</p>
      */
-    private void settleNegotiation(DuelSession session, ServerPlayerEntity actor) {
+    private void settleNegotiation(DuelSession session, ServerPlayer actor) {
         if (session.stage != SessionStage.NEGOTIATING) {
             return;
         }
@@ -2252,11 +2252,11 @@ public final class SessionManager {
             inviteByTarget.values().removeIf(session.id::equals);
             closePanels(session);
             for (Participant p : session.participants) {
-                ServerPlayerEntity other = online(p);
+                ServerPlayer other = online(p);
                 if (other != null) {
-                    other.sendMessage(PvLang.t("pvpocket.msg.roster.cancelled",
+                    other.displayClientMessage(PvLang.t("pvpocket.msg.roster.cancelled",
                                     liveCount(session), session.playingTeams().size())
-                            .formatted(Formatting.RED), false);
+                            .withStyle(ChatFormatting.RED), false);
                 }
             }
             return;
@@ -2296,20 +2296,20 @@ public final class SessionManager {
     }
 
     /** One line to everybody still in the match, except {@code exceptUuid}. */
-    private void broadcastNegotiation(DuelSession session, String exceptUuid, MutableText line) {
+    private void broadcastNegotiation(DuelSession session, String exceptUuid, MutableComponent line) {
         for (Participant p : session.participants) {
             if (p.rejected || p.uuid.equals(exceptUuid)) {
                 continue;
             }
-            ServerPlayerEntity other = online(p);
+            ServerPlayer other = online(p);
             if (other != null) {
-                other.sendMessage(line.copy().formatted(Formatting.DARK_GRAY), false);
+                other.displayClientMessage(line.copy().withStyle(ChatFormatting.DARK_GRAY), false);
             }
         }
     }
 
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
-    private void startAccepted(DuelSession session, ServerPlayerEntity accepter) {
+    private void startAccepted(DuelSession session, ServerPlayer accepter) {
         if (!ArenaManager.isReady(server)) {
             fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
@@ -2404,8 +2404,8 @@ public final class SessionManager {
      * score is left untouched: nobody won this round, the series simply ends with the opponent as
      * its winner.</p>
      */
-    public void surrender(ServerPlayerEntity player) {
-        String sessionId = sessionByPlayer.get(player.getUuid());
+    public void surrender(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             fail(player, "pvpocket.msg.duel.not_in");
             return;
@@ -2432,7 +2432,7 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.duel.surrender_disabled");
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         // Whoever is surrendering gives up for their whole side, so the series goes to the best
         // other side. In a 1v1 that is simply "the opponent"; with three or four sides it is
         // "whoever is ahead of the rest", because a side that quits cannot hand the match to the
@@ -2446,7 +2446,7 @@ public final class SessionManager {
      * <p>Works from {@code ROUND_READY} as well as {@code ROUND_ACTIVE} — a player who wants out
      * should not have to sit through the intermission and start another round to say so.</p>
      */
-    private void forfeit(DuelSession session, ServerPlayerEntity player, int winnerTeam) {
+    private void forfeit(DuelSession session, ServerPlayer player, int winnerTeam) {
         journal(session).append("SERIES_FORFEITED",
                 "player", player.getName().getString(),
                 "winnerTeam", winnerTeam,
@@ -2474,8 +2474,8 @@ public final class SessionManager {
         }
         roundReadyAt.remove(session.id);
         session.seriesEndReason = "SURRENDER";
-        player.sendMessage(PvLang.t("pvpocket.msg.duel.surrendered")
-                .formatted(Formatting.RED), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.duel.surrendered")
+                .withStyle(ChatFormatting.RED), false);
         finishSeries(session, winnerTeam);
     }
 
@@ -2563,14 +2563,14 @@ public final class SessionManager {
     /** Drops any rule panel still open for this session on either side. */
     private void closePanels(DuelSession session) {
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.closeRules(player, session.id);
             }
         }
     }
 
-    private static MutableText modeLabel(CombatMode mode) {
+    private static MutableComponent modeLabel(CombatMode mode) {
         return PvLang.t(mode == CombatMode.LEGACY_1_8
                 ? "pvpocket.mode.legacy" : "pvpocket.mode.modern");
     }
@@ -2589,12 +2589,12 @@ public final class SessionManager {
      * id, which is what tells the submit path to write to {@link LoadoutBook} rather than a
      * participant.</p>
      */
-    public void onLoadoutRequest(ServerPlayerEntity player) {
-        DuelSession session = findOpenSession(player.getUuid());
+    public void onLoadoutRequest(ServerPlayer player) {
+        DuelSession session = findOpenSession(player.getUUID());
         if (session == null) {
             // d.allowSwapBetweenRounds. The series is running, so the editor is still the right
             // screen — what changes is where the result goes (a pending slot, not the live loadout).
-            DuelSession series = seriesSessionOf(player.getUuid());
+            DuelSession series = seriesSessionOf(player.getUUID());
             if (series != null) {
                 if (series.rulebook().allowSwapBetweenRounds()) {
                     openSeriesEditor(player, series);
@@ -2603,16 +2603,16 @@ public final class SessionManager {
                 // Falling through to the personal loadout is the old behaviour, but doing it in
                 // silence would leave a player believing they had just changed what they fight
                 // with. The rule is off; say so.
-                player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_locked")
-                        .formatted(Formatting.GRAY), false);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_locked")
+                        .withStyle(ChatFormatting.GRAY), false);
             }
-            Loadout personal = loadouts.get(player.getUuid());
+            Loadout personal = loadouts.get(player.getUUID());
             personal.autoAssignSlots();
             PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                     "", personal.encode(), RulesOpenPayload.ROLE_PROPOSER, ""));
             return;
         }
-        Participant p = session.participant(player.getUuidAsString());
+        Participant p = session.participant(player.getStringUUID());
         if (p == null) {
             return;
         }
@@ -2624,7 +2624,7 @@ public final class SessionManager {
         // items — and how an edit made by the second player landed on a document the round ignored.
         String encoded = sharedLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
-                session.id, encoded, role, otherName(session, player.getUuidAsString())));
+                session.id, encoded, role, otherName(session, player.getStringUUID())));
     }
 
     /**
@@ -2642,7 +2642,7 @@ public final class SessionManager {
      * the next invite. There is one loadout per player; the session merely holds the copy that was
      * agreed to.</p>
      */
-    public void onLoadoutSubmit(ServerPlayerEntity player, String sessionId, String encoded) {
+    public void onLoadoutSubmit(ServerPlayer player, String sessionId, String encoded) {
         if (sessionId == null || sessionId.isEmpty()) {
             submitPersonal(player, encoded);
             return;
@@ -2657,7 +2657,7 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.loadout.ended");
             return;
         }
-        if (!session.isParticipant(player.getUuidAsString())) {
+        if (!session.isParticipant(player.getStringUUID())) {
             rejectSubmit(session, player, "not_participant", sessionId);
             fail(player, "pvpocket.msg.loadout.not_participant");
             return;
@@ -2669,15 +2669,15 @@ public final class SessionManager {
             return;
         }
         Loadout loadout = Loadout.decode(encoded);
-        List<Text> problems = loadout.validate();
+        List<Component> problems = loadout.validate();
         if (!problems.isEmpty()) {
             rejectSubmit(session, player, "invalid", problems.get(0).getString());
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
         }
-        Participant p = session.participant(player.getUuidAsString());
+        Participant p = session.participant(player.getStringUUID());
         if (p == null) {
-            rejectSubmit(session, player, "no_participant_record", player.getUuidAsString());
+            rejectSubmit(session, player, "no_participant_record", player.getStringUUID());
             return;
         }
         String before = combinedLoadoutDigest(session);
@@ -2690,7 +2690,7 @@ public final class SessionManager {
         // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
         // load-bearing in a way nothing on screen said: every switch flipped here came back the way
         // it was at the next invite, because seedLoadout() re-reads this book.
-        loadouts.put(player.getUuid(), loadout);
+        loadouts.put(player.getUUID(), loadout);
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
                 "digest", p.loadoutDigest,
@@ -2706,22 +2706,22 @@ public final class SessionManager {
             if (target.rejected) {
                 continue;
             }
-            ServerPlayerEntity holder = online(target);
+            ServerPlayer holder = online(target);
             if (holder != null) {
                 LoadoutLock.restamp(holder, loadout);
             }
         }
         PvPocket.LOGGER.info("Loadout saved for {} in {} ({} items, digest {}, match-wide)",
                 p.name, session.id, loadout.size(), p.loadoutDigest);
-        player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved",
+        player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.saved",
                         loadout.size(), p.loadoutDigest)
-                .formatted(Formatting.GREEN), false);
+                .withStyle(ChatFormatting.GREEN), false);
         int players = liveCount(session);
         if (players > 1) {
             // Only worth saying once there is somebody else: in a draft this is the proposer alone,
             // and "every player in this match (1)" is a sentence about nothing.
-            player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_match", players)
-                    .formatted(Formatting.GOLD), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.saved_match", players)
+                    .withStyle(ChatFormatting.GOLD), false);
         }
     }
 
@@ -2739,8 +2739,8 @@ public final class SessionManager {
      * "it lands at the next round boundary" is a consequence of where it is read, not a deadline
      * anybody has to meet.</p>
      */
-    private void proposeLoadoutSwap(ServerPlayerEntity player, DuelSession session, String encoded) {
-        String uuid = player.getUuidAsString();
+    private void proposeLoadoutSwap(ServerPlayer player, DuelSession session, String encoded) {
+        String uuid = player.getStringUUID();
         Participant me = session.participant(uuid);
         if (me == null) {
             fail(player, "pvpocket.msg.loadout.not_participant");
@@ -2757,7 +2757,7 @@ public final class SessionManager {
             return;
         }
         Loadout loadout = Loadout.decode(encoded);
-        List<Text> problems = loadout.validate();
+        List<Component> problems = loadout.validate();
         if (!problems.isEmpty()) {
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
@@ -2765,8 +2765,8 @@ public final class SessionManager {
         if (loadout.digest().equals(me.loadoutDigest)) {
             // Nothing changed. Saying so beats bumping the revision and making the other side
             // confirm a change that does not exist.
-            player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_unchanged")
-                    .formatted(Formatting.GRAY), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_unchanged")
+                    .withStyle(ChatFormatting.GRAY), false);
             return;
         }
         me.pendingLoadout = loadout.encode();
@@ -2777,52 +2777,52 @@ public final class SessionManager {
                 "digest", me.pendingLoadoutDigest, "items", loadout.size(),
                 "revision", session.loadoutRevision, "round", session.round);
         persist(session);
-        player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_sent", loadout.size())
-                .formatted(Formatting.GOLD), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_sent", loadout.size())
+                .withStyle(ChatFormatting.GOLD), false);
         for (Participant p : session.participants) {
             if (p.rejected || p.uuid.equals(uuid)) {
                 continue;
             }
-            ServerPlayerEntity target = online(p);
+            ServerPlayer target = online(p);
             if (target == null) {
                 continue;
             }
-            target.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_asked", me.name)
-                    .formatted(Formatting.GOLD), false);
-            target.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_hint")
-                    .formatted(Formatting.DARK_GRAY), false);
+            target.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_asked", me.name)
+                    .withStyle(ChatFormatting.GOLD), false);
+            target.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_hint")
+                    .withStyle(ChatFormatting.DARK_GRAY), false);
         }
     }
 
     /** {@code /pvpocket loadout accept}: one player's yes to the change currently on the table. */
-    public void acceptLoadoutSwap(ServerPlayerEntity player) {
+    public void acceptLoadoutSwap(ServerPlayer player) {
         DuelSession session = swapSessionOf(player);
         if (session == null) {
             fail(player, "pvpocket.msg.loadout.swap_none");
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         me.acceptedLoadoutRevision = session.loadoutRevision;
         journal(session).append("LOADOUT_SWAP_AGREED", "player", me.name,
                 "revision", session.loadoutRevision);
         persist(session);
         if (!swapAgreed(session)) {
-            player.sendMessage(PvLang.t("pvpocket.msg.loadout.swap_waiting",
+            player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_waiting",
                             swapAgreedCount(session), liveCount(session))
-                    .formatted(Formatting.GRAY), false);
+                    .withStyle(ChatFormatting.GRAY), false);
             return;
         }
         commitLoadoutSwap(session, "LOADOUT_COMMITTED");
     }
 
     /** {@code /pvpocket loadout decline}: the change is dropped and the old loadout stands. */
-    public void declineLoadoutSwap(ServerPlayerEntity player) {
+    public void declineLoadoutSwap(ServerPlayer player) {
         DuelSession session = swapSessionOf(player);
         if (session == null) {
             fail(player, "pvpocket.msg.loadout.swap_none");
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         // The table is reset rather than the revision rewound: every participant is marked as
         // having agreed to a revision nobody proposed anything under, which is the same state as
         // "no change pending" without having to remember what the previous revision was.
@@ -2855,8 +2855,8 @@ public final class SessionManager {
     }
 
     /** Opens the loadout editor against a running series; see {@link #proposeLoadoutSwap}. */
-    private void openSeriesEditor(ServerPlayerEntity player, DuelSession session) {
-        Participant p = session.participant(player.getUuidAsString());
+    private void openSeriesEditor(ServerPlayer player, DuelSession session) {
+        Participant p = session.participant(player.getStringUUID());
         // The pending change if there is one, otherwise the match's set — not this player's copy,
         // which is the same document only as long as adoptSharedLoadout has written it.
         String encoded = p.pendingLoadout != null
@@ -2864,7 +2864,7 @@ public final class SessionManager {
                 : sharedLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                 session.id, encoded, RulesOpenPayload.ROLE_REVIEWER,
-                otherName(session, player.getUuidAsString())));
+                otherName(session, player.getStringUUID())));
     }
 
     /**
@@ -2873,10 +2873,10 @@ public final class SessionManager {
      * <p>Deliberately not {@code findOpenSession}: that one only knows about drafts and
      * negotiations, which is exactly the window a mid-series change is not in.</p>
      */
-    private DuelSession swapSessionOf(ServerPlayerEntity player) {        String id = sessionByPlayer.get(player.getUuid());
+    private DuelSession swapSessionOf(ServerPlayer player) {        String id = sessionByPlayer.get(player.getUUID());
         DuelSession session = id == null ? null : sessions.get(id);
         if (session == null || session.stage.isTerminal()
-                || session.participant(player.getUuidAsString()) == null) {
+                || session.participant(player.getStringUUID()) == null) {
             return null;
         }
         return swapPending(session) ? session : null;
@@ -2949,30 +2949,30 @@ public final class SessionManager {
         }
     }
 
-    private void broadcastParticipants(DuelSession session, Text line) {
+    private void broadcastParticipants(DuelSession session, Component line) {
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
-                player.sendMessage(line.copy().formatted(Formatting.GOLD), false);
+                player.displayClientMessage(line.copy().withStyle(ChatFormatting.GOLD), false);
             }
         }
     }
 
     /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
-    private void submitPersonal(ServerPlayerEntity player, String encoded) {
+    private void submitPersonal(ServerPlayer player, String encoded) {
         Loadout loadout = Loadout.decode(encoded);
-        List<Text> problems = loadout.validate();
+        List<Component> problems = loadout.validate();
         if (!problems.isEmpty()) {
             fail(player, "pvpocket.msg.loadout.invalid", problems.get(0));
             return;
         }
         loadout.autoAssignSlots();
-        loadouts.put(player.getUuid(), loadout);
+        loadouts.put(player.getUUID(), loadout);
 
-        MutableText mirrored = PvLang.t("pvpocket.msg.loadout.personal_only");
-        DuelSession session = findOpenSession(player.getUuid());
+        MutableComponent mirrored = PvLang.t("pvpocket.msg.loadout.personal_only");
+        DuelSession session = findOpenSession(player.getUUID());
         if (session != null && session.stage.isPreFreeze()) {
-            Participant p = session.participant(player.getUuidAsString());
+            Participant p = session.participant(player.getStringUUID());
             if (p != null) {
                 String before = combinedLoadoutDigest(session);
                 // The same one-set-per-match write as onLoadoutSubmit: this entry point exists
@@ -2992,14 +2992,14 @@ public final class SessionManager {
                     if (q.rejected) {
                         continue;
                     }
-                    ServerPlayerEntity holder = online(q);
+                    ServerPlayer holder = online(q);
                     if (holder != null) {
                         LoadoutLock.restamp(holder, loadout);
                     }
                 }
                 mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
-        } else if (seriesSessionOf(player.getUuid()) != null) {
+        } else if (seriesSessionOf(player.getUUID()) != null) {
             // A running series keeps the set it agreed to, so this save cannot reach the items in
             // the player's hand. Saying so is not optional: the panel is the same one that edits a
             // duel's loadout, and a player who flips 禁止丢弃 between rounds otherwise concludes the
@@ -3013,9 +3013,9 @@ public final class SessionManager {
         LoadoutLock.restamp(player, loadoutFor(player));
         PvPocket.LOGGER.info("Personal loadout saved for {} ({} items, digest {})",
                 player.getName().getString(), loadout.size(), loadout.digest());
-        player.sendMessage(PvLang.t("pvpocket.msg.loadout.saved_personal",
+        player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.saved_personal",
                         loadout.size(), loadout.digest(), mirrored)
-                .formatted(Formatting.GREEN), false);
+                .withStyle(ChatFormatting.GREEN), false);
     }
 
     /**
@@ -3026,19 +3026,19 @@ public final class SessionManager {
      * is open would otherwise keep entering with the old items — exactly the state the consent
      * digest exists to catch.</p>
      */
-    public void resetPersonalLoadout(ServerPlayerEntity player) {
-        loadouts.clear(player.getUuid());
-        DuelSession session = findOpenSession(player.getUuid());
+    public void resetPersonalLoadout(ServerPlayer player) {
+        loadouts.clear(player.getUUID());
+        DuelSession session = findOpenSession(player.getUUID());
         if (session == null || !session.stage.isPreFreeze()) {
             // The cleared book no longer describes anything the player is holding, so the 禁止丢弃
             // marks come off too — a reset that leaves the old lock in place is a reset that only
             // half happened.
             LoadoutLock.restamp(player, loadoutFor(player));
-            player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal")
-                    .formatted(Formatting.GREEN), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.reset_personal")
+                    .withStyle(ChatFormatting.GREEN), false);
             return;
         }
-        Participant p = session.participant(player.getUuidAsString());
+        Participant p = session.participant(player.getStringUUID());
         if (p == null) {
             return;
         }
@@ -3054,14 +3054,14 @@ public final class SessionManager {
             if (q.rejected) {
                 continue;
             }
-            ServerPlayerEntity holder = online(q);
+            ServerPlayer holder = online(q);
             if (holder != null) {
                 LoadoutLock.restamp(holder, fallback);
             }
         }
-        player.sendMessage(PvLang.t("pvpocket.msg.loadout.reset_personal_preset",
+        player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.reset_personal_preset",
                         fallback.size())
-                .formatted(Formatting.GREEN), false);
+                .withStyle(ChatFormatting.GREEN), false);
     }
 
     /**
@@ -3071,8 +3071,8 @@ public final class SessionManager {
      * command and a first duel show the same thing — a null here would make "no loadout yet" look
      * like "loadout support is broken".</p>
      */
-    public Loadout loadoutFor(ServerPlayerEntity player) {
-        String uuid = player.getUuidAsString();
+    public Loadout loadoutFor(ServerPlayer player) {
+        String uuid = player.getStringUUID();
         for (DuelSession session : sessions.values()) {
             if (session.stage.isTerminal()) {
                 continue;
@@ -3082,7 +3082,7 @@ public final class SessionManager {
                 return Loadout.decode(p.loadout);
             }
         }
-        return loadouts.get(player.getUuid());
+        return loadouts.get(player.getUUID());
     }
 
     /** The book itself, so the command layer can reset a saved loadout. */
@@ -3090,32 +3090,32 @@ public final class SessionManager {
         return loadouts;
     }
 
-    public void status(ServerPlayerEntity player) {
-        String sessionId = sessionByPlayer.get(player.getUuid());
+    public void status(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
-            player.sendMessage(PvLang.t("pvpocket.msg.duel.not_in")
-                    .formatted(Formatting.GRAY), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.duel.not_in")
+                    .withStyle(ChatFormatting.GRAY), false);
             return;
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null) {
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         // Every opponent, not just one: "/pvpocket status" is the line people paste into chat when
         // something is wrong, and in a 2v2 it has to say who the other three players are.
-        String others = otherName(session, player.getUuidAsString());
-        player.sendMessage(PvLang.t("pvpocket.msg.status.line",
+        String others = otherName(session, player.getStringUUID());
+        player.displayClientMessage(PvLang.t("pvpocket.msg.status.line",
                         shortId(session.id),
                         PvLang.t(session.stage.labelKey()),
                         session.round, session.maxRounds,
                         scoreLine(session),
                         others.isEmpty() ? PvLang.t("pvpocket.value.none") : others)
-                .formatted(Formatting.AQUA), false);
-        player.sendMessage(PvLang.t("pvpocket.msg.status.rules",
+                .withStyle(ChatFormatting.AQUA), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.status.rules",
                         session.rulesRevision, shortDigest(session),
                         DuelRules.decode(session.rules).summaryText())
-                .formatted(Formatting.DARK_GRAY), false);
+                .withStyle(ChatFormatting.DARK_GRAY), false);
         if (me != null) {
             PvPocket.LOGGER.debug("Status requested by {}", me.name);
         }
@@ -3131,14 +3131,14 @@ public final class SessionManager {
      * throwing, so a client built from a newer jar cannot disconnect itself by pressing a key this
      * server has never heard of.</p>
      */
-    public void onSpectateRequest(ServerPlayerEntity player, SpectateRequestPayload request) {
+    public void onSpectateRequest(ServerPlayer player, SpectateRequestPayload request) {
         switch (request.action()) {
             case SpectateRequestPayload.ACTION_LIST -> spectators.openList(player);
             case SpectateRequestPayload.ACTION_JOIN -> spectators.join(player, request.sessionId());
             case SpectateRequestPayload.ACTION_LEAVE -> {
                 if (!spectators.leave(player, "REQUEST", true)) {
-                    player.sendMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
-                            .formatted(Formatting.GRAY), false);
+                    player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
+                            .withStyle(ChatFormatting.GRAY), false);
                 }
             }
             case SpectateRequestPayload.ACTION_CYCLE -> spectators.cycle(player);
@@ -3149,20 +3149,20 @@ public final class SessionManager {
     }
 
     /** Command path for {@code /pvpocket list}. */
-    public void listMatches(ServerPlayerEntity player) {
+    public void listMatches(ServerPlayer player) {
         spectators.openList(player);
     }
 
     /** Command path for {@code /pvpocket spectate leave}. */
-    public void stopSpectating(ServerPlayerEntity player) {
+    public void stopSpectating(ServerPlayer player) {
         if (!spectators.leave(player, "COMMAND", true)) {
-            player.sendMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
-                    .formatted(Formatting.GRAY), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.not_watching")
+                    .withStyle(ChatFormatting.GRAY), false);
         }
     }
 
     /** Command path for {@code /pvpocket spectate <session>}; prefix match, for typing. */
-    public void spectate(ServerPlayerEntity player, String sessionPrefix) {
+    public void spectate(ServerPlayer player, String sessionPrefix) {
         DuelSession match = null;
         for (DuelSession session : sessions.values()) {
             if (session.id.startsWith(sessionPrefix)) {
@@ -3171,8 +3171,8 @@ public final class SessionManager {
             }
         }
         if (match == null) {
-            player.sendMessage(PvLang.t("pvpocket.msg.spectate.no_match", sessionPrefix)
-                    .formatted(Formatting.RED), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.no_match", sessionPrefix)
+                    .withStyle(ChatFormatting.RED), false);
             return;
         }
         spectators.join(player, match.id);
@@ -3197,15 +3197,15 @@ public final class SessionManager {
         if (shared.encode().equals(Loadout.defaultDuel().encode())) {
             journal(session).append("LOADOUT_DEFAULT_PRESET", "digest", shared.digest());
             for (Participant q : session.participants) {
-                ServerPlayerEntity told = online(q);
+                ServerPlayer told = online(q);
                 if (told != null) {
-                    told.sendMessage(PvLang.t("pvpocket.msg.loadout.match_default")
-                            .formatted(Formatting.GRAY), false);
+                    told.displayClientMessage(PvLang.t("pvpocket.msg.loadout.match_default")
+                            .withStyle(ChatFormatting.GRAY), false);
                 }
             }
         }
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
@@ -3218,7 +3218,7 @@ public final class SessionManager {
             }
             p.snapshotFile = file.getFileName().toString();
             p.fingerprint = snapshot.fingerprint();
-            sessionByPlayer.put(player.getUuid(), session.id);
+            sessionByPlayer.put(player.getUUID(), session.id);
             journal(session).append("SNAPSHOT_WRITTEN",
                     "player", p.name, "fingerprint", p.fingerprint);
         }
@@ -3244,7 +3244,7 @@ public final class SessionManager {
         }
         int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
@@ -3268,10 +3268,10 @@ public final class SessionManager {
             }
             // Authorised change: the round starts in survival, and the sandbox rule forbids players
             // from switching modes while they are standing in the dimension this just put them in.
-            Sandbox.changeGameMode(player, GameMode.SURVIVAL);
+            Sandbox.changeGameMode(player, GameType.SURVIVAL);
             // The snapshot restores attributes wholesale, so a modified base value here is rolled
             // back by the same mechanism that restores inventory — no separate undo bookkeeping.
-            var health = player.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
+            var health = player.getAttribute(Attributes.MAX_HEALTH);
             if (health != null) {
                 health.setBaseValue(maxHealth);
                 // Read back immediately: if anything else on the server is holding this attribute
@@ -3287,7 +3287,7 @@ public final class SessionManager {
             }
             // Same mechanism, same reason. Applied per round rather than at freeze so a mid-series
             // rule change (or a reloaded session) cannot leave the previous value in place.
-            var knockback = player.getAttributeInstance(EntityAttributes.GENERIC_KNOCKBACK_RESISTANCE);
+            var knockback = player.getAttribute(Attributes.KNOCKBACK_RESISTANCE);
             if (knockback != null) {
                 knockback.setBaseValue(session.rulebook().knockbackResistance());
             }
@@ -3295,7 +3295,7 @@ public final class SessionManager {
             // hearts, on fire, and poisoned would begin round 2 that way — the loadout is re-granted
             // but health and effects are not items.
             resetRoundState(player, maxHealth);
-            CombatState.setMode(player.getUuid(), mode);
+            CombatState.setMode(player.getUUID(), mode);
             // The item-use gate travels the same path as the mode, for the same reason: the client
             // has to refuse a placement before it predicts one, and only the server knows the rules.
             applyUseGate(session, player);
@@ -3356,10 +3356,10 @@ public final class SessionManager {
             broadcastHud(session, true);
             broadcastBounds(session, true);
             for (Participant p : session.participants) {
-                ServerPlayerEntity player = online(p);
+                ServerPlayer player = online(p);
                 if (player != null) {
-                    player.sendMessage(PvLang.t("pvpocket.msg.round.prepare", prepare)
-                            .formatted(Formatting.YELLOW), false);
+                    player.displayClientMessage(PvLang.t("pvpocket.msg.round.prepare", prepare)
+                            .withStyle(ChatFormatting.YELLOW), false);
                 }
             }
             return;
@@ -3385,7 +3385,7 @@ public final class SessionManager {
             journal(session).append("PREPARE_WALL_REMOVED", "blocks", removed);
         }
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player == null) {
                 // Somebody left during the preparation window. Cut rather than throw: they never
                 // fought, so there is nothing to judge and no round to award.
@@ -3431,20 +3431,20 @@ public final class SessionManager {
         // packet in place would show a solid white boundary over an open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
                 // Three pieces rather than one sentence with optional halves: the "first to N" clause
                 // only exists for a series, and the surrender hint names a command that must stay
                 // untranslated, so it is appended as its own translatable with the command as a
                 // literal argument.
-                MutableText line = PvLang.t("pvpocket.msg.round.started",
+                MutableComponent line = PvLang.t("pvpocket.msg.round.started",
                         session.round, session.maxRounds,
                         modeLabel(mode), rules.summaryText());
                 if (session.maxRounds > 1) {
                     line.append(PvLang.t("pvpocket.msg.round.first_to_win", session.winsNeeded));
                 }
                 line.append(PvLang.t("pvpocket.msg.round.surrender_hint"));
-                player.sendMessage(line.formatted(Formatting.GREEN), false);
+                player.displayClientMessage(line.withStyle(ChatFormatting.GREEN), false);
             }
         }
     }
@@ -3479,10 +3479,10 @@ public final class SessionManager {
             if (second != entry.getValue().announced()) {
                 prepareDeadlines.put(id, new Prepare(entry.getValue().at(), second));
                 for (Participant p : session.participants) {
-                    ServerPlayerEntity player = online(p);
+                    ServerPlayer player = online(p);
                     if (player != null) {
-                        player.sendMessage(PvLang.t("pvpocket.msg.round.prepare_tick", second)
-                                .formatted(Formatting.YELLOW), false);
+                        player.displayClientMessage(PvLang.t("pvpocket.msg.round.prepare_tick", second)
+                                .withStyle(ChatFormatting.YELLOW), false);
                     }
                 }
             }
@@ -3507,7 +3507,7 @@ public final class SessionManager {
      * <p>The daylight cycle is switched off when a fixed time is chosen, and switched back on for
      * "自然". Leaving it off would silently freeze the dimension's clock for the next match.</p>
      */
-    private void applyEnvironment(ServerWorld world, DuelRules rules) {
+    private void applyEnvironment(ServerLevel world, DuelRules rules) {
         if (world == null) {
             return;
         }
@@ -3516,9 +3516,9 @@ public final class SessionManager {
         // 18000 midnight — the vanilla anchors, chosen so the four options read as four times of day
         // rather than four arbitrary numbers.
         boolean frozen = time > 0;
-        world.getGameRules().get(GameRules.DO_DAYLIGHT_CYCLE).set(!frozen, server);
+        world.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(!frozen, server);
         if (frozen) {
-            world.setTimeOfDay(switch (time) {
+            world.setDayTime(switch (time) {
                 case 2 -> 6000L;
                 case 3 -> 12000L;
                 case 4 -> 18000L;
@@ -3527,11 +3527,11 @@ public final class SessionManager {
         }
         int weather = rules.get("e.weather");
         if (weather == 1) {
-            world.setWeather(0, 12_000, true, false);
+            world.setWeatherParameters(0, 12_000, true, false);
         } else if (weather == 2) {
-            world.setWeather(0, 12_000, true, true);
+            world.setWeatherParameters(0, 12_000, true, true);
         } else {
-            world.setWeather(12_000, 0, false, false);
+            world.setWeatherParameters(12_000, 0, false, false);
         }
     }
 
@@ -3550,7 +3550,7 @@ public final class SessionManager {
      * second — the same shared-world problem {@link #applyEnvironment} documents, just at the other
      * end.</p>
      */
-    private void restoreEnvironmentWhenIdle(ServerWorld world) {
+    private void restoreEnvironmentWhenIdle(ServerLevel world) {
         if (world == null) {
             return;
         }
@@ -3562,8 +3562,8 @@ public final class SessionManager {
                 return;
             }
         }
-        world.getGameRules().get(GameRules.DO_DAYLIGHT_CYCLE).set(true, server);
-        world.setWeather(12_000, 0, false, false);
+        world.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(true, server);
+        world.setWeatherParameters(12_000, 0, false, false);
     }
 
     /**
@@ -3676,14 +3676,14 @@ public final class SessionManager {
      * no way to say which hit was the last. The victim's own side is excluded, which also covers the
      * friendly-fire-allowed rule: a team kill is a death, never a kill.</p>
      */
-    private void recordDeath(DuelSession session, Participant me, ServerPlayerEntity victim) {
+    private void recordDeath(DuelSession session, Participant me, ServerPlayer victim) {
         stats.addDeath(me.uuid);
         stats.name(me.uuid, me.name);
-        if (!(victim.getAttacker() instanceof ServerPlayerEntity killer)
-                || killer.getUuid().equals(victim.getUuid())) {
+        if (!(victim.getLastHurtByMob() instanceof ServerPlayer killer)
+                || killer.getUUID().equals(victim.getUUID())) {
             return;
         }
-        Participant kp = session.participant(killer.getUuidAsString());
+        Participant kp = session.participant(killer.getStringUUID());
         if (kp == null || kp.rejected || kp.teamIndex() == me.teamIndex()) {
             return;
         }
@@ -3699,14 +3699,14 @@ public final class SessionManager {
      * not "two players, same live session, different sides" is dropped here rather than at the call
      * site, so the mixin stays one line and the rule stays in one place.</p>
      */
-    public static void noteDamage(ServerPlayerEntity victim, ServerPlayerEntity attacker,
+    public static void noteDamage(ServerPlayer victim, ServerPlayer attacker,
                                   float amount) {
         SessionManager self = instance;
         if (self == null || amount <= 0F || victim == null || attacker == null
-                || attacker.getUuid().equals(victim.getUuid())) {
+                || attacker.getUUID().equals(victim.getUUID())) {
             return;
         }
-        String sessionId = self.sessionByPlayer.get(victim.getUuid());
+        String sessionId = self.sessionByPlayer.get(victim.getUUID());
         if (sessionId == null) {
             return;
         }
@@ -3714,8 +3714,8 @@ public final class SessionManager {
         if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
             return;
         }
-        Participant v = session.participant(victim.getUuidAsString());
-        Participant a = session.participant(attacker.getUuidAsString());
+        Participant v = session.participant(victim.getStringUUID());
+        Participant a = session.participant(attacker.getStringUUID());
         if (v == null || a == null || v.rejected || a.rejected || v.teamIndex() == a.teamIndex()) {
             return;
         }
@@ -3731,7 +3731,7 @@ public final class SessionManager {
      * would count as a match somebody lost.</p>
      */
     private void recordSeries(DuelSession session, int winnerTeam) {
-        if (server.isStopping() || session.roundLog.isEmpty()) {
+        if (server.isStopped() || session.roundLog.isEmpty()) {
             return;
         }
         List<Integer> sides = session.playingTeams();
@@ -3822,13 +3822,13 @@ public final class SessionManager {
      * carries is small, but a payload is sent over a reliable channel and there is no reason to send
      * two hundred rows to fill a list that shows three at a time.</p>
      */
-    public void sendHomeState(ServerPlayerEntity player) {
-        String uuid = player.getUuidAsString();
+    public void sendHomeState(ServerPlayer player) {
+        String uuid = player.getStringUUID();
         PlayerStats s = stats.of(uuid);
         stats.name(uuid, player.getName().getString());
 
         int flags = 0;
-        String sessionId = sessionByPlayer.get(player.getUuid());
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId != null) {
             DuelSession live = sessions.get(sessionId);
             if (live != null) {
@@ -3837,13 +3837,13 @@ public final class SessionManager {
                         : HomeStatePayload.FLAG_IN_DUEL;
             }
         }
-        if (spectators.isWatching(player.getUuid())) {
+        if (spectators.isWatching(player.getUUID())) {
             flags |= HomeStatePayload.FLAG_SPECTATING;
         }
         if (s.matches > 0) {
             flags |= HomeStatePayload.FLAG_HAS_STATS;
         }
-        boolean operator = player.hasPermissionLevel(3);
+        boolean operator = player.hasPermissions(3);
         if (operator) {
             flags |= HomeStatePayload.FLAG_OPERATOR;
         }
@@ -3897,14 +3897,14 @@ public final class SessionManager {
      * panel is "do not throw <em>me</em> out", and a shared value would make the toggle look broken
      * to the second operator.</p>
      */
-    private String arenaBlock(ServerPlayerEntity player) {
+    private String arenaBlock(ServerPlayer player) {
         java.util.Map<String, Integer> leasedPerMap = new java.util.HashMap<>();
         for (Map.Entry<String, com.leipishu.pvpocket.arena.ArenaRegion> lease
                 : com.leipishu.pvpocket.arena.ArenaManager.leased()) {
             leasedPerMap.merge(lease.getValue().map.id, 1, Integer::sum);
         }
         StringBuilder out = new StringBuilder()
-                .append(guard.isExempt(player.getUuid()) ? 0 : 1).append(',')
+                .append(guard.isExempt(player.getUUID()) ? 0 : 1).append(',')
                 .append(com.leipishu.pvpocket.arena.ArenaManager.stampedCount()).append(',')
                 .append(com.leipishu.pvpocket.arena.ArenaManager.slotCount()).append(',')
                 .append(com.leipishu.pvpocket.arena.ArenaManager.leasedCount()).append(',')
@@ -3928,7 +3928,7 @@ public final class SessionManager {
      * draft that is still open. A second entry point would have to answer all three again and would
      * drift the moment one of them changed.</p>
      */
-    public void onHomeAction(ServerPlayerEntity player, HomeActionPayload action) {
+    public void onHomeAction(ServerPlayer player, HomeActionPayload action) {
         switch (action.action()) {
             case HomeActionPayload.ACTION_OPEN_DUEL -> openRoster(player);
             case HomeActionPayload.ACTION_DUEL_WITH_RULES -> {
@@ -3974,8 +3974,8 @@ public final class SessionManager {
      * commands require is the level the panel requires, so a client cannot reach a capability by
      * talking to the payload directly that it could not reach by typing the command.</p>
      */
-    private boolean requireOperator(ServerPlayerEntity player, String what) {
-        if (player.hasPermissionLevel(3)) {
+    private boolean requireOperator(ServerPlayer player, String what) {
+        if (player.hasPermissions(3)) {
             return true;
         }
         PvPocket.LOGGER.warn("Refused home action '{}' from {} (not an operator)",
@@ -3990,7 +3990,7 @@ public final class SessionManager {
      * ids come from the snapshot the server itself sent, so a mismatch means a stale panel, which
      * the fresh snapshot sent afterwards fixes.</p>
      */
-    private void addArenaCopy(ServerPlayerEntity player, String mapId) {
+    private void addArenaCopy(ServerPlayer player, String mapId) {
         com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
         if (target == null) {
             PvPocket.LOGGER.warn("No map called '{}' for arena copy from {}",
@@ -3999,7 +3999,7 @@ public final class SessionManager {
         }
         int slot = com.leipishu.pvpocket.arena.ArenaManager.addCopy(server(), target);
         if (slot < 0) {
-            player.sendMessage(PvLang.t("pvpocket.command.arena.copy_full",
+            player.displayClientMessage(PvLang.t("pvpocket.command.arena.copy_full",
                     com.leipishu.pvpocket.arena.ArenaManager.slotCount()), false);
         } else {
             PvPocket.LOGGER.info("{} added a copy of {} as cell {}",
@@ -4016,7 +4016,7 @@ public final class SessionManager {
      * draws that button disabled — so reaching this at all means a stale panel, which the fresh
      * snapshot sent afterwards corrects.</p>
      */
-    private void removeArenaCopy(ServerPlayerEntity player, String mapId) {
+    private void removeArenaCopy(ServerPlayer player, String mapId) {
         com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
         if (target == null) {
             PvPocket.LOGGER.warn("No map called '{}' for arena remove from {}",
@@ -4025,19 +4025,19 @@ public final class SessionManager {
         }
         int slot = com.leipishu.pvpocket.arena.ArenaManager.removeCopy(server(), target);
         if (slot == com.leipishu.pvpocket.arena.ArenaManager.REMOVE_BUSY) {
-            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_busy",
+            player.displayClientMessage(PvLang.t("pvpocket.command.arena.remove_busy",
                     target.labelText()), false);
         } else if (slot < 0) {
-            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_none",
+            player.displayClientMessage(PvLang.t("pvpocket.command.arena.remove_none",
                     target.labelText()), false);
         } else {
             int left = com.leipishu.pvpocket.arena.ArenaManager.copiesOf(target);
             PvPocket.LOGGER.info("{} removed a copy of {} at cell {} ({} left)",
                     player.getName().getString(), target.id, slot, left);
-            player.sendMessage(PvLang.t("pvpocket.command.arena.remove_done",
+            player.displayClientMessage(PvLang.t("pvpocket.command.arena.remove_done",
                     target.labelText(), slot, left), false);
             if (left == 0) {
-                player.sendMessage(PvLang.t("pvpocket.command.arena.remove_empty",
+                player.displayClientMessage(PvLang.t("pvpocket.command.arena.remove_empty",
                         target.labelText()), false);
             }
         }
@@ -4062,16 +4062,16 @@ public final class SessionManager {
      * player, so it announces once to the whole list — the actor included, since a panel that
      * rebuilds itself with no sentence about why reads as the click having done nothing.</p>
      */
-    private void resetArenaFromPanel(ServerPlayerEntity player) {
+    private void resetArenaFromPanel(ServerPlayer player) {
         int ended = resetArena();
         if (ended < 0) {
-            player.sendMessage(PvLang.t("pvpocket.command.arena.rebuilding"), false);
+            player.displayClientMessage(PvLang.t("pvpocket.command.arena.rebuilding"), false);
             return;
         }
-        net.minecraft.text.MutableText line = PvLang.t("pvpocket.command.arena.reset_done", ended)
-                .formatted(net.minecraft.util.Formatting.AQUA);
-        for (ServerPlayerEntity other : server().getPlayerManager().getPlayerList()) {
-            other.sendMessage(line, false);
+        net.minecraft.network.chat.MutableComponent line = PvLang.t("pvpocket.command.arena.reset_done", ended)
+                .withStyle(net.minecraft.ChatFormatting.AQUA);
+        for (ServerPlayer other : server().getPlayerList().getPlayers()) {
+            other.displayClientMessage(line, false);
         }
         sendHomeState(player);
     }
@@ -4084,7 +4084,7 @@ public final class SessionManager {
      * is validated by decoding it: a string that does not decode is dropped with a message, not
      * applied as a pile of defaults that would look like a preset the player never saved.</p>
      */
-    private void applyPresetRules(ServerPlayerEntity player, String encoded) {
+    private void applyPresetRules(ServerPlayer player, String encoded) {
         DuelSession session = draftOf(player);
         if (session == null || encoded == null || encoded.isEmpty()) {
             return;
@@ -4095,7 +4095,7 @@ public final class SessionManager {
             // Bumped like any other edit, so the panel's dirty marker and the "you agreed to v1"
             // bookkeeping both see this as a change rather than as the state they arrived with.
             session.rulesRevision++;
-            session.rulesAuthor = player.getUuidAsString();
+            session.rulesAuthor = player.getStringUUID();
             persist(session);
             journal(session).append("RULES_PRESET_APPLIED", "player", player.getName().getString(),
                     "digest", session.rulesDigest);
@@ -4103,18 +4103,18 @@ public final class SessionManager {
         } catch (RuntimeException e) {
             PvPocket.LOGGER.warn("Dropping undecodable rule preset from {}",
                     player.getName().getString(), e);
-            player.sendMessage(PvLang.t("pvpocket.msg.home.preset_broken")
-                    .formatted(Formatting.RED), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.home.preset_broken")
+                    .withStyle(ChatFormatting.RED), false);
         }
     }
 
     /** Replaces the caller's own loadout in the draft with a saved one. */
-    private void applyPresetLoadout(ServerPlayerEntity player, String encoded) {
+    private void applyPresetLoadout(ServerPlayer player, String encoded) {
         DuelSession session = draftOf(player);
         if (session == null || encoded == null || encoded.isEmpty()) {
             return;
         }
-        Participant me = session.participant(player.getUuidAsString());
+        Participant me = session.participant(player.getStringUUID());
         if (me == null) {
             return;
         }
@@ -4132,14 +4132,14 @@ public final class SessionManager {
         } catch (RuntimeException e) {
             PvPocket.LOGGER.warn("Dropping undecodable loadout preset from {}",
                     player.getName().getString(), e);
-            player.sendMessage(PvLang.t("pvpocket.msg.home.preset_broken")
-                    .formatted(Formatting.RED), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.home.preset_broken")
+                    .withStyle(ChatFormatting.RED), false);
         }
     }
 
     /** The caller's own session when it is still a draft, else null. */
-    private DuelSession draftOf(ServerPlayerEntity player) {
-        String sessionId = sessionByPlayer.get(player.getUuid());
+    private DuelSession draftOf(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
             return null;
         }
@@ -4322,7 +4322,7 @@ public final class SessionManager {
      * the loadout again at the start of the next round, which clears whatever the previous round
      * left behind.</p>
      */
-    private void beginIntermission(DuelSession session, ArenaRegion region, ServerWorld world,
+    private void beginIntermission(DuelSession session, ArenaRegion region, ServerLevel world,
                                    int winnerTeam) {
         int cleared = ArenaManager.clearDroppedItems(world, region);
         journal(session).append("ARENA_CLEARED", "removed", cleared);
@@ -4340,14 +4340,14 @@ public final class SessionManager {
         // "who lost", but with three or four sides the score alone ("1:0:1") does not say which row
         // is which, so the line has to name the side. A round that ends without a winner — a cut
         // series, a stop — has no name to print and keeps the plain sentence.
-        MutableText line = winnerTeam < 0
+        MutableComponent line = winnerTeam < 0
                 ? PvLang.t("pvpocket.msg.round.ended", session.round, scoreLine(session), seconds)
                 : PvLang.t("pvpocket.msg.round.ended_team", session.round,
                         teamName(session, winnerTeam), scoreLine(session), seconds);
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
-                player.sendMessage(line.copy().formatted(Formatting.GOLD), false);
+                player.displayClientMessage(line.copy().withStyle(ChatFormatting.GOLD), false);
             }
         }
     }
@@ -4362,20 +4362,20 @@ public final class SessionManager {
             case "DRAW" -> "pvpocket.msg.series.because.draw";
             default -> null;
         };
-        MutableText because = becauseKey == null ? Text.empty() : PvLang.t(becauseKey);
-        MutableText result = winnerTeam >= 0
+        MutableComponent because = becauseKey == null ? Component.empty() : PvLang.t(becauseKey);
+        MutableComponent result = winnerTeam >= 0
                 ? PvLang.t("pvpocket.msg.series.winner", teamName(session, winnerTeam))
                 : "DRAW".equals(session.seriesEndReason)
                 ? PvLang.t("pvpocket.msg.series.draw")
                 : PvLang.t("pvpocket.msg.series.no_winner");
-        MutableText line = PvLang.t("pvpocket.msg.series.ended",
+        MutableComponent line = PvLang.t("pvpocket.msg.series.ended",
                 result, because, scoreLine(session));
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
-                player.sendMessage(line.copy()
-                        .formatted(winnerTeam >= 0 && p.teamIndex() == winnerTeam
-                                ? Formatting.GREEN : Formatting.GRAY), false);
+                player.displayClientMessage(line.copy()
+                        .withStyle(winnerTeam >= 0 && p.teamIndex() == winnerTeam
+                                ? ChatFormatting.GREEN : ChatFormatting.GRAY), false);
                 // The card goes out next to the sentence, not instead of it: the sentence is what a
                 // player reads in the chat log a week later, the card is what they look at for the
                 // ten seconds after the last round. A declined invite is skipped — it was never a
@@ -4459,13 +4459,13 @@ public final class SessionManager {
                 : boundsOf(region, mode);
         PrepareScreensPayload screens = screensOf(session);
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendBounds(player, payload);
                 PvPocketNetworking.sendScreens(player, screens);
             }
         }
-        for (ServerPlayerEntity watcher : spectators.watchersOf(session.id)) {
+        for (ServerPlayer watcher : spectators.watchersOf(session.id)) {
             PvPocketNetworking.sendBounds(watcher, payload);
             PvPocketNetworking.sendScreens(watcher, screens);
         }
@@ -4523,12 +4523,12 @@ public final class SessionManager {
     private void broadcastHud(DuelSession session, boolean active) {
         MatchHudPayload payload = active ? buildHud(session) : MatchHudPayload.hidden();
         for (Participant p : session.participants) {
-            ServerPlayerEntity player = online(p);
+            ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendHud(player, payload);
             }
         }
-        for (ServerPlayerEntity watcher : spectators.watchersOf(session.id)) {
+        for (ServerPlayer watcher : spectators.watchersOf(session.id)) {
             PvPocketNetworking.sendHud(watcher, payload);
         }
     }
@@ -4583,8 +4583,8 @@ public final class SessionManager {
      * <p>Needed on join: the payload is pushed only when the score changes, so a client that
      * reconnected mid-match would otherwise stare at an empty arena until the next round.</p>
      */
-    private void pushHudTo(ServerPlayerEntity player) {
-        String id = sessionByPlayer.get(player.getUuid());
+    private void pushHudTo(ServerPlayer player) {
+        String id = sessionByPlayer.get(player.getUUID());
         DuelSession session = id == null ? null : sessions.get(id);
         if (session == null || session.stage.isTerminal()) {
             PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
@@ -4633,7 +4633,7 @@ public final class SessionManager {
      * would answer "no session" for a spectator. Spectating is a different relationship to a match,
      * so it gets its own push rather than a special case inside the participant path.</p>
      */
-    void pushSpectatorView(ServerPlayerEntity player, DuelSession session) {
+    void pushSpectatorView(ServerPlayer player, DuelSession session) {
         PvPocketNetworking.sendHud(player, buildHud(session));
         ArenaRegion region = ArenaManager.region(session.id);
         PvPocketNetworking.sendBounds(player, region == null
@@ -4650,7 +4650,7 @@ public final class SessionManager {
      * broadcasts only reach its participants and its current watchers — so a spectator who leaves
      * mid-series would carry a live scoreboard over their survival world until the match ended.</p>
      */
-    void clearSpectatorView(ServerPlayerEntity player) {
+    void clearSpectatorView(ServerPlayer player) {
         PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
         PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
         PvPocketNetworking.sendScreens(player, PrepareScreensPayload.none());
@@ -4663,15 +4663,15 @@ public final class SessionManager {
      * covered by re-granting the loadout: health, hunger, effects and fire all survive a round and
      * would otherwise carry a poisoned or half-dead player into the next one.</p>
      */
-    private static void resetRoundState(ServerPlayerEntity player, int maxHealth) {
-        player.clearStatusEffects();
-        player.extinguish();
-        player.setFireTicks(0);
-        player.setVelocity(0, 0, 0);
+    private static void resetRoundState(ServerPlayer player, int maxHealth) {
+        player.removeAllEffects();
+        player.clearFire();
+        player.setRemainingFireTicks(0);
+        player.setDeltaMovement(0, 0, 0);
         player.fallDistance = 0;
-        player.getHungerManager().setFoodLevel(20);
-        player.getHungerManager().setSaturationLevel(5.0F);
-        player.getHungerManager().setExhaustion(0.0F);
+        player.getFoodData().setFoodLevel(20);
+        player.getFoodData().setSaturation(5.0F);
+        player.getFoodData().setExhaustion(0.0F);
         player.setHealth(Math.min(maxHealth, player.getMaxHealth()));
     }
 
@@ -4709,7 +4709,7 @@ public final class SessionManager {
         // Combat state is server-side bookkeeping and must be dropped even if the player is offline,
         // otherwise a later round would start with a stale legacy flag.
         CombatState.clear(uuid);
-        ServerPlayerEntity player = online(p);
+        ServerPlayer player = online(p);
         if (player == null) {
             pendingRestore.put(uuid, session.id);
             journal(session).append("RESTORE_DEFERRED", "player", p.name);
@@ -4742,17 +4742,17 @@ public final class SessionManager {
             // becomes the baseline that every later restore faithfully restores. That is exactly the
             // "the duel items are still on me" report: the restore had worked, and then the world was
             // killed before it reached the disk. One explicit save closes the window.
-            ((PlayerManagerInvoker) player.getServer().getPlayerManager())
+            ((PlayerManagerInvoker) player.getServer().getPlayerList())
                     .pvpocket$savePlayerData(player);
-            sessionByPlayer.remove(player.getUuid());
+            sessionByPlayer.remove(player.getUUID());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {
                 journal(session).append("ANOMALY", "player", p.name,
                         "detail", "state digest mismatch after restore");
                 PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}", p.name, session.id);
             }
-            player.sendMessage(PvLang.t("pvpocket.msg.series.restored")
-                    .formatted(Formatting.GREEN), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.series.restored")
+                    .withStyle(ChatFormatting.GREEN), false);
             return true;
         } catch (Exception e) {
             PvPocket.LOGGER.error("Restore failed for {} in session {}", p.name, session.id, e);
@@ -4799,7 +4799,7 @@ public final class SessionManager {
      * <p>{@code session} is null when the id named a session that no longer exists — there is no
      * journal to write to then, so the reason goes to the log only.</p>
      */
-    private void rejectSubmit(DuelSession session, ServerPlayerEntity player, String reason, String detail) {
+    private void rejectSubmit(DuelSession session, ServerPlayer player, String reason, String detail) {
         String name = player.getName().getString();
         PvPocket.LOGGER.info("Loadout submit refused for {}: {} ({})", name, reason, detail);
         if (session != null) {
@@ -4809,8 +4809,8 @@ public final class SessionManager {
         }
     }
 
-    ServerPlayerEntity online(Participant p) {
-        return server.getPlayerManager().getPlayer(UUID.fromString(p.uuid));
+    ServerPlayer online(Participant p) {
+        return server.getPlayerList().getPlayer(UUID.fromString(p.uuid));
     }
 
     /**
@@ -4820,7 +4820,7 @@ public final class SessionManager {
      * went wrong, never how it is spelled. The client resolves the key in its own language when it
      * draws the chat line.</p>
      */
-    private static void fail(ServerPlayerEntity player, String key, Object... args) {
+    private static void fail(ServerPlayer player, String key, Object... args) {
         if (player == null) {
             // There is no addressee when the refusal is triggered by somebody leaving rather than
             // by somebody clicking. Logged instead of thrown: the session is already in the right
@@ -4829,7 +4829,7 @@ public final class SessionManager {
                     key, java.util.Arrays.toString(args));
             return;
         }
-        player.sendMessage(PvLang.t(key, args).formatted(Formatting.RED), false);
+        player.displayClientMessage(PvLang.t(key, args).withStyle(ChatFormatting.RED), false);
     }
 
     private static String shortId(String id) {

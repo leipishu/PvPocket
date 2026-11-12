@@ -1,11 +1,11 @@
 package com.leipishu.pvpocket.mixin.client;
 
 import com.leipishu.pvpocket.combat.CombatState;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.render.entity.PlayerEntityRenderer;
-import net.minecraft.client.render.entity.model.BipedEntityModel;
-import net.minecraft.item.SwordItem;
-import net.minecraft.util.Hand;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.entity.player.PlayerRenderer;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.InteractionHand;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -27,18 +27,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * {@code HeldItemRenderer}, which is a separate path — see {@code InGameHudMixin} for the cue that
  * covers first person.</p>
  */
-@Mixin(PlayerEntityRenderer.class)
+@Mixin(PlayerRenderer.class)
 public abstract class PlayerEntityRendererMixin {
 
     @Inject(method = "getArmPose", at = @At("RETURN"), cancellable = true)
-    private static void pvpocket$legacySwordBlock(AbstractClientPlayerEntity player, Hand hand,
-                                                  CallbackInfoReturnable<BipedEntityModel.ArmPose> cir) {
+    private static void pvpocket$legacySwordBlock(AbstractClientPlayer player, InteractionHand hand,
+                                                  CallbackInfoReturnable<HumanoidModel.ArmPose> cir) {
         // Main hand only: the flag is about the sword, and the off hand in a legacy round is either
         // empty or something the loadout was not supposed to hand out.
-        if (hand == Hand.MAIN_HAND
-                && player.getMainHandStack().getItem() instanceof SwordItem
-                && CombatState.isBlocking(player.getUuid())) {
-            cir.setReturnValue(BipedEntityModel.ArmPose.BLOCK);
+        if (hand == InteractionHand.MAIN_HAND
+                && player.getMainHandItem().getItem() instanceof SwordItem
+                && CombatState.isBlocking(player.getUUID())) {
+            cir.setReturnValue(HumanoidModel.ArmPose.BLOCK);
         }
     }
 }

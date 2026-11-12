@@ -28,10 +28,10 @@ import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
 import com.leipishu.pvpocket.rules.Rulebook;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -196,10 +196,10 @@ public class RuleScreen extends PvScreen {
      * stack share the column, and in English the buttons are the wider of the two.</p>
      */
     private int sidebarWidth(List<PvButton> stack) {
-        TextRenderer tr = font();
-        int widest = tr.getWidth(PvLang.str("pvpocket.gui.roster.tab"));
+        Font tr = font();
+        int widest = tr.width(PvLang.str("pvpocket.gui.roster.tab"));
         for (RuleGroup group : groups) {
-            widest = Math.max(widest, tr.getWidth(group.label()));
+            widest = Math.max(widest, tr.width(group.label()));
         }
         // 34 = 2 x SIDE_PAD + 10px text inset + 12px for the dirty dot column.
         int need = widest + 34;
@@ -207,7 +207,7 @@ public class RuleScreen extends PvScreen {
         // fitted to that minus 4 — so 16 is what a label needs beyond its own width. English is the
         // case that binds here: "Accept & start" is 84px against a 42px "Players" tab.
         for (PvButton button : stack) {
-            need = Math.max(need, tr.getWidth(button.label()) + 16);
+            need = Math.max(need, tr.width(button.label()) + 16);
         }
         return PvLayout.clamp(need, SIDEBAR_MIN, SIDEBAR_MAX);
     }
@@ -340,7 +340,7 @@ public class RuleScreen extends PvScreen {
     private void buildLoadoutToolbar() {
         loadoutButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
                 PvButton.Style.NORMAL, this::openLoadout);
-        loadoutButton.size(Math.max(76, font().getWidth(loadoutButton.label()) + 16), PvTheme.BTN_H);
+        loadoutButton.size(Math.max(76, font().width(loadoutButton.label()) + 16), PvTheme.BTN_H);
         loadoutButton.x = pane.x;
         loadoutButton.y = pane.y + (TOOLBAR_H - PvTheme.BTN_H) / 2;
         roots.add(loadoutButton);
@@ -462,7 +462,7 @@ public class RuleScreen extends PvScreen {
                 // the next tick because this callback runs inside the control's own click handler
                 // and rebuilding the pane under it would pull the ground out from under the event.
                 if ("a.winConditions".equals(def.id)) {
-                    MinecraftClient.getInstance().execute(this::buildRows);
+                    Minecraft.getInstance().execute(this::buildRows);
                 }
             });
             if ("e.template".equals(def.id)) {
@@ -495,7 +495,7 @@ public class RuleScreen extends PvScreen {
         int maxRounds = edited.get("a.maxRounds");
         if (edited.get("a.winsNeeded") > maxRounds) {
             edited.set("a.winsNeeded", maxRounds);
-            MinecraftClient.getInstance().execute(this::buildRows);
+            Minecraft.getInstance().execute(this::buildRows);
         }
     }
 
@@ -531,7 +531,7 @@ public class RuleScreen extends PvScreen {
         // Rebuilt on both branches. The flat branch used to return early, which was fine while the
         // size rows were always editable — now that they are greyed out on every other map, coming
         // back to 平坦 has to re-enable them, and that state is fixed when the row is constructed.
-        MinecraftClient.getInstance().execute(this::buildRows);
+        Minecraft.getInstance().execute(this::buildRows);
     }
 
     /**
@@ -569,14 +569,14 @@ public class RuleScreen extends PvScreen {
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
             stack.add(primary);
             stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
-                    PvButton.Style.DANGER, this::close));
+                    PvButton.Style.DANGER, this::onClose));
         } else if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
             stack.add(primary);
             stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
-                    PvButton.Style.DANGER, this::close));
+                    PvButton.Style.DANGER, this::onClose));
         } else {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
@@ -620,7 +620,7 @@ public class RuleScreen extends PvScreen {
                 // Each button takes the width of its own label when the row can afford it, so 拒绝
                 // does not get the same 64px as 同意并开始; when it cannot, they share the span and
                 // the label is fitted rather than printed over its neighbour.
-                want[i] = font().getWidth(stack.get(i).label()) + 16;
+                want[i] = font().width(stack.get(i).label()) + 16;
                 wanted += want[i];
             }
             int x = panelX + chromeW + 12;
@@ -660,7 +660,7 @@ public class RuleScreen extends PvScreen {
             // not sit next to 发送邀请.
             revertButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
                     PvButton.Style.GHOST, this::revert);
-            revertButton.size(font().getWidth(revertButton.label()) + 16, PvButton.CHIP_H);
+            revertButton.size(font().width(revertButton.label()) + 16, PvButton.CHIP_H);
             revertButton.x = panelX + panelW - 12 - revertButton.width;
             revertButton.y = panelY + panelH - STATUS_H + (STATUS_H - PvButton.CHIP_H) / 2;
             roots.add(revertButton);
@@ -744,16 +744,16 @@ public class RuleScreen extends PvScreen {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         // Before anything is drawn, so a commit button that just appeared is laid out this frame.
         syncActions();
-        TextRenderer tr = font();
+        Font tr = font();
         boolean reviewer = payload.role() == RulesOpenPayload.ROLE_REVIEWER;
 
         String title = PvLang.str("pvpocket.gui.rule.title");
         PvDraw.text(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
 
-        int titleEnd = panelX + 14 + tr.getWidth(title) + 10;
+        int titleEnd = panelX + 14 + tr.width(title) + 10;
         // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
         // "who am I fighting", but in a 2v2 the question that actually needs answering before
         // agreeing is "who is on my side" — and the sides are drawn by hand now, so the invite order
@@ -810,7 +810,7 @@ public class RuleScreen extends PvScreen {
      * <p>还原 sits here rather than in the stack because it is the inverse of the change count it
      * stands next to: the line reads "3 rules changed … 还原", which is the whole sentence.</p>
      */
-    private void drawStatus(DrawContext ctx, TextRenderer tr, boolean reviewer) {
+    private void drawStatus(GuiGraphics ctx, Font tr, boolean reviewer) {
         int top = panelY + panelH - STATUS_H;
         int left = panelX + chromeW + 12;
         int right = panelX + panelW - 12;
@@ -861,14 +861,14 @@ public class RuleScreen extends PvScreen {
         int cursor = revertButton == null ? right : revertButton.x - 8;
         String loadout = loadoutSummary();
         if (!loadout.isEmpty()) {
-            int tagW = tr.getWidth(loadout);
+            int tagW = tr.width(loadout);
             if (cursor - tagW - 12 - left >= 64) {
                 PvDraw.textRight(ctx, tr, loadout, cursor, textY, PvTheme.TEXT_DIM);
                 cursor -= tagW + 12;
             } else {
                 String agreed = PvLang.str("pvpocket.gui.rule.loadout_agreed",
                         payload.agreed(), payload.total());
-                int agreedW = tr.getWidth(agreed);
+                int agreedW = tr.width(agreed);
                 if (cursor - agreedW - 12 - left >= 64) {
                     PvDraw.textRight(ctx, tr, agreed, cursor, textY, PvTheme.TEXT_DIM);
                     cursor -= agreedW + 12;
@@ -1066,7 +1066,7 @@ public class RuleScreen extends PvScreen {
         }
         submitted = true;
         send(action);
-        close();
+        onClose();
     }
 
     private void send(int action) {
@@ -1086,12 +1086,12 @@ public class RuleScreen extends PvScreen {
      * explicitly and the server voids the draft.
      */
     @Override
-    public void close() {
+    public void onClose() {
         if (!submitted) {
             submitted = true;
             send(RulesSubmitPayload.ACTION_DISMISS);
         }
-        MinecraftClient.getInstance().setScreen(null);
+        Minecraft.getInstance().setScreen(null);
     }
 
     public String sessionId() {
@@ -1104,7 +1104,7 @@ public class RuleScreen extends PvScreen {
      */
     public void closeSilently() {
         submitted = true;
-        MinecraftClient.getInstance().setScreen(null);
+        Minecraft.getInstance().setScreen(null);
     }
 
     // ------------------------------------------------------------------ audit

@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Client to server: the outcome of one panel session.
@@ -20,7 +20,7 @@ import net.minecraft.util.Identifier;
  * payload of its own so that "these are the sides and these are the terms" arrives as one decision
  * the server can accept or refuse as a whole.</p>
  */
-public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPayload {
+public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPacketPayload {
 
     /** Send the roster (in draft) or the edited rules (in negotiation) and ask for consent. */
     public static final int ACTION_PROPOSE = 0;
@@ -31,17 +31,17 @@ public record RulesSubmitPayload(int action, String rules, String roster) implem
     /** Close the panel without deciding anything; the session stays where it is. */
     public static final int ACTION_DISMISS = 3;
 
-    public static final Id<RulesSubmitPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "rules_submit"));
+    public static final Type<RulesSubmitPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "rules_submit"));
 
-    public static final PacketCodec<RegistryByteBuf, RulesSubmitPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.VAR_INT, RulesSubmitPayload::action,
-            PacketCodecs.STRING, RulesSubmitPayload::rules,
-            PacketCodecs.STRING, RulesSubmitPayload::roster,
+    public static final StreamCodec<RegistryFriendlyByteBuf, RulesSubmitPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, RulesSubmitPayload::action,
+            ByteBufCodecs.STRING_UTF8, RulesSubmitPayload::rules,
+            ByteBufCodecs.STRING_UTF8, RulesSubmitPayload::roster,
             RulesSubmitPayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

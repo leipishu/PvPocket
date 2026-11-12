@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "this negotiation is over, close the panel".
@@ -17,17 +17,17 @@ import net.minecraft.util.Identifier;
  * <p>The client only closes a panel whose session id matches, so a late packet can never shut a
  * newer negotiation's panel.</p>
  */
-public record RulesClosePayload(String sessionId) implements CustomPayload {
+public record RulesClosePayload(String sessionId) implements CustomPacketPayload {
 
-    public static final Id<RulesClosePayload> ID =
-            new Id<>(Identifier.of("pvpocket", "rules_close"));
+    public static final Type<RulesClosePayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "rules_close"));
 
-    public static final PacketCodec<RegistryByteBuf, RulesClosePayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, RulesClosePayload::sessionId,
+    public static final StreamCodec<RegistryFriendlyByteBuf, RulesClosePayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, RulesClosePayload::sessionId,
             RulesClosePayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

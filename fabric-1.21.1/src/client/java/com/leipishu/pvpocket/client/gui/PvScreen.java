@@ -1,11 +1,11 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.util.ScreenshotRecorder;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.Screenshot;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -109,13 +109,13 @@ public abstract class PvScreen extends Screen {
     private float tipDelay;
     private float tipT;
 
-    protected PvScreen(Text title) {
+    protected PvScreen(Component title) {
         super(title);
     }
 
     /** The world keeps running behind the panel; a duel should not be pauseable by opening rules. */
     @Override
-    public boolean shouldPause() {
+    public boolean isPauseScreen() {
         return false;
     }
 
@@ -128,9 +128,9 @@ public abstract class PvScreen extends Screen {
      * override this to avoid it.</p>
      */
     @Override
-    public void close() {
+    public void onClose() {
         modalPointer = false;
-        MinecraftClient.getInstance().setScreen(parent);
+        Minecraft.getInstance().setScreen(parent);
     }
 
     /**
@@ -153,8 +153,8 @@ public abstract class PvScreen extends Screen {
         this.parent = screen;
     }
 
-    protected TextRenderer font() {
-        return MinecraftClient.getInstance().textRenderer;
+    protected Font font() {
+        return Minecraft.getInstance().font;
     }
 
     /** Centres a panel of at most {@code maxW × maxH} inside the current GUI viewport. */
@@ -165,11 +165,11 @@ public abstract class PvScreen extends Screen {
         panelY = (height - panelH) / 2;
     }
 
-    protected void drawBackdrop(DrawContext ctx) {
+    protected void drawBackdrop(GuiGraphics ctx) {
         ctx.fill(0, 0, width, height, PvTheme.alpha(PvTheme.SCRIM, openProgress()));
     }
 
-    protected void drawPanelFrame(DrawContext ctx) {
+    protected void drawPanelFrame(GuiGraphics ctx) {
         int r = PvTheme.RADIUS_PANEL;
         // Chrome first, edge to edge: the title band and the sidebar are one surface, and the well
         // is the shape cut out of it.
@@ -189,7 +189,7 @@ public abstract class PvScreen extends Screen {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         cursorX = mouseX;
         cursorY = mouseY;
         // Recomputed every frame rather than tracked at the call sites: setOverlay/dismissOverlay
@@ -358,7 +358,7 @@ public abstract class PvScreen extends Screen {
      * draw call, it cannot desynchronise from the widgets underneath, and on a near-black panel the
      * result is indistinguishable from a real cross-fade.</p>
      */
-    private void drawEntrance(DrawContext ctx) {
+    private void drawEntrance(GuiGraphics ctx) {
         float k = openProgress();
         if (k >= 1F) {
             return;
@@ -369,7 +369,7 @@ public abstract class PvScreen extends Screen {
     }
 
     /** Hook for the static parts of the panel: title, dividers, footer labels. */
-    protected void drawContent(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
     }
 
     /**
@@ -379,7 +379,7 @@ public abstract class PvScreen extends Screen {
      * rows on the way somewhere else; the fade keeps it from appearing as a hard-edged rectangle
      * over a dark panel.</p>
      */
-    private void drawTooltip(DrawContext ctx, float d) {
+    private void drawTooltip(GuiGraphics ctx, float d) {
         String tip = null;
         if (hasOverlay()) {
             // The modal is the only thing under the pointer. Walking the roots as well was how a
@@ -411,11 +411,11 @@ public abstract class PvScreen extends Screen {
         }
         tipT = PvAnim.damp(tipT, 1F, d, 0.05F);
 
-        TextRenderer tr = font();
+        Font tr = font();
         List<String> lines = PvDraw.wrap(tr, tip, 176);
         int textW = 0;
         for (String line : lines) {
-            textW = Math.max(textW, tr.getWidth(line));
+            textW = Math.max(textW, tr.width(line));
         }
         int boxW = textW + 16;
         int boxH = lines.size() * 10 + 10;
@@ -513,7 +513,7 @@ public abstract class PvScreen extends Screen {
                 dismissOverlay();
                 return true;
             }
-            close();
+            onClose();
             return true;
         }
         // A modal gets the keyboard before the panel's own bindings: a text field inside a dialog
@@ -526,9 +526,9 @@ public abstract class PvScreen extends Screen {
         // and rules this way. Vanilla loses the F2 binding as soon as a screen opens, so the panel
         // re-implements the one line of it that matters instead of inheriting that gap.
         if (keyCode == GLFW.GLFW_KEY_F2) {
-            MinecraftClient client = MinecraftClient.getInstance();
-            ScreenshotRecorder.saveScreenshot(client.runDirectory, client.getFramebuffer(),
-                    text -> client.inGameHud.getChatHud().addMessage(text));
+            Minecraft client = Minecraft.getInstance();
+            Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(),
+                    text -> client.gui.getChat().addMessage(text));
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_TAB) {

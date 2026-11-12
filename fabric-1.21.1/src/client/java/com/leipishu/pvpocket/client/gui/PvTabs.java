@@ -1,11 +1,11 @@
 package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.rules.RuleGroup;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.sound.PositionedSoundInstance;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 
 import java.util.List;
 import java.util.function.IntPredicate;
@@ -185,13 +185,13 @@ public class PvTabs extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         tickFocus(d);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         int hoverIndex = hovered ? tabAt(mouseY) : -1;
 
         for (int i = 0; i < labels.size(); i++) {
@@ -242,8 +242,8 @@ public class PvTabs extends PvWidget {
     public void nudge(int direction) {
         int next = Math.max(0, Math.min(labels.size() - 1, selected + direction));
         if (next != selected) {
-            MinecraftClient.getInstance().getSoundManager()
-                    .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.1F));
+            Minecraft.getInstance().getSoundManager()
+                    .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.1F));
             select(next);
         }
     }
@@ -257,8 +257,8 @@ public class PvTabs extends PvWidget {
         if (index < 0) {
             return false;
         }
-        MinecraftClient.getInstance().getSoundManager()
-                .play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.1F));
+        Minecraft.getInstance().getSoundManager()
+                .play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.1F));
         select(index);
         return true;
     }

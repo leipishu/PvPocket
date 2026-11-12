@@ -7,17 +7,17 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -98,7 +98,7 @@ public final class HomePositions {
     }
 
     public static HomePositions load(MinecraftServer server) {
-        Path file = server.getSavePath(WorldSavePath.ROOT).resolve("pvpocket").resolve("homes.json");
+        Path file = server.getWorldPath(LevelResource.ROOT).resolve("pvpocket").resolve("homes.json");
         HomePositions store = new HomePositions(file);
         if (!Files.exists(file)) {
             return store;
@@ -123,15 +123,15 @@ public final class HomePositions {
      * <p>Called for every online player every tick, so it has to be free in the common case: one
      * world check, one map lookup, one comparison against a squared distance.</p>
      */
-    public void remember(ServerPlayerEntity player) {
-        World world = player.getWorld();
+    public void remember(ServerPlayer player) {
+        Level world = player.level();
         if (ArenaManager.isArena(world)) {
             return;
         }
-        String key = player.getUuidAsString();
+        String key = player.getStringUUID();
         Home previous = homes.get(key);
-        String dimension = world.getRegistryKey().getValue().toString();
-        String mode = player.interactionManager.getGameMode().getName();
+        String dimension = world.dimension().location().toString();
+        String mode = player.gameMode.getGameModeForPlayer().getName();
         if (previous != null && previous.dimension.equals(dimension) && mode.equals(previous.gameMode)) {
             double dx = previous.x - player.getX();
             double dy = previous.y - player.getY();
@@ -141,7 +141,7 @@ public final class HomePositions {
             }
         }
         homes.put(key, new Home(dimension, player.getX(), player.getY(), player.getZ(),
-                player.getYaw(), player.getPitch(), mode));
+                player.getYRot(), player.getXRot(), mode));
         dirty = true;
     }
 
@@ -155,7 +155,7 @@ public final class HomePositions {
      *
      * @return true if the player was moved
      */
-    public boolean rescue(ServerPlayerEntity player) {
+    public boolean rescue(ServerPlayer player) {
         return moveOut(player, "pvpocket.msg.home.reason.rescue", "login");
     }
 
@@ -168,7 +168,7 @@ public final class HomePositions {
      *
      * @return true if the player was moved
      */
-    public boolean evict(ServerPlayerEntity player) {
+    public boolean evict(ServerPlayer player) {
         return moveOut(player, "pvpocket.msg.home.reason.evict", "guard");
     }
 
@@ -178,33 +178,33 @@ public final class HomePositions {
      * @param whyKey translation key for the reason, used as the first half of the sentence
      * @param reason short tag for the log line
      */
-    private boolean moveOut(ServerPlayerEntity player, String whyKey, String reason) {
-        if (!ArenaManager.isArena(player.getWorld())) {
+    private boolean moveOut(ServerPlayer player, String whyKey, String reason) {
+        if (!ArenaManager.isArena(player.level())) {
             return false;
         }
-        Home home = homes.get(player.getUuidAsString());
-        ServerWorld target = home == null ? null : resolve(player, home.dimension);
+        Home home = homes.get(player.getStringUUID());
+        ServerLevel target = home == null ? null : resolve(player, home.dimension);
         if (target == null) {
             // No record, or the record points at a dimension that no longer exists. Spawn is worse
             // than where they were but better than a plot floating in the void.
-            target = player.getServer().getOverworld();
-            player.teleport(target, target.getSpawnPos().getX() + 0.5D,
-                    target.getSpawnPos().getY(), target.getSpawnPos().getZ() + 0.5D,
-                    player.getYaw(), player.getPitch());
+            target = player.getServer().overworld();
+            player.teleportTo(target, target.getSharedSpawnPos().getX() + 0.5D,
+                    target.getSharedSpawnPos().getY(), target.getSharedSpawnPos().getZ() + 0.5D,
+                    player.getYRot(), player.getXRot());
             releaseSpectatorMode(player, null);
             PvPocket.LOGGER.warn("Moved {} out of the arena ({}, no usable home); sent to spawn",
                     player.getName().getString(), reason);
-            player.sendMessage(PvLang.t("pvpocket.msg.home.sent_spawn", PvLang.t(whyKey))
-                    .formatted(Formatting.YELLOW), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.home.sent_spawn", PvLang.t(whyKey))
+                    .withStyle(ChatFormatting.YELLOW), false);
             return true;
         }
-        player.teleport(target, home.x, home.y, home.z, home.yaw, home.pitch);
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        player.teleportTo(target, home.x, home.y, home.z, home.yaw, home.pitch);
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         releaseSpectatorMode(player, home);
         PvPocket.LOGGER.info("Moved {} out of the arena ({}) to {} {} {} in {}",
                 player.getName().getString(), reason, home.x, home.y, home.z, home.dimension);
-        player.sendMessage(PvLang.t("pvpocket.msg.home.sent_home", PvLang.t(whyKey))
-                .formatted(Formatting.YELLOW), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.home.sent_home", PvLang.t(whyKey))
+                .withStyle(ChatFormatting.YELLOW), false);
         return true;
     }
 
@@ -216,22 +216,22 @@ public final class HomePositions {
      * alone — the player may have changed it deliberately, and this class is a backstop, not an
      * authority on how somebody wants to play.</p>
      */
-    private static void releaseSpectatorMode(ServerPlayerEntity player, Home home) {
-        if (player.interactionManager.getGameMode() != GameMode.SPECTATOR) {
+    private static void releaseSpectatorMode(ServerPlayer player, Home home) {
+        if (player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
             return;
         }
-        GameMode fallback = home == null ? GameMode.SURVIVAL : GameMode.byName(home.gameMode, GameMode.SURVIVAL);
+        GameType fallback = home == null ? GameType.SURVIVAL : GameType.byName(home.gameMode, GameType.SURVIVAL);
         // Authorised change: this runs while the player is still standing in the arena dimension,
         // which is exactly the situation the sandbox rule exists to block for everyone else.
         Sandbox.changeGameMode(player, fallback);
     }
 
-    private static ServerWorld resolve(ServerPlayerEntity player, String dimension) {
-        Identifier id = Identifier.tryParse(dimension);
+    private static ServerLevel resolve(ServerPlayer player, String dimension) {
+        ResourceLocation id = ResourceLocation.tryParse(dimension);
         if (id == null) {
             return null;
         }
-        return player.getServer().getWorld(RegistryKey.of(RegistryKeys.WORLD, id));
+        return player.getServer().getLevel(ResourceKey.create(Registries.DIMENSION, id));
     }
 
     /** Writes the file if enough time has passed and anything actually changed. */

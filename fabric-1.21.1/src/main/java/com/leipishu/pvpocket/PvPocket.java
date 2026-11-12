@@ -15,10 +15,10 @@ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.TypedActionResult;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.InteractionResultHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,8 +33,8 @@ public final class PvPocket implements ModInitializer {
     public static final String MOD_ID = "pvpocket";
     public static final Logger LOGGER = LoggerFactory.getLogger("PvPocket");
 
-    public static Identifier id(String path) {
-        return Identifier.of(MOD_ID, path);
+    public static ResourceLocation id(String path) {
+        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
     }
 
     @Override
@@ -91,12 +91,12 @@ public final class PvPocket implements ModInitializer {
         // question "are these two on the same side" — a rule the session can answer and the damage
         // pipeline cannot.
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
-                !(entity instanceof ServerPlayerEntity victim)
+                !(entity instanceof ServerPlayer victim)
                         || SessionManager.get() == null
                         || SessionManager.get().allowDamage(victim, source));
 
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-            if (entity instanceof ServerPlayerEntity player) {
+            if (entity instanceof ServerPlayer player) {
                 SessionManager manager = SessionManager.get();
                 if (manager != null) {
                     manager.onDeath(player);
@@ -132,20 +132,20 @@ public final class PvPocket implements ModInitializer {
         // bans. Placement is not here — it goes through `ItemStack#useOnBlock` and is vetoed by
         // `ItemStackMixin`, because `interactItem` only runs once `interactBlock` has declined.
         UseItemCallback.EVENT.register((player, world, hand) -> {
-            ItemStack stack = player.getStackInHand(hand);
+            ItemStack stack = player.getItemInHand(hand);
             UsePolicy.Denial denial = UsePolicy.shieldDenial(
-                    CombatState.isLegacy(player.getUuid()), stack);
+                    CombatState.isLegacy(player.getUUID()), stack);
             if (denial == UsePolicy.Denial.NONE) {
                 denial = UsePolicy.useDenial(
-                        CombatState.useGate(player.getUuid()),
-                        CombatState.useBans(player.getUuid()),
+                        CombatState.useGate(player.getUUID()),
+                        CombatState.useBans(player.getUUID()),
                         stack);
             }
             if (denial == UsePolicy.Denial.NONE) {
-                return TypedActionResult.pass(stack);
+                return InteractionResultHolder.pass(stack);
             }
             SessionManager.reportUseDenial(player, denial, stack);
-            return TypedActionResult.fail(stack);
+            return InteractionResultHolder.fail(stack);
         });
 
         // g.chatScope. A veto here cancels vanilla's fan-out, and the handler delivers the line to

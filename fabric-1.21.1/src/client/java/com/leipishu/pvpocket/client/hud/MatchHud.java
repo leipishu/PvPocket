@@ -9,14 +9,14 @@ import com.leipishu.pvpocket.network.MatchHudPayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.client.util.SkinTextures;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,18 +105,18 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(DrawContext ctx, RenderTickCounter tickCounter) {
+    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
         MatchHudPayload payload = state;
         if (payload == null) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player == null || client.world == null) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null || client.level == null) {
             return;
         }
         // F1 hides the HUD; a scoreboard that ignores that is a scoreboard the player cannot get rid
         // of, and the first thing anyone does when they want a clean screenshot is press F1.
-        if (client.options.hudHidden || client.currentScreen != null) {
+        if (client.options.hideGui || client.screen != null) {
             return;
         }
 
@@ -126,7 +126,7 @@ public final class MatchHud implements HudRenderCallback {
             return;
         }
 
-        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
         appearT = PvAnim.damp(appearT, 1F, d, 0.06F);
 
         // A score change is the one event on this bar worth a flash: the number is 9px tall and sits
@@ -140,8 +140,8 @@ public final class MatchHud implements HudRenderCallback {
         }
         flashT = Math.max(0F, flashT - d / FLASH_TIME);
 
-        TextRenderer tr = client.textRenderer;
-        int screenW = client.getWindow().getScaledWidth();
+        Font tr = client.font;
+        int screenW = client.getWindow().getGuiScaledWidth();
 
         // The bar is scaled as a whole — frame, heads and text — because a scoreboard that keeps its
         // frame and shrinks only the numbers has not changed size, it has just become harder to read.
@@ -154,11 +154,11 @@ public final class MatchHud implements HudRenderCallback {
         int room = (int) Math.floor((screenW - 8) / scale);
         int centreX = screenW / 2;
 
-        ctx.getMatrices().push();
+        ctx.pose().pushPose();
         if (scale != 1F) {
-            ctx.getMatrices().translate(centreX, TOP, 0);
-            ctx.getMatrices().scale(scale, scale, 1F);
-            ctx.getMatrices().translate(-centreX, -TOP, 0);
+            ctx.pose().translate(centreX, TOP, 0);
+            ctx.pose().scale(scale, scale, 1F);
+            ctx.pose().translate(-centreX, -TOP, 0);
         }
         Bar bar = null;
         if (teams.size() == 2) {
@@ -166,7 +166,7 @@ public final class MatchHud implements HudRenderCallback {
         } else {
             drawStacked(ctx, client, tr, payload, teams, scores, centreX);
         }
-        ctx.getMatrices().pop();
+        ctx.pose().popPose();
         // The team strips are drawn after the matrix comes back off: they are the one part of the bar
         // whose geometry is a fixed number of pixels rather than a share of the layout, so they are
         // computed from the panel's on-screen rectangle instead of being scaled with it.
@@ -181,7 +181,7 @@ public final class MatchHud implements HudRenderCallback {
     private record Bar(int x, int y, int w, int h) {
     }
 
-    private Bar drawHeadToHead(DrawContext ctx, MinecraftClient client, TextRenderer tr,
+    private Bar drawHeadToHead(GuiGraphics ctx, Minecraft client, Font tr,
                                MatchHudPayload payload, List<List<Row>> teams, int[] scores,
                                int centreX, int room) {
         List<Row> left = teams.get(0);
@@ -252,7 +252,7 @@ public final class MatchHud implements HudRenderCallback {
      * out as a one-pixel softening — which is exactly the point: a real arc there would eat the
      * strip, and no arc leaves the corners sticking out of the silhouette.</p>
      */
-    private static void drawTeamStrips(DrawContext ctx, Bar bar, float scale, int centreX) {
+    private static void drawTeamStrips(GuiGraphics ctx, Bar bar, float scale, int centreX) {
         int left = Math.round(centreX + (bar.x() - centreX) * scale);
         int right = Math.round(centreX + (bar.x() + bar.w() - centreX) * scale);
         int top = Math.round(TOP + (bar.y() - TOP) * scale);
@@ -275,13 +275,13 @@ public final class MatchHud implements HudRenderCallback {
      * as wide as the screen; four plus the count is enough to see who is on which side, and the
      * exact roster is a tab-list question, not a scoreboard one.</p>
      */
-    private void drawStacked(DrawContext ctx, MinecraftClient client, TextRenderer tr,
+    private void drawStacked(GuiGraphics ctx, Minecraft client, Font tr,
                              MatchHudPayload payload, List<List<Row>> teams, int[] scores,
                              int centreX) {
         int rows = teams.size();
         int headerH = 11;
         int headsW = 4 * (HEAD + 2);
-        int scoreW = tr.getWidth("00") + 6;
+        int scoreW = tr.width("00") + 6;
         int width = PAD_X * 2 + STRIP_W + 4 + headsW + BLOCK_GAP + scoreW;
         int height = PAD_Y * 2 + headerH + rows * ROW_H;
         int barX = centreX - width / 2;
@@ -307,7 +307,7 @@ public final class MatchHud implements HudRenderCallback {
                 Row row = members.get(i);
                 PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
                         PvTheme.alpha(0xFF000000, 0.55F));
-                PlayerSkinDrawer.draw(ctx, skinOf(client, row.uuid()), x, y, HEAD);
+                PlayerFaceRenderer.draw(ctx, skinOf(client, row.uuid()), x, y, HEAD);
                 x += HEAD + 2;
             }
             int textY = y + (HEAD - 8) / 2 + 1;
@@ -326,14 +326,14 @@ public final class MatchHud implements HudRenderCallback {
     private record Layout(int width, int height, int leftW, int centreW, int rightW) {
     }
 
-    private static Layout measure(TextRenderer tr, List<Row> left, List<Row> right,
+    private static Layout measure(Font tr, List<Row> left, List<Row> right,
                                   MatchHudPayload payload, int leftScore, int rightScore,
                                   boolean names) {
         int leftW = blockWidth(tr, left, names, payload.showHealth());
         int rightW = blockWidth(tr, right, names, payload.showHealth());
         String round = roundLabel(payload);
         String score = leftScore + " : " + rightScore;
-        int centreW = Math.max(tr.getWidth(round), tr.getWidth(score));
+        int centreW = Math.max(tr.width(round), tr.width(score));
 
         int blocks = 0;
         if (leftW > 0) {
@@ -348,7 +348,7 @@ public final class MatchHud implements HudRenderCallback {
         return new Layout(width, height, leftW, centreW, rightW);
     }
 
-    private static int blockWidth(TextRenderer tr, List<Row> rows, boolean names, boolean showHealth) {
+    private static int blockWidth(Font tr, List<Row> rows, boolean names, boolean showHealth) {
         if (rows.isEmpty()) {
             return 0;
         }
@@ -357,10 +357,10 @@ public final class MatchHud implements HudRenderCallback {
         }
         // Reserved from the widest possible readout rather than from the current value: a block that
         // resizes when somebody drops to nine hearts would shift the whole bar mid-fight.
-        int healthW = showHealth ? HEALTH_GAP + tr.getWidth("9.5") : 0;
+        int healthW = showHealth ? HEALTH_GAP + tr.width("9.5") : 0;
         int max = 0;
         for (Row row : rows) {
-            max = Math.max(max, HEAD + NAME_GAP + tr.getWidth(row.name()) + healthW);
+            max = Math.max(max, HEAD + NAME_GAP + tr.width(row.name()) + healthW);
         }
         return max;
     }
@@ -374,7 +374,7 @@ public final class MatchHud implements HudRenderCallback {
      * are we" is read once at the round boundary, "who is ahead" is read constantly — and stacking
      * them keeps the centre block narrow enough that a 2v2 bar still fits at 2× GUI scale.</p>
      */
-    private static void drawCentre(DrawContext ctx, TextRenderer tr, MatchHudPayload payload,
+    private static void drawCentre(GuiGraphics ctx, Font tr, MatchHudPayload payload,
                                    String score, int x, int barY, int width) {
         int centreX = x + width / 2;
         PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 4, PvTheme.TEXT_DIM);
@@ -382,7 +382,7 @@ public final class MatchHud implements HudRenderCallback {
         PvDraw.textCenter(ctx, tr, score, centreX, barY + 13, color);
     }
 
-    private static void drawSide(DrawContext ctx, TextRenderer tr, MinecraftClient client,
+    private static void drawSide(GuiGraphics ctx, Font tr, Minecraft client,
                                  List<Row> rows, boolean left, int edgeX, int barY, int barH,
                                  boolean names, int score, int winsNeeded, boolean showHealth) {
         if (rows.isEmpty()) {
@@ -398,11 +398,11 @@ public final class MatchHud implements HudRenderCallback {
             int headX = left ? edgeX : edgeX - HEAD;
             PvDraw.roundRect(ctx, headX - 1, y - 1, HEAD + 2, HEAD + 2, 2,
                     PvTheme.alpha(0xFF000000, 0.55F));
-            PlayerSkinDrawer.draw(ctx, skinOf(client, row.uuid()), headX, y, HEAD);
+            PlayerFaceRenderer.draw(ctx, skinOf(client, row.uuid()), headX, y, HEAD);
 
             if (names) {
                 int textY = y + (HEAD - 8) / 2 + 1;
-                int nameW = tr.getWidth(row.name());
+                int nameW = tr.width(row.name());
                 if (left) {
                     PvDraw.text(ctx, tr, row.name(), headX + HEAD + NAME_GAP, textY, tint);
                 } else {
@@ -439,10 +439,10 @@ public final class MatchHud implements HudRenderCallback {
     }
 
     /** The participant's health, or -1 when their entity is not in this client's world. */
-    private static float healthOf(MinecraftClient client, UUID uuid) {
-        if (client.world != null) {
-            for (AbstractClientPlayerEntity player : client.world.getPlayers()) {
-                if (player.getUuid().equals(uuid)) {
+    private static float healthOf(Minecraft client, UUID uuid) {
+        if (client.level != null) {
+            for (AbstractClientPlayer player : client.level.players()) {
+                if (player.getUUID().equals(uuid)) {
                     return player.getHealth();
                 }
             }
@@ -450,8 +450,8 @@ public final class MatchHud implements HudRenderCallback {
         return -1.0F;
     }
 
-    private static boolean isSelf(MinecraftClient client, UUID uuid) {
-        return client.player != null && client.player.getUuid().equals(uuid);
+    private static boolean isSelf(Minecraft client, UUID uuid) {
+        return client.player != null && client.player.getUUID().equals(uuid);
     }
 
     private static String roundLabel(MatchHudPayload payload) {
@@ -469,15 +469,15 @@ public final class MatchHud implements HudRenderCallback {
      * world at all. Drawing a Steve head is a worse answer than the real skin but a much better one
      * than a missing row.</p>
      */
-    private static SkinTextures skinOf(MinecraftClient client, UUID uuid) {
-        if (client.world != null) {
-            for (AbstractClientPlayerEntity player : client.world.getPlayers()) {
-                if (player.getUuid().equals(uuid)) {
-                    return player.getSkinTextures();
+    private static PlayerSkin skinOf(Minecraft client, UUID uuid) {
+        if (client.level != null) {
+            for (AbstractClientPlayer player : client.level.players()) {
+                if (player.getUUID().equals(uuid)) {
+                    return player.getSkin();
                 }
             }
         }
-        return DefaultSkinHelper.getSkinTextures(uuid);
+        return DefaultPlayerSkin.get(uuid);
     }
 
     // ------------------------------------------------------------------ parsing

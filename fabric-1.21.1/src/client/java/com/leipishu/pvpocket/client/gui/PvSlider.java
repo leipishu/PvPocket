@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.rules.RuleDefinition;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.Mth;
 
 /**
  * Numeric slider with live read-out.
@@ -72,11 +72,11 @@ public class PvSlider extends PvValueControl {
      * result fixed avoids the other failure — sizing to the current value would make the track jump
      * sideways every time a digit is added while dragging.</p>
      */
-    private int readoutWidth(TextRenderer tr) {
+    private int readoutWidth(Font tr) {
         if (readoutW < 0) {
             readoutW = Math.max(READOUT, Math.max(
-                    tr.getWidth(def.format(def.min)),
-                    tr.getWidth(def.format(def.max))));
+                    tr.width(def.format(def.min)),
+                    tr.width(def.format(def.max))));
         }
         return readoutW;
     }
@@ -105,7 +105,7 @@ public class PvSlider extends PvValueControl {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -123,7 +123,7 @@ public class PvSlider extends PvValueControl {
             display = PvAnim.damp(display, target, d, 0.05F);
         }
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         int readoutW = readoutWidth(tr);
         int trackX = trackLeft();
         int trackW = trackWidth();
@@ -146,7 +146,7 @@ public class PvSlider extends PvValueControl {
         // 33% and another at 67%, and un-hovering jumped back the same way. Alpha is quantised to
         // 1/255, which is below the eye's threshold on a 20px-tall control, so the same tween read
         // out as an alpha looks like what it is: a fade.
-        int kx = MathHelper.clamp(trackX + filled, trackX, trackX + trackW);
+        int kx = Mth.clamp(trackX + filled, trackX, trackX + trackW);
         int ky = y + height / 2;
         int knobColor = enabled ? PvTheme.mix(PvTheme.TEXT, 0xFFFFFFFF, glow) : PvTheme.TEXT_MUTED;
         if (glow > 0.02F) {
@@ -213,10 +213,10 @@ public class PvSlider extends PvValueControl {
     private void applyMouse(double mx) {
         // The read-out is normally measured on the first frame, but a click can arrive before any
         // render if the widget was just added; measuring here keeps the mapping identical.
-        readoutWidth(MinecraftClient.getInstance().textRenderer);
+        readoutWidth(Minecraft.getInstance().font);
         int trackW = trackWidth();
         float t = (float) ((mx - trackLeft()) / trackW);
-        t = MathHelper.clamp(t, 0F, 1F);
+        t = Mth.clamp(t, 0F, 1F);
         int raw = Math.round(def.min + t * (def.max - def.min));
         // Snap onto the step grid so the value the slider produces is always one the rule can hold.
         int step = Math.max(1, def.step);

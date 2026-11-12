@@ -6,17 +6,17 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.RenderType;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.Level;
 import org.joml.Matrix4f;
 
 /**
@@ -49,15 +49,15 @@ import org.joml.Matrix4f;
  *       that wall has a top and is backed by real barrier blocks. See {@link #drawScreens}.</li>
  * </ul>
  *
- * <p>Geometry goes through {@link RenderLayer#getDebugQuads()}, which is the vanilla layer for exactly
+ * <p>Geometry goes through {@link RenderLayer#debugQuads()}, which is the vanilla layer for exactly
  * this: {@code POSITION_COLOR} vertices, translucent, culling disabled. Culling off is why each quad
  * is emitted once and still visible from both sides.</p>
  */
 @Environment(EnvType.CLIENT)
 public final class BoundaryRenderer {
 
-    private static final RegistryKey<World> ARENA_WORLD =
-            RegistryKey.of(RegistryKeys.WORLD, Identifier.of("pvpocket", "arena"));
+    private static final ResourceKey<Level> ARENA_WORLD =
+            ResourceKey.create(Registries.DIMENSION, ResourceLocation.fromNamespaceAndPath("pvpocket", "arena"));
 
     /** Past this distance a segment is not drawn at all. */
     private static final double RENDER_RANGE = 26.0D;
@@ -118,30 +118,30 @@ public final class BoundaryRenderer {
         if (!ArenaBounds.active() && PrepareScreens.get().isEmpty()) {
             return;
         }
-        ClientWorld world = context.world();
-        MinecraftClient client = MinecraftClient.getInstance();
+        ClientLevel world = context.world();
+        Minecraft client = Minecraft.getInstance();
         if (world == null || client.player == null) {
             return;
         }
         // The bounds are only meaningful inside the arena dimension. They are cleared when the round
         // ends, but a teleport out of the dimension mid-round would otherwise leave a curtain hanging
         // at coordinates that mean nothing in the world the player is now standing in.
-        if (!world.getRegistryKey().equals(ARENA_WORLD)) {
+        if (!world.dimension().equals(ARENA_WORLD)) {
             return;
         }
-        MatrixStack matrices = context.matrixStack();
-        VertexConsumerProvider consumers = context.consumers();
+        PoseStack matrices = context.matrixStack();
+        MultiBufferSource consumers = context.consumers();
         if (matrices == null || consumers == null) {
             return;
         }
 
-        Vec3d cam = context.camera().getPos();
-        matrices.push();
+        Vec3 cam = context.camera().getPosition();
+        matrices.pushPose();
         // Vertices are sent in world coordinates, so the camera has to be cancelled out here. Vanilla
         // does the same thing when it draws the debug frustum.
         matrices.translate(-cam.x, -cam.y, -cam.z);
-        Matrix4f matrix = matrices.peek().getPositionMatrix();
-        VertexConsumer vc = consumers.getBuffer(RenderLayer.getDebugQuads());
+        Matrix4f matrix = matrices.last().pose();
+        VertexConsumer vc = consumers.getBuffer(RenderType.debugQuads());
 
         if (ArenaBounds.active()) {
             drawBoundary(vc, matrix, cam, ArenaBounds.get());
@@ -151,7 +151,7 @@ public final class BoundaryRenderer {
         // behind rather than walk into nothing.
         drawScreens(vc, matrix, cam);
 
-        matrices.pop();
+        matrices.popPose();
     }
 
     /**
@@ -163,7 +163,7 @@ public final class BoundaryRenderer {
      * one" exactly when the player is standing still and could read it. The solid white moved to
      * {@link #drawScreens}, which is the thing that actually becomes solid.</p>
      */
-    private static void drawBoundary(VertexConsumer vc, Matrix4f matrix, Vec3d cam,
+    private static void drawBoundary(VertexConsumer vc, Matrix4f matrix, Vec3 cam,
                                      ArenaBoundsPayload bounds) {
         // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round).
         float r;
@@ -213,7 +213,7 @@ public final class BoundaryRenderer {
      * area, and drawing all of it at full strength would fill the view with white from any angle.
      * The piece in front of you is always within full strength.</p>
      */
-    private static void drawScreens(VertexConsumer vc, Matrix4f matrix, Vec3d cam) {
+    private static void drawScreens(VertexConsumer vc, Matrix4f matrix, Vec3 cam) {
         for (PrepareScreensPayload.Screen screen : PrepareScreens.get()) {
             double px;
             double pz;
@@ -241,7 +241,7 @@ public final class BoundaryRenderer {
         }
     }
 
-    private static void drawEdge(VertexConsumer vc, Matrix4f matrix, Vec3d cam,
+    private static void drawEdge(VertexConsumer vc, Matrix4f matrix, Vec3 cam,
                                  double px, double pz, double qx, double qz,
                                  double yLow, double bandTop, double fadeStart, double yHigh,
                                  float r, float g, float b,
@@ -311,9 +311,9 @@ public final class BoundaryRenderer {
                              float r, float g, float b,
                              float alphaLowA, float alphaLowB,
                              float alphaHighA, float alphaHighB) {
-        vc.vertex(matrix, (float) ax, (float) yLow, (float) az).color(r, g, b, alphaLowA);
-        vc.vertex(matrix, (float) bx, (float) yLow, (float) bz).color(r, g, b, alphaLowB);
-        vc.vertex(matrix, (float) bx, (float) yHigh, (float) bz).color(r, g, b, alphaHighB);
-        vc.vertex(matrix, (float) ax, (float) yHigh, (float) az).color(r, g, b, alphaHighA);
+        vc.addVertex(matrix, (float) ax, (float) yLow, (float) az).setColor(r, g, b, alphaLowA);
+        vc.addVertex(matrix, (float) bx, (float) yLow, (float) bz).setColor(r, g, b, alphaLowB);
+        vc.addVertex(matrix, (float) bx, (float) yHigh, (float) bz).setColor(r, g, b, alphaHighB);
+        vc.addVertex(matrix, (float) ax, (float) yHigh, (float) az).setColor(r, g, b, alphaHighA);
     }
 }

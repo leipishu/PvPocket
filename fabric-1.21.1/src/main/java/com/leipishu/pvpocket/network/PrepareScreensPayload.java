@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +25,7 @@ import java.util.List;
  * business re-deriving where a screen stands from pads and insets, and two derivations of the same
  * plane is how a wall ends up drawn a block away from the blocks you are bumping into.</p>
  */
-public record PrepareScreensPayload(List<Screen> screens) implements CustomPayload {
+public record PrepareScreensPayload(List<Screen> screens) implements CustomPacketPayload {
 
     /**
      * One vertical plane, one block thick.
@@ -38,10 +38,10 @@ public record PrepareScreensPayload(List<Screen> screens) implements CustomPaylo
                          double floorY, double height) {
     }
 
-    public static final Id<PrepareScreensPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "prepare_screens"));
+    public static final Type<PrepareScreensPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "prepare_screens"));
 
-    public static final PacketCodec<RegistryByteBuf, PrepareScreensPayload> CODEC = PacketCodec.of(
+    public static final StreamCodec<RegistryFriendlyByteBuf, PrepareScreensPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeVarInt(value.screens.size());
                 for (Screen screen : value.screens) {
@@ -78,7 +78,7 @@ public record PrepareScreensPayload(List<Screen> screens) implements CustomPaylo
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

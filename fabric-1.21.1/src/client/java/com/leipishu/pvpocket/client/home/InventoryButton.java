@@ -4,9 +4,9 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.mixin.client.HandledScreenAccessor;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.Button;
 
 /**
  * The second way into the home panel: a button beside the inventory.
@@ -45,11 +45,11 @@ public final class InventoryButton {
             int bx = Math.max(2, panel.pvpocket$panelX() - W - GAP);
             int by = Math.max(2, panel.pvpocket$panelY() + GAP);
 
-            ButtonWidget button = ButtonWidget
+            Button button = Button
                     .builder(PvLang.t("pvpocket.gui.home.inventory"), b -> HomeClient.open())
-                    .dimensions(bx, by, W, H)
+                    .bounds(bx, by, W, H)
                     .build();
-            button.setTooltip(Tooltip.of(PvLang.t("pvpocket.gui.home.inventory.tip")));
+            button.setTooltip(Tooltip.create(PvLang.t("pvpocket.gui.home.inventory.tip")));
             Screens.getButtons(screen).add(button);
         });
     }

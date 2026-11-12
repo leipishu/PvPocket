@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Server to client: "this series is over, and here is what happened" — the data behind the result
@@ -38,19 +38,19 @@ import net.minecraft.util.Identifier;
  * every one of them loses no state.</p>
  */
 public record SeriesResultPayload(String head, String rounds, String sides)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
-    public static final Id<SeriesResultPayload> ID =
-            new Id<>(Identifier.of("pvpocket", "series_result"));
+    public static final Type<SeriesResultPayload> ID =
+            new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "series_result"));
 
-    public static final PacketCodec<RegistryByteBuf, SeriesResultPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, SeriesResultPayload::head,
-            PacketCodecs.STRING, SeriesResultPayload::rounds,
-            PacketCodecs.STRING, SeriesResultPayload::sides,
+    public static final StreamCodec<RegistryFriendlyByteBuf, SeriesResultPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, SeriesResultPayload::head,
+            ByteBufCodecs.STRING_UTF8, SeriesResultPayload::rounds,
+            ByteBufCodecs.STRING_UTF8, SeriesResultPayload::sides,
             SeriesResultPayload::new);
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

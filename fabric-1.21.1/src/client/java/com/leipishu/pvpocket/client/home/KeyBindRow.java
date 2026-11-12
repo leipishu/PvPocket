@@ -4,11 +4,11 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -42,10 +42,10 @@ public class KeyBindRow extends PvWidget {
     private static KeyBindRow capturing;
 
     private final String label;
-    private final KeyBinding binding;
+    private final KeyMapping binding;
     private float capT;
 
-    public KeyBindRow(String label, KeyBinding binding) {
+    public KeyBindRow(String label, KeyMapping binding) {
         this.label = label;
         this.binding = binding;
         this.height = 24;
@@ -85,22 +85,22 @@ public class KeyBindRow extends PvWidget {
     }
 
     private void apply(int keyCode, int scanCode) {
-        KeyBinding conflict = conflicting(keyCode, scanCode);
+        KeyMapping conflict = conflicting(keyCode, scanCode);
         if (conflict != null && conflict != binding) {
             // Refused rather than stolen: silently taking the jump key would leave a player unable to
             // jump with no clue which panel did it.
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (client.player != null) {
-                client.player.sendMessage(PvLang.t("pvpocket.msg.home.key_conflict",
-                        conflict.getBoundKeyLocalizedText()), true);
+                client.player.displayClientMessage(PvLang.t("pvpocket.msg.home.key_conflict",
+                        conflict.getTranslatedKeyMessage()), true);
             }
             return;
         }
-        binding.setBoundKey(InputUtil.fromKeyCode(keyCode, scanCode));
+        binding.setKey(InputConstants.getKey(keyCode, scanCode));
         // Both halves matter: the index is what makes the new key fire this tick, the write is what
         // makes it survive the session.
-        KeyBinding.updateKeysByCode();
-        MinecraftClient.getInstance().options.write();
+        KeyMapping.resetMapping();
+        Minecraft.getInstance().options.save();
     }
 
     /**
@@ -113,9 +113,9 @@ public class KeyBindRow extends PvWidget {
      * by a mouse button never matches a keyboard code, which is the right answer: the two cannot
      * collide.</p>
      */
-    private KeyBinding conflicting(int keyCode, int scanCode) {
-        for (KeyBinding other : MinecraftClient.getInstance().options.allKeys) {
-            if (other != binding && !other.isUnbound() && other.matchesKey(keyCode, scanCode)) {
+    private KeyMapping conflicting(int keyCode, int scanCode) {
+        for (KeyMapping other : Minecraft.getInstance().options.keyMappings) {
+            if (other != binding && !other.isUnbound() && other.matches(keyCode, scanCode)) {
                 return other;
             }
         }
@@ -123,11 +123,11 @@ public class KeyBindRow extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         capT = com.leipishu.pvpocket.client.gui.PvAnim.damp(capT,
                 capturing == this ? 1F : 0F, dt(delta), 0.08F);
 
@@ -143,7 +143,7 @@ public class KeyBindRow extends PvWidget {
 
         String text = capturing == this
                 ? PvLang.str("pvpocket.gui.home.settings.press_key")
-                : binding.getBoundKeyLocalizedText().getString();
+                : binding.getTranslatedKeyMessage().getString();
         int color = capturing == this ? PvTheme.ACCENT
                 : hot ? PvTheme.TEXT : PvTheme.TEXT_DIM;
         // The key cap is a fixed 92px box, and a bound key's name is whatever vanilla calls it

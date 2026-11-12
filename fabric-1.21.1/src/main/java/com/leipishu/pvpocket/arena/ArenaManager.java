@@ -4,26 +4,26 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.ExperienceOrbEntity;
-import net.minecraft.entity.ItemEntity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.Level;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -54,8 +54,8 @@ import java.util.Map;
  */
 public final class ArenaManager {
 
-    public static final RegistryKey<World> ARENA_WORLD =
-            RegistryKey.of(RegistryKeys.WORLD, PvPocket.id("arena"));
+    public static final ResourceKey<Level> ARENA_WORLD =
+            ResourceKey.create(Registries.DIMENSION, PvPocket.id("arena"));
 
     /** Walkable surface; the flat generator puts bedrock at 0 and stone at 1..2. */
     public static final int SURFACE_Y = ArenaRegion.SURFACE_Y;
@@ -336,7 +336,7 @@ public final class ArenaManager {
     }
 
     private static Path layoutFile(MinecraftServer server) {
-        return server.getSavePath(WorldSavePath.ROOT).resolve("pvpocket").resolve("arena.json");
+        return server.getWorldPath(LevelResource.ROOT).resolve("pvpocket").resolve("arena.json");
     }
 
     private static int totalAssigned() {
@@ -522,7 +522,7 @@ public final class ArenaManager {
      * subset of the cell's own clearance, so it cannot reach a neighbour.</p>
      */
     private static void vacate(MinecraftServer server, int slot, ArenaMap map) {
-        ServerWorld world = world(server);
+        ServerLevel world = world(server);
         if (world == null) {
             CELLS[slot] = null;
             USED[slot] = false;
@@ -588,16 +588,16 @@ public final class ArenaManager {
     private ArenaManager() {
     }
 
-    public static ServerWorld world(MinecraftServer server) {
-        return server.getWorld(ARENA_WORLD);
+    public static ServerLevel world(MinecraftServer server) {
+        return server.getLevel(ARENA_WORLD);
     }
 
     public static boolean isReady(MinecraftServer server) {
         return world(server) != null;
     }
 
-    public static boolean isArena(World world) {
-        return world != null && world.getRegistryKey().equals(ARENA_WORLD);
+    public static boolean isArena(Level world) {
+        return world != null && world.dimension().equals(ARENA_WORLD);
     }
 
     // ------------------------------------------------------------------ leases
@@ -690,7 +690,7 @@ public final class ArenaManager {
         ArenaRegion region = new ArenaRegion("arena-" + slot, slot, originX, originZ, sx, sy, sz,
                 cellX, cellZ, CELL, CELL, map, protectTerrain, allowBreakOwn);
 
-        ServerWorld world = world(server);
+        ServerLevel world = world(server);
         if (world == null) {
             PvPocket.LOGGER.error("Arena world is not loaded; cannot stamp {}", map.id);
             return null;
@@ -750,13 +750,13 @@ public final class ArenaManager {
      *
      * <p>Returns the block count so the caller can log it the same way it logs a paste.</p>
      */
-    private static int buildPlatform(ServerWorld world, ArenaRegion region) {
-        BlockState floor = Blocks.SMOOTH_STONE.getDefaultState();
+    private static int buildPlatform(ServerLevel world, ArenaRegion region) {
+        BlockState floor = Blocks.SMOOTH_STONE.defaultBlockState();
         int placed = 0;
         for (int x = region.minX; x <= region.maxX(); x++) {
             for (int z = region.minZ; z <= region.maxZ(); z++) {
-                world.setBlockState(new BlockPos(x, ArenaRegion.PLATFORM_Y, z), floor,
-                        Block.NOTIFY_LISTENERS);
+                world.setBlock(new BlockPos(x, ArenaRegion.PLATFORM_Y, z), floor,
+                        Block.UPDATE_CLIENTS);
                 placed++;
             }
         }
@@ -789,8 +789,8 @@ public final class ArenaManager {
      * <p>Runs after {@link ArenaRegion#capture} so the shelf cannot be mistaken for map blocks: it
      * is one below the plot floor and outside the plot box, and capture scans neither.</p>
      */
-    private static int buildBuffer(ServerWorld world, ArenaRegion region) {
-        BlockState barrier = Blocks.BARRIER.getDefaultState();
+    private static int buildBuffer(ServerLevel world, ArenaRegion region) {
+        BlockState barrier = Blocks.BARRIER.defaultBlockState();
         int pad = ArenaRegion.BUFFER;
         int shelfY = ArenaRegion.PLATFORM_Y - 1;
         int x0 = region.minX - pad;
@@ -820,12 +820,12 @@ public final class ArenaManager {
     }
 
     /** Writes only on a real change, so re-stamping a cell does not rewrite an identical buffer. */
-    private static int setIfDifferent(ServerWorld world, int x, int y, int z, BlockState state) {
+    private static int setIfDifferent(ServerLevel world, int x, int y, int z, BlockState state) {
         BlockPos pos = new BlockPos(x, y, z);
         if (world.getBlockState(pos) == state) {
             return 0;
         }
-        world.setBlockState(pos, state, Block.NOTIFY_LISTENERS);
+        world.setBlock(pos, state, Block.UPDATE_CLIENTS);
         return 1;
     }
 
@@ -891,12 +891,12 @@ public final class ArenaManager {
      * inset — and a barrier block filed as "the player placed this" would make the whole ring
      * unbreakable-but-tracked and would be reverted into existence at the next settle.</p>
      */
-    public static int buildPrepareWall(ServerWorld world, ArenaRegion region, int sides) {
+    public static int buildPrepareWall(ServerLevel world, ArenaRegion region, int sides) {
         if (world == null || region == null) {
             return 0;
         }
         int ring = suppressRecording(() -> {
-            BlockState barrier = Blocks.BARRIER.getDefaultState();
+            BlockState barrier = Blocks.BARRIER.defaultBlockState();
             int x0 = region.pitMinX() - 1;
             int x1 = region.pitMaxX() + 1;
             int z0 = region.pitMinZ() - 1;
@@ -926,12 +926,12 @@ public final class ArenaManager {
      * further inside the fight area, where a map is free to use that block for its own invisible
      * walls, which is why those are tracked by coordinate instead.</p>
      */
-    private static int standIfAir(ServerWorld world, int x, int y, int z, BlockState barrier) {
+    private static int standIfAir(ServerLevel world, int x, int y, int z, BlockState barrier) {
         BlockPos pos = new BlockPos(x, y, z);
         if (!world.getBlockState(pos).isAir()) {
             return 0;
         }
-        world.setBlockState(pos, barrier, Block.NOTIFY_LISTENERS);
+        world.setBlock(pos, barrier, Block.UPDATE_CLIENTS);
         return 1;
     }
 
@@ -1023,8 +1023,8 @@ public final class ArenaManager {
      * whatever the plane crossed. Skipping non-air leaves the screen solid where it matters — the
      * direct line — and the map untouched.</p>
      */
-    private static int buildScreens(ServerWorld world, ArenaRegion region, int sides) {
-        BlockState barrier = Blocks.BARRIER.getDefaultState();
+    private static int buildScreens(ServerLevel world, ArenaRegion region, int sides) {
+        BlockState barrier = Blocks.BARRIER.defaultBlockState();
         int placed = 0;
         for (Screen screen : prepareScreens(region, sides)) {
             int top = screen.floorY() + screen.height() - 1;
@@ -1036,7 +1036,7 @@ public final class ArenaManager {
                     if (!world.getBlockState(pos).isAir()) {
                         continue;
                     }
-                    world.setBlockState(pos, barrier, Block.NOTIFY_LISTENERS);
+                    world.setBlock(pos, barrier, Block.UPDATE_CLIENTS);
                     region.trackScreen(pos);
                     placed++;
                 }
@@ -1052,13 +1052,13 @@ public final class ArenaManager {
      * barriers at the same coordinates keeps them. The screens are removed from the recorded
      * position list instead — see {@link ArenaRegion#clearScreens} for why a scan would be wrong.</p>
      */
-    public static int removePrepareWall(ServerWorld world, ArenaRegion region) {
+    public static int removePrepareWall(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
         int ring = suppressRecording(() -> {
-            BlockState air = Blocks.AIR.getDefaultState();
-            BlockState barrier = Blocks.BARRIER.getDefaultState();
+            BlockState air = Blocks.AIR.defaultBlockState();
+            BlockState barrier = Blocks.BARRIER.defaultBlockState();
             int x0 = region.pitMinX() - 1;
             int x1 = region.pitMaxX() + 1;
             int z0 = region.pitMinZ() - 1;
@@ -1080,13 +1080,13 @@ public final class ArenaManager {
         return ring + suppressRecording(() -> region.clearScreens(world));
     }
 
-    private static int clearIfBarrier(ServerWorld world, int x, int y, int z,
+    private static int clearIfBarrier(ServerLevel world, int x, int y, int z,
                                       BlockState barrier, BlockState air) {
         BlockPos pos = new BlockPos(x, y, z);
         if (world.getBlockState(pos) != barrier) {
             return 0;
         }
-        world.setBlockState(pos, air, Block.NOTIFY_LISTENERS);
+        world.setBlock(pos, air, Block.UPDATE_CLIENTS);
         return 1;
     }
 
@@ -1343,7 +1343,7 @@ public final class ArenaManager {
      * @return how many blocks were changed
      */
     public static int wipeUnstampedCells(MinecraftServer server) {
-        ServerWorld world = world(server);
+        ServerLevel world = world(server);
         if (world == null) {
             return 0;
         }
@@ -1371,7 +1371,7 @@ public final class ArenaManager {
      * the single choke point shared by placement, breaking, explosions, pistons, fluids and fire, so
      * a plot cannot be altered through a path the mod forgot to listen to.</p>
      */
-    public static void onBlockChanged(ServerWorld world, BlockPos pos, BlockState newState) {
+    public static void onBlockChanged(ServerLevel world, BlockPos pos, BlockState newState) {
         if (recordingSuppressed > 0) {
             return;
         }
@@ -1400,8 +1400,8 @@ public final class ArenaManager {
      * sealed plot the two readings only differ if a player deliberately dismantles the opponent's
      * cover, which is a play-style question rather than a correctness one.</p>
      */
-    public static boolean allowBreak(World world, PlayerEntity player, BlockPos pos) {
-        if (!(world instanceof ServerWorld) || !isArena(world)) {
+    public static boolean allowBreak(Level world, Player player, BlockPos pos) {
+        if (!(world instanceof ServerLevel) || !isArena(world)) {
             return true;
         }
         ArenaRegion region = regionAt(pos);
@@ -1410,11 +1410,11 @@ public final class ArenaManager {
         }
         boolean placedThisRound = region.isChanged(pos);
         if (region.protectTerrain && !placedThisRound) {
-            player.sendMessage(PvLang.t("pvpocket.msg.arena.protected").formatted(Formatting.GRAY), true);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.arena.protected").withStyle(ChatFormatting.GRAY), true);
             return false;
         }
         if (!region.allowBreakOwn && placedThisRound) {
-            player.sendMessage(PvLang.t("pvpocket.msg.arena.no_break").formatted(Formatting.GRAY), true);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.arena.no_break").withStyle(ChatFormatting.GRAY), true);
             return false;
         }
         return true;
@@ -1422,7 +1422,7 @@ public final class ArenaManager {
 
     // ------------------------------------------------------------------ teleport / bounds
 
-    public static boolean teleportToSpawn(ServerPlayerEntity player, ArenaRegion region, int spawnIndex) {
+    public static boolean teleportToSpawn(ServerPlayer player, ArenaRegion region, int spawnIndex) {
         return teleportToSpawn(player, region, spawnIndex, 0, 1);
     }
 
@@ -1436,9 +1436,9 @@ public final class ArenaManager {
      *
      * <p>{@code memberCount == 1} keeps the exact old coordinate, which is every 1v1.</p>
      */
-    public static boolean teleportToSpawn(ServerPlayerEntity player, ArenaRegion region, int spawnIndex,
+    public static boolean teleportToSpawn(ServerPlayer player, ArenaRegion region, int spawnIndex,
                                           int member, int memberCount) {
-        ServerWorld world = world(player.getServer());
+        ServerLevel world = world(player.getServer());
         if (world == null || region == null) {
             return false;
         }
@@ -1473,13 +1473,13 @@ public final class ArenaManager {
             z -= Math.cos(rad) * depth;
         }
         player.stopRiding();
-        player.teleport(world, x, y, z, yaw, 0.0F);
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        player.teleportTo(world, x, y, z, yaw, 0.0F);
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }
 
-    public static boolean isInside(ServerPlayerEntity player, ArenaRegion region) {
-        if (region == null || !isArena(player.getWorld())) {
+    public static boolean isInside(ServerPlayer player, ArenaRegion region) {
+        if (region == null || !isArena(player.level())) {
             return false;
         }
         return region.isInside(player.getX(), player.getY(), player.getZ());
@@ -1495,8 +1495,8 @@ public final class ArenaManager {
      * <p>The clamp stops one block short of the wall ring on every side, otherwise the player would
      * be placed inside the boundary blocks and suffocate.</p>
      */
-    public static boolean pullInside(ServerPlayerEntity player, ArenaRegion region) {
-        ServerWorld world = world(player.getServer());
+    public static boolean pullInside(ServerPlayer player, ArenaRegion region) {
+        ServerLevel world = world(player.getServer());
         if (world == null || region == null) {
             return false;
         }
@@ -1504,21 +1504,21 @@ public final class ArenaManager {
         // seating, so clamping to the box would "pull back" a player who walked out of the sand by
         // dropping them onto the stands — inside the geometry, outside the fight, still out of
         // bounds, and pulled again on the next tick.
-        double x = MathHelper.clamp(player.getX(), region.pitMinX() + 1.5D, region.pitMaxX() - 0.5D);
-        double z = MathHelper.clamp(player.getZ(), region.pitMinZ() + 1.5D, region.pitMaxZ() - 0.5D);
-        double y = MathHelper.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
+        double x = Mth.clamp(player.getX(), region.pitMinX() + 1.5D, region.pitMaxX() - 0.5D);
+        double z = Mth.clamp(player.getZ(), region.pitMinZ() + 1.5D, region.pitMaxZ() - 0.5D);
+        double y = Mth.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
         // Below the map base the player is not being pushed back, they are falling out of the void.
         // Clamping their Y to the map base would put them back at a height where there is nothing to
         // stand on, and they would fall straight back out; look for the floor instead.
         if (player.getY() < SURFACE_Y) {
-            int stand = region.standY(world, MathHelper.floor(x), MathHelper.floor(z));
+            int stand = region.standY(world, Mth.floor(x), Mth.floor(z));
             if (stand >= 0) {
                 y = stand;
             }
         }
         player.stopRiding();
-        player.teleport(world, x, y, z, player.getYaw(), player.getPitch());
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        player.teleportTo(world, x, y, z, player.getYRot(), player.getXRot());
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }
 
@@ -1553,8 +1553,8 @@ public final class ArenaManager {
      * spectator's own body is not moving, so there is nothing to constrain — and teleporting a body
      * nobody is looking at would be one packet per tick for no visible effect.</p>
      */
-    public static Box spectatorBox(ArenaRegion region) {
-        return new Box(
+    public static AABB spectatorBox(ArenaRegion region) {
+        return new AABB(
                 region.minX - SPECTATOR_MARGIN,
                 ArenaRegion.PLATFORM_Y - SPECTATOR_DEPTH,
                 region.minZ - SPECTATOR_MARGIN,
@@ -1573,20 +1573,20 @@ public final class ArenaManager {
      *
      * @return true when the player was outside and has been moved back in.
      */
-    public static boolean pullSpectatorInside(ServerPlayerEntity player, ArenaRegion region) {
-        ServerWorld world = world(player.getServer());
+    public static boolean pullSpectatorInside(ServerPlayer player, ArenaRegion region) {
+        ServerLevel world = world(player.getServer());
         if (world == null || region == null) {
             return false;
         }
-        Box box = spectatorBox(region);
-        double x = MathHelper.clamp(player.getX(), box.minX, box.maxX);
-        double y = MathHelper.clamp(player.getY(), box.minY, box.maxY);
-        double z = MathHelper.clamp(player.getZ(), box.minZ, box.maxZ);
+        AABB box = spectatorBox(region);
+        double x = Mth.clamp(player.getX(), box.minX, box.maxX);
+        double y = Mth.clamp(player.getY(), box.minY, box.maxY);
+        double z = Mth.clamp(player.getZ(), box.minZ, box.maxZ);
         if (x == player.getX() && y == player.getY() && z == player.getZ()) {
             return false;
         }
-        player.teleport(world, x, y, z, player.getYaw(), player.getPitch());
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        player.teleportTo(world, x, y, z, player.getYRot(), player.getXRot());
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }
 
@@ -1598,7 +1598,7 @@ public final class ArenaManager {
      * <p>Recording is suppressed for the duration, otherwise every restored position would be
      * re-marked as a change by the very write that undoes it.</p>
      */
-    public static int revertRegion(ServerWorld world, ArenaRegion region) {
+    public static int revertRegion(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
@@ -1612,17 +1612,17 @@ public final class ArenaManager {
      * their survival inventory, then gets it back from the snapshot. If those drops stayed on the
      * ground the player could walk over and collect them, duplicating the entire inventory.</p>
      */
-    public static int clearDroppedItems(ServerWorld world, ArenaRegion region) {
+    public static int clearDroppedItems(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
-        Box box = region.entityBox(world.getBottomY(), world.getTopY());
+        AABB box = region.entityBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
         int removed = 0;
-        for (ItemEntity item : world.getEntitiesByClass(ItemEntity.class, box, entity -> true)) {
+        for (ItemEntity item : world.getEntitiesOfClass(ItemEntity.class, box, entity -> true)) {
             item.discard();
             removed++;
         }
-        for (ExperienceOrbEntity orb : world.getEntitiesByClass(ExperienceOrbEntity.class, box, entity -> true)) {
+        for (ExperienceOrb orb : world.getEntitiesOfClass(ExperienceOrb.class, box, entity -> true)) {
             orb.discard();
             removed++;
         }
@@ -1630,13 +1630,13 @@ public final class ArenaManager {
     }
 
     /** Removes every entity in the plot except players. Used when a plot is handed to a new duel. */
-    public static int purge(ServerWorld world, ArenaRegion region) {
+    public static int purge(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
-        Box box = region.entityBox(world.getBottomY(), world.getTopY());
+        AABB box = region.entityBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
         List<Entity> doomed = new ArrayList<>();
-        for (Entity entity : world.getEntitiesByClass(Entity.class, box, e -> !(e instanceof ServerPlayerEntity))) {
+        for (Entity entity : world.getEntitiesOfClass(Entity.class, box, e -> !(e instanceof ServerPlayer))) {
             doomed.add(entity);
         }
         doomed.forEach(Entity::discard);
@@ -1651,15 +1651,15 @@ public final class ArenaManager {
      * arrows, splash potions and dropped items a duel legitimately produces mid-round.</p>
      */
     public static int sweepMobs(MinecraftServer server) {
-        ServerWorld world = world(server);
+        ServerLevel world = world(server);
         if (world == null || BY_SESSION.isEmpty()) {
             return 0;
         }
         int removed = 0;
         for (ArenaRegion region : BY_SESSION.values()) {
-            Box box = region.entityBox(world.getBottomY(), world.getTopY());
-            for (LivingEntity entity : world.getEntitiesByClass(LivingEntity.class, box,
-                    e -> !(e instanceof ServerPlayerEntity))) {
+            AABB box = region.entityBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
+            for (LivingEntity entity : world.getEntitiesOfClass(LivingEntity.class, box,
+                    e -> !(e instanceof ServerPlayer))) {
                 entity.discard();
                 removed++;
             }

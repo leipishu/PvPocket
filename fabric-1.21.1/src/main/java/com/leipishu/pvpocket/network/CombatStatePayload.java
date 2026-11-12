@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
 import com.leipishu.pvpocket.PvPocket;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 /**
  * Server -> client mirror of the local player's authoritative combat state.
@@ -31,21 +31,21 @@ import net.minecraft.network.packet.CustomPayload;
  */
 public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans,
                                  boolean explosives)
-        implements CustomPayload {
+        implements CustomPacketPayload {
 
-    public static final CustomPayload.Id<CombatStatePayload> ID =
-            new CustomPayload.Id<>(PvPocket.id("combat_state"));
+    public static final CustomPacketPayload.Type<CombatStatePayload> ID =
+            new CustomPacketPayload.Type<>(PvPocket.id("combat_state"));
 
-    public static final PacketCodec<RegistryByteBuf, CombatStatePayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.BOOL, CombatStatePayload::legacy,
-            PacketCodecs.BOOL, CombatStatePayload::blocking,
-            PacketCodecs.VAR_INT, CombatStatePayload::useGate,
-            PacketCodecs.VAR_INT, CombatStatePayload::bans,
-            PacketCodecs.BOOL, CombatStatePayload::explosives,
+    public static final StreamCodec<RegistryFriendlyByteBuf, CombatStatePayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.BOOL, CombatStatePayload::legacy,
+            ByteBufCodecs.BOOL, CombatStatePayload::blocking,
+            ByteBufCodecs.VAR_INT, CombatStatePayload::useGate,
+            ByteBufCodecs.VAR_INT, CombatStatePayload::bans,
+            ByteBufCodecs.BOOL, CombatStatePayload::explosives,
             CombatStatePayload::new);
 
     @Override
-    public CustomPayload.Id<? extends CustomPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

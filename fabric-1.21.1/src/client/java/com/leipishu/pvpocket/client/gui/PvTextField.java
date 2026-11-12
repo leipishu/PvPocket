@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -106,7 +106,7 @@ public class PvTextField extends PvWidget {
             return false;
         }
         boolean ctrl = (modifiers & GLFW.GLFW_MOD_CONTROL) != 0;
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         switch (keyCode) {
             case GLFW.GLFW_KEY_BACKSPACE -> {
                 if (caret > 0) {
@@ -145,14 +145,14 @@ public class PvTextField extends PvWidget {
             }
             case GLFW.GLFW_KEY_C -> {
                 if (ctrl) {
-                    client.keyboard.setClipboard(text);
+                    client.keyboardHandler.setClipboard(text);
                     return true;
                 }
                 return false;
             }
             case GLFW.GLFW_KEY_V -> {
                 if (ctrl) {
-                    String pasted = client.keyboard.getClipboard();
+                    String pasted = client.keyboardHandler.getClipboard();
                     // A pasted code usually arrives with spaces or a trailing newline from a chat
                     // message; stripping control characters here is what makes "copy from chat"
                     // work without the player editing it by hand.
@@ -183,13 +183,13 @@ public class PvTextField extends PvWidget {
     // ------------------------------------------------------------------ rendering
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         tickFocus(d);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         PvDraw.roundPanel(ctx, x, y, width, height, PvTheme.RADIUS,
                 focused ? PvTheme.ACCENT_DIM : PvTheme.BORDER, PvTheme.SUNKEN);
@@ -205,7 +205,7 @@ public class PvTextField extends PvWidget {
         // far enough apart that a fixed character budget clips one of them.
         int offset = 0;
         if (!empty) {
-            int caretPx = tr.getWidth(text.substring(0, Math.min(caret, text.length())));
+            int caretPx = tr.width(text.substring(0, Math.min(caret, text.length())));
             if (caretPx > inner - 2) {
                 offset = caretPx - (inner - 2);
             }
@@ -220,7 +220,7 @@ public class PvTextField extends PvWidget {
             blinkT += d;
             boolean on = (blinkT % (BLINK * 2F)) < BLINK;
             if (on) {
-                int caretPx = empty ? 0 : tr.getWidth(text.substring(0, Math.min(caret, text.length())));
+                int caretPx = empty ? 0 : tr.width(text.substring(0, Math.min(caret, text.length())));
                 int cx = x + PAD + Math.max(0, Math.min(inner, caretPx - offset));
                 PvDraw.roundRect(ctx, cx, y + 4, 1, height - 8, 0, PvTheme.ACCENT);
             }

@@ -4,11 +4,11 @@ import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.LegacyCombatValues;
 import com.leipishu.pvpocket.combat.LegacyKnockback;
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.registry.tag.DamageTypeTags;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -44,13 +44,13 @@ public abstract class LivingEntityMixin {
      * {@code setDamageBypassesArmor()} (fire, drowning, starvation, fall, void, magic, wither,
      * indirect magic) was marked unblockable, which is exactly the modern bypass-armor set.</p>
      */
-    @ModifyVariable(method = "damage", at = @At("HEAD"), argsOnly = true, index = 2)
+    @ModifyVariable(method = "hurt", at = @At("HEAD"), argsOnly = true, index = 2)
     private float pvpocket$blockingDamage(float amount, DamageSource source) {
         LivingEntity self = (LivingEntity) (Object) this;
         if (amount <= 0.0F
-                || source.isIn(DamageTypeTags.BYPASSES_ARMOR)
-                || !(self instanceof PlayerEntity player)
-                || !CombatState.isBlocking(player.getUuid())) {
+                || source.is(DamageTypeTags.BYPASSES_ARMOR)
+                || !(self instanceof Player player)
+                || !CombatState.isBlocking(player.getUUID())) {
             return amount;
         }
         return LegacyCombatValues.applyBlocking(amount);
@@ -64,17 +64,17 @@ public abstract class LivingEntityMixin {
      * {@code applyArmorCalculations}, so skipping it would silently make legacy duels consume less
      * armour durability than vanilla.</p>
      */
-    @Inject(method = "applyArmorToDamage", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "getDamageAfterArmorAbsorb", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyArmor(DamageSource source, float amount,
                                       CallbackInfoReturnable<Float> cir) {
         LivingEntity self = (LivingEntity) (Object) this;
-        if (source.isIn(DamageTypeTags.BYPASSES_ARMOR)
-                || !(self instanceof PlayerEntity player)
-                || !CombatState.isLegacy(player.getUuid())) {
+        if (source.is(DamageTypeTags.BYPASSES_ARMOR)
+                || !(self instanceof Player player)
+                || !CombatState.isLegacy(player.getUUID())) {
             return;
         }
-        self.damageArmor(source, amount);
-        cir.setReturnValue(LegacyCombatValues.applyArmor(amount, self.getArmor()));
+        self.hurtArmor(source, amount);
+        cir.setReturnValue(LegacyCombatValues.applyArmor(amount, self.getArmorValue()));
     }
 
     /**
@@ -85,10 +85,10 @@ public abstract class LivingEntityMixin {
      * impulse is handled separately in {@code PlayerEntityMixin}, which redirects the call site inside
      * {@code attack} so that it never reaches this hook.</p>
      */
-    @Inject(method = "takeKnockback", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "knockback", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyHurtKnockback(double strength, double x, double z, CallbackInfo ci) {
         LivingEntity self = (LivingEntity) (Object) this;
-        if (self instanceof PlayerEntity player && CombatState.isLegacy(player.getUuid())) {
+        if (self instanceof Player player && CombatState.isLegacy(player.getUUID())) {
             LegacyKnockback.applyHurt(self, x, z);
             ci.cancel();
         }
@@ -112,12 +112,12 @@ public abstract class LivingEntityMixin {
      * input — noticeably faster than the 1.8 shuffle, and it also keeps the sprint knockback bonus
      * available while defending.</p>
      */
-    @Inject(method = "tickMovement", at = @At("HEAD"))
+    @Inject(method = "aiStep", at = @At("HEAD"))
     private void pvpocket$blockingSlowdown(CallbackInfo ci) {
         LivingEntity self = (LivingEntity) (Object) this;
-        if (self instanceof PlayerEntity player && CombatState.isBlocking(player.getUuid())) {
-            player.sidewaysSpeed *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
-            player.forwardSpeed *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
+        if (self instanceof Player player && CombatState.isBlocking(player.getUUID())) {
+            player.xxa *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
+            player.zza *= LegacyCombatValues.BLOCKING_MOVEMENT_MULTIPLIER;
             if (player.isSprinting()) {
                 player.setSprinting(false);
             }
@@ -138,11 +138,11 @@ public abstract class LivingEntityMixin {
      * double every hit. The membership rules live in {@code SessionManager#noteDamage} — this hook
      * stays one call so there is only one place to change what a duel hit is.</p>
      */
-    @Inject(method = "applyDamage", at = @At("HEAD"))
+    @Inject(method = "actuallyHurt", at = @At("HEAD"))
     private void pvpocket$recordDuelDamage(DamageSource source, float amount, CallbackInfo ci) {
         LivingEntity self = (LivingEntity) (Object) this;
-        if (self instanceof ServerPlayerEntity victim
-                && source.getAttacker() instanceof ServerPlayerEntity attacker) {
+        if (self instanceof ServerPlayer victim
+                && source.getEntity() instanceof ServerPlayer attacker) {
             SessionManager.noteDamage(victim, attacker, amount);
         }
     }

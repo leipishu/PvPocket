@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * A small status pill: one short word in a tinted capsule.
@@ -50,15 +50,15 @@ public class PvBadge extends PvWidget {
      * has to agree with this one on how wide "v0" is.</p>
      */
     public static int widthOf(String label) {
-        return MinecraftClient.getInstance().textRenderer.getWidth(label) + PAD * 2;
+        return Minecraft.getInstance().font.width(label) + PAD * 2;
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         PvDraw.roundRect(ctx, x, y, width, H, 3, fillColor);
         // The pill's width comes from this same label, so it normally draws at 1.0×; the shrink is
         // there for a caller that pinned the width to something narrower.

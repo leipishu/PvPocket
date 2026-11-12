@@ -5,13 +5,13 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.PlayerSkinDrawer;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.client.util.SkinTextures;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.List;
 import java.util.UUID;
@@ -82,13 +82,13 @@ public class PlayerPicker extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
         float d = dt(delta);
         appearT = PvAnim.damp(appearT, 1F, d, 0.05F);
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         // Darker than the screen's own backdrop: the modal has to be above a panel that is already
         // sitting on a 77% scrim, and equal darkness would leave the two reading as one surface.
@@ -133,7 +133,7 @@ public class PlayerPicker extends PvWidget {
                     PvDraw.roundRect(ctx, px + 6, ry, PANEL_W - 12, ROW_H - 2, 3,
                             PvTheme.CARD_HOVER);
                 }
-                PlayerSkinDrawer.draw(ctx, skinOf(entry[1]), px + 12, ry + (ROW_H - 14) / 2, 14);
+                PlayerFaceRenderer.draw(ctx, skinOf(entry[1]), px + 12, ry + (ROW_H - 14) / 2, 14);
                 PvDraw.textFitLeft(ctx, tr, entry[0], px + 32, ry + (ROW_H - 8) / 2,
                         PANEL_W - 90, PvTheme.TEXT);
                 PvDraw.textRight(ctx, tr, PvLang.str("pvpocket.gui.roster.picker_add"),
@@ -157,22 +157,22 @@ public class PlayerPicker extends PvWidget {
                 px + 12, py + ph - FOOT_H + 8, PvTheme.TEXT_MUTED);
     }
 
-    private static SkinTextures skinOf(String uuid) {
+    private static PlayerSkin skinOf(String uuid) {
         UUID id;
         try {
             id = UUID.fromString(uuid);
         } catch (IllegalArgumentException e) {
-            return DefaultSkinHelper.getSkinTextures(new UUID(0L, 0L));
+            return DefaultPlayerSkin.get(new UUID(0L, 0L));
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world != null) {
-            for (AbstractClientPlayerEntity player : client.world.getPlayers()) {
-                if (player.getUuid().equals(id)) {
-                    return player.getSkinTextures();
+        Minecraft client = Minecraft.getInstance();
+        if (client.level != null) {
+            for (AbstractClientPlayer player : client.level.players()) {
+                if (player.getUUID().equals(id)) {
+                    return player.getSkin();
                 }
             }
         }
-        return DefaultSkinHelper.getSkinTextures(id);
+        return DefaultPlayerSkin.get(id);
     }
 
     @Override

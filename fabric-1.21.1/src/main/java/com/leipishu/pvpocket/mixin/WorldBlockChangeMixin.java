@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.arena.ArenaManager;
-import net.minecraft.block.BlockState;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,18 +22,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * <p>The hook is installed on the common {@code World} class because {@code ServerWorld} does not
  * override the method; the {@code instanceof} guard is what keeps it off the client.</p>
  */
-@Mixin(World.class)
+@Mixin(Level.class)
 public class WorldBlockChangeMixin {
 
     @Inject(
-            method = "setBlockState(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/BlockState;II)Z",
+            method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z",
             at = @At("HEAD")
     )
     private void pvpocket$recordArenaBlockChange(BlockPos pos, BlockState state, int flags, int maxUpdateDepth,
                                                  CallbackInfoReturnable<Boolean> cir) {
         // `this` is typed as the mixin class, so the cast to Object is what lets javac consider the
         // ServerWorld branch at all — the merged instance really is a World subclass at runtime.
-        if ((Object) this instanceof ServerWorld serverWorld && ArenaManager.isArena(serverWorld)) {
+        if ((Object) this instanceof ServerLevel serverWorld && ArenaManager.isArena(serverWorld)) {
             ArenaManager.onBlockChanged(serverWorld, pos, state);
         }
     }

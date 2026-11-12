@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.mixin.client;
 
 import com.leipishu.pvpocket.combat.CombatState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.hud.InGameHud;
-import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.client.DeltaTracker;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * screen is where a player is aiming. Drawn in the mod's single warm accent so it is recognisably
  * this mod's cue and not a vanilla one.</p>
  */
-@Mixin(InGameHud.class)
+@Mixin(Gui.class)
 public abstract class InGameHudMixin {
 
     /** Length of each bracket arm, in GUI pixels. */
@@ -34,14 +34,14 @@ public abstract class InGameHudMixin {
     private static final int GUARD_COLOR = 0xB8F5A524;
 
     @Inject(method = "renderCrosshair", at = @At("TAIL"))
-    private void pvpocket$blockingGuard(DrawContext context, RenderTickCounter tickCounter,
+    private void pvpocket$blockingGuard(GuiGraphics context, DeltaTracker tickCounter,
                                         CallbackInfo ci) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player == null || !CombatState.isBlocking(client.player.getUuid())) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null || !CombatState.isBlocking(client.player.getUUID())) {
             return;
         }
-        int centerX = context.getScaledWindowWidth() / 2;
-        int centerY = context.getScaledWindowHeight() / 2;
+        int centerX = context.guiWidth() / 2;
+        int centerY = context.guiHeight() / 2;
         int left = centerX - SPAN;
         int top = centerY - SPAN;
         int right = centerX + SPAN;

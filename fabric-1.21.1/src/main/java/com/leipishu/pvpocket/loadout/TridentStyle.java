@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.text.MutableText;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.network.chat.MutableComponent;
 
 /**
  * The three mutually exclusive things a trident can be.
@@ -35,15 +35,15 @@ public enum TridentStyle {
     public final String id;
     public final String labelKey;
     /** Null for {@link #NONE}, which writes no enchantment at all. */
-    public final RegistryKey<Enchantment> enchantment;
+    public final ResourceKey<Enchantment> enchantment;
 
-    TridentStyle(String id, RegistryKey<Enchantment> enchantment) {
+    TridentStyle(String id, ResourceKey<Enchantment> enchantment) {
         this.id = id;
         this.labelKey = "pvpocket.trident." + id;
         this.enchantment = enchantment;
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 

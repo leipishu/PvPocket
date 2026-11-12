@@ -3,10 +3,10 @@ package com.leipishu.pvpocket.mixin;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.ItemUsageContext;
-import net.minecraft.util.ActionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.InteractionResult;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -29,10 +29,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(ItemStack.class)
 public abstract class ItemStackMixin {
 
-    @Inject(method = "useOnBlock", at = @At("HEAD"), cancellable = true)
-    private void pvpocket$refusePlacement(ItemUsageContext context,
-                                          CallbackInfoReturnable<ActionResult> cir) {
-        PlayerEntity player = context.getPlayer();
+    @Inject(method = "useOn", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$refusePlacement(UseOnContext context,
+                                          CallbackInfoReturnable<InteractionResult> cir) {
+        Player player = context.getPlayer();
         if (player == null) {
             // Dispensers and other non-player callers place blocks too, but no rule set is in
             // question for them: the gate is per player, and an empty gate is "nothing restricted".
@@ -40,11 +40,11 @@ public abstract class ItemStackMixin {
         }
         ItemStack self = (ItemStack) (Object) this;
         UsePolicy.Denial denial = UsePolicy.placementDenial(
-                CombatState.useGate(player.getUuid()), CombatState.useBans(player.getUuid()), self);
+                CombatState.useGate(player.getUUID()), CombatState.useBans(player.getUUID()), self);
         if (denial == UsePolicy.Denial.NONE) {
             return;
         }
-        cir.setReturnValue(ActionResult.PASS);
+        cir.setReturnValue(InteractionResult.PASS);
         SessionManager.reportUseDenial(player, denial, self);
     }
 }

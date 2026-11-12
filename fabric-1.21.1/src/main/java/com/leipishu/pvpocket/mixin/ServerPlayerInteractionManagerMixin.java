@@ -1,9 +1,9 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.arena.Sandbox;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.network.ServerPlayerInteractionManager;
-import net.minecraft.world.GameMode;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerPlayerGameMode;
+import net.minecraft.world.level.GameType;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -28,22 +28,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * indistinguishable from a no-op to the caller — which is the correct answer for a caller that has
  * no business changing it.</p>
  */
-@Mixin(ServerPlayerInteractionManager.class)
+@Mixin(ServerPlayerGameMode.class)
 public abstract class ServerPlayerInteractionManagerMixin {
 
     @Shadow
     @Final
-    protected ServerPlayerEntity player;
+    protected ServerPlayer player;
 
-    @Inject(method = "changeGameMode", at = @At("HEAD"), cancellable = true)
-    private void pvpocket$refuseGameModeChangeInSandbox(GameMode mode,
+    @Inject(method = "changeGameModeForPlayer", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$refuseGameModeChangeInSandbox(GameType mode,
                                                         CallbackInfoReturnable<Boolean> cir) {
-        if (Sandbox.gameModeChangeAllowed() || !Sandbox.isSandbox(player.getWorld())) {
+        if (Sandbox.gameModeChangeAllowed() || !Sandbox.isSandbox(player.level())) {
             return;
         }
         // Already in that mode: let it through so a redundant call still updates `previousGameMode`
         // the way vanilla would. Nothing is being changed, so nothing is being permitted.
-        if (player.interactionManager.getGameMode() == mode) {
+        if (player.gameMode.getGameModeForPlayer() == mode) {
             return;
         }
         Sandbox.logRefusal(player, mode);

@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * What a spectator's screen needs to draw the body they are riding in.
@@ -12,7 +12,7 @@ import net.minecraft.util.Identifier;
  * <p>Attaching the camera with {@code setCameraEntity} gives the first-person view for free — the
  * world, the held item, the swing animation, the damage flash are all rendered from the target
  * already. What it does <em>not</em> give is the HUD: the hotbar belongs to the spectator, and a
- * spectator is in {@link net.minecraft.world.GameMode#SPECTATOR}, where vanilla draws no hotbar at
+ * spectator is in {@link net.minecraft.world.level.GameType#SPECTATOR}, where vanilla draws no hotbar at
  * all. So the one thing that has to travel over the wire is the target's hotbar, plus the two
  * numbers a viewer wants while watching a fight: health and armour.</p>
  *
@@ -34,25 +34,25 @@ import net.minecraft.util.Identifier;
  * @param vitals   health and armour points of that body
  */
 public record PossessPayload(boolean active, int targetId, String name, int selected,
-                             String slots, Vitals vitals) implements CustomPayload {
+                             String slots, Vitals vitals) implements CustomPacketPayload {
 
     /** The two numbers that change without the hotbar changing, kept together so they share a codec. */
     public record Vitals(float health, int armor) {
 
-        public static final PacketCodec<RegistryByteBuf, Vitals> CODEC = PacketCodec.tuple(
-                PacketCodecs.FLOAT, Vitals::health,
-                PacketCodecs.VAR_INT, Vitals::armor,
+        public static final StreamCodec<RegistryFriendlyByteBuf, Vitals> CODEC = StreamCodec.composite(
+                ByteBufCodecs.FLOAT, Vitals::health,
+                ByteBufCodecs.VAR_INT, Vitals::armor,
                 Vitals::new);
     }
 
-    public static final Id<PossessPayload> ID = new Id<>(Identifier.of("pvpocket", "possess"));
+    public static final Type<PossessPayload> ID = new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "possess"));
 
-    public static final PacketCodec<RegistryByteBuf, PossessPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.BOOL, PossessPayload::active,
-            PacketCodecs.VAR_INT, PossessPayload::targetId,
-            PacketCodecs.STRING, PossessPayload::name,
-            PacketCodecs.VAR_INT, PossessPayload::selected,
-            PacketCodecs.STRING, PossessPayload::slots,
+    public static final StreamCodec<RegistryFriendlyByteBuf, PossessPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.BOOL, PossessPayload::active,
+            ByteBufCodecs.VAR_INT, PossessPayload::targetId,
+            ByteBufCodecs.STRING_UTF8, PossessPayload::name,
+            ByteBufCodecs.VAR_INT, PossessPayload::selected,
+            ByteBufCodecs.STRING_UTF8, PossessPayload::slots,
             Vitals.CODEC, PossessPayload::vitals,
             PossessPayload::new);
 
@@ -69,7 +69,7 @@ public record PossessPayload(boolean active, int targetId, String name, int sele
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

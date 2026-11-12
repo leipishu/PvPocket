@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
+import net.minecraft.network.chat.MutableComponent;
 
 /**
  * The material a materialised item is built from.
@@ -44,7 +44,7 @@ public enum Material {
         this.tier = tier;
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 

@@ -1,10 +1,10 @@
 package com.leipishu.pvpocket.loadout;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.text.MutableText;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -47,7 +47,7 @@ public enum WeaponFlag {
     public final String id;
     public final String labelKey;
     public final String hintKey;
-    public final RegistryKey<Enchantment> enchantment;
+    public final ResourceKey<Enchantment> enchantment;
     /** Highest level the flag will write. Level is fixed at 1 for boolean-style flags. */
     public final int maxLevel;
     /**
@@ -60,7 +60,7 @@ public enum WeaponFlag {
     private final int bitIndex;
     private final ItemKind[] kinds;
 
-    WeaponFlag(String id, RegistryKey<Enchantment> enchantment, int maxLevel, int bitIndex,
+    WeaponFlag(String id, ResourceKey<Enchantment> enchantment, int maxLevel, int bitIndex,
                ItemKind... kinds) {
         this.id = id;
         this.labelKey = "pvpocket.flag." + id;
@@ -71,11 +71,11 @@ public enum WeaponFlag {
         this.kinds = kinds;
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 
-    public MutableText hintText() {
+    public MutableComponent hintText() {
         return PvLang.t(hintKey);
     }
 

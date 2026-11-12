@@ -4,9 +4,9 @@ import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.List;
 
@@ -76,7 +76,7 @@ public class SettingRow extends PvWidget {
         if (!hint) {
             return;
         }
-        int lines = PvDraw.wrappedLines(MinecraftClient.getInstance().textRenderer, label, width,
+        int lines = PvDraw.wrappedLines(Minecraft.getInstance().font, label, width,
                 HINT_LINES);
         // Never shorter than a header: a hint that fits on one line should not be a tighter row than
         // the section heading above it.
@@ -84,11 +84,11 @@ public class SettingRow extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         if (hint) {
             PvDraw.textWrapLeft(ctx, tr, label, x, y, height, width, HINT_LINES, PvTheme.TEXT_DIM);
             // Three lines and still not the whole sentence: the rest is one hover away.

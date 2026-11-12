@@ -4,9 +4,12 @@
 # 这些检查跑的是**编译出来的真实代码**，不是把公式抄一遍：
 #   RuleLogicCheck       选项切换、步进、夹取、规范化
 #   LoadoutContentCheck  配装目录的版本可用性（重锤 / 风弹 / 长矛 / 铜制）
+#   MixinTargetCheck     mixin 注解里的字符串（method= / @At target= / @Accessor）能否解析
 #
 # 不需要客户端，也不需要服务端：只要 build/classes/java/main 和 loom 的依赖类路径。
 # 新增一个检查 = 在 scripts/agent/ 下放一个 `*Check.java`，带 main，退出码 0 表示通过。
+# 每个检查都会收到同样的参数，认得的自己取，认不得的忽略：
+#   --mcjar <客户端 jar>  --src <源码根>（可重复）
 #
 # 用法：
 #   scripts/check-logic.sh
@@ -74,15 +77,16 @@ fi
 FAILED=0
 for source in $SOURCES; do
     CLASS="$(basename "$source" .java)"
-    # 把游戏 jar 传给检查：认得的（LoadoutContentCheck）会拿它核对真实物品表，认不得的忽略。
-    # stdout.encoding 从 JDK 19 起独立于 file.encoding，不给它的话 CI 日志里的中文是乱码。
+    # 把游戏 jar 和源码根传给检查：认得的（LoadoutContentCheck / MixinTargetCheck）会自己取，
+    # 认不得的忽略。stdout.encoding 从 JDK 19 起独立于 file.encoding，不给它的话 CI 日志里的中文是乱码。
     if [ -n "$MC_CLIENT" ]; then
         "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
             -classpath "build/classes/java/main;$OUT;$MC_COMMON;$MC_CLIENT;$LOOM_CP" "$CLASS" \
-            --mcjar "$MC_CLIENT" || FAILED=1
+            --mcjar "$MC_CLIENT" --src src/main/java --src src/client/java || FAILED=1
     else
         "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
-            -classpath "build/classes/java/main;$OUT;$MC_COMMON;$LOOM_CP" "$CLASS" || FAILED=1
+            -classpath "build/classes/java/main;$OUT;$MC_COMMON;$LOOM_CP" "$CLASS" \
+            --src src/main/java --src src/client/java || FAILED=1
     fi
 done
 exit $FAILED

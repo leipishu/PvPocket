@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.preset;
 
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.text.MutableText;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.Locale;
 
@@ -37,7 +37,7 @@ public enum PresetKind {
         this.labelKey = "pvpocket.preset.kind." + id.toLowerCase(Locale.ROOT);
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 

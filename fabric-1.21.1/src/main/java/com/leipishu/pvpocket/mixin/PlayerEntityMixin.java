@@ -5,15 +5,15 @@ import com.leipishu.pvpocket.combat.LegacyCombatValues;
 import com.leipishu.pvpocket.combat.LegacyKnockback;
 import com.leipishu.pvpocket.session.SessionManager;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.particle.ParticleEffect;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.world.World;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -34,14 +34,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  *       the whole basis of the sprint-crit.</li>
  * </ol>
  */
-@Mixin(PlayerEntity.class)
+@Mixin(Player.class)
 public abstract class PlayerEntityMixin {
 
     /** 1.8 has no attack cooldown, so charge progress is always full. */
-    @Inject(method = "getAttackCooldownProgress", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "getAttackStrengthScale", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyFullCharge(float baseTime, CallbackInfoReturnable<Float> cir) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        if (CombatState.isLegacy(self.getUuid())) {
+        Player self = (Player) (Object) this;
+        if (CombatState.isLegacy(self.getUUID())) {
             cir.setReturnValue(LegacyCombatValues.FULL_CHARGE);
         }
     }
@@ -60,14 +60,14 @@ public abstract class PlayerEntityMixin {
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/entity/LivingEntity;takeKnockback(DDD)V"))
+                    target = "Lnet/minecraft/world/entity/LivingEntity;knockback(DDD)V"))
     private void pvpocket$legacyAttackKnockback(LivingEntity victim, double strength,
                                                 double x, double z) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        if (CombatState.isLegacy(self.getUuid())) {
+        Player self = (Player) (Object) this;
+        if (CombatState.isLegacy(self.getUUID())) {
             LegacyKnockback.applyAttack(victim, x, z, strength);
         } else {
-            victim.takeKnockback(strength, x, z);
+            victim.knockback(strength, x, z);
         }
     }
 
@@ -86,10 +86,10 @@ public abstract class PlayerEntityMixin {
      */
     @ModifyExpressionValue(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/entity/player/PlayerEntity;getStackInHand(Lnet/minecraft/util/Hand;)Lnet/minecraft/item/ItemStack;"))
+                    target = "Lnet/minecraft/world/entity/player/Player;getItemInHand(Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/item/ItemStack;"))
     private ItemStack pvpocket$noSweepForLegacy(ItemStack original) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        return CombatState.isLegacy(self.getUuid()) ? ItemStack.EMPTY : original;
+        Player self = (Player) (Object) this;
+        return CombatState.isLegacy(self.getUUID()) ? ItemStack.EMPTY : original;
     }
 
     /**
@@ -102,11 +102,11 @@ public abstract class PlayerEntityMixin {
      */
     @ModifyExpressionValue(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/entity/player/PlayerEntity;isSprinting()Z",
+                    target = "Lnet/minecraft/world/entity/player/Player;isSprinting()Z",
                     ordinal = 1))
     private boolean pvpocket$allowSprintCrit(boolean original) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        return !CombatState.isLegacy(self.getUuid()) && original;
+        Player self = (Player) (Object) this;
+        return !CombatState.isLegacy(self.getUUID()) && original;
     }
 
     /**
@@ -124,11 +124,11 @@ public abstract class PlayerEntityMixin {
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/world/World;playSound("
-                            + "Lnet/minecraft/entity/player/PlayerEntity;DDD"
-                            + "Lnet/minecraft/sound/SoundEvent;Lnet/minecraft/sound/SoundCategory;)V"))
-    private void pvpocket$muteAttackSound(World world, PlayerEntity except, double x, double y,
-                                          double z, SoundEvent sound, SoundCategory category) {
+                    target = "Lnet/minecraft/world/level/Level;playSound("
+                            + "Lnet/minecraft/world/entity/player/Player;DDD"
+                            + "Lnet/minecraft/sounds/SoundEvent;Lnet/minecraft/sounds/SoundSource;)V"))
+    private void pvpocket$muteAttackSound(Level world, Player except, double x, double y,
+                                          double z, SoundEvent sound, SoundSource category) {
         if (!pvpocket$isLegacyAttacker()) {
             world.playSound(except, x, y, z, sound, category);
         }
@@ -136,11 +136,11 @@ public abstract class PlayerEntityMixin {
 
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/world/World;playSound("
-                            + "Lnet/minecraft/entity/player/PlayerEntity;DDD"
-                            + "Lnet/minecraft/sound/SoundEvent;Lnet/minecraft/sound/SoundCategory;FF)V"))
-    private void pvpocket$muteAttackSound(World world, PlayerEntity except, double x, double y,
-                                          double z, SoundEvent sound, SoundCategory category,
+                    target = "Lnet/minecraft/world/level/Level;playSound("
+                            + "Lnet/minecraft/world/entity/player/Player;DDD"
+                            + "Lnet/minecraft/sounds/SoundEvent;Lnet/minecraft/sounds/SoundSource;FF)V"))
+    private void pvpocket$muteAttackSound(Level world, Player except, double x, double y,
+                                          double z, SoundEvent sound, SoundSource category,
                                           float volume, float pitch) {
         if (!pvpocket$isLegacyAttacker()) {
             world.playSound(except, x, y, z, sound, category, volume, pitch);
@@ -156,19 +156,19 @@ public abstract class PlayerEntityMixin {
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/server/world/ServerWorld;spawnParticles("
-                            + "Lnet/minecraft/particle/ParticleEffect;DDDIDDDD)I"))
-    private int pvpocket$noDamageIndicator(ServerWorld world, ParticleEffect particle,
+                    target = "Lnet/minecraft/server/level/ServerLevel;sendParticles("
+                            + "Lnet/minecraft/core/particles/ParticleOptions;DDDIDDDD)I"))
+    private int pvpocket$noDamageIndicator(ServerLevel world, ParticleOptions particle,
                                            double x, double y, double z, int count,
                                            double deltaX, double deltaY, double deltaZ, double speed) {
         if (pvpocket$isLegacyAttacker()) {
             return 0;
         }
-        return world.spawnParticles(particle, x, y, z, count, deltaX, deltaY, deltaZ, speed);
+        return world.sendParticles(particle, x, y, z, count, deltaX, deltaY, deltaZ, speed);
     }
 
     private boolean pvpocket$isLegacyAttacker() {
-        return CombatState.isLegacy(((PlayerEntity) (Object) this).getUuid());
+        return CombatState.isLegacy(((Player) (Object) this).getUUID());
     }
 
     /**
@@ -178,10 +178,10 @@ public abstract class PlayerEntityMixin {
      * returning false here removes natural regeneration and nothing else — golden apples and potions
      * heal through {@code heal()}, not through this.</p>
      */
-    @Inject(method = "canFoodHeal", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "isHurt", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noNaturalRegen(CallbackInfoReturnable<Boolean> cir) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        if (!SessionManager.naturalRegenAllowed(self.getUuid())) {
+        Player self = (Player) (Object) this;
+        if (!SessionManager.naturalRegenAllowed(self.getUUID())) {
             cir.setReturnValue(false);
         }
     }
@@ -193,10 +193,10 @@ public abstract class PlayerEntityMixin {
      * cancelling {@code update} would also freeze the regeneration timer and the starvation damage,
      * which belong to {@code c.naturalRegen} and to the damage veto respectively.</p>
      */
-    @Inject(method = "addExhaustion", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "causeFoodExhaustion", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noHungerDrain(float exhaustion, CallbackInfo ci) {
-        PlayerEntity self = (PlayerEntity) (Object) this;
-        if (!SessionManager.hungerEnabled(self.getUuid())) {
+        Player self = (Player) (Object) this;
+        if (!SessionManager.hungerEnabled(self.getUUID())) {
             ci.cancel();
         }
     }

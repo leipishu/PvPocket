@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -110,7 +110,7 @@ public class PvScrollPane extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         // A pane with no room is not a pane with a small viewport: a negative width produces a
         // reversed scissor rect, which the renderer does not clamp, so every child would draw
         // unclipped across whatever is next to it. Bailing out is the only safe reading.
@@ -168,7 +168,7 @@ public class PvScrollPane extends PvWidget {
     }
 
     /** 10px gradient drawn as stacked 1px lines, so no shader or gradient API is involved. */
-    private void fade(DrawContext ctx, int top, boolean downwards, float strength) {
+    private void fade(GuiGraphics ctx, int top, boolean downwards, float strength) {
         int bg = PvTheme.PANEL;
         int w = width - (maxScroll() > 0 ? PvTheme.SCROLLBAR_W + 8 : 0);
         for (int i = 0; i < 10; i++) {
@@ -182,7 +182,7 @@ public class PvScrollPane extends PvWidget {
         }
     }
 
-    private void renderScrollbar(DrawContext ctx, int mouseX, int mouseY) {
+    private void renderScrollbar(GuiGraphics ctx, int mouseX, int mouseY) {
         int barX = x + width - PvTheme.SCROLLBAR_W;
         boolean hot = overBar(mouseX);
         PvDraw.roundRect(ctx, barX, y + 2, PvTheme.SCROLLBAR_W, height - 4, 3,

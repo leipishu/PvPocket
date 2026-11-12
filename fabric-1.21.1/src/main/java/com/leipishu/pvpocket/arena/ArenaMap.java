@@ -2,15 +2,15 @@ package com.leipishu.pvpocket.arena;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.block.Block;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.structure.StructurePlacementData;
-import net.minecraft.structure.StructureTemplate;
-import net.minecraft.text.MutableText;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3i;
-import net.minecraft.util.math.random.Random;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Vec3i;
+import net.minecraft.util.RandomSource;
 
 import java.util.Optional;
 
@@ -44,7 +44,7 @@ public final class ArenaMap {
      * what the leased region reports — one identifier, one name.</p>
      */
     public final String labelKey;
-    public final Identifier templateId;
+    public final ResourceLocation templateId;
     public final int sizeX;
     public final int sizeY;
     public final int sizeZ;
@@ -82,16 +82,16 @@ public final class ArenaMap {
     public final int pitInsetX;
     public final int pitInsetZ;
 
-    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ) {
+    public ArenaMap(String id, ResourceLocation templateId, int sizeX, int sizeY, int sizeZ) {
         this(id, templateId, sizeX, sizeY, sizeZ, false, 0, 0);
     }
 
-    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+    public ArenaMap(String id, ResourceLocation templateId, int sizeX, int sizeY, int sizeZ,
                     boolean alongZ) {
         this(id, templateId, sizeX, sizeY, sizeZ, alongZ, 0, 0);
     }
 
-    public ArenaMap(String id, Identifier templateId, int sizeX, int sizeY, int sizeZ,
+    public ArenaMap(String id, ResourceLocation templateId, int sizeX, int sizeY, int sizeZ,
                     boolean alongZ, int pitInsetX, int pitInsetZ) {
         this.id = id;
         this.labelKey = "pvpocket.map." + id;
@@ -106,7 +106,7 @@ public final class ArenaMap {
         this.pitInsetZ = Math.max(0, Math.min(pitInsetZ, (sizeZ - 8) / 2));
     }
 
-    public MutableText labelText() {
+    public MutableComponent labelText() {
         return PvLang.t(labelKey);
     }
 
@@ -132,12 +132,12 @@ public final class ArenaMap {
      * neighbour flag matters for the same reason — 72k block updates fanning out through the world
      * would take seconds and would also re-trigger the plot's own change tracking.</p>
      */
-    public boolean paste(ServerWorld world, ArenaRegion region) {
+    public boolean paste(ServerLevel world, ArenaRegion region) {
         if (isFlat()) {
             return false;
         }
         Optional<StructureTemplate> loaded =
-                world.getServer().getStructureTemplateManager().getTemplate(templateId);
+                world.getServer().getStructureManager().get(templateId);
         if (loaded.isEmpty()) {
             PvPocket.LOGGER.error("Arena map {} is selected but {} is not in the jar",
                     id, templateId);
@@ -151,13 +151,13 @@ public final class ArenaMap {
                     size.getX(), size.getY(), size.getZ());
         }
         BlockPos origin = new BlockPos(region.minX, ArenaRegion.SURFACE_Y, region.minZ);
-        StructurePlacementData settings = new StructurePlacementData()
+        StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(true)
-                .setUpdateNeighbors(false)
-                .setInitializeMobs(false);
+                .setKnownShape(false)
+                .setFinalizeEntities(false);
         long started = System.nanoTime();
-        boolean placed = template.place(world, origin, origin, settings,
-                Random.create(0L), Block.NOTIFY_LISTENERS);
+        boolean placed = template.placeInWorld(world, origin, origin, settings,
+                RandomSource.create(0L), Block.UPDATE_CLIENTS);
         PvPocket.LOGGER.info("Pasted {} at {},{} ({}) in {} ms", id, origin.getX(), origin.getZ(),
                 placed ? "ok" : "no-op", (System.nanoTime() - started) / 1_000_000L);
         return placed;

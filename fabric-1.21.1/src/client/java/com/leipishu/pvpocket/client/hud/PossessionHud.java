@@ -8,14 +8,14 @@ import com.leipishu.pvpocket.network.PossessPayload;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderTickCounter;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * The hotbar of the body a spectator is riding in.
@@ -116,7 +116,7 @@ public final class PossessionHud implements HudRenderCallback {
             if (comma <= 0) {
                 continue;
             }
-            Identifier id = Identifier.tryParse(group.substring(0, comma));
+            ResourceLocation id = ResourceLocation.tryParse(group.substring(0, comma));
             if (id == null) {
                 continue;
             }
@@ -126,7 +126,7 @@ public final class PossessionHud implements HudRenderCallback {
             } catch (NumberFormatException e) {
                 continue;
             }
-            Item item = Registries.ITEM.get(id);
+            Item item = BuiltInRegistries.ITEM.get(id);
             if (item == null) {
                 continue;
             }
@@ -136,20 +136,20 @@ public final class PossessionHud implements HudRenderCallback {
     }
 
     @Override
-    public void onHudRender(DrawContext ctx, RenderTickCounter tickCounter) {
+    public void onHudRender(GuiGraphics ctx, DeltaTracker tickCounter) {
         if (state == null) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.player == null || client.options.hudHidden) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null || client.options.hideGui) {
             return;
         }
-        float d = PvAnim.dt(tickCounter.getTickDelta(false));
+        float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
         appearT = PvAnim.damp(appearT, 1F, d, 0.07F);
-        TextRenderer tr = client.textRenderer;
+        Font tr = client.font;
 
-        int x = (ctx.getScaledWindowWidth() - PANEL_W) / 2;
-        int y = ctx.getScaledWindowHeight() - BOTTOM;
+        int x = (ctx.guiWidth() - PANEL_W) / 2;
+        int y = ctx.guiHeight() - BOTTOM;
 
         PvDraw.shadow(ctx, x, y, PANEL_W, PANEL_H, PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, x, y, PANEL_W, PANEL_H, PvTheme.RADIUS,
@@ -173,12 +173,12 @@ public final class PossessionHud implements HudRenderCallback {
             if (stack.isEmpty()) {
                 continue;
             }
-            ctx.drawItem(stack, sx + 2, sy + 2);
+            ctx.renderItem(stack, sx + 2, sy + 2);
             // The count has to go through drawItemInSlot rather than drawText. Items are drawn at
             // z=150 and text at z=0, so a hand-placed number renders *behind* the icon it is
             // labelling; that helper pushes the text to z=200 first. It also brings the durability
             // bar and the cooldown wipe along for free.
-            ctx.drawItemInSlot(tr, stack, sx + 2, sy + 2);
+            ctx.renderItemDecorations(tr, stack, sx + 2, sy + 2);
         }
 
         String label = PvLang.str("pvpocket.gui.hud.vitals",

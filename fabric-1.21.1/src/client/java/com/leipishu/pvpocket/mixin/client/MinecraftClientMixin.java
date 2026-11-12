@@ -5,8 +5,8 @@ import com.leipishu.pvpocket.client.BlockingInput;
 import com.leipishu.pvpocket.client.PvPocketClient;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.SwordItem;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.SwordItem;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -27,7 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * therefore kept at INFO: it is the only way to tell "the request never left" from "the server
  * refused it" (the server logs the other half).</p>
  */
-@Mixin(MinecraftClient.class)
+@Mixin(Minecraft.class)
 public abstract class MinecraftClientMixin {
 
     /** Last logged (key, sword, legacy) triple, packed. -1 so the first observation always logs. */
@@ -54,18 +54,18 @@ public abstract class MinecraftClientMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void pvpocket$blockingInput(CallbackInfo ci) {
-        MinecraftClient client = (MinecraftClient) (Object) this;
-        if (client.player == null || client.getNetworkHandler() == null) {
+        Minecraft client = (Minecraft) (Object) this;
+        if (client.player == null || client.getConnection() == null) {
             BlockingInput.reset();
             return;
         }
-        boolean key = client.options.useKey.isPressed();
-        boolean sword = client.player.getMainHandStack().getItem() instanceof SwordItem;
-        boolean legacy = CombatState.isLegacy(client.player.getUuid());
+        boolean key = client.options.keyUse.isDown();
+        boolean sword = client.player.getMainHandItem().getItem() instanceof SwordItem;
+        boolean legacy = CombatState.isLegacy(client.player.getUUID());
         if (DEBUG_BLOCKING && sword) {
             // Held locally only. BlockingInput is reset rather than told "false" so nothing is sent
             // and the server cannot answer with a state that clears this again.
-            CombatState.setBlocking(client.player.getUuid(), true);
+            CombatState.setBlocking(client.player.getUUID(), true);
             BlockingInput.reset();
             return;
         }
@@ -95,13 +95,13 @@ public abstract class MinecraftClientMixin {
      * <p>Returning false suppresses the penalty without touching the counter itself, so block
      * breaking (which reads the same field) keeps its normal cadence.</p>
      */
-    @ModifyExpressionValue(method = "doAttack",
+    @ModifyExpressionValue(method = "startAttack",
             at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/network/ClientPlayerInteractionManager;"
-                            + "hasLimitedAttackSpeed()Z"))
+                    target = "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;"
+                            + "hasMissTime()Z"))
     private boolean pvpocket$noMissLockout(boolean original) {
-        MinecraftClient client = (MinecraftClient) (Object) this;
-        return original && (client.player == null || !CombatState.isLegacy(client.player.getUuid()));
+        Minecraft client = (Minecraft) (Object) this;
+        return original && (client.player == null || !CombatState.isLegacy(client.player.getUUID()));
     }
 
     private static void logGate(boolean key, boolean sword, boolean legacy, boolean blocking) {

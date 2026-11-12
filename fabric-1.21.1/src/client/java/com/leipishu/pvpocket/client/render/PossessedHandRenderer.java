@@ -9,20 +9,20 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
-import net.minecraft.client.option.Perspective;
-import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.entity.EntityRenderer;
-import net.minecraft.client.render.entity.PlayerEntityRenderer;
-import net.minecraft.client.render.model.json.ModelTransformationMode;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Arm;
-import net.minecraft.util.Hand;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.CameraType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.EntityRenderer;
+import net.minecraft.client.renderer.entity.player.PlayerRenderer;
+import net.minecraft.world.item.ItemDisplayContext;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.util.Mth;
+import com.mojang.math.Axis;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 
@@ -38,12 +38,12 @@ import org.joml.Quaternionf;
  *
  * <p>This is the part that is easy to get wrong, and getting it wrong looks like "the off hand is
  * drawn in the main hand" rather than like a matrix bug. {@code GameRenderer.renderWorld} builds
- * {@code matrix4f = new Matrix4f().rotation(camera.getRotation().conjugate())} and hands it to both
+ * {@code matrix4f = new Matrix4f().rotation(camera.rotation().conjugate())} and hands it to both
  * {@code WorldRenderer.render} and {@code renderHand}. The world renderer pushes it onto the model
  * view stack and pops it again before returning; {@code renderHand} then does</p>
  *
  * <pre>{@code
- * matrixStack.multiplyPositionMatrix(matrix4f.invert(new Matrix4f()));
+ * matrixStack.mulPose(matrix4f.invert(new Matrix4f()));
  * modelView.pushMatrix().mul(matrix4f);
  * }</pre>
  *
@@ -88,49 +88,49 @@ public final class PossessedHandRenderer {
         if (payload == null || payload.targetId() < 0) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null || client.player == null || client.options.hudHidden) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null || client.player == null || client.options.hideGui) {
             return;
         }
         // Possession is a first-person experience; in third person the camera sits behind the body
         // and a hand floating in front of it would be a bug rather than a feature.
-        if (client.options.getPerspective() != Perspective.FIRST_PERSON) {
+        if (client.options.getCameraType() != CameraType.FIRST_PERSON) {
             return;
         }
-        if (!(client.world.getEntityById(payload.targetId()) instanceof AbstractClientPlayerEntity target)) {
+        if (!(client.level.getEntity(payload.targetId()) instanceof AbstractClientPlayer target)) {
             return;
         }
         // Vanilla hides both hands while a spyglass is up; the screen is a scope, not a view.
-        if (target.isUsingSpyglass()) {
+        if (target.isScoping()) {
             return;
         }
 
-        float tickDelta = context.tickCounter().getTickDelta(true);
+        float tickDelta = context.tickCounter().getGameTimeDeltaPartialTick(true);
         // The view rotation the world was just rendered with, rebuilt from the same camera so this
         // stays correct even if the stack were left dirty by another renderer.
         Matrix4f viewRotation = new Matrix4f()
-                .rotation(context.camera().getRotation().conjugate(new Quaternionf()));
+                .rotation(context.camera().rotation().conjugate(new Quaternionf()));
 
-        MatrixStack matrices = new MatrixStack();
-        matrices.push();
-        matrices.multiplyPositionMatrix(viewRotation.invert(new Matrix4f()));
+        PoseStack matrices = new PoseStack();
+        matrices.pushPose();
+        matrices.mulPose(viewRotation.invert(new Matrix4f()));
 
-        int light = client.getEntityRenderDispatcher().getLight(target, tickDelta);
-        VertexConsumerProvider.Immediate consumers = client.getBufferBuilders().getEntityVertexConsumers();
+        int light = client.getEntityRenderDispatcher().getPackedLightCoords(target, tickDelta);
+        MultiBufferSource.BufferSource consumers = client.renderBuffers().bufferSource();
 
-        RenderSystem.clear(GlConst.GL_DEPTH_BUFFER_BIT, MinecraftClient.IS_SYSTEM_MAC);
+        RenderSystem.clear(GlConst.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
-        context.lightmapTextureManager().enable();
+        context.lightmapTextureManager().turnOnLightLayer();
 
-        ItemStack main = target.getMainHandStack();
-        ItemStack off = target.getOffHandStack();
-        drawHand(client, matrices, consumers, target, tickDelta, Hand.MAIN_HAND, main, light);
-        drawHand(client, matrices, consumers, target, tickDelta, Hand.OFF_HAND, off, light);
-        consumers.draw();
+        ItemStack main = target.getMainHandItem();
+        ItemStack off = target.getOffhandItem();
+        drawHand(client, matrices, consumers, target, tickDelta, InteractionHand.MAIN_HAND, main, light);
+        drawHand(client, matrices, consumers, target, tickDelta, InteractionHand.OFF_HAND, off, light);
+        consumers.endBatch();
 
-        context.lightmapTextureManager().disable();
-        matrices.pop();
+        context.lightmapTextureManager().turnOffLightLayer();
+        matrices.popPose();
 
         if (lastLoggedTarget != payload.targetId()) {
             lastLoggedTarget = payload.targetId();
@@ -144,103 +144,103 @@ public final class PossessedHandRenderer {
      * actually observe: an empty hand (draw the arm) and a held item (equip offset plus swing arc).
      *
      * <p>The use-action branches — eating, drinking, drawing a bow, blocking with a shield — are
-     * deliberately not reproduced. They are driven by {@code getActiveHand()} and
-     * {@code getItemUseTimeLeft()}, which vanilla does not synchronise for other players; guessing
+     * deliberately not reproduced. They are driven by {@code getUsedItemHand()} and
+     * {@code getUseItemRemainingTicks()}, which vanilla does not synchronise for other players; guessing
      * would animate the wrong hand, which is exactly the "状态不太对" this class is fixing.</p>
      */
-    private static void drawHand(MinecraftClient client, MatrixStack matrices,
-                                 VertexConsumerProvider.Immediate consumers,
-                                 AbstractClientPlayerEntity player, float tickDelta,
-                                 Hand hand, ItemStack stack, int light) {
-        boolean mainHand = hand == Hand.MAIN_HAND;
-        Arm arm = mainHand ? player.getMainArm() : player.getMainArm().getOpposite();
+    private static void drawHand(Minecraft client, PoseStack matrices,
+                                 MultiBufferSource.BufferSource consumers,
+                                 AbstractClientPlayer player, float tickDelta,
+                                 InteractionHand hand, ItemStack stack, int light) {
+        boolean mainHand = hand == InteractionHand.MAIN_HAND;
+        HumanoidArm arm = mainHand ? player.getMainArm() : player.getMainArm().getOpposite();
         // Vanilla passes the swing progress to the main hand only; the off hand is drawn flat.
-        float swing = mainHand ? player.getHandSwingProgress(tickDelta) : 0.0F;
+        float swing = mainHand ? player.getAttackAnim(tickDelta) : 0.0F;
 
-        matrices.push();
+        matrices.pushPose();
         if (stack.isEmpty()) {
             // Vanilla never draws an empty off hand — only the main arm is visible.
             if (mainHand && !player.isInvisible()) {
                 renderArmHoldingItem(client, matrices, consumers, light, EQUIP_PROGRESS, swing, arm, player);
             }
         } else {
-            boolean right = arm == Arm.RIGHT;
+            boolean right = arm == HumanoidArm.RIGHT;
             int side = right ? 1 : -1;
             // The little forward lunge the item makes as the swing starts.
-            float lunge = -0.4F * MathHelper.sin(MathHelper.sqrt(swing) * (float) Math.PI);
-            float rise = 0.2F * MathHelper.sin(MathHelper.sqrt(swing) * (float) (Math.PI * 2));
-            float drop = -0.2F * MathHelper.sin(swing * (float) Math.PI);
+            float lunge = -0.4F * Mth.sin(Mth.sqrt(swing) * (float) Math.PI);
+            float rise = 0.2F * Mth.sin(Mth.sqrt(swing) * (float) (Math.PI * 2));
+            float drop = -0.2F * Mth.sin(swing * (float) Math.PI);
             matrices.translate(side * lunge, rise, drop);
             applyEquipOffset(matrices, arm, EQUIP_PROGRESS);
             applySwingOffset(matrices, arm, swing);
             renderItem(client, matrices, consumers, player, stack, arm, light);
         }
-        matrices.pop();
+        matrices.popPose();
     }
 
     /** {@code HeldItemRenderer.applyEquipOffset}. */
-    private static void applyEquipOffset(MatrixStack matrices, Arm arm, float equipProgress) {
-        int side = arm == Arm.RIGHT ? 1 : -1;
+    private static void applyEquipOffset(PoseStack matrices, HumanoidArm arm, float equipProgress) {
+        int side = arm == HumanoidArm.RIGHT ? 1 : -1;
         matrices.translate(side * 0.56F, -0.52F + equipProgress * -0.6F, -0.72F);
     }
 
     /** {@code HeldItemRenderer.applySwingOffset}. */
-    private static void applySwingOffset(MatrixStack matrices, Arm arm, float swingProgress) {
-        int side = arm == Arm.RIGHT ? 1 : -1;
-        float arc = MathHelper.sin(swingProgress * swingProgress * (float) Math.PI);
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(side * (45.0F + arc * -20.0F)));
-        float lift = MathHelper.sin(MathHelper.sqrt(swingProgress) * (float) Math.PI);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(side * lift * -20.0F));
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(lift * -80.0F));
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(side * -45.0F));
+    private static void applySwingOffset(PoseStack matrices, HumanoidArm arm, float swingProgress) {
+        int side = arm == HumanoidArm.RIGHT ? 1 : -1;
+        float arc = Mth.sin(swingProgress * swingProgress * (float) Math.PI);
+        matrices.mulPose(Axis.YP.rotationDegrees(side * (45.0F + arc * -20.0F)));
+        float lift = Mth.sin(Mth.sqrt(swingProgress) * (float) Math.PI);
+        matrices.mulPose(Axis.ZP.rotationDegrees(side * lift * -20.0F));
+        matrices.mulPose(Axis.XP.rotationDegrees(lift * -80.0F));
+        matrices.mulPose(Axis.YP.rotationDegrees(side * -45.0F));
     }
 
     /** {@code HeldItemRenderer.renderArmHoldingItem}, with the arm owner swapped for the target. */
-    private static void renderArmHoldingItem(MinecraftClient client, MatrixStack matrices,
-                                             VertexConsumerProvider.Immediate consumers, int light,
-                                             float equipProgress, float swingProgress, Arm arm,
-                                             AbstractClientPlayerEntity player) {
-        boolean right = arm != Arm.LEFT;
+    private static void renderArmHoldingItem(Minecraft client, PoseStack matrices,
+                                             MultiBufferSource.BufferSource consumers, int light,
+                                             float equipProgress, float swingProgress, HumanoidArm arm,
+                                             AbstractClientPlayer player) {
+        boolean right = arm != HumanoidArm.LEFT;
         float side = right ? 1.0F : -1.0F;
-        float root = MathHelper.sqrt(swingProgress);
-        float back = -0.3F * MathHelper.sin(root * (float) Math.PI);
-        float up = 0.4F * MathHelper.sin(root * (float) (Math.PI * 2));
-        float down = -0.4F * MathHelper.sin(swingProgress * (float) Math.PI);
+        float root = Mth.sqrt(swingProgress);
+        float back = -0.3F * Mth.sin(root * (float) Math.PI);
+        float up = 0.4F * Mth.sin(root * (float) (Math.PI * 2));
+        float down = -0.4F * Mth.sin(swingProgress * (float) Math.PI);
         matrices.translate(side * (back + 0.64000005F),
                 up + -0.6F + equipProgress * -0.6F,
                 down + -0.71999997F);
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(side * 45.0F));
-        float twist = MathHelper.sin(swingProgress * swingProgress * (float) Math.PI);
-        float lift = MathHelper.sin(root * (float) Math.PI);
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(side * lift * 70.0F));
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(side * twist * -20.0F));
+        matrices.mulPose(Axis.YP.rotationDegrees(side * 45.0F));
+        float twist = Mth.sin(swingProgress * swingProgress * (float) Math.PI);
+        float lift = Mth.sin(root * (float) Math.PI);
+        matrices.mulPose(Axis.YP.rotationDegrees(side * lift * 70.0F));
+        matrices.mulPose(Axis.ZP.rotationDegrees(side * twist * -20.0F));
         matrices.translate(side * -1.0F, 3.6F, 3.5F);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(side * 120.0F));
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(200.0F));
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(side * -135.0F));
+        matrices.mulPose(Axis.ZP.rotationDegrees(side * 120.0F));
+        matrices.mulPose(Axis.XP.rotationDegrees(200.0F));
+        matrices.mulPose(Axis.YP.rotationDegrees(side * -135.0F));
         matrices.translate(side * 5.6F, 0.0F, 0.0F);
 
         EntityRenderer<?> renderer = client.getEntityRenderDispatcher().getRenderer(player);
-        if (!(renderer instanceof PlayerEntityRenderer playerRenderer)) {
+        if (!(renderer instanceof PlayerRenderer playerRenderer)) {
             return;
         }
         if (right) {
-            playerRenderer.renderRightArm(matrices, consumers, light, player);
+            playerRenderer.renderRightHand(matrices, consumers, light, player);
         } else {
-            playerRenderer.renderLeftArm(matrices, consumers, light, player);
+            playerRenderer.renderLeftHand(matrices, consumers, light, player);
         }
     }
 
-    private static void renderItem(MinecraftClient client, MatrixStack matrices,
-                                   VertexConsumerProvider.Immediate consumers,
-                                   AbstractClientPlayerEntity player, ItemStack stack, Arm arm,
+    private static void renderItem(Minecraft client, PoseStack matrices,
+                                   MultiBufferSource.BufferSource consumers,
+                                   AbstractClientPlayer player, ItemStack stack, HumanoidArm arm,
                                    int light) {
-        boolean right = arm == Arm.RIGHT;
-        ModelTransformationMode mode = right
-                ? ModelTransformationMode.FIRST_PERSON_RIGHT_HAND
-                : ModelTransformationMode.FIRST_PERSON_LEFT_HAND;
-        client.getItemRenderer().renderItem(player, stack, mode, !right, matrices, consumers,
-                player.getWorld(), light, OverlayTexture.DEFAULT_UV,
-                player.getId() + mode.ordinal());
+        boolean right = arm == HumanoidArm.RIGHT;
+        ItemDisplayContext mode = right
+                ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
+                : ItemDisplayContext.FIRST_PERSON_LEFT_HAND;
+        client.getItemRenderer().render(stack, mode, !right, matrices, consumers, light,
+                OverlayTexture.NO_OVERLAY, client.getItemRenderer().getModel(stack,
+                        player.level(), player, player.getId() + mode.ordinal()));
     }
 }

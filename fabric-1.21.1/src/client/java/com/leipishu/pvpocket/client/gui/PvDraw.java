@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.client.gui;
 
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,9 +69,9 @@ public final class PvDraw {
     private static final SpanEmitter EMITTER = new SpanEmitter();
 
     private static final class SpanEmitter implements PvRaster.Sink {
-        private DrawContext ctx;
+        private GuiGraphics ctx;
 
-        void begin(DrawContext target) {
+        void begin(GuiGraphics target) {
             this.ctx = target;
         }
 
@@ -88,14 +88,14 @@ public final class PvDraw {
 
     // ------------------------------------------------------------------ shapes
 
-    public static void rect(DrawContext ctx, int x, int y, int w, int h, int color) {
+    public static void rect(GuiGraphics ctx, int x, int y, int w, int h, int color) {
         if (w <= 0 || h <= 0 || (color >>> 24) == 0) {
             return;
         }
         ctx.fill(x, y, x + w, y + h, color);
     }
 
-    public static void roundRect(DrawContext ctx, int x, int y, int w, int h, int radius, int color) {
+    public static void roundRect(GuiGraphics ctx, int x, int y, int w, int h, int radius, int color) {
         roundRect(ctx, x, y, w, h, radius, radius, radius, radius, color);
     }
 
@@ -107,7 +107,7 @@ public final class PvDraw {
      * the panel's own corner). Expressing that as one shape costs a quadrant test in the distance
      * field; expressing it as a clip costs a scissor state change and a whole extra pass.</p>
      */
-    public static void roundRect(DrawContext ctx, int x, int y, int w, int h,
+    public static void roundRect(GuiGraphics ctx, int x, int y, int w, int h,
                                  int rTL, int rTR, int rBR, int rBL, int color) {
         if (w <= 0 || h <= 0 || (color >>> 24) == 0) {
             return;
@@ -117,7 +117,7 @@ public final class PvDraw {
     }
 
     /** Rounded rectangle with a 1px border: filled with {@code border}, then inset with {@code fill}. */
-    public static void roundPanel(DrawContext ctx, int x, int y, int w, int h, int radius,
+    public static void roundPanel(GuiGraphics ctx, int x, int y, int w, int h, int radius,
                                   int border, int fill) {
         if (w <= 0 || h <= 0) {
             return;
@@ -133,7 +133,7 @@ public final class PvDraw {
      * that version produced a solid block of the ring colour over whatever it was supposed to
      * outline. {@link PvRaster#ring} carves the inner shape out arithmetically instead.</p>
      */
-    public static void ring(DrawContext ctx, int x, int y, int w, int h, int radius, int thickness,
+    public static void ring(GuiGraphics ctx, int x, int y, int w, int h, int radius, int thickness,
                             int color) {
         if (w <= 0 || h <= 0 || thickness <= 0 || (color >>> 24) == 0) {
             return;
@@ -142,16 +142,16 @@ public final class PvDraw {
         PvRaster.ring(x, y, w, h, radius, thickness, color, EMITTER);
     }
 
-    public static void hLine(DrawContext ctx, int x, int y, int w, int color) {
+    public static void hLine(GuiGraphics ctx, int x, int y, int w, int color) {
         rect(ctx, x, y, w, 1, color);
     }
 
-    public static void vLine(DrawContext ctx, int x, int y, int h, int color) {
+    public static void vLine(GuiGraphics ctx, int x, int y, int h, int color) {
         rect(ctx, x, y, 1, h, color);
     }
 
     /** A filled circle, used for status dots and slider knobs. */
-    public static void dot(DrawContext ctx, int cx, int cy, int r, int color) {
+    public static void dot(GuiGraphics ctx, int cx, int cy, int r, int color) {
         roundRect(ctx, cx - r, cy - r, r * 2, r * 2, r, color);
     }
 
@@ -161,7 +161,7 @@ public final class PvDraw {
      * <p>Panels no longer use this: behind a 77% scrim a shadow is invisible. HUD bars still need
      * it, because their background is whatever the player is standing in front of.</p>
      */
-    public static void shadow(DrawContext ctx, int x, int y, int w, int h, int radius) {
+    public static void shadow(GuiGraphics ctx, int x, int y, int w, int h, int radius) {
         roundRect(ctx, x - 2, y - 1, w + 4, h + 5, radius + 2, 0x30000000);
         roundRect(ctx, x - 1, y, w + 2, h + 3, radius + 1, 0x50000000);
     }
@@ -175,7 +175,7 @@ public final class PvDraw {
      * 1.5px diagonal at GUI scale 1 turns into grey mush, while two hard pixels stay two hard pixels
      * at every scale.</p>
      */
-    public static void chevron(DrawContext ctx, int cx, int cy, int dir, int height, int color) {
+    public static void chevron(GuiGraphics ctx, int cx, int cy, int dir, int height, int color) {
         int half = Math.max(1, height / 2);
         int top = cy - half;
         for (int i = 0; i < height; i++) {
@@ -185,13 +185,13 @@ public final class PvDraw {
         }
     }
 
-    public static void plus(DrawContext ctx, int cx, int cy, int arm, int thickness, int color) {
+    public static void plus(GuiGraphics ctx, int cx, int cy, int arm, int thickness, int color) {
         int h = thickness / 2;
         rect(ctx, cx - arm, cy - h, arm * 2 + 1, thickness, color);
         rect(ctx, cx - h, cy - arm, thickness, arm * 2 + 1, color);
     }
 
-    public static void cross(DrawContext ctx, int cx, int cy, int arm, int color) {
+    public static void cross(GuiGraphics ctx, int cx, int cy, int arm, int color) {
         for (int i = -arm; i <= arm; i++) {
             ctx.fill(cx + i, cy + i, cx + i + 1, cy + i + 1, color);
             ctx.fill(cx + i, cy - i, cx + i + 1, cy - i + 1, color);
@@ -208,26 +208,26 @@ public final class PvDraw {
      * invisible to every other kind of check, because nothing in the code knows it ran over the
      * control beside it. One {@code getWidth} per run is the cheapest place to catch that.</p>
      */
-    public static void text(DrawContext ctx, TextRenderer tr, String s, int x, int y, int color) {
+    public static void text(GuiGraphics ctx, Font tr, String s, int x, int y, int color) {
         if (PvAudit.ON) {
-            PvAudit.text(s, x, y, tr.getWidth(s));
+            PvAudit.text(s, x, y, tr.width(s));
         }
-        ctx.drawText(tr, s, x, y, color, false);
+        ctx.drawString(tr, s, x, y, color, false);
     }
 
-    public static void textShadow(DrawContext ctx, TextRenderer tr, String s, int x, int y, int color) {
+    public static void textShadow(GuiGraphics ctx, Font tr, String s, int x, int y, int color) {
         if (PvAudit.ON) {
-            PvAudit.text(s, x, y, tr.getWidth(s));
+            PvAudit.text(s, x, y, tr.width(s));
         }
-        ctx.drawText(tr, s, x, y, color, true);
+        ctx.drawString(tr, s, x, y, color, true);
     }
 
-    public static void textRight(DrawContext ctx, TextRenderer tr, String s, int right, int y, int color) {
-        text(ctx, tr, s, right - tr.getWidth(s), y, color);
+    public static void textRight(GuiGraphics ctx, Font tr, String s, int right, int y, int color) {
+        text(ctx, tr, s, right - tr.width(s), y, color);
     }
 
-    public static void textCenter(DrawContext ctx, TextRenderer tr, String s, int centerX, int y, int color) {
-        text(ctx, tr, s, centerX - tr.getWidth(s) / 2, y, color);
+    public static void textCenter(GuiGraphics ctx, Font tr, String s, int centerX, int y, int color) {
+        text(ctx, tr, s, centerX - tr.width(s) / 2, y, color);
     }
 
     // -------------------------------------------------------------- shrink to fit
@@ -279,8 +279,8 @@ public final class PvDraw {
     private record Wrapped(List<String> lines, float scale, boolean cut) {
     }
 
-    private static Fit measure(TextRenderer tr, String s, int maxWidth) {
-        int natural = tr.getWidth(s);
+    private static Fit measure(Font tr, String s, int maxWidth) {
+        int natural = tr.width(s);
         if (maxWidth <= 0 || s.isEmpty()) {
             return new Fit("", 1F, 0);
         }
@@ -299,14 +299,14 @@ public final class PvDraw {
         // At the floor and still too wide: cut, so that what is left still fits at the floor.
         PvAudit.cut(s, maxWidth, natural);
         String cut = fit(tr, s, (int) Math.floor(maxWidth / MIN_TEXT_SCALE));
-        return new Fit(cut, MIN_TEXT_SCALE, Math.max(1, Math.round(tr.getWidth(cut) * MIN_TEXT_SCALE)));
+        return new Fit(cut, MIN_TEXT_SCALE, Math.max(1, Math.round(tr.width(cut) * MIN_TEXT_SCALE)));
     }
 
     /**
      * Draws {@code s} from {@code x}, shrinking it until it fits {@code maxWidth}. Returns the width
      * actually covered, so a caller can lay out what comes after it.
      */
-    public static int textFitLeft(DrawContext ctx, TextRenderer tr, String s, int x, int y,
+    public static int textFitLeft(GuiGraphics ctx, Font tr, String s, int x, int y,
                                   int maxWidth, int color) {
         Fit fit = measure(tr, s, maxWidth);
         drawScaled(ctx, tr, fit, x, y, color);
@@ -314,7 +314,7 @@ public final class PvDraw {
     }
 
     /** Right-aligned variant: the run ends at {@code right} and grows leftwards into {@code maxWidth}. */
-    public static int textFitRight(DrawContext ctx, TextRenderer tr, String s, int right, int y,
+    public static int textFitRight(GuiGraphics ctx, Font tr, String s, int right, int y,
                                    int maxWidth, int color) {
         Fit fit = measure(tr, s, maxWidth);
         drawScaled(ctx, tr, fit, right - fit.width, y, color);
@@ -322,7 +322,7 @@ public final class PvDraw {
     }
 
     /** Centred variant: the run is centred on {@code centerX} and may be at most {@code maxWidth} wide. */
-    public static int textFitCenter(DrawContext ctx, TextRenderer tr, String s, int centerX, int y,
+    public static int textFitCenter(GuiGraphics ctx, Font tr, String s, int centerX, int y,
                                     int maxWidth, int color) {
         Fit fit = measure(tr, s, maxWidth);
         drawScaled(ctx, tr, fit, centerX - fit.width / 2, y, color);
@@ -330,7 +330,7 @@ public final class PvDraw {
     }
 
     /** Width {@link #textFitLeft} would cover, without drawing anything. */
-    public static int fittedWidth(TextRenderer tr, String s, int maxWidth) {
+    public static int fittedWidth(Font tr, String s, int maxWidth) {
         return measure(tr, s, maxWidth).width;
     }
 
@@ -353,20 +353,20 @@ public final class PvDraw {
      * @param boxH  height of the frame the label has to live in
      * @return the width the block covered, i.e. its widest line, so a caller can anchor to it
      */
-    public static int textWrapLeft(DrawContext ctx, TextRenderer tr, String s, int x, int top,
+    public static int textWrapLeft(GuiGraphics ctx, Font tr, String s, int x, int top,
                                    int boxH, int maxWidth, int maxLines, int color) {
         return drawWrapped(ctx, tr, layout(tr, s, maxWidth, maxLines), x, top, boxH, false, color);
     }
 
     /** Centred variant of {@link #textWrapLeft}: the block is centred on {@code centerX}. */
-    public static int textWrapCenter(DrawContext ctx, TextRenderer tr, String s, int centerX,
+    public static int textWrapCenter(GuiGraphics ctx, Font tr, String s, int centerX,
                                      int top, int boxH, int maxWidth, int maxLines, int color) {
         return drawWrapped(ctx, tr, layout(tr, s, maxWidth, maxLines), centerX, top, boxH, true,
                 color);
     }
 
     /** Lines {@link #textWrapLeft} would draw, without drawing anything. */
-    public static int wrappedLines(TextRenderer tr, String s, int maxWidth, int maxLines) {
+    public static int wrappedLines(Font tr, String s, int maxWidth, int maxLines) {
         return layout(tr, s, maxWidth, maxLines).lines().size();
     }
     /** Height a wrapped block occupies: {@code n} lines of 8px with 2px leading between them. */
@@ -382,15 +382,15 @@ public final class PvDraw {
      * chip holding "Team wool" is a frame that fits, and a 55px chip holding a whole sentence is a
      * label whose rest belongs somewhere the player can ask for it.</p>
      */
-    public static boolean willCut(TextRenderer tr, String s, int maxWidth, int maxLines) {
+    public static boolean willCut(Font tr, String s, int maxWidth, int maxLines) {
         return layout(tr, s, maxWidth, maxLines).cut();
     }
 
-    private static Wrapped layout(TextRenderer tr, String s, int maxWidth, int maxLines) {
+    private static Wrapped layout(Font tr, String s, int maxWidth, int maxLines) {
         if (s == null || s.isEmpty() || maxWidth <= 0) {
             return new Wrapped(List.of(""), 1F, false);
         }
-        int natural = tr.getWidth(s);
+        int natural = tr.width(s);
         if (maxLines <= 1 || natural <= maxWidth
                 || natural * MIN_TEXT_SCALE <= maxWidth + FLOOR_SLACK) {
             // One line, shrunk if need be. The third test is the rounding slack: a label that lands
@@ -415,7 +415,7 @@ public final class PvDraw {
         return new Wrapped(kept, MIN_TEXT_SCALE, true);
     }
 
-    private static int drawWrapped(DrawContext ctx, TextRenderer tr, Wrapped w, int origin,
+    private static int drawWrapped(GuiGraphics ctx, Font tr, Wrapped w, int origin,
                                    int top, int boxH, boolean centred, int color) {
         List<String> lines = w.lines();
         int n = lines.size();
@@ -427,7 +427,7 @@ public final class PvDraw {
         int y = top + (boxH - wrappedHeight(n)) / 2 + (n == 1 ? 1 : 0);
         int widest = 0;
         for (String line : lines) {
-            Fit fit = new Fit(line, w.scale(), Math.max(1, Math.round(tr.getWidth(line) * w.scale())));
+            Fit fit = new Fit(line, w.scale(), Math.max(1, Math.round(tr.width(line) * w.scale())));
             drawScaled(ctx, tr, fit, centred ? origin - fit.width() / 2 : origin, y, color);
             widest = Math.max(widest, fit.width());
             y += WRAP_PITCH;
@@ -442,7 +442,7 @@ public final class PvDraw {
      * than its text would at 1.0×, and recording the natural size would invent a collision with
      * whatever sits beside it.</p>
      */
-    private static void drawScaled(DrawContext ctx, TextRenderer tr, Fit fit, int x, int y, int color) {
+    private static void drawScaled(GuiGraphics ctx, Font tr, Fit fit, int x, int y, int color) {
         if (fit.text.isEmpty()) {
             return;
         }
@@ -453,35 +453,35 @@ public final class PvDraw {
         PvAudit.shrunk();
         if (PvAudit.ON) {
             PvAudit.text(fit.text, x, y, fit.width,
-                    Math.max(1, Math.round(tr.fontHeight * fit.scale)));
+                    Math.max(1, Math.round(tr.lineHeight * fit.scale)));
         }
-        ctx.getMatrices().push();
-        ctx.getMatrices().translate(x, y, 0);
-        ctx.getMatrices().scale(fit.scale, fit.scale, 1F);
-        ctx.drawText(tr, fit.text, 0, 0, color, false);
-        ctx.getMatrices().pop();
+        ctx.pose().pushPose();
+        ctx.pose().translate(x, y, 0);
+        ctx.pose().scale(fit.scale, fit.scale, 1F);
+        ctx.drawString(tr, fit.text, 0, 0, color, false);
+        ctx.pose().popPose();
     }
 
     // ------------------------------------------------------------------ strings
 
     /** Clips text to {@code maxWidth}, appending an ellipsis when it had to be cut. */
-    public static String fit(TextRenderer tr, String s, int maxWidth) {
-        if (tr.getWidth(s) <= maxWidth) {
+    public static String fit(Font tr, String s, int maxWidth) {
+        if (tr.width(s) <= maxWidth) {
             return s;
         }
         String ellipsis = "…";
-        int budget = maxWidth - tr.getWidth(ellipsis);
+        int budget = maxWidth - tr.width(ellipsis);
         if (budget <= 0) {
             return "";
         }
-        return tr.trimToWidth(s, budget) + ellipsis;
+        return tr.plainSubstrByWidth(s, budget) + ellipsis;
     }
 
     /**
      * Wraps a string to {@code maxWidth}, breaking on spaces where possible and on any character
      * otherwise. CJK text has no spaces, so a word-only wrapper would overflow on every label.
      */
-    public static List<String> wrap(TextRenderer tr, String s, int maxWidth) {
+    public static List<String> wrap(Font tr, String s, int maxWidth) {
         List<String> lines = new ArrayList<>();
         StringBuilder line = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
@@ -492,7 +492,7 @@ public final class PvDraw {
                 continue;
             }
             line.append(c);
-            if (tr.getWidth(line.toString()) > maxWidth && line.length() > 1) {
+            if (tr.width(line.toString()) > maxWidth && line.length() > 1) {
                 int breakAt = line.length() - 1;
                 if (c != ' ') {
                     int space = line.lastIndexOf(" ");

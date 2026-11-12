@@ -11,17 +11,17 @@ import com.leipishu.pvpocket.network.PossessPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
 import com.leipishu.pvpocket.rules.DuelRules;
-import net.minecraft.item.ItemStack;
-import net.minecraft.network.packet.s2c.play.SetCameraEntityS2CPacket;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKey;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.world.GameMode;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -61,13 +61,13 @@ final class Spectators {
      */
     private static final class Watching {
         final String sessionId;
-        final RegistryKey<World> world;
+        final ResourceKey<Level> world;
         final double x;
         final double y;
         final double z;
         final float yaw;
         final float pitch;
-        final GameMode mode;
+        final GameType mode;
         int target;
         /**
          * Last hotbar/vitals signature sent for {@link #target}, so the possession HUD is only
@@ -85,15 +85,15 @@ final class Spectators {
          */
         boolean limitWarned;
 
-        Watching(String sessionId, ServerPlayerEntity player) {
+        Watching(String sessionId, ServerPlayer player) {
             this.sessionId = sessionId;
-            this.world = player.getWorld().getRegistryKey();
+            this.world = player.level().dimension();
             this.x = player.getX();
             this.y = player.getY();
             this.z = player.getZ();
-            this.yaw = player.getYaw();
-            this.pitch = player.getPitch();
-            this.mode = player.interactionManager.getGameMode();
+            this.yaw = player.getYRot();
+            this.pitch = player.getXRot();
+            this.mode = player.gameMode.getGameModeForPlayer();
         }
     }
 
@@ -117,13 +117,13 @@ final class Spectators {
     }
 
     /** Online spectators of one session, for the HUD and bounds broadcasts. */
-    List<ServerPlayerEntity> watchersOf(String sessionId) {
-        List<ServerPlayerEntity> out = new ArrayList<>();
+    List<ServerPlayer> watchersOf(String sessionId) {
+        List<ServerPlayer> out = new ArrayList<>();
         for (Map.Entry<UUID, Watching> entry : watching.entrySet()) {
             if (!entry.getValue().sessionId.equals(sessionId)) {
                 continue;
             }
-            ServerPlayerEntity player = server().getPlayerManager().getPlayer(entry.getKey());
+            ServerPlayer player = server().getPlayerList().getPlayer(entry.getKey());
             if (player != null) {
                 out.add(player);
             }
@@ -140,7 +140,7 @@ final class Spectators {
      * {@code ROUND_ACTIVE}. A negotiation is not a match yet: there is nothing to watch, and a row
      * that can never be entered is a row that teaches the player the button does not work.</p>
      */
-    void openList(ServerPlayerEntity player) {
+    void openList(ServerPlayer player) {
         PvPocketNetworking.openMatchList(player, new MatchListPayload(rowsFor(player)));
     }
 
@@ -151,7 +151,7 @@ final class Spectators {
      * two builders would drift the moment a field is added — the failure would be a row the panel
      * reads and the home screen does not, which looks like a home screen bug.</p>
      */
-    String rowsFor(ServerPlayerEntity player) {
+    String rowsFor(ServerPlayer player) {
         StringBuilder sb = new StringBuilder();
         for (DuelSession session : sessions.allSessions()) {
             if (session.stage != SessionStage.ROUND_READY
@@ -165,11 +165,11 @@ final class Spectators {
             if (DuelRules.decode(session.rules).flag("b.spectator")) {
                 flags |= MatchListPayload.FLAG_SPECTATABLE;
             }
-            if (session.isParticipant(player.getUuidAsString())) {
+            if (session.isParticipant(player.getStringUUID())) {
                 flags |= MatchListPayload.FLAG_PARTICIPANT;
             }
-            if (isWatching(player.getUuid())
-                    && session.id.equals(watching.get(player.getUuid()).sessionId)) {
+            if (isWatching(player.getUUID())
+                    && session.id.equals(watching.get(player.getUUID()).sessionId)) {
                 flags |= MatchListPayload.FLAG_WATCHING;
             }
             sb.append(session.id).append('|')
@@ -252,7 +252,7 @@ final class Spectators {
      * <p>Refusals are chat lines, not silent failures. The player pressed a button; a button that
      * does nothing is indistinguishable from a broken button.</p>
      */
-    boolean join(ServerPlayerEntity player, String sessionId) {
+    boolean join(ServerPlayer player, String sessionId) {
         DuelSession session = sessions.byId(sessionId);
         if (session == null) {
             fail(player, "pvpocket.msg.spectate.gone");
@@ -266,16 +266,16 @@ final class Spectators {
             fail(player, "pvpocket.msg.spectate.disabled");
             return false;
         }
-        if (session.isParticipant(player.getUuidAsString())) {
+        if (session.isParticipant(player.getStringUUID())) {
             fail(player, "pvpocket.msg.spectate.is_participant");
             return false;
         }
-        if (sessions.sessionOf(player.getUuid()) != null) {
+        if (sessions.sessionOf(player.getUUID()) != null) {
             fail(player, "pvpocket.msg.spectate.in_duel");
             return false;
         }
         ArenaRegion region = ArenaManager.region(session.id);
-        ServerWorld arena = ArenaManager.world(server());
+        ServerLevel arena = ArenaManager.world(server());
         if (region == null || arena == null) {
             fail(player, "pvpocket.msg.spectate.arena_not_ready");
             return false;
@@ -284,7 +284,7 @@ final class Spectators {
         // Re-joining while already watching is a no-op swap, not an error: the panel's 观战 button
         // stays clickable for the row you are already on, and losing the saved position because of
         // a second click would send the player home afterwards instead of back where they were.
-        if (watching.containsKey(player.getUuid())) {
+        if (watching.containsKey(player.getUUID())) {
             leave(player, "SWITCH", false);
         }
 
@@ -295,19 +295,19 @@ final class Spectators {
         // committing to it, and it keeps the possession HUD (hotbar, vitals) off the screen until
         // there is actually a body to describe.
         state.target = -1;
-        watching.put(player.getUuid(), state);
+        watching.put(player.getUUID(), state);
 
         // Authorised change: entering spectator mode is the whole feature, and the sandbox rule
         // that forbids players from switching modes would otherwise refuse it silently.
-        Sandbox.changeGameMode(player, GameMode.SPECTATOR);
+        Sandbox.changeGameMode(player, GameType.SPECTATOR);
         // Dropped above the middle of the plot rather than onto a spawn pad: this is where the
         // spectator's own body sits until they attach, and where it returns when they detach.
-        player.teleport(arena,
+        player.teleportTo(arena,
                 region.centerX() + 0.5D,
                 Math.max(region.spawnY(0), region.spawnY(1)) + 6.0D,
                 region.centerZ() + 0.5D,
                 0.0F, 40.0F);
-        player.setVelocity(0.0D, 0.0D, 0.0D);
+        player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         pointCamera(player, null);
         PvPocketNetworking.sendPossess(player, PossessPayload.hidden());
         pushState(player);
@@ -317,8 +317,8 @@ final class Spectators {
         sessions.pushSpectatorView(player, session);
 
         sessions.journal(session).append("SPECTATOR_JOINED", "player", player.getName().getString());
-        player.sendMessage(PvLang.t("pvpocket.msg.spectate.joined", mapId(session))
-                .formatted(Formatting.AQUA), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.joined", mapId(session))
+                .withStyle(ChatFormatting.AQUA), false);
         return true;
     }
 
@@ -334,8 +334,8 @@ final class Spectators {
      *                 series ending announces itself, and a second "you have left spectator mode"
      *                 line on top of it is noise.
      */
-    boolean leave(ServerPlayerEntity player, String reason, boolean announce) {
-        Watching state = watching.remove(player.getUuid());
+    boolean leave(ServerPlayer player, String reason, boolean announce) {
+        Watching state = watching.remove(player.getUUID());
         if (state == null) {
             return false;
         }
@@ -353,29 +353,29 @@ final class Spectators {
                     "player", player.getName().getString(), "reason", reason);
         }
         if (announce) {
-            player.sendMessage(PvLang.t("pvpocket.msg.spectate.left").formatted(Formatting.GRAY), false);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.left").withStyle(ChatFormatting.GRAY), false);
         }
         return true;
     }
 
-    private void restore(ServerPlayerEntity player, Watching state) {
+    private void restore(ServerPlayer player, Watching state) {
         pointCamera(player, null);
-        ServerWorld back = server().getWorld(state.world);
+        ServerLevel back = server().getLevel(state.world);
         if (back != null) {
-            player.teleport(back, state.x, state.y, state.z, state.yaw, state.pitch);
-            player.setVelocity(0.0D, 0.0D, 0.0D);
+            player.teleportTo(back, state.x, state.y, state.z, state.yaw, state.pitch);
+            player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         } else {
             // The dimension they came from is gone (a datapack reload). Sending them to the overworld
             // spawn is worse than putting them back but better than leaving them in the arena as a
             // spectator with no way out.
             PvPocket.LOGGER.warn("Spectator {} came from an unloaded dimension {}; sending to spawn",
-                    player.getName().getString(), state.world.getValue());
-            ServerWorld overworld = server().getOverworld();
-            player.teleport(overworld, overworld.getSpawnPos().getX() + 0.5D,
-                    overworld.getSpawnPos().getY(), overworld.getSpawnPos().getZ() + 0.5D,
+                    player.getName().getString(), state.world.location());
+            ServerLevel overworld = server().overworld();
+            player.teleportTo(overworld, overworld.getSharedSpawnPos().getX() + 0.5D,
+                    overworld.getSharedSpawnPos().getY(), overworld.getSharedSpawnPos().getZ() + 0.5D,
                     state.yaw, state.pitch);
         }
-        if (player.interactionManager.getGameMode() != state.mode) {
+        if (player.gameMode.getGameModeForPlayer() != state.mode) {
             Sandbox.changeGameMode(player, state.mode);
         }
     }
@@ -389,7 +389,7 @@ final class Spectators {
             }
         }
         for (UUID uuid : doomed) {
-            ServerPlayerEntity player = server().getPlayerManager().getPlayer(uuid);
+            ServerPlayer player = server().getPlayerList().getPlayer(uuid);
             if (player == null) {
                 // Offline: the entry goes, and their saved game mode is already restored by
                 // onDisconnect. Nothing else can be done to a player who is not here.
@@ -403,7 +403,7 @@ final class Spectators {
     /** Drops every spectator of every session. Used on server stop. */
     void ejectEverything(String reason) {
         for (UUID uuid : new ArrayList<>(watching.keySet())) {
-            ServerPlayerEntity player = server().getPlayerManager().getPlayer(uuid);
+            ServerPlayer player = server().getPlayerList().getPlayer(uuid);
             if (player == null) {
                 watching.remove(uuid);
                 continue;
@@ -415,8 +415,8 @@ final class Spectators {
     }
 
     /** Disconnect path: restore before the playerdata is written, or they rejoin as a spectator. */
-    void onDisconnect(ServerPlayerEntity player) {
-        Watching state = watching.remove(player.getUuid());
+    void onDisconnect(ServerPlayer player) {
+        Watching state = watching.remove(player.getUUID());
         if (state == null) {
             return;
         }
@@ -431,8 +431,8 @@ final class Spectators {
     // ------------------------------------------------------------------ camera
 
     /** Moves the camera to the next participant, wrapping around. */
-    void cycle(ServerPlayerEntity player) {
-        Watching state = watching.get(player.getUuid());
+    void cycle(ServerPlayer player) {
+        Watching state = watching.get(player.getUUID());
         if (state == null) {
             fail(player, "pvpocket.msg.spectate.not_watching");
             return;
@@ -457,8 +457,8 @@ final class Spectators {
      * possessed view; without it the only way out of somebody else's eyes is to leave entirely,
      * which loses the spectator's position and their place in the match.</p>
      */
-    void detach(ServerPlayerEntity player) {
-        Watching state = watching.get(player.getUuid());
+    void detach(ServerPlayer player) {
+        Watching state = watching.get(player.getUUID());
         if (state == null) {
             fail(player, "pvpocket.msg.spectate.not_watching");
             return;
@@ -477,11 +477,11 @@ final class Spectators {
      * disconnect, and a camera attached to a removed entity is a black screen. The loop walks the
      * whole list once, so a 1v1 with one side gone lands on the other side instead of failing.</p>
      */
-    private void attach(ServerPlayerEntity spectator, DuelSession session, Watching state) {
+    private void attach(ServerPlayer spectator, DuelSession session, Watching state) {
         int size = session.participants.size();
         for (int i = 0; i < size; i++) {
             int index = Math.floorMod(state.target + i, size);
-            ServerPlayerEntity target = sessions.online(session.participants.get(index));
+            ServerPlayer target = sessions.online(session.participants.get(index));
             if (target != null && !target.isRemoved()) {
                 state.target = index;
                 pointCamera(spectator, target);
@@ -502,7 +502,7 @@ final class Spectators {
      * <p>Compared by signature rather than sent every tick: an inventory does not change most ticks,
      * and this is the only per-tick packet the spectator feature would otherwise produce.</p>
      */
-    private void pushPossess(ServerPlayerEntity spectator, Watching state, ServerPlayerEntity target) {
+    private void pushPossess(ServerPlayer spectator, Watching state, ServerPlayer target) {
         if (target == null) {
             PvPocketNetworking.sendPossess(spectator, PossessPayload.hidden());
             state.lastSignature = "";
@@ -517,9 +517,9 @@ final class Spectators {
                 true,
                 target.getId(),
                 target.getName().getString(),
-                target.getInventory().selectedSlot,
+                target.getInventory().selected,
                 hotbarField(target),
-                new PossessPayload.Vitals(target.getHealth(), target.getArmor())));
+                new PossessPayload.Vitals(target.getHealth(), target.getArmorValue())));
     }
 
     /**
@@ -529,31 +529,31 @@ final class Spectators {
      * always has exactly nine groups and an empty group is written as nothing between two
      * separators.</p>
      */
-    private static String hotbarField(ServerPlayerEntity target) {
+    private static String hotbarField(ServerPlayer target) {
         StringBuilder sb = new StringBuilder();
         for (int slot = 0; slot < 9; slot++) {
             if (slot > 0) {
                 sb.append(';');
             }
-            ItemStack stack = target.getInventory().getStack(slot);
+            ItemStack stack = target.getInventory().getItem(slot);
             if (stack.isEmpty()) {
                 continue;
             }
-            sb.append(Registries.ITEM.getId(stack.getItem())).append(',').append(stack.getCount());
+            sb.append(BuiltInRegistries.ITEM.getKey(stack.getItem())).append(',').append(stack.getCount());
         }
         return sb.toString();
     }
 
     /** Cheap change detector: anything the possession HUD draws is part of it. */
-    private static String possessSignature(ServerPlayerEntity target) {
-        return target.getInventory().selectedSlot + "|" + target.getHealth() + "|"
-                + target.getArmor() + "|" + hotbarField(target);
+    private static String possessSignature(ServerPlayer target) {
+        return target.getInventory().selected + "|" + target.getHealth() + "|"
+                + target.getArmorValue() + "|" + hotbarField(target);
     }
 
     /**
      * Moves one client's camera.
      *
-     * <p>{@code setCameraEntity} is the authoritative half — it is what {@code getCameraEntity()}
+     * <p>{@code setCameraEntity} is the authoritative half — it is what {@code getCamera()}
      * reads, and what decides whether the camera is still valid on the next tick. The packet is the
      * visible half, and it is sent explicitly rather than assumed: the two are separate concerns,
      * a duplicate packet is a no-op on the client, and a missing one is a spectator staring at a
@@ -562,13 +562,13 @@ final class Spectators {
      * <p>Detaching points the camera at the spectator's own body, which is what the client means by
      * "no camera entity" — the packet's entity id has no null form.</p>
      */
-    private static void pointCamera(ServerPlayerEntity spectator, ServerPlayerEntity target) {
+    private static void pointCamera(ServerPlayer spectator, ServerPlayer target) {
         // Detaching points the field at the spectator's own body rather than null. The packet has no
         // null form either, and a null field is indistinguishable from "this camera is broken" to
         // the repair pass in tick(), which would re-attach on the next tick.
-        ServerPlayerEntity camera = target == null ? spectator : target;
-        spectator.setCameraEntity(camera);
-        spectator.networkHandler.sendPacket(new SetCameraEntityS2CPacket(camera));
+        ServerPlayer camera = target == null ? spectator : target;
+        spectator.setCamera(camera);
+        spectator.connection.send(new ClientboundSetCameraPacket(camera));
     }
 
     /**
@@ -577,8 +577,8 @@ final class Spectators {
      * <p>Also called on join, which is why it has a "not watching" branch: a client that reconnects
      * mid-match has no bar state, and the payload is otherwise only pushed on a camera change.</p>
      */
-    void pushState(ServerPlayerEntity player) {
-        Watching state = watching.get(player.getUuid());
+    void pushState(ServerPlayer player) {
+        Watching state = watching.get(player.getUUID());
         if (state == null) {
             PvPocketNetworking.sendSpectate(player, SpectateStatePayload.hidden());
             return;
@@ -619,7 +619,7 @@ final class Spectators {
         Iterator<Map.Entry<UUID, Watching>> it = watching.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<UUID, Watching> entry = it.next();
-            ServerPlayerEntity player = server().getPlayerManager().getPlayer(entry.getKey());
+            ServerPlayer player = server().getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
                 it.remove();
                 continue;
@@ -633,8 +633,8 @@ final class Spectators {
                 PvPocketNetworking.sendSpectate(player, SpectateStatePayload.hidden());
                 PvPocketNetworking.sendPossess(player, PossessPayload.hidden());
                 sessions.clearSpectatorView(player);
-                player.sendMessage(PvLang.t("pvpocket.msg.spectate.ended")
-                        .formatted(Formatting.GRAY), false);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.ended")
+                        .withStyle(ChatFormatting.GRAY), false);
                 continue;
             }
             // Detached on purpose. This has to be checked before the repair below, not after: a
@@ -650,7 +650,7 @@ final class Spectators {
                 }
                 continue;
             }
-            var camera = player.getCameraEntity();
+            var camera = player.getCamera();
             if (camera == null || camera.isRemoved()) {
                 attach(player, session, entry.getValue());
                 pushState(player);
@@ -659,7 +659,7 @@ final class Spectators {
             if (camera == player) {
                 continue;
             }
-            if (camera instanceof ServerPlayerEntity body) {
+            if (camera instanceof ServerPlayer body) {
                 pushPossess(player, entry.getValue(), body);
             }
         }
@@ -678,32 +678,32 @@ final class Spectators {
      * pressing against the limit should not be told twenty times a second, but a player who leaves
      * and comes back should be told again.</p>
      */
-    private static void clampFlight(ServerPlayerEntity player, Watching state, ArenaRegion region) {
+    private static void clampFlight(ServerPlayer player, Watching state, ArenaRegion region) {
         if (ArenaManager.pullSpectatorInside(player, region)) {
             if (!state.limitWarned) {
                 state.limitWarned = true;
-                player.sendMessage(PvLang.t("pvpocket.msg.spectate.limit")
-                        .formatted(Formatting.GRAY), false);
+                player.displayClientMessage(PvLang.t("pvpocket.msg.spectate.limit")
+                        .withStyle(ChatFormatting.GRAY), false);
             }
             return;
         }
         // Re-armed four blocks inside the limit, so a spectator hovering exactly on the edge does
         // not oscillate between warned and unwarned and get a line every other tick.
         if (state.limitWarned
-                && ArenaManager.spectatorBox(region).expand(-4.0D).contains(player.getPos())) {
+                && ArenaManager.spectatorBox(region).inflate(-4.0D).contains(player.position())) {
             state.limitWarned = false;
         }
     }
 
-    private static void fail(ServerPlayerEntity player, String key, Object... args) {
-        player.sendMessage(PvLang.t(key, args).formatted(Formatting.RED), false);
+    private static void fail(ServerPlayer player, String key, Object... args) {
+        player.displayClientMessage(PvLang.t(key, args).withStyle(ChatFormatting.RED), false);
     }
 
     /** Read-only view for diagnostics. */
     Collection<String> describe() {
         List<String> out = new ArrayList<>();
         for (Map.Entry<UUID, Watching> entry : watching.entrySet()) {
-            ServerPlayerEntity player = server().getPlayerManager().getPlayer(entry.getKey());
+            ServerPlayer player = server().getPlayerList().getPlayer(entry.getKey());
             out.add((player == null ? entry.getKey().toString() : player.getName().getString())
                     + " -> " + entry.getValue().sessionId.substring(0, 8)
                     + " -> " + entry.getValue().target);

@@ -1,0 +1,291 @@
+﻿# 手工补充的 Yarn → Mojmap 映射（1.21.1）
+#
+# `mojmap-table.py` 靠"混淆名"把 Yarn 与 Mojang 官方映射接起来，接口与静态工厂那一带接不准：
+# 同一个混淆名下的重载一多，描述符翻译就会错位。错位比缺失更糟——改出来的名字看着像模像样，
+# 编译却报"找不到"。这一份就是补那些洞：只写确认过的，宁可漏也不要错。
+#
+# 格式与自动生成的表一致：
+#   method  <Yarn 类>  <Yarn 名>  <Mojmap 名>
+#   field   <Yarn 类>  <Yarn 名>  <Mojmap 名>
+#
+# 覆盖优先级高于自动生成的表（同名条目以这里为准）。
+
+# Text 是接口，31 个方法全被接错了：formatted 没了，styled 被接到 of 上。
+method	net.minecraft.text.Text	formatted	withStyle
+method	net.minecraft.text.Text	styled	withStyle
+
+# 命令源上的权限与玩家解析
+method	net.minecraft.server.command.ServerCommandSource	hasPermissionLevel	hasPermission
+method	net.minecraft.server.command.ServerCommandSource	getPlayerOrThrow	getPlayerOrException
+
+# 写方块：带 flags 的那个是 setBlock，不是 setBlockAndUpdate（后者只有两个参数）
+method	net.minecraft.world.World	setBlockState	setBlock
+
+# 传送：带 ServerLevel 的那个叫 teleportTo
+method	net.minecraft.entity.Entity	teleport	teleportTo
+
+# 世界高度：声明在 HeightLimitView 接口上，接合时丢了
+method	net.minecraft.world.World	getTopY	getMaxBuildHeight
+method	net.minecraft.world.World	getBottomY	getMinBuildHeight
+
+# ---- 第二轮：编译器报出来的"找不到符号"，逐条对着 javap 核过 ----
+#
+# 静态调用要带接收者。`of` 在 JDK 集合上到处都是（`List.of`），按名字全局改会把整个仓库的
+# 集合构造改成 `fromNamespaceAndPath`，所以静态那几条必须写死接收者类名，并用参数个数区分重载：
+# `of(s)` → parse，`of(ns, path)` → fromNamespaceAndPath。
+static	ResourceLocation	of	fromNamespaceAndPath	2
+static	ResourceLocation	of	parse	1
+static	ResourceKey	of	create	2
+staticfield	UUIDUtil	PACKET_CODEC	STREAM_CODEC
+
+method	net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager	getTemplate	get
+method	net.minecraft.server.MinecraftServer	getSavePath	getWorldPath
+method	net.minecraft.server.MinecraftServer	getPlayerManager	getPlayerList
+method	net.minecraft.world.level.block.state.BlockState	isEmptyBlock	isAir
+method	net.minecraft.world.item.Item	getMaxCount	getDefaultMaxStackSize
+method	net.minecraft.core.Registry	getEntry	getHolder
+method	net.minecraft.world.entity.Entity	getViewXRot	getXRot
+method	net.minecraft.world.entity.Entity	getViewYRot	getYRot
+method	net.minecraft.world.damagesource.DamageSource	getAttacker	getEntity
+# readString / writeString 不放进这里：自动表已经改对了，而按名字全局替换会把
+# `Files.readString(path, charset)` 改成 `Files.readUtf(...)`——那是 JDK，编译直接崩。
+static	ResourceLocation	tryBuild	tryParse	1
+method	net.minecraft.core.Registry	containsId	containsKey
+
+# ---- 第三轮：只能看上下文才能定的那几处 ----
+#
+# 到这一步剩下的每一条都是"名字对、但签名或所属类型不对"，按名字改会互相踩：
+# `PlayerList.getPlayerList` 与 `MinecraftServer.getPlayerList` 同名不同义，
+# `builder.add` 在同一个文件里一个是 ItemAttributeModifiers 一个是 ItemEnchantments。
+# 写成正则，每一行都对着 javap 核过，也把"为什么这么改"留在原地。
+
+# 1. 载荷的 type()。Yarn 叫 getId，Mojmap 叫 type；接口上的抽象方法，不实现就编译不过。
+regex	public Type<\? extends CustomPacketPayload> getId\(\)	public Type<? extends CustomPacketPayload> type()
+
+# 2. 给玩家发消息。剩下的 sendMessage 全是 Player 的两参重载；命令源那条早被自动表改成了
+#    sendSystemMessage，所以这里不会误伤。
+regex	\.sendMessage\(	.displayClientMessage(
+
+# 3. 写方块带 flags 的是 setBlock，setBlockAndUpdate 只有两个参数。
+regex	setBlockAndUpdate\(([^;]+?),\s*([^,;]+?),\s*(Block\.UPDATE_[A-Z_]+)\)	setBlock(\1, \2, \3)
+
+# 4. 附魔容器：DEFAULT → EMPTY，Mutable.add → set，Mutable.build → toImmutable。
+regex	ItemEnchantments\.DEFAULT	ItemEnchantments.EMPTY
+regex	builder\.add\((knockback|enchantment|style),	builder.set(\1,
+regex	DataComponents\.ENCHANTMENTS, builder\.build\(\)	DataComponents.ENCHANTMENTS, builder.toImmutable()
+
+# 5. RegistryAccess 上没有 get(ResourceKey)，取注册表用 registryOrThrow。
+regex	registries\.get\(Registries\.ENCHANTMENT\)	registries.registryOrThrow(Registries.ENCHANTMENT)
+
+# 6. 玩家身上的容器字段叫 containerMenu；槽位内容叫 getItem；背包容量叫 getContainerSize；
+#    清空背包叫 clearContent；把改动推给客户端叫 broadcastChanges。
+regex	player\.currentScreenHandler	player.containerMenu
+regex	inventory\.clear\(\)	inventory.clearContent()
+regex	getInventory\(\)\.size\(\)	getInventory().getContainerSize()
+regex	getInventory\(\)\.getStack\(	getInventory().getItem(
+regex	containerMenu\.sendContentUpdates\(\)	containerMenu.broadcastChanges()
+regex	\bslot\.getStack\(\)	slot.getItem()
+
+# 7. ItemStack 判断组件用 has，不是 contains。
+regex	stack\.contains\(DataComponents\.	stack.has(DataComponents.
+
+# 8. 玩家名字。getName 返回 Component，就是日志里要的那份；getDescription 是别的类的。
+regex	player\.getDescription\(\)	player.getName()
+regex	player\.getTextName\(\)	player.getName()
+
+# 9. 游戏模式的显示名：getName 是 String（存盘用的），给人看的是 getShortDisplayName。
+regex	mode\.getTextName\(\)	mode.getShortDisplayName()
+
+# 10. 玩家所在世界：Entity.level()。
+regex	player\.getWorld\(\)	player.level()
+
+# 11. 我们的记录组件叫 damage，被 Entity.hurt 顶掉了。
+regex	entry\.hurt\(\)	entry.damage()
+
+# 12. PlayerList 上取在线玩家是 getPlayers；MinecraftServer 上那个 getPlayerList 才是对的。
+regex	getPlayerList\(\)\.getPlayerList\(\)	getPlayerList().getPlayers()
+
+# 13. StreamCodec.of(值在前) 在 Mojmap 里叫 ofMember(值在前)；of 的参数顺序是缓冲在前。
+#     Yarn 的 PacketCodec.of(ValueEncoder, ValueDecoder) 就是值在前，语义对应的正是 ofMember。
+regex	StreamCodec\.of\(	StreamCodec.ofMember(
+
+# 14. 我们自己类的 encode()。`Loadout.encode()` 被 MC 的某个 `encode`→`save` 顶掉了。
+#     声明受 is_declaration 保护，但 `sharedLoadout(session).encode()` 这种链式调用没有接收者
+#     名字可用，只能靠变量类型，而它连变量都不是。这类名字进 OWN_COLLISIONS 更彻底。
+#     （见 apply-mojmap.py 的 OWN_COLLISIONS：encode / floorY / bounds / damage / onBlockChanged）
+
+# 15. 一批"自动表没接准"的 MC 方法。逐条对着 javap 核过，左边是当前源码里实际出现的写法。
+regex	Files\.readGreedy\(	Files.readString(
+regex	buf\.readString\(\)	buf.readUtf()
+regex	message\.getContent\(\)	message.decoratedContent()
+regex	mc\.getTicks\(\)	mc.getTickCount()
+regex	server\.isStopping\(\)	server.isStopped()
+regex	server\.getOverworld\(\)	server.overworld()
+regex	server\.level\(	server.getLevel(
+regex	\.get\(GameRules\.	.getRule(GameRules.
+regex	\.setSaturationLevel\(	.setSaturation(
+regex	\.expand\(	.inflate(
+regex	selectedSlot	selected
+regex	gameMode\.getGameMode\(\)	gameMode.getGameModeForPlayer()
+regex	world\.getValue\(\)	world.location()
+regex	(getHoverName|getDescription)\(\)	getName()
+regex	connection\.sendPacketToServer\(	connection.send(
+regex	connection\.teleportTo\(	connection.teleport(
+regex	player\.x\(\)	player.getX()
+regex	player\.y\(\)	player.getY()
+regex	player\.z\(\)	player.getZ()
+regex	target\.getNullableId\(\)	target.getId()
+regex	ITEM\.getNullableId\(	ITEM.getKey(
+regex	\.getStack\(\)	.getItem()
+regex	player\.playerScreenHandler	player.inventoryMenu
+regex	player\.readNbt\(	player.load(
+regex	victim\.getEntity\(\)	victim.getLastHurtByMob()
+static	GameType	getByName	byName	-1
+
+# 16. 第三轮剩下的几处，同样对着 javap 核过。
+#     这些不能按名字改：`ResourceKey.getValue()` 与 `Map.Entry.getValue()` 同名不同义。
+regex	> getId\(\)	> type()
+regex	\.applyChatDecoration\(	.decorate(
+regex	\.level\((?!\))	.getLevel(
+regex	\.getOverworld\(\)	.overworld()
+regex	\(\)\.getValue\(\)	().location()
+regex	world\.getValue\(\)	world.location()
+regex	inventoryMenu\.syncState\(\)	inventoryMenu.broadcastFullState()
+
+# ---- 第四轮：客户端（compileClientJava）----
+#
+# 客户端这一侧的名词差异更大，而且撞名的方向相反：`DrawContext.draw()`（提交批次）在 Mojmap
+# 叫 `GuiGraphics.flush()`，`PoseStack.push/pop` 叫 `pushPose/popPose`，`Options.write` 叫 `save`。
+# 另有一类是我们自己的静态方法被 MC 的同名顶掉，靠 apply-mojmap.py 里「本文件声明过就不改」挡住。
+
+# 1. LWJGL 的键码常量。Mojmap 的 InputConstants 用 KEY_LSHIFT，LWJGL 用 GLFW_KEY_LEFT_SHIFT，
+#    自动表把前者套到了 `GLFW.` 前缀上，于是整张键位表都不存在了。
+regex	GLFW\.KEY_LSHIFT	GLFW.GLFW_KEY_LEFT_SHIFT
+regex	GLFW\.KEY_RSHIFT	GLFW.GLFW_KEY_RIGHT_SHIFT
+regex	GLFW\.KEY_LCONTROL	GLFW.GLFW_KEY_LEFT_CONTROL
+regex	GLFW\.KEY_RCONTROL	GLFW.GLFW_KEY_RIGHT_CONTROL
+regex	GLFW\.KEY_LALT	GLFW.GLFW_KEY_LEFT_ALT
+regex	GLFW\.KEY_RALT	GLFW.GLFW_KEY_RIGHT_ALT
+regex	GLFW\.KEY_LWIN	GLFW.GLFW_KEY_LEFT_SUPER
+regex	GLFW\.KEY_RWIN	GLFW.GLFW_KEY_RIGHT_SUPER
+regex	GLFW\.KEY_CAPSLOCK	GLFW.GLFW_KEY_CAPS_LOCK
+regex	GLFW\.KEY_ESCAPE	GLFW.GLFW_KEY_ESCAPE
+regex	GLFW\.KEY_B	GLFW.GLFW_KEY_B
+
+# 2. 网络发包：Fabric 的 ClientPlayNetworking.send；我们自己的同名辅助方法也一起回来。
+regex	\.tell\(	.send(
+regex	\btell\(	send(
+
+# 3. 画布与姿势栈
+regex	ctx\.draw\(\)	ctx.flush()
+regex	matrices\.push\(\)	matrices.pushPose()
+regex	matrices\.pop\(\)	matrices.popPose()
+regex	consumers\.draw\(\)	consumers.endBatch()
+
+# 4. 客户端状态
+regex	client\.world	client.level
+regex	options\.hudHidden	options.hideGui
+regex	options\.allKeys	options.keyMappings
+regex	options\.write\(\)	options.save()
+regex	options\.getPerspective\(\)	options.getCameraType()
+regex	KeyMapping\.updateKeysByCode\(\)	KeyMapping.resetMapping()
+
+# 5. 文本与字体。只改字体变量的 getWidth：别的类上这个方法叫别的名字。
+regex	tr\.getWidth\(	tr.width(
+regex	\.getTranslationKey\(\)	.getName()
+regex	Tooltip\.of\(	Tooltip.create(
+
+# 6. 皮肤与档案
+regex	DefaultPlayerSkin\.getSkinTextures\(	DefaultPlayerSkin.get(
+regex	\.getSkinTextures\(\)	.getSkin()
+regex	SkinManager\.getSkin\(	SkinManager.getInsecureSkin(
+regex	profile\.name\(\)	profile.getName()
+
+# 7. 渲染杂项
+regex	gui\.getChatHud\(\)	gui.getChat()
+regex	window\.getScaledWidth\(\)	window.getGuiScaledWidth()
+regex	window\.getScaledHeight\(\)	window.getGuiScaledHeight()
+regex	camera\.getPos\(\)	camera.getPosition()
+regex	camera\.getRotation\(\)	camera.rotation()
+regex	deltaTracker\.getTickDelta\(	deltaTracker.getGameTimeDeltaPartialTick(
+regex	renderBuffers\.getEntityVertexConsumers\(\)	renderBuffers.bufferSource()
+regex	LightTexture\.enable\(\)	LightTexture.turnOnLightLayer()
+regex	LightTexture\.disable\(\)	LightTexture.turnOffLightLayer()
+regex	\.dimensions\(	.bounds(
+
+# ---- 第五轮：客户端第二轮 ----
+
+# 1. 姿势栈：链式调用点号前面是 `pose()`，不是变量名；`multiply` 在 Mojmap 叫 mulPose，
+#    而 rotateAround 要四个参数（四元数 + 轴心），完全是另一个方法。
+regex	\.pose\(\)\.push\(\)	.pose().pushPose()
+regex	\.pose\(\)\.pop\(\)	.pose().popPose()
+regex	matrices\.peek\(\)	matrices.peekPose()
+regex	matrices\.rotateAround\(	matrices.mulPose(
+
+# 2. 客户端世界与玩家
+# ClientLevel 上的列表叫 players()，而 PlayerList 上的叫 getPlayers()——同名不同义，
+# 只能按接收者的变量名分。客户端那几处的变量都叫 level。
+regex	\blevel\.getPlayers\(\)	level.players()
+regex	\.getEntityById\(	.getEntity(
+regex	\.getUuid\(\)	.getUUID()
+regex	\.getMainHandStack\(\)	.getMainHandItem()
+regex	options\.useKey	options.keyUse
+
+# 3. 渲染杂项（接收者可能是链式调用，只按方法名匹配）
+regex	\.getPos\(\)	.getPosition()
+regex	lightmapTextureManager\(\)\.enable\(\)	lightmapTextureManager().turnOnLightLayer()
+regex	lightmapTextureManager\(\)\.disable\(\)	lightmapTextureManager().turnOffLightLayer()
+regex	\.getEntityVertexConsumers\(\)	.bufferSource()
+regex	\.getTickDelta\(	.getGameTimeDeltaPartialTick(
+regex	\.getScaledWidth\(\)	.getGuiScaledWidth()
+regex	\.getScaledHeight\(\)	.getGuiScaledHeight()
+regex	setTooltipForNextRenderPass\(	setTooltip(
+
+# 4. 字体：Mojmap 的 substrByWidth 只吃 FormattedText，按宽截断 String 的是 plainSubstrByWidth。
+regex	tr\.substrByWidth\(	tr.plainSubstrByWidth(
+
+# 5. 档案与皮肤
+regex	getSkinManager\(\)\.getSkin\(	getSkinManager().getInsecureSkin(
+regex	getGameProfile\(\)\.name\(\)	getGameProfile().getName()
+
+# 6. 剩下两个键码
+regex	GLFW\.KEY_V	GLFW.GLFW_KEY_V
+regex	GLFW\.KEY_G	GLFW.GLFW_KEY_G
+
+# ---- 第六轮：最后六处 ----
+
+# 1. PoseStack 的当前姿势叫 last()（不是 peek/peekPose），相机旋转叫 rotation()，
+#    按键是否按下叫 isDown()（不是 isPressed）。
+regex	matrices\.peekPose\(\)	matrices.last()
+regex	\.getRotation\(\)	.rotation()
+regex	\.isPressed\(\)	.isDown()
+
+# 2. Screen 的两个 @Override。`close` 是 JDK 名字（NativeImage/Writer 也用它），
+#    所以只认声明本身和 super 调用这两处，不能按名字全局改。
+regex	public boolean shouldPause\(\)	public boolean isPauseScreen()
+regex	public void close\(\)	public void onClose()
+regex	super\.close\(\)	super.onClose()
+
+# 3. ItemRenderer 的签名在 1.21 里变过：实体、世界、种子都不再是参数，模型要自己取。
+#    这一条是 API 形状的变化，不是改名，所以整段替换。
+regex	client\.getItemRenderer\(\)\.renderItem\(player, stack, mode, !right, matrices, consumers,\s*player\.level\(\), light, OverlayTexture\.NO_OVERLAY,\s*player\.getId\(\) \+ mode\.ordinal\(\)\);	client.getItemRenderer().render(stack, mode, !right, matrices, consumers, light,\n                OverlayTexture.NO_OVERLAY, client.getItemRenderer().getModel(stack,\n                        player.level(), player, player.getId() + mode.ordinal()));
+
+# 4. PoseStack.Pose 上没有 getPositionMatrix，姿势矩阵叫 pose()。
+regex	\.last\(\)\.getPositionMatrix\(\)	.last().pose()
+
+# 5. PvScreen.close() 改名为 onClose() 之后，自己内部的调用点也要跟着走。
+#    `image.close();` / `writer.close();` 前面有接收者，所以只认行首那个。
+regex	(?m)^(\s*)close\(\);	\1onClose();
+regex	this::close\b	this::onClose
+
+# ---- 第七轮：mixin 描述符里的方法名 ----
+#
+# 这两条是游戏启动时才炸出来的：`@Redirect` 的 target 匹配不到（0 targets），mixin 直接
+# 抛 InjectionError。Yarn 的 `playSound(Player,DDD,SoundEvent,SoundSource)` 在 Mojmap 里还叫
+# playSound，自动表却接到了 playSeededSound 上（那个只有 8 参数和 Holder 的变体）。
+regex	Level;playSeededSound\(	Level;playSound(
+
+# 8. `drop` 在 Mojmap 里有两个重载（drop(boolean) 和 drop(ItemStack,boolean,boolean)），
+#    只写名字时 mixin 挑中了三参数那个，回调签名对不上，启动即 InvalidInjectionException。
+#    描述符必须写全：手上那一下是 drop(Z)Z。
+regex	method = "drop", at	method = "drop(Z)Z", at

@@ -5,9 +5,9 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.List;
 
@@ -61,7 +61,7 @@ public class HistoryDetail extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -76,7 +76,7 @@ public class HistoryDetail extends PvWidget {
         PvDraw.roundPanel(ctx, cx, cy, cw, ch, PvTheme.RADIUS_PANEL,
                 PvTheme.BORDER, PvTheme.PANEL);
 
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.detail.title"), cx + 16, cy + 12,
                 PvTheme.TEXT);
 
@@ -90,8 +90,8 @@ public class HistoryDetail extends PvWidget {
         PvDraw.text(ctx, tr, score, cx + 16, cy + 44, PvTheme.TEXT);
         String verdict = PvLang.str(record.won()
                 ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss");
-        int verdictW = tr.getWidth(verdict) + 10;
-        int verdictX = cx + 16 + tr.getWidth(score) + 8;
+        int verdictW = tr.width(verdict) + 10;
+        int verdictX = cx + 16 + tr.width(score) + 8;
         PvDraw.roundRect(ctx, verdictX, cy + 42, verdictW, 12, 3,
                 record.won() ? PvTheme.ACCENT_SOFT : PvTheme.CARD_ACTIVE);
         PvDraw.text(ctx, tr, verdict, verdictX + 5, cy + 44,
@@ -119,7 +119,7 @@ public class HistoryDetail extends PvWidget {
         // which is exactly the round a long series reaches.
         int labelW = 0;
         for (int i = 0; i < shown; i++) {
-            labelW = Math.max(labelW, tr.getWidth(PvLang.str("pvpocket.gui.home.detail.round", i + 1)));
+            labelW = Math.max(labelW, tr.width(PvLang.str("pvpocket.gui.home.detail.round", i + 1)));
         }
         for (int i = 0; i < shown; i++) {
             int col = i / rowsPerColumn;
@@ -138,7 +138,7 @@ public class HistoryDetail extends PvWidget {
             // strings drawn towards each other from opposite edges overlap in the middle, and which
             // round that happens on depends on the language.
             String tail = reasonLabel(round.reason()) + "  " + HomeText.duration(round.ms());
-            int tailRoom = rx + colW - (resultX + tr.getWidth(result)) - 6;
+            int tailRoom = rx + colW - (resultX + tr.width(result)) - 6;
             if (tailRoom > 8) {
                 PvDraw.textRight(ctx, tr, PvDraw.fit(tr, tail, tailRoom), rx + colW, ry,
                         PvTheme.TEXT_MUTED);
@@ -192,7 +192,7 @@ public class HistoryDetail extends PvWidget {
                 + PvLang.str(record.won()
                 ? "pvpocket.gui.home.result.win" : "pvpocket.gui.home.result.loss")
                 + (record.opponents().isEmpty() ? "" : " · vs " + record.opponents());
-        MinecraftClient.getInstance().keyboard.setClipboard(line);
+        Minecraft.getInstance().keyboardHandler.setClipboard(line);
     }
 
     @Override

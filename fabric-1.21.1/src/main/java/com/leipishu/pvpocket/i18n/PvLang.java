@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.i18n;
 
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Component;
 
 /**
  * Translation helpers, and the key convention every user-visible string in this mod follows.
@@ -39,8 +39,8 @@ public final class PvLang {
      * too: {@code String.format} renders an {@code Integer} the same way, and mixing {@code %d} in
      * would make the two language files disagree about which arguments are numeric.</p>
      */
-    public static MutableText t(String key, Object... args) {
-        return args.length == 0 ? Text.translatable(key) : Text.translatable(key, args);
+    public static MutableComponent t(String key, Object... args) {
+        return args.length == 0 ? Component.translatable(key) : Component.translatable(key, args);
     }
 
     /**
@@ -56,7 +56,7 @@ public final class PvLang {
     }
 
     /** Resolves a {@link Text} to a string, for the same self-drawn GUI paths as {@link #str}. */
-    public static String str(Text text) {
+    public static String str(Component text) {
         return text.getString();
     }
 }

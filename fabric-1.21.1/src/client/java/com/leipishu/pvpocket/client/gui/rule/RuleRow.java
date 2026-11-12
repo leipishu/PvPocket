@@ -7,9 +7,9 @@ import com.leipishu.pvpocket.client.gui.PvValueControl;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleKind;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * One rule: label on the left, control on the right.
@@ -124,7 +124,7 @@ public class RuleRow extends PvWidget {
     }
 
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         if (!visible) {
             return;
         }
@@ -132,7 +132,7 @@ public class RuleRow extends PvWidget {
         tickHover(d);
         changedT = PvAnim.damp(changedT, changed() ? 1F : 0F, d, 0.07F);
         layoutControl();
-        TextRenderer tr = MinecraftClient.getInstance().textRenderer;
+        Font tr = Minecraft.getInstance().font;
 
         if (hoverT > 0.01F) {
             PvDraw.roundRect(ctx, x, y, width, height, PvTheme.RADIUS,
@@ -169,9 +169,9 @@ public class RuleRow extends PvWidget {
     }
 
     /** Read-only value chip for {@link RuleKind#FIXED} rules. Looks like a control, cannot be one. */
-    private void renderLockedValue(DrawContext ctx, TextRenderer tr, int labelY) {
+    private void renderLockedValue(GuiGraphics ctx, Font tr, int labelY) {
         String value = def.format(0);
-        int w = tr.getWidth(value) + 16;
+        int w = tr.width(value) + 16;
         int cx = x + width - w - 8;
         PvDraw.roundPanel(ctx, cx, y + (height - 18) / 2, w, 18, PvTheme.RADIUS,
                 PvTheme.DIVIDER, PvTheme.SUNKEN);

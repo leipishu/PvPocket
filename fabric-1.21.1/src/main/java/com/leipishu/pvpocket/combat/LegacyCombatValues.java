@@ -1,6 +1,6 @@
 package com.leipishu.pvpocket.combat;
 
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.Mth;
 
 /**
  * Numeric constants for the legacy rule set, each traced to a line of 1.8.9 source.
@@ -108,7 +108,7 @@ public final class LegacyCombatValues {
      */
     public static float applyArmor(float amount, int armorPoints) {
         int remaining = (int) ARMOR_DENOMINATOR
-                - MathHelper.clamp(armorPoints, 0, (int) ARMOR_DENOMINATOR);
+                - Mth.clamp(armorPoints, 0, (int) ARMOR_DENOMINATOR);
         return amount * remaining / ARMOR_DENOMINATOR;
     }
 }

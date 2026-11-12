@@ -2,10 +2,10 @@ package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.loadout.LoadoutLock;
 import com.leipishu.pvpocket.session.SessionManager;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,20 +28,20 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * cursor), so the hint only appears when a throw would actually have happened. A refusal on a click
  * that was already a no-op would read as a bug.</p>
  */
-@Mixin(ScreenHandler.class)
+@Mixin(AbstractContainerMenu.class)
 public abstract class ScreenHandlerMixin {
 
-    @Inject(method = "onSlotClick", at = @At("HEAD"), cancellable = true)
-    private void pvpocket$noThrowLocked(int slotIndex, int button, SlotActionType actionType,
-                                        PlayerEntity player, CallbackInfo ci) {
-        if (actionType != SlotActionType.THROW || player == null) {
+    @Inject(method = "clicked", at = @At("HEAD"), cancellable = true)
+    private void pvpocket$noThrowLocked(int slotIndex, int button, ClickType actionType,
+                                        Player player, CallbackInfo ci) {
+        if (actionType != ClickType.THROW || player == null) {
             return;
         }
-        ScreenHandler self = (ScreenHandler) (Object) this;
-        if (!self.getCursorStack().isEmpty() || slotIndex < 0 || slotIndex >= self.slots.size()) {
+        AbstractContainerMenu self = (AbstractContainerMenu) (Object) this;
+        if (!self.getCarried().isEmpty() || slotIndex < 0 || slotIndex >= self.slots.size()) {
             return;
         }
-        ItemStack stack = self.slots.get(slotIndex).getStack();
+        ItemStack stack = self.slots.get(slotIndex).getItem();
         if (LoadoutLock.isLocked(stack)) {
             SessionManager.reportDropDenial(player);
             ci.cancel();
