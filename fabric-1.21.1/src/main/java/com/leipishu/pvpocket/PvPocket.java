@@ -1,32 +1,22 @@
 package com.leipishu.pvpocket;
 
-import com.leipishu.pvpocket.combat.CombatState;
-import com.leipishu.pvpocket.combat.UsePolicy;
-import com.leipishu.pvpocket.command.PvPocketCommands;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
-import com.leipishu.pvpocket.session.SessionManager;
+import com.leipishu.pvpocket.platform.PvBootstrap;
+import com.leipishu.pvpocket.platform.PvPlatform;
+import com.leipishu.pvpocket.platform.fabric.FabricPlatform;
 import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
-import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.InteractionResultHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Common entrypoint. Loaded on both the client and the dedicated server.
+ * Fabric 入口：装平台、注册 payload、挂接线。就这三件事。
  *
- * <p>Wiring only: session logic lives in {@link SessionManager}, storage in
- * {@code storage}, and combat rules will live in their own layer.</p>
+ * <p>所有「发生某事时该做什么」都在 {@link PvBootstrap} 里，那部分不含加载器的名字，所以
+ * NeoForge / Forge 的入口类写出来和这里一样短，只是换一个 {@link PvPlatform} 实现。</p>
+ *
+ * <p>{@link #onInitialize()} 里不要加业务代码：这个类被加载的那一刻平台还没装好，
+ * 任何走 {@code PvPlatform.get()} 的调用都会抛。</p>
  */
 public final class PvPocket implements ModInitializer {
 
@@ -39,122 +29,10 @@ public final class PvPocket implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        PvPlatform.install(new FabricPlatform());
+        // payload 的注册留在网络层：codec 的类型是 Fabric 独有的（`PacketCodec`），
+        // 而 NeoForge 用的是 `StreamCodec`。这一处差异由各自的网络层承担，不上升到平台接口。
         PvPocketNetworking.registerCommon();
-
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            SessionManager manager = SessionManager.create(server);
-            manager.load();
-            manager.reconcile();
-            boolean ready = com.leipishu.pvpocket.arena.ArenaManager.isReady(server);
-            LOGGER.info("PvPocket session manager ready (arena world available: {})", ready);
-            if (ready) {
-                // The copy layout has to be read before the gallery is filled: it is what says which
-                // extra cells each map owns, and a slot number is a stable address that must not
-                // change between restarts. Loading after the warm-up would leave the copies pointing
-                // at nothing until the second start.
-                com.leipishu.pvpocket.arena.ArenaManager.loadLayout(server);
-                // Each map owns one cell of the duel dimension and stays stamped there between
-                // duels, so "select the colosseum" means "teleport to the colosseum's coordinates"
-                // rather than "paste a colosseum at the origin". Filling the gallery here means the
-                // dimension is laid out before anyone can pick a map.
-                com.leipishu.pvpocket.arena.ArenaManager.beginWarmUp();
-            }
-        });
-
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            SessionManager manager = SessionManager.get();
-            if (manager != null) {
-                manager.shutdown();
-            }
-            SessionManager.clear();
-            // Share codes are per-server-start by design; a code that outlived the process it was
-            // issued by would be a code nobody can revoke.
-            com.leipishu.pvpocket.preset.PresetShareRegistry.clear();
-        });
-
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            SessionManager manager = SessionManager.get();
-            if (manager != null) {
-                manager.onJoin(handler.player);
-            }
-        });
-
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            SessionManager manager = SessionManager.get();
-            if (manager != null) {
-                manager.onDisconnect(handler.player);
-            }
-        });
-
-        // Friendly fire is a veto rather than a reduction, so it has to run before the hit lands.
-        // Everything that reaches this event has an attacker and a victim, which is exactly the
-        // question "are these two on the same side" — a rule the session can answer and the damage
-        // pipeline cannot.
-        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
-                !(entity instanceof ServerPlayer victim)
-                        || SessionManager.get() == null
-                        || SessionManager.get().allowDamage(victim, source));
-
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-            if (entity instanceof ServerPlayer player) {
-                SessionManager manager = SessionManager.get();
-                if (manager != null) {
-                    manager.onDeath(player);
-                }
-            }
-        });
-
-        ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
-            SessionManager manager = SessionManager.get();
-            if (manager != null) {
-                manager.onRespawn(newPlayer);
-            }
-        });
-
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            SessionManager manager = SessionManager.get();
-            if (manager != null) {
-                manager.tick();
-            }
-            // One exhibit per tick; a no-op once the gallery is filled.
-            com.leipishu.pvpocket.arena.ArenaManager.warmUpTick(server);
-            // Drops expired share codes. Throttled inside, so this is a counter compare on most
-            // ticks — the five-minute promise is enforced even when nobody is publishing.
-            com.leipishu.pvpocket.preset.PresetShareRegistry.tick();
-        });
-
-        // Terrain protection is a veto, so it has to run before the block is removed. Recording the
-        // resulting change is handled separately by the World mixin, which also sees explosions.
-        PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) ->
-                com.leipishu.pvpocket.arena.ArenaManager.allowBreak(world, player, pos));
-
-        // The item half of the use gate: ender pearls, consumables and the buckets `f.blockFilter`
-        // bans. Placement is not here — it goes through `ItemStack#useOnBlock` and is vetoed by
-        // `ItemStackMixin`, because `interactItem` only runs once `interactBlock` has declined.
-        UseItemCallback.EVENT.register((player, world, hand) -> {
-            ItemStack stack = player.getItemInHand(hand);
-            UsePolicy.Denial denial = UsePolicy.shieldDenial(
-                    CombatState.isLegacy(player.getUUID()), stack);
-            if (denial == UsePolicy.Denial.NONE) {
-                denial = UsePolicy.useDenial(
-                        CombatState.useGate(player.getUUID()),
-                        CombatState.useBans(player.getUUID()),
-                        stack);
-            }
-            if (denial == UsePolicy.Denial.NONE) {
-                return InteractionResultHolder.pass(stack);
-            }
-            SessionManager.reportUseDenial(player, denial, stack);
-            return InteractionResultHolder.fail(stack);
-        });
-
-        // g.chatScope. A veto here cancels vanilla's fan-out, and the handler delivers the line to
-        // the recipients the rule allows instead.
-        ServerMessageEvents.ALLOW_CHAT_MESSAGE.register(SessionManager::allowChat);
-
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-                PvPocketCommands.register(dispatcher));
-
-        LOGGER.info("PvPocket common bootstrap complete (mod id: {})", MOD_ID);
+        PvBootstrap.wire(PvPlatform.get());
     }
 }

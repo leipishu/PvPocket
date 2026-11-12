@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.preset.PresetShareRegistry;
+import com.leipishu.pvpocket.platform.PvPlatform;
 import com.leipishu.pvpocket.session.SessionManager;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -152,7 +153,7 @@ public final class PvPocketNetworking {
      * rejected before anything is stored. The registry stays pure storage.</p>
      */
     private static void onPresetShare(ServerPlayer player, PresetSharePayload payload) {
-        if (!ServerPlayNetworking.canSend(player, PresetShareResultPayload.ID)) {
+        if (!PvPlatform.get().canSend(player, PresetShareResultPayload.ID)) {
             // A client without the channel would never see the answer, so there is nothing to do
             // that would not just be a log line. The mod is mandatory in practice; this is the
             // protocol-level guard, not a policy one.
@@ -160,7 +161,7 @@ public final class PvPocketNetworking {
         }
         if (payload.action() == PresetSharePayload.ACTION_FETCH) {
             PresetShareRegistry.Shared shared = PresetShareRegistry.fetch(payload.code());
-            ServerPlayNetworking.send(player, shared == null
+            PvPlatform.get().send(player, shared == null
                     ? PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_UNKNOWN_CODE)
                     : PresetShareResultPayload.fetched(shared.kind().id, shared.name(),
                             shared.encoded(), PresetShareRegistry.normalise(payload.code())));
@@ -172,13 +173,13 @@ public final class PvPocketNetworking {
                 || !Preset.isValidName(name)
                 || payload.encoded().isEmpty()
                 || payload.encoded().length() > PresetSharePayload.MAX_ENCODED) {
-            ServerPlayNetworking.send(player,
+            PvPlatform.get().send(player,
                     PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_REJECTED));
             return;
         }
         String code = PresetShareRegistry.publish(player.getUUID(), kind, name, payload.encoded());
         if (code == null) {
-            ServerPlayNetworking.send(player,
+            PvPlatform.get().send(player,
                     PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_FULL));
             return;
         }
@@ -186,7 +187,7 @@ public final class PvPocketNetworking {
         // says "the code does not work", this line is the only evidence that it ever existed.
         PvPocket.LOGGER.info("Preset code {} for {} ({} / {})", code,
                 player.getName().getString(), kind.id, name);
-        ServerPlayNetworking.send(player, PresetShareResultPayload.published(kind.id, name,
+        PvPlatform.get().send(player, PresetShareResultPayload.published(kind.id, name,
                 payload.encoded(), code, (int) (PresetShareRegistry.TTL_MS / 1000L)));
     }
 
@@ -198,8 +199,8 @@ public final class PvPocketNetworking {
      * and logging it would bury the interesting lines.</p>
      */
     public static void sendHud(ServerPlayer player, MatchHudPayload payload) {
-        if (ServerPlayNetworking.canSend(player, MatchHudPayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, MatchHudPayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -210,8 +211,8 @@ public final class PvPocketNetworking {
      * a log line per player per round would drown the state transitions it sits next to.</p>
      */
     public static void sendBounds(ServerPlayer player, ArenaBoundsPayload payload) {
-        if (ServerPlayNetworking.canSend(player, ArenaBoundsPayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, ArenaBoundsPayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -222,8 +223,8 @@ public final class PvPocketNetworking {
      * round boundary, so a log line here would be noise around the transitions it accompanies.</p>
      */
     public static void sendScreens(ServerPlayer player, PrepareScreensPayload payload) {
-        if (ServerPlayNetworking.canSend(player, PrepareScreensPayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, PrepareScreensPayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -236,11 +237,11 @@ public final class PvPocketNetworking {
      * happens" rather than to a server-side exception.</p>
      */
     public static void openRules(ServerPlayer player, RulesOpenPayload payload) {
-        boolean canSend = ServerPlayNetworking.canSend(player, RulesOpenPayload.ID);
+        boolean canSend = PvPlatform.get().canSend(player, RulesOpenPayload.ID);
         PvPocket.LOGGER.info("Rules panel -> {} (canSend={}, revision={})",
                 player.getName().getString(), canSend, payload.revision());
         if (canSend) {
-            ServerPlayNetworking.send(player, payload);
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -256,8 +257,8 @@ public final class PvPocketNetworking {
      * newer negotiation's panel and over-sending is harmless.</p>
      */
     public static void closeRules(ServerPlayer player, String sessionId) {
-        if (ServerPlayNetworking.canSend(player, RulesClosePayload.ID)) {
-            ServerPlayNetworking.send(player, new RulesClosePayload(sessionId));
+        if (PvPlatform.get().canSend(player, RulesClosePayload.ID)) {
+            PvPlatform.get().send(player, new RulesClosePayload(sessionId));
         }
     }
 
@@ -269,17 +270,17 @@ public final class PvPocketNetworking {
      * leave). A line per hotkey press would be noise.</p>
      */
     public static void sendHomeState(ServerPlayer player, HomeStatePayload payload) {
-        if (ServerPlayNetworking.canSend(player, HomeStatePayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, HomeStatePayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
     /** Opens the loadout editor. Same {@code canSend} reasoning as {@link #openRules}. */    public static void openLoadout(ServerPlayer player, LoadoutOpenPayload payload) {
-        boolean canSend = ServerPlayNetworking.canSend(player, LoadoutOpenPayload.ID);
+        boolean canSend = PvPlatform.get().canSend(player, LoadoutOpenPayload.ID);
         PvPocket.LOGGER.info("Loadout editor -> {} (canSend={}, session={})",
                 player.getName().getString(), canSend, payload.sessionId());
         if (canSend) {
-            ServerPlayNetworking.send(player, payload);
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -291,12 +292,12 @@ public final class PvPocketNetworking {
      * {@code canSend} was false, or the payload never left the server.</p>
      */
     public static void openMatchList(ServerPlayer player, MatchListPayload payload) {
-        boolean canSend = ServerPlayNetworking.canSend(player, MatchListPayload.ID);
+        boolean canSend = PvPlatform.get().canSend(player, MatchListPayload.ID);
         PvPocket.LOGGER.info("Match list -> {} (canSend={}, {} rows)",
                 player.getName().getString(), canSend,
                 payload.entries().isEmpty() ? 0 : payload.entries().split("\n").length);
         if (canSend) {
-            ServerPlayNetworking.send(player, payload);
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -307,8 +308,8 @@ public final class PvPocketNetworking {
      * log line per press of the cycle key would be noise.</p>
      */
     public static void sendSpectate(ServerPlayer player, SpectateStatePayload payload) {
-        if (ServerPlayNetworking.canSend(player, SpectateStatePayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, SpectateStatePayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -320,8 +321,8 @@ public final class PvPocketNetworking {
      * compare per tick and no packets at all.</p>
      */
     public static void sendPossess(ServerPlayer player, PossessPayload payload) {
-        if (ServerPlayNetworking.canSend(player, PossessPayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, PossessPayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -334,8 +335,8 @@ public final class PvPocketNetworking {
      * does not own.</p>
      */
     public static void sendSeriesResult(ServerPlayer player, SeriesResultPayload payload) {
-        if (ServerPlayNetworking.canSend(player, SeriesResultPayload.ID)) {
-            ServerPlayNetworking.send(player, payload);
+        if (PvPlatform.get().canSend(player, SeriesResultPayload.ID)) {
+            PvPlatform.get().send(player, payload);
         }
     }
 
@@ -383,8 +384,8 @@ public final class PvPocketNetworking {
     public static void broadcastBlocking(ServerPlayer player, boolean blocking) {
         BlockingStatePayload payload = new BlockingStatePayload(player.getUUID(), blocking);
         for (ServerPlayer target : player.server.getPlayerList().getPlayers()) {
-            if (target != player && ServerPlayNetworking.canSend(target, BlockingStatePayload.ID)) {
-                ServerPlayNetworking.send(target, payload);
+            if (target != player && PvPlatform.get().canSend(target, BlockingStatePayload.ID)) {
+                PvPlatform.get().send(target, payload);
             }
         }
     }
@@ -406,10 +407,10 @@ public final class PvPocketNetworking {
      * be stale and a change-gated send could be skipped.
      */
     public static void sendState(ServerPlayer player) {
-        if (!ServerPlayNetworking.canSend(player, CombatStatePayload.ID)) {
+        if (!PvPlatform.get().canSend(player, CombatStatePayload.ID)) {
             return;
         }
-        ServerPlayNetworking.send(player, new CombatStatePayload(
+        PvPlatform.get().send(player, new CombatStatePayload(
                 CombatState.isLegacy(player.getUUID()),
                 CombatState.isBlocking(player.getUUID()),
                 CombatState.useGate(player.getUUID()),
