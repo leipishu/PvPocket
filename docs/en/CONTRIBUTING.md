@@ -117,6 +117,16 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh         # three, the third one for spectat
 PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
 ```
 
+To bring up the whole set with one command (server in the background, clients start only once it accepts connections):
+
+```bash
+scripts/dev-duel.sh                           # NeoForge, Dev1 + Dev2
+CELL=1.21.1-fabric scripts/dev-duel.sh        # another cell
+```
+
+The trade-off is that the server console is no longer interactive (`stop` / `op` are unavailable); what
+you get is "edit, run, look" without babysitting two terminals. Ctrl+C stops the clients and the server.
+
 The script is only a batch wrapper around `runClient` / `runClient2` / …; to start one on its own use
 the task name (`./gradlew runClient3`), or double-click it in IDEA's Gradle panel.
 
@@ -144,6 +154,7 @@ PvPocket/
 │   └── archive/               Historical: proposals, phase logs, one-off research (not normative)
 ├── scripts/
 │   ├── dev-2clients.sh        Development: launch N clients and join automatically
+│   ├── dev-duel.sh            One command for the whole set: server + two clients, auto-join
 │   ├── audit-ui.sh            UI occlusion audit: walks every screen, fails on any finding
 │   ├── world2struct.py        Map conversion: world save / .litematic / .schem → structure template
 │   ├── colosseum.py           Generates the colosseum (the only map not downloaded)
@@ -184,6 +195,7 @@ PvPocket/
 | Script | For | Purpose |
 | --- | --- | --- |
 | `scripts/dev-2clients.sh` | Development | Launch development clients that join the local server |
+| `scripts/dev-duel.sh` | Development | Whole set in one command: background server + two clients, connecting only after `Done (` |
 | `scripts/audit-ui.sh` | Development / CI | UI occlusion audit: every screen and both canvas sizes, non-zero exit on a finding |
 | `scripts/world2struct.py` | Development / maps | World save, `.litematic`, `.schem` → structure template |
 | `scripts/colosseum.py` | Maps | Generate the colosseum template |

@@ -92,6 +92,23 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能�
 CELL=1.21.1-neoforge PVP_CLIENTS=3 scripts/dev-2clients.sh   # 同一套脚本跑另一格
 ```
 
+**一条命令起全套**（服务端在后台，等到真的能连再起客户端）：
+
+```bash
+scripts/dev-duel.sh                        # NeoForge，Dev1 + Dev2，自动进服
+CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
+```
+
+`dev-duel.sh` 与 `dev-2clients.sh` 的分工：前者自己管服务端（Ctrl+C 全停，服务端控制台不可交互），
+后者假设服务端已在别处跑着（控制台还能敲命令）。`dev-duel.sh` 等的是服务端日志里的 `Done (`
+而不是端口——Minecraft 在初始化早期就 bind 了端口，那时连上去会被踢，而 `--quickPlayMultiplayer`
+被踢一次就停在标题界面，测试的人还得手工点。
+
+服务端的 stdin 必须挂在一个**永不 EOF** 的管道上：后台进程的 stdin 默认是 `/dev/null`，
+Minecraft 读到 EOF 会立刻自己关服。`dev-duel.sh` 用 `mkfifo` + `exec 3<>` 实现，并且
+**不要以为往那个 FIFO 里写 `stop` 就能关服**——Windows 上 Gradle 不转发 stdin，实测无效，
+脚本最后是按端口 `taskkill` 兜底。
+
 日志：服务端 `runs/<cell>/server/logs/latest.log`，客户端 `versions/<cell>/build/devlogs/client{1,2,3}.out`。
 **「面板没出来」先看客户端日志里 `canSend=` 那一行。**
 

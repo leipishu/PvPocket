@@ -110,6 +110,16 @@ PVP_CLIENTS=3 scripts/dev-2clients.sh         # 三个，第三个用来看观�
 PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
 ```
 
+想一条命令起全套（服务端在后台、等到能连才起客户端）：
+
+```bash
+scripts/dev-duel.sh                           # NeoForge，Dev1 + Dev2
+CELL=1.21.1-fabric scripts/dev-duel.sh        # 换一格
+```
+
+代价是服务端控制台不可交互（`stop` / `op` 敲不了），换来的是「改完代码，跑一遍看结果」不用管两个终端。
+Ctrl+C 会把客户端和服务端一起停掉。
+
 脚本只是 `runClient` / `runClient2` / … 的批量包装，单独起某一个用任务名即可（`./gradlew :1.21.1-fabric:runClient3`），
 在 IDEA 的 Gradle 面板里则是分别双击。
 
@@ -134,6 +144,7 @@ PvPocket/
 │   └── archive/               历史存档：方案草案、阶段记录、专项调研（非规范）
 ├── scripts/
 │   ├── dev-2clients.sh        开发联调：拉起 N 个客户端并自动连接
+│   ├── dev-duel.sh            一条命令起全套：服务端 + 两个客户端（自动进服）
 │   ├── audit-ui.sh            界面遮挡审计：跑完所有界面，有遮挡就失败
 │   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem → 结构模板
 │   ├── colosseum.py           生成斗兽场（唯一一张不是下载来的图）
@@ -174,6 +185,7 @@ PvPocket/
 | 脚本 | 给谁用 | 作用 |
 | --- | --- | --- |
 | `scripts/dev-2clients.sh` | 开发 | 拉起开发客户端并自动加入本地服务端 |
+| `scripts/dev-duel.sh` | 开发 | 一条命令起全套：后台服务端 + 两个客户端，等 `Done (` 后才连 |
 | `scripts/audit-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
 | `scripts/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
 | `scripts/colosseum.py` | 加地图 | 生成斗兽场模板 |

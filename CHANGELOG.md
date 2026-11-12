@@ -60,6 +60,25 @@ MC 版本 = 加一个文件**。cell 的 `build.gradle` 里看不到 catalog 名
 两个 cell 的 `plugins` 块改成 `alias(libs.plugins.fabricLoom)` / `alias(libs.plugins.neoforgeModdev)`，
 插件版本也进目录。`yarn_mappings` 删掉了——全面改 Mojmap 之后没有地方读它。
 
+### 新增 `scripts/dev-duel.sh`：一条命令起服务端 + 两个客户端
+
+`dev-2clients.sh` 要求服务端已经在另一个终端跑着。改完代码想快速看结果时，那意味着开两个终端、
+盯一眼 `Done (` 再敲第二条命令。`dev-duel.sh` 把这段收成一条：
+
+```bash
+scripts/dev-duel.sh                        # NeoForge，Dev1 + Dev2，自动进服
+CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
+```
+
+它等的是服务端日志里的 `Done (` 而不是端口。Minecraft 在初始化早期就 bind 端口，那时连上去会被踢，
+而 `--quickPlayMultiplayer` 被踢一次就停在标题界面，得手工点。
+
+服务端在后台，stdin 挂在 `mkfifo` + `exec 3<>` 的管道上——后台进程的 stdin 默认是 `/dev/null`，
+Minecraft 读到 EOF 会立刻关服。**往那个 FIFO 里写 `stop` 在 Windows 上无效**（Gradle 不转发 stdin，
+实测过），所以退出时按端口 `taskkill` 兜底，顺带避免孤儿 JVM 占着 25565 让下次启动误判成「服务端还活着」。
+
+`client2` 首次启动会把 `client1/options.txt` 复制过去，两个窗口的界面设置一致。
+
 ---
 
 ## 2026-11-11
