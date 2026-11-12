@@ -7,6 +7,11 @@
 #   PVP_CLIENTS=3 scripts/dev-fabric.sh   # 加 Dev3（观战）
 #   PVP_READY_TIMEOUT=600 scripts/dev-fabric.sh   # 首次生成世界时放宽等待
 #
+# Windows 上不要用 `/usr/bin/env bash ...`（那是 Linux 写法，PowerShell 里没有这个程序），
+# 也不要指望 PATH 上的 `bash`——那多半是 WSL 的启动器，看不到 Windows 的 taskkill/netstat。
+# 用配套的 cmd 外壳，它只认 Git Bash：
+#   scripts\dev-fabric.cmd
+#
 # 只是 dev-duel.sh 的一层壳，逻辑（等 `Done (`、FIFO、清理顺序、端口护栏）全在那边，改行为请改那边。
 # 两个加载器共用 25565，所以 fabric 和 neoforge 的脚本不能同时跑——真的撞上了会被护栏拦下来。
 #
