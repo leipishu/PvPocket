@@ -83,6 +83,22 @@ loom {
     }
 }
 
+// 源码分三处，各管一段：
+//
+//   src/main/java     所有加载器共用。**这里不许出现 net.fabricmc**，`scripts/check-boundary.py`
+//                     会盯着这条线——它决定了移植一格的代价是「写一个实现类」还是「重写一遍」。
+//   src/fabric/java   Fabric 的入口与平台实现。NeoForge 那一格换成 src/neoforge/java。
+//   src/client/java   客户端（加载器无关的部分；分层还没做完，目前仍有一批 Fabric 依赖）。
+//
+// 目录分了，但**仍是同一个 source set**：多一个 source set 就要额外处理 jar 打包与 remap，
+// 而这里要的只是"文件放对地方"，不是"编译期隔离"（隔离由边界检查保证）。
+sourceSets {
+    main {
+        java.srcDir 'src/fabric/java'
+        resources.srcDir 'src/fabric/resources'
+    }
+}
+
 // Every dev client starts already connected to the shared room and with a capped heap, with no
 // -P flags. Both used to be opt-in properties, which made the tasks in IDEA's Gradle panel
 // half-configured: runClient launched from the panel landed on the title screen and asked the JVM

@@ -7,9 +7,10 @@ AGENTS.md §5c 写了这条约定，但约定只有变成可执行的检查才�
 
 规则：
 
-  * `src/main/java` 下，除 `platform/<加载器>/` 之外的文件，不得 import
-    `net.fabricmc.*` / `net.neoforged.*` / `net.minecraftforge.*`。
-  * `src/client/java` 下同理，但客户端的分层还没做，所以现在只统计不失败（`--strict` 才失败）。
+  * `src/main/java` 下**一个加载器 import 都不许有**。加载器代码在 `src/fabric/java`
+    （将来还有 `src/neoforge/java`），那是另一个源根，不在这条规则的范围里。
+  * `src/client/java` 同理，但客户端的分层还没做，所以现在只统计不失败（`--strict` 才失败）。
+    这个数字是「客户端搬完了没有」的进度表：降到 0 就是搬完了。
 
 判定看的是 **import 语句**，不是出现过的字符串：注释和 Javadoc 里提到加载器名字是正常的
 （`PvPlatform` 的注释要解释三方的差异）。
@@ -30,21 +31,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(ROOT, "fabric-1.21.1")
 MAIN = os.path.join(PROJECT, "src", "main", "java")
 CLIENT = os.path.join(PROJECT, "src", "client", "java")
+# 加载器源根：这里**应该**有加载器 import，只做计数，不判定。
+LOADER_ROOTS = (("fabric", os.path.join(PROJECT, "src", "fabric", "java")),
+                ("neoforge", os.path.join(PROJECT, "src", "neoforge", "java")),
+                ("forge", os.path.join(PROJECT, "src", "forge", "java")))
 
-# 加载器 API 的包前缀。`net.fabricmc.api` 也在内——入口类自己就该待在平台目录里。
+# 加载器 API 的包前缀。`net.fabricmc.api` 也在内——入口类自己就该待在加载器源根里。
 LOADER_PACKAGES = ("net.fabricmc.", "net.neoforged.", "net.minecraftforge.")
-
-# 允许出现加载器 import 的目录（相对各源码根）。每个加载器一个实现包，入口类也放在里面。
-# 注意这里是**完整**相对路径：文件在 `com/leipishu/pvpocket/platform/fabric/` 下，只写
-# `platform/fabric/` 匹配不上（踩过：前缀不匹配，于是两个合规文件被报成违规）。
-PACKAGE_ROOT = "com/leipishu/pvpocket/"
-LOADERS = ("fabric", "neoforge", "forge")
-ALLOWED_IN_MAIN = tuple(PACKAGE_ROOT + "platform/" + name + "/" for name in LOADERS)
 
 IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+)\s*;", re.M)
 
 
-def scan(source_root, allowed):
+def scan(source_root, allowed=()):
     """返回 [(相对路径, 行号, 被 import 的包)]，跳过 allowed 下的文件。"""
     hits = []
     if not os.path.isdir(source_root):
@@ -96,14 +94,17 @@ def main():
         print("[boundary] 找不到 %s" % MAIN, file=sys.stderr)
         return 2
 
-    main_hits = scan(MAIN, ALLOWED_IN_MAIN)
-    client_hits = scan(CLIENT, ())
+    main_hits = scan(MAIN)
+    client_hits = scan(CLIENT)
 
-    print("[boundary] src/main 允许的目录：%s"
-          % "、".join("platform/%s/" % name for name in LOADERS))
     failed = report("main", main_hits, options.verbose, hard=True)
     # 客户端的分层是 Day 3 的事，现在只给一个可追踪的数字：这个数降到 0 就说明客户端也搬完了。
     failed |= report("client", client_hits, options.verbose, hard=options.strict)
+
+    # 加载器源根：这里本来就该有加载器 import，列出来只是让人确认它们确实在，而不是被误删。
+    for name, path in LOADER_ROOTS:
+        if os.path.isdir(path):
+            print("  %-8s %d 处（加载器源根，不计入判定）" % ("src/" + name, len(scan(path))))
 
     if failed:
         print("[boundary] 失败：业务代码里出现了加载器 API")

@@ -20,13 +20,18 @@ Minecraft Fabric 1.21.1 模组「口袋决斗」（`pvpocket`）：在 SMP 里�
 
 | 路径 | 内容 |
 | --- | --- |
-| `fabric-1.21.1/src/main/java/` | 服务端与两端共用（`session`、`rules`、`loadout`、`preset`、`network`） |
-| `fabric-1.21.1/src/client/java/` | 只在客户端（`client/gui`、`client/hud`、`client/preset`） |
+| `fabric-1.21.1/src/main/java/` | **所有加载器共用**（`session`、`rules`、`loadout`、`preset`、`network`、`platform`）。这里不许出现加载器 import |
+| `fabric-1.21.1/src/fabric/java/` | Fabric 专用：`platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/neoforge/java/` |
+| `fabric-1.21.1/src/fabric/resources/` | Fabric 专用资源，目前只有 `fabric.mod.json` |
+| `fabric-1.21.1/src/client/java/` | 只在客户端（`client/gui`、`client/hud`、`client/preset`）；加载器依赖还没分出去 |
 | `fabric-1.21.1/src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
 | `fabric-1.21.1/runs/` | 运行目录，`server` 与 `client1..4`，**由 `build.gradle` 决定** |
 | `docs/zh/`、`docs/en/` | 六篇规范，平行且一一对应 |
 | `docs/archive/` | 历史存档，**非规范**，不追改 |
-| `scripts/` | 联调、地图转换、界面自动化 |
+| `scripts/` | 联调、地图转换、界面自动化、自检 |
+
+**放文件的判据**：这段代码要 import `net.fabricmc` 吗？要 → `src/fabric/java`；不要 → `src/main/java`。
+判据不是「跟谁关系近」，因为这一条决定了移植一格的代价。
 
 ## 构建与运行
 
@@ -256,8 +261,8 @@ python scripts/check-boundary.py --strict   # client 也算失败（Day 3 之后
 ```
 
 - 加载器接触面是 `platform/PvPlatform`：payload 注册与收发、生命周期、四个否决点。实现类
-  （如 `platform/fabric/FabricPlatform`）只做转发，**不写判断**——实现类里出现 if，那个判断
-  多半属于 `PvBootstrap`。
+  （`src/fabric/java/.../platform/fabric/FabricPlatform`）只做转发，**不写判断**——实现类里
+  出现 if，那个判断多半属于 `PvBootstrap`。
 - 「发生某事时该做什么」全部在 `platform/PvBootstrap.wire(platform)` 里，那部分不含加载器的名字。
 - **入口类在 `platform/<加载器>/` 里**，根包的 `PvPocket` 只留 `MOD_ID` / `LOGGER` / `id()`。
   身份被九十多处引用，必须对所有加载器是同一个类；入口每个加载器都不同。
