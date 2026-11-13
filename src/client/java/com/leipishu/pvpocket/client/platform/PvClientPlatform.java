@@ -140,6 +140,11 @@ public interface PvClientPlatform {
      *
      * <p>A record rather than a loader type: every field exists on both loaders' render events, so
      * renderers never name a loader class.
+     *
+     * <p>{@code nodes} is the exception. 1.21.11 replaced immediate-mode drawing with a submit
+     * queue that is collected during the pass and drawn afterwards, and nothing else exposes it, so
+     * a renderer that draws entities needs it. It is typed {@code Object} because the class does
+     * not exist before 1.21.11; it is null there, and only the 1.21.11 code path reads it.
      */
     record WorldFrame(
             ClientLevel level,
@@ -147,7 +152,8 @@ public interface PvClientPlatform {
             MultiBufferSource buffers,
             Camera camera,
             DeltaTracker delta,
-            LightTexture lightmap) {
+            LightTexture lightmap,
+            Object nodes) {
     }
 
     // ---- global handle

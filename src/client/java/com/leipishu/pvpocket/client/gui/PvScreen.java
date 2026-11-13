@@ -7,6 +7,11 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.Screenshot;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
+//? if >=1.21.11 {
+import net.minecraft.client.input.CharacterEvent;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.MouseButtonEvent;
+//?}
 
 import java.util.ArrayList;
 import java.util.List;
@@ -401,7 +406,12 @@ public abstract class PvScreen extends Screen {
         return new ArrayList<>(roots);
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        return mouseClicked(event.x(), event.y(), event.button());
+    }
+//?}
     public boolean mouseClicked(double mx, double my, int button) {
         // The modal gets the click first and consumes it whether or not it handled anything: a
         // click on the scrim is "dismiss", not "dismiss and also press what was behind".
@@ -417,7 +427,12 @@ public abstract class PvScreen extends Screen {
         return false;
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        return mouseReleased(event.x(), event.y(), event.button());
+    }
+//?}
     public boolean mouseReleased(double mx, double my, int button) {
         if (hasOverlay()) {
             overlay.mouseReleased(mx, my, button);
@@ -430,7 +445,12 @@ public abstract class PvScreen extends Screen {
         return handled;
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        return mouseDragged(event.x(), event.y(), event.button(), dx, dy);
+    }
+//?}
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
         if (hasOverlay()) {
             overlay.mouseDragged(mx, my, button, dx, dy);
@@ -457,7 +477,12 @@ public abstract class PvScreen extends Screen {
         return false;
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean keyPressed(KeyEvent event) {
+        return keyPressed(event.key(), event.scancode(), event.modifiers());
+    }
+//?}
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             // Escape closes the dialog, not the screen. Closing the whole panel because the player
@@ -516,7 +541,12 @@ public abstract class PvScreen extends Screen {
         return false;
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean charTyped(CharacterEvent event) {
+        return charTyped((char) event.codepoint(), event.modifiers());
+    }
+//?}
     public boolean charTyped(char chr, int modifiers) {
         if (hasOverlay()) {
             return overlay.charTyped(chr, modifiers);

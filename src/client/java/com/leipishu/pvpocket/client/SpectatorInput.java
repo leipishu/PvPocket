@@ -4,8 +4,8 @@ import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.client.hud.SpectatorHud;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvKeys;
 import net.minecraft.client.KeyMapping;
-import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -37,16 +37,8 @@ public final class SpectatorInput {
 
     public static void register() {
         // The category is a translation key, as in vanilla's own controls headings.
-        cycle = new KeyMapping(
-                "key.pvpocket.cycle_spectator",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_V,
-                "key.categories.pvpocket");
-        detach = new KeyMapping(
-                "key.pvpocket.detach_spectator",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_G,
-                "key.categories.pvpocket");
+        cycle = PvKeys.key("key.pvpocket.cycle_spectator", GLFW.GLFW_KEY_V);
+        detach = PvKeys.key("key.pvpocket.detach_spectator", GLFW.GLFW_KEY_G);
         // Registering lists the keys in the controls page; the tick poll below fires them.
         PvClientPlatform.get().registerKeyMapping(cycle);
         PvClientPlatform.get().registerKeyMapping(detach);

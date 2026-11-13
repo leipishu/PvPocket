@@ -206,6 +206,6 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         DeltaTracker delta = event.getPartialTick();
         LightTexture lightmap = client.gameRenderer.lightTexture();
         ClientLevel level = client.level;
-        return new WorldFrame(level, poses, buffers, camera, delta, lightmap);
+        return new WorldFrame(level, poses, buffers, camera, delta, lightmap, null);
     }
 }

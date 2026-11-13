@@ -8,7 +8,7 @@ import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.SwordItem;
+import net.minecraft.tags.ItemTags;
 
 /**
  * The 1.8 first-person sword block pose, with no loader code in it.
@@ -60,7 +60,7 @@ public final class ItemBlockPose {
      * @param renderMode which hand / perspective this pass is for
      */
     public static boolean wants(ItemStack stack, ItemDisplayContext renderMode) {
-        if (!(stack.getItem() instanceof SwordItem)) {
+        if (!stack.is(ItemTags.SWORDS)) {
             return false;
         }
 

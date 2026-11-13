@@ -95,7 +95,11 @@ public final class PvAuditHarness {
             // setScreen() runs init() at the window's real size; the second call overrides it so
             // the same screen can be measured at a canvas it was not opened at.
             client.setScreen(current);
+//? if >=1.21.11 {
+            current.init(step.width(), step.height());
+//?} else {
             current.init(client, step.width(), step.height());
+//?}
             current.auditVariant(step.variant());
             frame = 0;
             System.out.println("[pvaudit] -- " + step.label() + " v" + step.variant()

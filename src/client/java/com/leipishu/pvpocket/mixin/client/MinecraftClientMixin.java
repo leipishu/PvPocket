@@ -10,7 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.DeathScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
-import net.minecraft.world.item.SwordItem;
+import net.minecraft.tags.ItemTags;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -76,7 +76,7 @@ public abstract class MinecraftClientMixin {
             return;
         }
         boolean key = client.options.keyUse.isDown();
-        boolean sword = client.player.getMainHandItem().getItem() instanceof SwordItem;
+        boolean sword = client.player.getMainHandItem().is(ItemTags.SWORDS);
         boolean legacy = CombatState.isLegacy(client.player.getUUID());
         if (DEBUG_BLOCKING && sword) {
             // Held locally only; resetting keeps the value off the wire.

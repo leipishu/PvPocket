@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.hud;
 
+import com.leipishu.pvpocket.compat.PvCompat;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -117,7 +118,7 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
             } catch (NumberFormatException e) {
                 continue;
             }
-            Item item = BuiltInRegistries.ITEM.get(id);
+            Item item = PvCompat.value(BuiltInRegistries.ITEM, id);
             if (item == null) {
                 continue;
             }

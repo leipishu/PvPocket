@@ -4,7 +4,6 @@ import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderType;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -25,7 +24,7 @@ import org.joml.Matrix4f;
  * <p>The curtain reaches {@link #CURTAIN_ABOVE_CAMERA} above the camera, and the preparation
  * screens are drawn by the same pass in near-opaque white.
  *
- * <p>Geometry uses {@code RenderType.debugQuads()}: translucent POSITION_COLOR quads, culling off.
+ * <p>Geometry uses {@code PvRenderTypes.debugQuads()}: POSITION_COLOR quads, culling off.
  */
 public final class BoundaryRenderer {
 
@@ -102,12 +101,16 @@ public final class BoundaryRenderer {
             return;
         }
 
+//? if >=1.21.11 {
+        Vec3 cam = frame.camera().position();
+//?} else {
         Vec3 cam = frame.camera().getPosition();
+//?}
         matrices.pushPose();
         // Vertices are sent in world coordinates, so the camera offset is cancelled here.
         matrices.translate(-cam.x, -cam.y, -cam.z);
         Matrix4f matrix = matrices.last().pose();
-        VertexConsumer vc = consumers.getBuffer(RenderType.debugQuads());
+        VertexConsumer vc = consumers.getBuffer(PvRenderTypes.debugQuads());
 
         if (ArenaBounds.active()) {
             drawBoundary(vc, matrix, cam, ArenaBounds.get());

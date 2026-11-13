@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.nio.file.Path;
@@ -75,12 +76,22 @@ public final class FabricClientPlatform implements PvClientPlatform {
 
     @Override
     public void onWorldRenderAfterTranslucent(WorldLayer layer) {
+//? if >=1.21.11 {
+        WorldRenderEvents.END_MAIN.register(context -> layer.render(frame(context)));
+//?} else {
         WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> layer.render(frame(context)));
+//?}
     }
 
     @Override
     public void onWorldRenderLast(WorldLayer layer) {
+//? if >=1.21.11 {
+        // 1.21.11 has no separate after-translucent stage: END_MAIN is the last world hook, and
+        // both layers land on it in registration order.
+        WorldRenderEvents.END_MAIN.register(context -> layer.render(frame(context)));
+//?} else {
         WorldRenderEvents.LAST.register(context -> layer.render(frame(context)));
+//?}
     }
 
     @Override
@@ -103,12 +114,27 @@ public final class FabricClientPlatform implements PvClientPlatform {
      * {@code RenderLevelStageEvent} has no {@code LightTexture}.
      */
     private static WorldFrame frame(WorldRenderContext context) {
+//? if >=1.21.11 {
+        // The context lost world / camera / tick / lightmap in the 1.21.9 render-state rework: the
+        // first two moved into the render state it now carries, the last two are client singletons.
+        Minecraft client = Minecraft.getInstance();
+        return new WorldFrame(
+                client.level,
+                context.matrices(),
+                context.consumers(),
+                client.gameRenderer.getMainCamera(),
+                client.getDeltaTracker(),
+                client.gameRenderer.lightTexture(),
+                context.commandQueue());
+//?} else {
         return new WorldFrame(
                 context.world(),
                 context.matrixStack(),
                 context.consumers(),
                 context.camera(),
                 context.tickCounter(),
-                context.lightmapTextureManager());
+                context.lightmapTextureManager(),
+                null);
+//?}
     }
 }

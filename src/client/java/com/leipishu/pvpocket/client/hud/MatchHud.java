@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.client.hud;
 import com.leipishu.pvpocket.client.ClientPrefs;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
+import com.leipishu.pvpocket.client.gui.PvMatrix;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchHudPayload;
@@ -136,11 +137,11 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         int room = (int) Math.floor((screenW - 8) / scale);
         int centreX = screenW / 2;
 
-        ctx.pose().pushPose();
+        PvMatrix.push(ctx);
         if (scale != 1F) {
-            ctx.pose().translate(centreX, TOP, 0);
-            ctx.pose().scale(scale, scale, 1F);
-            ctx.pose().translate(-centreX, -TOP, 0);
+            PvMatrix.translate(ctx, centreX, TOP);
+            PvMatrix.scale(ctx, scale, scale);
+            PvMatrix.translate(ctx, -centreX, -TOP);
         }
         Bar bar = null;
         if (teams.size() == 2) {
@@ -148,7 +149,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         } else {
             drawStacked(ctx, client, tr, payload, teams, scores, centreX);
         }
-        ctx.pose().popPose();
+        PvMatrix.pop(ctx);
         // The team strips are drawn after the matrix is restored: their geometry is a fixed pixel
         // count, so it is computed from the panel's on-screen rectangle.
         if (bar != null) {

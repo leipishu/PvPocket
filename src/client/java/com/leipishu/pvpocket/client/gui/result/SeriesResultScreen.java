@@ -363,10 +363,17 @@ public class SeriesResultScreen extends PvScreen {
         }
         posterCapture = false;
         posterMode = false;
+//? if >=1.21.11 {
+        // 1.21.11 records GUI drawing and submits it after this returns, so the framebuffer read
+        // cannot happen here. One tick later runs before the next frame is drawn, and the target
+        // still holds the poster frame.
+        Minecraft.getInstance().execute(this::savePoster);
+//?} else {
         // Flush first: fill batches its quads and the capture reads the framebuffer, so a read
         // before the batch is submitted returns the frame from before the poster existed.
         ctx.flush();
         savePoster();
+//?}
     }
 
     /**
@@ -377,7 +384,15 @@ public class SeriesResultScreen extends PvScreen {
      */
     private void savePoster() {
         Minecraft client = Minecraft.getInstance();
-        NativeImage image = Screenshot.takeScreenshot(client.getMainRenderTarget());
+//? if >=1.21.11 {
+        Screenshot.takeScreenshot(client.getMainRenderTarget(), this::writePoster);
+//?} else {
+        writePoster(Screenshot.takeScreenshot(client.getMainRenderTarget()));
+//?}
+    }
+
+    private void writePoster(NativeImage image) {
+        Minecraft client = Minecraft.getInstance();
         Path dir = client.gameDirectory.toPath().resolve("screenshots").resolve("pvpocket");
         Path file = dir.resolve("result-"
                 + LocalDateTime.now().format(FILE_STAMP) + ".png");

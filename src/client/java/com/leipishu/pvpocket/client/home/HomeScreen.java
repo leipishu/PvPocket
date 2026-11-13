@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.home;
 
+import com.leipishu.pvpocket.compat.PvCompat;
 import com.leipishu.pvpocket.client.ClientPrefs;
 import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
@@ -707,8 +708,7 @@ public class HomeScreen extends PvScreen {
         LocalPlayer player = client.player;
 
         if (player != null) {
-            PlayerFaceRenderer.draw(ctx, client.getSkinManager().getInsecureSkin(player.getGameProfile()),
-                    x, y, AVATAR);
+            PlayerFaceRenderer.draw(ctx, player.getSkin(), x, y, AVATAR);
         } else {
             PvDraw.roundRect(ctx, x, y, AVATAR, AVATAR, 3, PvTheme.CARD_ACTIVE);
             PvDraw.textCenter(ctx, tr, "?", x + AVATAR / 2, y + (AVATAR - 8) / 2 + 1,
@@ -718,7 +718,7 @@ public class HomeScreen extends PvScreen {
         int nameX = x + AVATAR + 6;
         int nameRoom = panelX + chromeW - 6 - nameX;
         String name = player == null ? PvLang.str("pvpocket.gui.home.offline")
-                : player.getGameProfile().getName();
+                : PvCompat.profileName(player.getGameProfile());
         PvDraw.text(ctx, tr, PvDraw.fit(tr, name, nameRoom), nameX, y + 2, PvTheme.TEXT);
 
         String state = HomeState.has(HomeStatePayload.FLAG_IN_DUEL)
@@ -927,7 +927,8 @@ public class HomeScreen extends PvScreen {
 
     private String greeting() {
         Minecraft client = Minecraft.getInstance();
-        String name = client.player == null ? "" : client.player.getGameProfile().getName();
+        String name = client.player == null ? ""
+                : PvCompat.profileName(client.player.getGameProfile());
         int hour = LocalTime.now().getHour();
         String slot = hour < 6 ? "night" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
         return PvLang.str("pvpocket.gui.home.hello." + slot, name);
@@ -1021,7 +1022,12 @@ public class HomeScreen extends PvScreen {
         buildPage();
     }
 
+//? if >=1.21.11 {
     @Override
+    public boolean keyPressed(net.minecraft.client.input.KeyEvent event) {
+        return keyPressed(event.key(), event.scancode(), event.modifiers());
+    }
+//?}
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         // A key capture gets every key, Escape included, before the screen bindings: Esc backs out
         // "press a key" and must not close the panel.

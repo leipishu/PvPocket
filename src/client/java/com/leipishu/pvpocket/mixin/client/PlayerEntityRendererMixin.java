@@ -4,7 +4,7 @@ import com.leipishu.pvpocket.combat.CombatState;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraft.client.model.HumanoidModel;
-import net.minecraft.world.item.SwordItem;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -29,7 +29,7 @@ public abstract class PlayerEntityRendererMixin {
                                                   CallbackInfoReturnable<HumanoidModel.ArmPose> cir) {
         // Main hand only; the flag describes the sword.
         if (hand == InteractionHand.MAIN_HAND
-                && player.getMainHandItem().getItem() instanceof SwordItem
+                && player.getMainHandItem().is(ItemTags.SWORDS)
                 && CombatState.isBlocking(player.getUUID())) {
             cir.setReturnValue(HumanoidModel.ArmPose.BLOCK);
         }

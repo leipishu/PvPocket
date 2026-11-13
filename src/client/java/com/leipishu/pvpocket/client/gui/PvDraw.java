@@ -406,11 +406,11 @@ public final class PvDraw {
             PvAudit.text(fit.text, x, y, fit.width,
                     Math.max(1, Math.round(tr.lineHeight * fit.scale)));
         }
-        ctx.pose().pushPose();
-        ctx.pose().translate(x, y, 0);
-        ctx.pose().scale(fit.scale, fit.scale, 1F);
+        PvMatrix.push(ctx);
+        PvMatrix.translate(ctx, x, y);
+        PvMatrix.scale(ctx, fit.scale, fit.scale);
         ctx.drawString(tr, fit.text, 0, 0, color, false);
-        ctx.pose().popPose();
+        PvMatrix.pop(ctx);
     }
 
     // ------------------------------------------------------------------ strings

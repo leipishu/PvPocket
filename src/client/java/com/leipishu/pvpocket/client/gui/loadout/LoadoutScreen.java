@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.loadout;
 
+import com.leipishu.pvpocket.compat.PvCompat;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvConfirm;
@@ -428,7 +429,7 @@ public class LoadoutScreen extends PvScreen {
      */
     private static Item itemById(String id) {
         ResourceLocation identifier = ResourceLocation.tryParse(id);
-        return identifier == null ? null : BuiltInRegistries.ITEM.get(identifier);
+        return identifier == null ? null : PvCompat.value(BuiltInRegistries.ITEM, identifier);
     }
 
     private static ItemStack iconOf(LoadoutEntry entry) {

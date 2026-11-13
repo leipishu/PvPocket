@@ -5,9 +5,9 @@ import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeRequestPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
+import com.leipishu.pvpocket.client.compat.PvKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.KeyMapping;
-import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
@@ -26,11 +26,7 @@ public final class HomeClient {
     }
 
     public static void register() {
-        home = new KeyMapping(
-                "key.pvpocket.home",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_B,
-                "key.categories.pvpocket");
+        home = PvKeys.key("key.pvpocket.home", GLFW.GLFW_KEY_B);
         PvClientPlatform.get().registerKeyMapping(home);
 
         PvClientPlatform.get().onClientTick(() -> {

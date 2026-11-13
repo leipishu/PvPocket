@@ -4,11 +4,11 @@ import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.i18n.PvLang;
+import com.leipishu.pvpocket.client.compat.PvKeys;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.KeyMapping;
-import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -89,7 +89,7 @@ public class KeyBindRow extends PvWidget {
             }
             return;
         }
-        binding.setKey(InputConstants.getKey(keyCode, scanCode));
+        binding.setKey(PvKeys.keyOf(keyCode, scanCode));
         // resetMapping makes the new key fire this tick; options.save persists it across sessions.
         KeyMapping.resetMapping();
         Minecraft.getInstance().options.save();
@@ -104,7 +104,7 @@ public class KeyBindRow extends PvWidget {
      */
     private KeyMapping conflicting(int keyCode, int scanCode) {
         for (KeyMapping other : Minecraft.getInstance().options.keyMappings) {
-            if (other != binding && !other.isUnbound() && other.matches(keyCode, scanCode)) {
+            if (other != binding && !other.isUnbound() && PvKeys.matches(other, keyCode, scanCode)) {
                 return other;
             }
         }
