@@ -3,11 +3,8 @@ package com.leipishu.pvpocket.client.platform.neoforge;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.platform.neoforge.NeoForgePlatform;
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.client.Camera;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -20,7 +17,13 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+//? if >=1.21.11 {
+import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+//?} else {
+import net.minecraft.client.Camera;
+import net.minecraft.client.DeltaTracker;
 import net.neoforged.neoforge.network.PacketDistributor;
+//?}
 import net.neoforged.fml.ModList;
 
 import java.nio.file.Path;
@@ -67,6 +70,13 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
                         event.getGuiGraphics(), event.getPartialTick())));
         // The two stages are subscribed separately: after translucent blocks and after the level.
         // Fabric names them AFTER_TRANSLUCENT and LAST, at the same positions.
+//? if >=1.21.11 {
+        // The stage enum became one event subclass per stage, so the switch moves into the bus.
+        gameBus.addListener(RenderLevelStageEvent.AfterTranslucentBlocks.class,
+                event -> renderWorld(translucentLayers, event));
+        gameBus.addListener(RenderLevelStageEvent.AfterLevel.class,
+                event -> renderWorld(lastLayers, event));
+//?} else {
         gameBus.addListener(RenderLevelStageEvent.class, event -> {
             List<WorldLayer> layers;
             if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
@@ -76,10 +86,9 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
             } else {
                 return;
             }
-            for (WorldLayer layer : layers) {
-                layer.render(frame(event));
-            }
+            renderWorld(layers, event);
         });
+//?}
     }
 
     private final List<Runnable> tickActions = new ArrayList<>();
@@ -112,7 +121,12 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
 
     @Override
     public void send(CustomPacketPayload payload) {
+//? if >=1.21.11 {
+        // Client-to-server play payloads moved out of the shared distributor.
+        ClientPacketDistributor.sendToServer(payload);
+//?} else {
         PacketDistributor.sendToServer(payload);
+//?}
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -177,6 +191,13 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         lastLayers.add(layer);
     }
 
+    private static void renderWorld(List<WorldLayer> layers, RenderLevelStageEvent event) {
+        WorldFrame frame = frame(event);
+        for (WorldLayer layer : layers) {
+            layer.render(frame);
+        }
+    }
+
     // ------------------------------------------------------------------ environment
 
     @Override
@@ -202,10 +223,17 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         Minecraft client = Minecraft.getInstance();
         PoseStack poses = event.getPoseStack();
         MultiBufferSource buffers = client.renderBuffers().bufferSource();
-        Camera camera = event.getCamera();
-        DeltaTracker delta = event.getPartialTick();
         LightTexture lightmap = client.gameRenderer.lightTexture();
         ClientLevel level = client.level;
+//? if >=1.21.11 {
+        // The event lost world / camera / tick in the 1.21.9 render-state rework, and it has no
+        // submit queue at all: the three survivors are client singletons.
+        return new WorldFrame(level, poses, buffers,
+                client.gameRenderer.getMainCamera(), client.getDeltaTracker(), lightmap, null);
+//?} else {
+        Camera camera = event.getCamera();
+        DeltaTracker delta = event.getPartialTick();
         return new WorldFrame(level, poses, buffers, camera, delta, lightmap, null);
+//?}
     }
 }

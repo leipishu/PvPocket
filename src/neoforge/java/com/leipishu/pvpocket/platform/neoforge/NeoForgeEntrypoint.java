@@ -17,8 +17,8 @@ import net.neoforged.neoforge.common.NeoForge;
  * NeoForge entrypoint: installs the server and client platforms and wires both sides.
  *
  * <p>NeoForge has a single constructor rather than a separate client entrypoint, so the client
- * half is selected by {@link FMLEnvironment#dist}. That branch describes the physical side the
- * jar runs on, not a business decision.
+ * half is selected by the physical side {@link FMLEnvironment} reports. That branch describes
+ * where the jar runs, not a business decision.
  *
  * <p>Client classes are referenced only inside the {@code Dist.CLIENT} branch. A dedicated
  * server ships these classes but never resolves them, which keeps client code unloaded there.
@@ -31,7 +31,12 @@ public final class NeoForgeEntrypoint {
         PvPlatform.install(platform);
         PvBootstrap.wire(platform);
 
+        // 21.9 turned the public `dist` field into a getter.
+//? if >=1.21.11 {
+        if (FMLEnvironment.getDist() == Dist.CLIENT) {
+//?} else {
         if (FMLEnvironment.dist == Dist.CLIENT) {
+//?}
             NeoForgeClientPlatform client =
                     new NeoForgeClientPlatform(platform, modBus, NeoForge.EVENT_BUS);
             PvClientPlatform.install(client);

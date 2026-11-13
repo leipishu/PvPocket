@@ -2,13 +2,18 @@ package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.combat.CombatState;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.tags.ItemTags;
+//? if >=1.21.11 {
+import net.minecraft.client.renderer.block.model.ItemTransform;
+import org.joml.Vector3f;
+//?} else {
+import com.mojang.math.Axis;
+//?}
 
 /**
  * The 1.8 first-person sword block pose, with no loader code in it.
@@ -77,6 +82,24 @@ public final class ItemBlockPose {
         return renderMode == mainHand;
     }
 
+//? if >=1.21.11 {
+    /**
+     * The pose as a display transform, for the 1.21.9 item model pipeline.
+     *
+     * <p>The transform is applied per render-state layer now, so there is nothing left to skip:
+     * replacing it reaches the same result. {@code ItemTransform} composes translate-rotate-scale
+     * where {@link #apply} composes translate-scale-rotate, and a uniform scale commutes with a
+     * rotation, so both produce the same matrix.
+     */
+    public static ItemTransform transform() {
+        float gripX = GRIP * HAND_SCALE;
+        float gripY = -GRIP * HAND_SCALE;
+        return new ItemTransform(
+                new Vector3f(0.0F, 0.0F, BLOCK_ROLL),
+                new Vector3f(HAND_OFFSET_X - gripX, HAND_OFFSET_Y - gripY, 0.0F),
+                new Vector3f(HAND_SCALE, HAND_SCALE, HAND_SCALE));
+    }
+//?} else {
     /**
      * Builds the whole hand pose. The caller must have skipped the display transform: this replaces
      * it and does not compose with it.
@@ -94,4 +117,5 @@ public final class ItemBlockPose {
         // ItemRenderer's own translate(-0.5, -0.5, -0.5) follows this call, so the quarter turn
         // happens about the model's centre rather than its corner.
     }
+//?}
 }

@@ -48,11 +48,14 @@ if (portVersion) {
                 '--mc', portVersion,
                 '--src', rootProject.file('src').absolutePath,
                 '--out', portOutput.get().asFile.absolutePath,
-                '--table', rootProject.file("scripts/port/${portVersion}.tsv").absolutePath,
                 '--table', rootProject.file("scripts/port/${portVersion}.tsv").absolutePath
     }
     tasks.withType(JavaCompile).configureEach { dependsOn portTask }
-    tasks.named('processResources') { dependsOn portTask }
+    // Every task that reads a source root has to wait for the tree to be written: Gradle rejects
+    // an undeclared read of a task output, and the resource roots live in the generated tree too.
+    tasks.matching {
+        it.name in ['processResources', 'processClientResources', 'sourcesJar', 'jar']
+    }.configureEach { dependsOn portTask }
 }
 
 // Source root: src/<relative> for the canonical cell, build/gen-src/<relative> for a ported one.

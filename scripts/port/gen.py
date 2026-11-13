@@ -100,6 +100,11 @@ def load_table(path):
             if len(parts) != 2:
                 raise ValueError("%s: expected `old<TAB>new`, got %r" % (path, line))
             pairs.append((parts[0].strip(), parts[1].strip()))
+    # A mixin target descriptor spells the class with slashes, so every renamed class needs a
+    # second spelling: without it the annotation compiles and just stops matching at runtime.
+    for old, new in list(pairs):
+        if "." in old:
+            pairs.append((old.replace(".", "/"), new.replace(".", "/")))
     # Longest first, so `getServerLevel` is not clipped by `getServer`.
     pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
     return [(re.compile(r"\b%s\b" % re.escape(old)), new) for old, new in pairs]

@@ -4,12 +4,14 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
 //? if >=1.21.11 {
+    "BlockModelWrapperMixin",
     "ClientExplosionMixin",
+//?} else {
+    "ItemRendererMixin",
 //?}
     "ClientPlayerEntityMixin",
     "HandledScreenAccessor",
     "InGameHudMixin",
-    "ItemRendererMixin",
     "MinecraftClientMixin",
     "PlayerEntityRendererMixin",
     "ScreenInvoker"

@@ -1,3 +1,4 @@
+//? if <1.21.11 {
 package com.leipishu.pvpocket.mixin.client;
 
 import com.leipishu.pvpocket.client.render.ItemBlockPose;
@@ -44,3 +45,4 @@ public abstract class ItemRendererMixin {
         ItemBlockPose.apply(matrices);
     }
 }
+//?}
