@@ -272,11 +272,7 @@ final class Spectators {
         Sandbox.changeGameMode(player, GameType.SPECTATOR);
         // Dropped above the middle of the plot rather than onto a spawn pad: this is where the
         // spectator's own body sits until they attach, and where it returns when they detach.
-        player.teleportTo(arena,
-                region.centerX() + 0.5D,
-                Math.max(region.spawnY(0), region.spawnY(1)) + 6.0D,
-                region.centerZ() + 0.5D,
-                0.0F, 40.0F);
+        PvCompat.teleport(player, arena, region.centerX() + 0.5D, Math.max(region.spawnY(0), region.spawnY(1)) + 6.0D, region.centerZ() + 0.5D, 0.0F, 40.0F);
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         pointCamera(player, null);
         PvPocketNetworking.sendPossess(player, PossessPayload.hidden());
@@ -332,9 +328,7 @@ final class Spectators {
             PvPocket.LOGGER.warn("Spectator {} came from an unloaded dimension {}; sending to spawn",
                     player.getName().getString(), PvCompat.dimensionId(state.world));
             ServerLevel overworld = server().overworld();
-            player.teleportTo(overworld, PvCompat.sharedSpawn(overworld).getX() + 0.5D,
-                    PvCompat.sharedSpawn(overworld).getY(), PvCompat.sharedSpawn(overworld).getZ() + 0.5D,
-                    state.yaw, state.pitch);
+            PvCompat.teleport(player, overworld, PvCompat.sharedSpawn(overworld).getX() + 0.5D, PvCompat.sharedSpawn(overworld).getY(), PvCompat.sharedSpawn(overworld).getZ() + 0.5D, state.yaw, state.pitch);
         }
         if (player.gameMode.getGameModeForPlayer() != state.mode) {
             Sandbox.changeGameMode(player, state.mode);

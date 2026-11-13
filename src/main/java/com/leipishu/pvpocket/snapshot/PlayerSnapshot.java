@@ -269,7 +269,7 @@ public final class PlayerSnapshot {
         return new PlayerSnapshot(
                 playerNbt,
                 PvNbt.getString(root, "dimension"),
-                root.getDouble("x"), root.getDouble("y"), root.getDouble("z"),
+                PvNbt.getDouble(root, "x"), PvNbt.getDouble(root, "y"), PvNbt.getDouble(root, "z"),
                 root.getFloat("yaw"), root.getFloat("pitch"),
                 root.getString("gameMode"),
                 PvNbt.getStringOrNull(root, "team"),

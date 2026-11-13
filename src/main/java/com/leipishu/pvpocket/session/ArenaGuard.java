@@ -11,8 +11,6 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.network.chat.ClickEvent;
-import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.Component;
@@ -197,12 +195,10 @@ final class ArenaGuard {
         if (!PvCompat.hasPermission(player, 2)) {
             return;
         }
-        MutableComponent button = PvLang.t("pvpocket.msg.guard.button").setStyle(Style.EMPTY
-                .withColor(ChatFormatting.AQUA)
-                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
-                        "/pvpocket guard false"))
-                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                        PvLang.t("pvpocket.msg.guard.button_hover"))));
+        Style style = PvCompat.hoverText(PvCompat.clickCommand(
+                Style.EMPTY.withColor(ChatFormatting.AQUA), "/pvpocket guard false"),
+                PvLang.t("pvpocket.msg.guard.button_hover"));
+        MutableComponent button = PvLang.t("pvpocket.msg.guard.button").setStyle(style);
         player.displayClientMessage(button.append(PvLang.t("pvpocket.msg.guard.button_hint")
                 .withStyle(ChatFormatting.DARK_GRAY)), false);
     }

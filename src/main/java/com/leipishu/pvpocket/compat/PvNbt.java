@@ -29,6 +29,15 @@ public final class PvNbt {
 //?}
     }
 
+    /** Reads a double, or 0 when the key is absent. */
+    public static double getDouble(CompoundTag tag, String key) {
+//? if >=1.21.11 {
+        return tag.getDoubleOr(key, 0.0D);
+//?} else {
+        return tag.getDouble(key);
+//?}
+    }
+
     /** Reads a string, or "" when the key is absent. */
     public static String getString(CompoundTag tag, String key) {
 //? if >=1.21.11 {

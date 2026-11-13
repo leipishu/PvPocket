@@ -8,6 +8,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import com.mojang.authlib.GameProfile;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
@@ -47,6 +51,24 @@ public final class PvCompat {
         return level.getRespawnData().pos();
 //?} else {
         return PvCompat.sharedSpawn(level);
+//?}
+    }
+
+    /** Attaches a click event that runs a command. */
+    public static Style clickCommand(Style style, String command) {
+//? if >=1.21.11 {
+        return style.withClickEvent(new ClickEvent.RunCommand(command));
+//?} else {
+        return style.withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command));
+//?}
+    }
+
+    /** Attaches a hover event that shows text. */
+    public static Style hoverText(Style style, Component text) {
+//? if >=1.21.11 {
+        return style.withHoverEvent(new HoverEvent.ShowText(text));
+//?} else {
+        return style.withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, text));
 //?}
     }
 

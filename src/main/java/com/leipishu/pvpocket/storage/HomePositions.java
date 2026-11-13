@@ -178,9 +178,7 @@ public final class HomePositions {
         if (target == null) {
             // No record, or the record names a missing dimension. Spawn beats a plot in the void.
             target = PvCompat.server(player).overworld();
-            player.teleportTo(target, PvCompat.sharedSpawn(target).getX() + 0.5D,
-                    PvCompat.sharedSpawn(target).getY(), PvCompat.sharedSpawn(target).getZ() + 0.5D,
-                    player.getYRot(), player.getXRot());
+            PvCompat.teleport(player, target, PvCompat.sharedSpawn(target).getX() + 0.5D, PvCompat.sharedSpawn(target).getY(), PvCompat.sharedSpawn(target).getZ() + 0.5D, player.getYRot(), player.getXRot());
             releaseSpectatorMode(player, null);
             PvPocket.LOGGER.warn("Moved {} out of the arena ({}, no usable home); sent to spawn",
                     player.getName().getString(), reason);
