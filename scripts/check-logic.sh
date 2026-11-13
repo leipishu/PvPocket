@@ -52,8 +52,8 @@ FABRIC_CP="$(tr -d '\r\n' < "$FABRIC_CP_FILE")"
 MC_CLIENT="$(tr ';' '\n' < "$FABRIC_CP_FILE" | grep -iE 'minecraft-clientOnly-.*\.jar$' \
     | grep -v sources | head -1)"
 
-GEN="$FABRIC_BUILD/gen-src"
-NEOFORGE_GEN="versions/$NEOFORGE_CELL/build/gen-src"
+GEN="versions/$FABRIC_CELL/gen-src"
+NEOFORGE_GEN="versions/$NEOFORGE_CELL/gen-src"
 OUT="$FABRIC_BUILD/logic-check"
 rm -rf "$OUT"
 mkdir -p "$OUT"

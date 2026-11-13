@@ -32,12 +32,14 @@ version = project.mod_version
 // Version port: set ext.pvpocketPort before applying this file, then read source roots through
 // pvpocketSrc(...) rather than rootProject.file('src/...').
 def portVersion = project.findProperty('pvpocketPort')
-def portOutput = layout.buildDirectory.dir('gen-src')
+// Beside build.gradle, not under build/: the generated tree is source. An IDE excludes buildDir, so
+// a tree inside it has no icons, no navigation and no search, which makes the ported cell unusable.
+def portOutput = new File(projectDir, 'gen-src')
 def portTask = null
 if (portVersion) {
     portTask = tasks.register('generatePortSources', Exec) {
         group = 'build'
-        description = "Generates build/gen-src from src/ for Minecraft ${portVersion}."
+        description = "Generates gen-src/ from src/ for Minecraft ${portVersion}."
         inputs.dir(rootProject.file('src'))
         inputs.file(rootProject.file('scripts/port/gen.py'))
         inputs.file(rootProject.file("scripts/port/${portVersion}.tsv"))
@@ -47,7 +49,7 @@ if (portVersion) {
         commandLine pythonBin, rootProject.file('scripts/port/gen.py').absolutePath,
                 '--mc', portVersion,
                 '--src', rootProject.file('src').absolutePath,
-                '--out', portOutput.get().asFile.absolutePath,
+                '--out', portOutput.absolutePath,
                 '--table', rootProject.file("scripts/port/${portVersion}.tsv").absolutePath
     }
     tasks.withType(JavaCompile).configureEach { dependsOn portTask }
@@ -56,11 +58,13 @@ if (portVersion) {
     tasks.matching {
         it.name in ['processResources', 'processClientResources', 'sourcesJar', 'jar']
     }.configureEach { dependsOn portTask }
+    // clean removes buildDir only, and the tree lives outside it.
+    tasks.matching { it.name == 'clean' }.configureEach { delete portOutput }
 }
 
-// Source root: src/<relative> for the canonical cell, build/gen-src/<relative> for a ported one.
+// Source root: src/<relative> for the canonical cell, gen-src/<relative> for a ported one.
 ext.pvpocketSrc = { String relative ->
-    portVersion ? new File(portOutput.get().asFile, relative) : rootProject.file("src/${relative}")
+    portVersion ? new File(portOutput, relative) : rootProject.file("src/${relative}")
 }
 
 // Archive name is derived from the cell name: 1.21.1-fabric -> pvpocket-fabric-1.21.1.

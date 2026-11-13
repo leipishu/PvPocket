@@ -18,7 +18,7 @@ Renames are applied to the whole file, string literals included: a mixin target 
 put a pair in the table when the old name cannot mean anything else.
 
 Usage:
-    python scripts/port/gen.py --mc 1.21.11 --src src --out versions/<cell>/build/gen-src
+    python scripts/port/gen.py --mc 1.21.11 --src src --out versions/<cell>/gen-src
 
 Exit code: 0 written, 1 bad invocation, 2 a block directive is unbalanced.
 """

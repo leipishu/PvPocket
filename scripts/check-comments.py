@@ -56,7 +56,9 @@ JAVA_SUFFIX = (".java",)
 SLASH_SUFFIX = (".gradle",)  # // and /* */ comments
 HASH_SUFFIX = (".sh", ".py", ".ps1", ".toml", ".properties", ".cmd", ".yml", ".yaml")
 
-SKIP_DIRS = {".git", "build", "runs", "logs", "arena-src", ".gradle", "legacy"}
+# gen-src is derived from src/ by scripts/port/gen.py: the //? markers that keep the source
+# readable are stripped there, so the same comments cannot satisfy the rules in both trees.
+SKIP_DIRS = {".git", "build", "gen-src", "runs", "logs", "arena-src", ".gradle", "legacy"}
 
 
 def iter_files(roots):

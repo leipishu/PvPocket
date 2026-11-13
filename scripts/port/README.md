@@ -5,7 +5,7 @@ Mojang 做了一次大规模改名（`ResourceLocation` → `Identifier`、一�
 若干类换包），共享源码在 1.21.11 上直接编译有 298 个错误。
 
 所以 cell 编译的不是 `src/`，而是**生成树**：`gen.py` 把 `src/` 复制到
-`versions/<cell>/build/gen-src/`，途中做两件事——按表改名、按 `//? if` 剔除分支。
+`versions/<cell>/gen-src/`，途中做两件事——按表改名、按 `//? if` 剔除分支。
 
 ## 一个 cell 怎么接进来
 
@@ -96,7 +96,7 @@ mixin 的 `@At(target = "Lnet/minecraft/.../Foo;bar(...)")` 用的是斜杠路�
 
 ### 生成树是任务输出，读它的任务都要声明依赖
 
-`sourcesJar` 与 `processClientResources` 也会读 `build/gen-src` 里的资源根，Gradle 的隐式依赖
+`sourcesJar` 与 `processClientResources` 也会读 `gen-src` 里的资源根，Gradle 的隐式依赖
 校验要求显式 `dependsOn generatePortSources`，否则整个 build 失败并提示
 "uses this output ... without declaring an explicit or implicit dependency"。
 

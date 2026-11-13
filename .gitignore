@@ -3,6 +3,10 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Per-cell generated source tree (scripts/port/gen.py). Outside build/ so the IDE can index it,
+# but it is still derived from src/ and never edited by hand.
+versions/*/gen-src/
+
 # Loom / run directories (server + four dev clients per cell, see gradle/pvpocket-cells.gradle)
 runs/
 remappedSrc/
