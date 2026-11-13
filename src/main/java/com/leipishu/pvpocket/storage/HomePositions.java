@@ -124,7 +124,7 @@ public final class HomePositions {
         }
         String key = player.getStringUUID();
         Home previous = homes.get(key);
-        String dimension = world.dimension().location().toString();
+        String dimension = PvCompat.dimensionId(world.dimension()).toString();
         String mode = player.gameMode.getGameModeForPlayer().getName();
         if (previous != null && previous.dimension.equals(dimension) && mode.equals(previous.gameMode)) {
             double dx = previous.x - player.getX();

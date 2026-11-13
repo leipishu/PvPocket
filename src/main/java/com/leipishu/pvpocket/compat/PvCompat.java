@@ -7,7 +7,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import com.mojang.authlib.GameProfile;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 //? if >=1.21.11 {
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.Permissions;
@@ -43,6 +47,33 @@ public final class PvCompat {
         return level.getRespawnData().pos();
 //?} else {
         return PvCompat.sharedSpawn(level);
+//?}
+    }
+
+    /** The identifier of a dimension key. */
+    public static ResourceLocation dimensionId(ResourceKey<Level> key) {
+//? if >=1.21.11 {
+        return key.identifier();
+//?} else {
+        return key.location();
+//?}
+    }
+
+    /** The name of a game profile. */
+    public static String profileName(GameProfile profile) {
+//? if >=1.21.11 {
+        return profile.name();
+//?} else {
+        return profile.getName();
+//?}
+    }
+
+    /** The hotbar slot the player has selected. */
+    public static int selectedSlot(Player player) {
+//? if >=1.21.11 {
+        return player.getInventory().getSelectedSlot();
+//?} else {
+        return player.getInventory().selected;
 //?}
     }
 

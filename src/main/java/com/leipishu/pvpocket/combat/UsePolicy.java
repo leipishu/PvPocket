@@ -8,7 +8,7 @@ import net.minecraft.world.item.EndCrystalItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.MilkBucketItem;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.PotionItem;
 
 /**
@@ -103,7 +103,7 @@ public final class UsePolicy {
     public static boolean isConsumable(ItemStack stack) {
         Item item = stack.getItem();
         return item instanceof PotionItem
-                || item instanceof MilkBucketItem
+                || item == Items.MILK_BUCKET
                 || stack.has(DataComponents.FOOD);
     }
 

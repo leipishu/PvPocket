@@ -9,7 +9,7 @@ import com.leipishu.pvpocket.platform.PvPlatform;
 import com.leipishu.pvpocket.session.SessionManager;
 
 
-import net.minecraft.world.item.SwordItem;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
@@ -237,7 +237,7 @@ public final class PvPocketNetworking {
     static void applyBlocking(ServerPlayer player, boolean requested) {
         boolean accepted = requested
                 && CombatState.isLegacy(player.getUUID())
-                && player.getMainHandItem().getItem() instanceof SwordItem
+                && player.getMainHandItem().is(ItemTags.SWORDS)
                 && !player.isDeadOrDying()
                 && !player.isSpectator();
         setBlocking(player, accepted);
@@ -265,7 +265,7 @@ public final class PvPocketNetworking {
      */
     public static void broadcastBlocking(ServerPlayer player, boolean blocking) {
         BlockingStatePayload payload = new BlockingStatePayload(player.getUUID(), blocking);
-        for (ServerPlayer target : player.server.getPlayerList().getPlayers()) {
+        for (ServerPlayer target : player.level().getServer().getPlayerList().getPlayers()) {
             if (target != player && PvPlatform.get().canSend(target, BlockingStatePayload.ID)) {
                 PvPlatform.get().send(target, payload);
             }

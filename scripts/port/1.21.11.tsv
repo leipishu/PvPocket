@@ -21,7 +21,6 @@ net.minecraft.client.resources.model.BakedModel	net.minecraft.client.renderer.bl
 net.minecraft.world.entity.projectile.windcharge.AbstractWindCharge	net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.AbstractWindCharge
 net.minecraft.client.renderer.entity.player.PlayerRenderer	net.minecraft.client.renderer.entity.player.AvatarRenderer
 net.minecraft.resources.ResourceLocation	net.minecraft.resources.Identifier
-net.minecraft.core.ResourceKey	net.minecraft.resources.ResourceKey
 
 # ---- renames ----
 ResourceLocation	Identifier

@@ -330,7 +330,7 @@ final class Spectators {
         } else {
             // The origin dimension is unloaded, so fall back to the overworld spawn.
             PvPocket.LOGGER.warn("Spectator {} came from an unloaded dimension {}; sending to spawn",
-                    player.getName().getString(), state.world.location());
+                    player.getName().getString(), PvCompat.dimensionId(state.world));
             ServerLevel overworld = server().overworld();
             player.teleportTo(overworld, PvCompat.sharedSpawn(overworld).getX() + 0.5D,
                     PvCompat.sharedSpawn(overworld).getY(), PvCompat.sharedSpawn(overworld).getZ() + 0.5D,
@@ -473,7 +473,7 @@ final class Spectators {
                 true,
                 target.getId(),
                 target.getName().getString(),
-                target.getInventory().selected,
+                PvCompat.selectedSlot(target),
                 hotbarField(target),
                 new PossessPayload.Vitals(target.getHealth(), target.getArmorValue())));
     }
@@ -500,7 +500,7 @@ final class Spectators {
 
     /** Cheap change detector: anything the possession HUD draws is part of it. */
     private static String possessSignature(ServerPlayer target) {
-        return target.getInventory().selected + "|" + target.getHealth() + "|"
+        return PvCompat.selectedSlot(target) + "|" + target.getHealth() + "|"
                 + target.getArmorValue() + "|" + hotbarField(target);
     }
 

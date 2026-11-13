@@ -1196,7 +1196,7 @@ public final class SessionManager {
                             "region", region.id,
                             "pos", String.format("%.2f,%.2f,%.2f",
                                     player.getX(), player.getY(), player.getZ()),
-                            "world", player.level().dimension().location().toString(),
+                            "world", PvCompat.dimensionId(player.level().dimension()).toString(),
                             "countdownMs", BOUNDARY_COUNTDOWN_MS);
                     player.displayClientMessage(PvLang.t("pvpocket.msg.boundary.left",
                                     BOUNDARY_COUNTDOWN_MS / 1000)
@@ -2235,7 +2235,7 @@ public final class SessionManager {
                 // Not something the player can act on, so it goes to the log, not to chat.
                 PvPocket.LOGGER.warn("Session {} cannot start: {} is {} (online: {})", session.id,
                         blocked.name, reason, server.getPlayerList().getPlayers().stream()
-                                .map(p -> p.getGameProfile().getName()).toList());
+                                .map(p -> PvCompat.profileName(p.getGameProfile())).toList());
             } else {
                 // Said once: the player only needs to know the duel is waiting, not broken.
                 blockedPlayer.displayClientMessage(
