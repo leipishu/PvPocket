@@ -69,3 +69,24 @@ cell 的 `build.gradle` 不直接读这些文件：`gradle/pvpocket-cells.gradle
 
 **用户名与窗口尺寸只写在那里一处。** 两个 cell 各写一遍的下场是联调脚本按 `Dev1..Dev4` 找人，
 另一边叫 `NeoDev1`，永远对不上——这正是把 `fabric-1.21.1/` 拆成平行 cell 的理由之一。
+
+## IDE 里看哪份代码
+
+每个 cell 的**源根是 `versions/<cell>/gen-src/`**，不是仓库根的 `src/`。`src/` 里那 211 个
+`//?` 标记是给 `scripts/port/gen.py` 看的，去掉注释之后两个分支的代码会同时存在，直接编译不过：
+
+```bash
+# 拿 1.21.1 的类路径直接编 src/，26 个错误，全是条件块两支并存造成的
+javac -classpath "$(cat versions/1.21.1-fabric/build/compile-classpath.txt)" \
+      $(find src/main/java src/fabric/java -name '*.java')
+```
+
+所以 `src/` 在 IDE 里只是**手写源**，`gen-src` 才是**被编译的源**。两者的分工：
+
+| 想做的事 | 打开哪份 |
+| --- | --- |
+| 读代码、跳转、看某个版本实际长什么样 | `gen-src`（1.21.1 那份等于 `src/` 剔掉条件块，改名 0 条） |
+| 改代码 | `src/`，改完跑一次构建，`gen-src` 自动重建 |
+
+`gen-src` 在 `.gitignore` 里，IDEA 会给它灰绿色底，但源根图标与跳转都正常。它由
+`generatePortSources` 写出，`clean` 会一并删掉，**不要手改**——下次构建就没了。
