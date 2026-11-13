@@ -43,12 +43,12 @@ copper_leggings	1.21.9	declared
 copper_boots	1.21.9	declared
 
 # ---- 1.21.11 Mounts of Mayhem（2025-12-09）：长矛 ----
-# 长矛是材质化的（`wooden_spear` … `netherite_spear`）。木制那一种最可疑：原版的矛可能
-# 从石制起算，这一条等 1.21.11 的 jar 到手后立刻核。
-wooden_spear	1.21.11	declared
-stone_spear	1.21.11	declared
-copper_spear	1.21.11	declared
-iron_spear	1.21.11	declared
-golden_spear	1.21.11	declared
-diamond_spear	1.21.11	declared
-netherite_spear	1.21.11	declared
+# 长矛是材质化的（`wooden_spear` … `netherite_spear`），七种齐全：原版 `#minecraft:spears`
+# 标签里木制也在，没有从石制起算。1.21.1 的 jar 里一个都没有，两端夹住了这一行。
+wooden_spear	1.21.11	verified
+stone_spear	1.21.11	verified
+copper_spear	1.21.11	verified
+iron_spear	1.21.11	verified
+golden_spear	1.21.11	verified
+diamond_spear	1.21.11	verified
+netherite_spear	1.21.11	verified

@@ -21,7 +21,8 @@ sourceSets {
 ```
 
 `pvpocketSrc` 在没有 `pvpocketPort` 时返回 `src/<相对路径>`，有则返回生成树里的同一路径。
-生成任务自动挂在 `compileJava` 与 `processResources` 前面，不需要手动 dependsOn。
+生成任务自动挂在 `compileJava`、`processResources`、`processClientResources`、`sourcesJar` 与
+`jar` 前面，不需要手动 dependsOn。
 
 ## 条件块
 
@@ -50,43 +51,68 @@ player.teleportTo(level, x, y, z, yaw, pitch);
 补表用 `scripts/port/candidates.py`：它读两版 Loom 缓存里的映射，按 intermediary 求交集，列出
 本仓库真正用到的改名。**Loom 缓存要先各编译一次**，否则没有映射文件。
 
-## 1.21.11 现状（未完成）
+## 1.21.11 现状（编译已通过）
 
-错误数：**298 → 42**。`1.21.1-fabric` 与 `1.21.1-neoforge` 已编译通过。
+四个 cell 全部过 `buildAll`，错误数 **298 → 0**。`1.21.11` 的两格**没有连服实测**，只有编译与
+`check-logic.sh` 的保证。
 
-| 文件 | 数量 | 原因 |
-| --- | --- | --- |
-| `PlayerSnapshot` | 36 | `CompoundTag` 取值改 `Optional`、`ValueInput`/`ValueOutput` 取代直接读写、`getList` 要类型参数 |
-| `LoadoutBuilder` | 14 | `Unbreakable` 构造变了、`PotionContents.getColor` 签名变了、`registryOrThrow` 改名 |
-| `FabricPlatform` | 8 | `InteractionResultHolder` 被删，改用 `InteractionResult` |
-| `SessionManager` | 6 | 待查（多为 `GameRules` 取值） |
-| `ArenaGuard` | 4 | `ClickEvent`/`HoverEvent` 变抽象，要改用 `ClickEvent.RunCommand` 这类具体记录 |
-| `ExplosionMixin` | 4 | `getExplosionSound` 疑似改名 |
-| `Spectators` / `HomePositions` | 4+2 | 跨行的 6 参 `teleportTo` 没被脚本改到，手工换成 `PvCompat.teleport` |
-| `ItemKind` / `LoadoutLock` | 2+2 | 条件表达式类型错误 |
-| `LegacyKnockback` | 2 | `hasImpulse` 字段 |
+移植里踩到的、加下一个版本还会再踩的坑，按症状记：
 
-已核实并**已经**落地的（不用再查）：
+### 方法整个消失，而不只是改名
 
-- `Entity.getServer()` → `PvCompat.server(entity)`
-- `getSharedSpawnPos()` → `PvCompat.sharedSpawn(level)`（`getRespawnData().pos()`）
-- 6 参 `teleportTo` → `PvCompat.teleport(...)`（8 参，多 `Set<Relative>` 与 boolean）
-- 权限体系重做：`hasPermission(int)` → `permissions().hasPermission(Permissions.COMMANDS_*)`，
-  数字等级 1 MODERATOR / 2 GAMEMASTER / 3 ADMIN / 4 OWNER
-- `ResourceKey.location()` → `identifier()`
-- `GameProfile.getName()` → `name()`
-- `Inventory.selected` → `getSelectedSlot()`
-- `getMinBuildHeight` / `getMaxBuildHeight` → `getMinY` / `getMaxY`（进表，不进 compat）
-- `SwordItem` 删除 → `ItemTags.SWORDS`；`MilkBucketItem` 删除 → `Items.MILK_BUCKET`
-- `ServerPlayer.server` 变私有 → `level().getServer()`
+`ItemRenderer.render(ItemStack, ItemDisplayContext, boolean, PoseStack, ...)` 不存在了。1.21.9 把
+物品渲染拆成两段：`ItemModelResolver` 先把 stack 解析成 `ItemStackRenderState`，提交时再由
+`SubmitNodeCollector` 画出来。显示变换不再由 `ItemRenderer` 施加——`BlockModelWrapper.update` 调
+`ModelRenderProperties.applyToLayer` 把一个 `ItemTransform` 存到渲染状态上。
 
-查 API 用 jdk-21 的 `javap`（17 读不了 21 的 class 文件）：
+所以「跳过显示变换」这个注入点在 1.21.11 没有对应物，改成「替换存进去的那个变换」：
+`BlockModelWrapperMixin` 拦 `applyToLayer` 写入等价的 `ItemTransform`。等价性靠反汇编确认——
+`ItemTransform.apply` 的顺序是 translate-rotate-scale，原手写姿态是 translate-scale-rotate，
+等比缩放下两者是同一个矩阵。
+
+**这一类编译器不会报。** `@WrapOperation(method = "render(...)")` 里的描述符只是字符串，目标方法
+没了照样编译通过，运行时才以 `defaultRequire: 1` 失败崩掉。所以两个加载器各一份的
+`ItemRendererMixin` 在 1.21.11 是死的，必须按版本切掉，换成共享的那一个。
+
+### 渲染阶段事件拆成了子事件
+
+`RenderLevelStageEvent.Stage` 枚举与 `getStage()` / `getCamera()` / `getPartialTick()` 全部删除，
+改成每个阶段一个子类（`AfterSky` … `AfterLevel`）。基类只剩 `getLevelRenderer()` /
+`getLevelRenderState()` / `getPoseStack()` / `getModelViewMatrix()` / `getRenderableSections()`。
+
+camera 与 tick 改从 `Minecraft` 单例取（与 Fabric 侧同一个改法）。事件**没有**提交队列，
+`WorldFrame.nodes` 只能传 null。
+
+### 改名表要同时给斜杠形式
+
+mixin 的 `@At(target = "Lnet/minecraft/.../Foo;bar(...)")` 用的是斜杠路径，表里写的是点号。
+`gen.py` 现在给每个带包路径的行自动补一份斜杠形式，否则描述符里的类名不跟着改——症状同样是
+「编译通过、运行时不匹配」。
+
+### NeoForge 21.9 的两处
+
+`FMLEnvironment.dist` 字段改成 `getDist()`。客户端发包从 `PacketDistributor.sendToServer` 挪到
+`net.neoforged.neoforge.client.network.ClientPacketDistributor`。
+
+### 生成树是任务输出，读它的任务都要声明依赖
+
+`sourcesJar` 与 `processClientResources` 也会读 `build/gen-src` 里的资源根，Gradle 的隐式依赖
+校验要求显式 `dependsOn generatePortSources`，否则整个 build 失败并提示
+"uses this output ... without declaring an explicit or implicit dependency"。
+
+### 新格的验证入口
+
+`scripts/check-logic.sh` 默认只核 1.21.1 两格，格子由 `FABRIC_CELL` / `NEOFORGE_CELL` 指定。
+加完一格要单独跑一遍，否则那一格的 mixin 目标从来没被核对过：
 
 ```bash
-./gradlew :1.21.11-fabric:writeCompileClasspath
-CP=$(cat versions/1.21.11-fabric/build/compile-classpath.txt)
-"/c/Program Files/Java/jdk-21/bin/javap" -classpath "$CP" net.minecraft.world.entity.Entity | grep teleport
+FABRIC_CELL=1.21.11-fabric NEOFORGE_CELL=1.21.11-neoforge bash scripts/check-logic.sh
+python scripts/check-content.py 1.21.11-fabric --verify-jar <client jar>
 ```
+
+`--verify-jar` 只报差异、不改清单；核对干净后手工把对应的行从 `declared` 改成 `verified`。
+`since` 等于核对版本的那些行可以转，因为更早的版本已经被上一格的 jar 否掉了；`since` 夹在两个
+已核对版本之间的（例如铜制品的 `1.21.9`）仍然只能算 `declared`。
 
 ## 改源码时的一个坑
 

@@ -247,6 +247,8 @@
   "pvpocket.trident.riptide": "激流",
   "pvpocket.flag.piercing": "穿透",
   "pvpocket.flag.piercing.hint": "弩箭可以穿透多个目标。",
+  "pvpocket.flag.lunge": "突刺",
+  "pvpocket.flag.lunge.hint": "突刺命中后向前推进并消耗饥饿值。只有长矛可以带。",
   "pvpocket.option.food.golden_carrot": "金胡萝卜",
   "pvpocket.option.food.cooked_beef": "牛排",
   "pvpocket.option.food.cooked_porkchop": "熟猪排",

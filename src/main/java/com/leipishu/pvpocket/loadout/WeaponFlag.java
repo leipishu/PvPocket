@@ -29,7 +29,13 @@ public enum WeaponFlag {
     FLAME("flame", Enchantments.FLAME, 1, 2, ItemKind.BOW),
     PUNCH("punch", Enchantments.PUNCH, 2, 3, ItemKind.BOW),
     // Bit 4 is reserved: a preset written when it held RIPTIDE must not gain a different flag.
-    PIERCING("piercing", Enchantments.PIERCING, 4, 5, ItemKind.CROSSBOW);
+    PIERCING("piercing", Enchantments.PIERCING, 4, 5, ItemKind.CROSSBOW),
+//? if >=1.21.11 {
+    /** The spear's own enchantment, added with the spear in 1.21.11. */
+    LUNGE("lunge", Enchantments.LUNGE, 3, 6, ItemKind.SPEAR);
+//?} else {
+    ;
+//?}
 
     /**
      * The bit the retired {@code RIPTIDE} flag occupied.

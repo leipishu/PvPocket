@@ -247,6 +247,8 @@
   "pvpocket.trident.riptide": "Riptide",
   "pvpocket.flag.piercing": "Piercing",
   "pvpocket.flag.piercing.hint": "Crossbow bolts pass through several targets.",
+  "pvpocket.flag.lunge": "Lunge",
+  "pvpocket.flag.lunge.hint": "A hit after a lunge pushes you forward and costs hunger. Spears only.",
   "pvpocket.option.food.golden_carrot": "Golden carrot",
   "pvpocket.option.food.cooked_beef": "Steak",
   "pvpocket.option.food.cooked_porkchop": "Cooked porkchop",
