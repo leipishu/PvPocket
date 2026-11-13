@@ -12,13 +12,8 @@ import java.util.List;
  *   java -cp build/classes/java/main:&lt;gson&gt; com.leipishu.pvpocket.stats.DuelStatsCheck
  * </pre>
  *
- * <p>It exists because the stats files are the one thing in this mod whose bugs are permanent: a
- * duplicated history row or a cap that drops the wrong end does not fail anything visibly, it just
- * leaves a player's record wrong forever. The alternative — checking it by playing two hundred
- * matches — is not a test.</p>
- *
- * <p>Same idea as {@code PvRaster}'s self-check: a {@code main} that asserts the invariants the class
- * promises, so a refactor of the file layout has something to break against.</p>
+ * <p>A {@code main} that asserts the invariants {@link DuelStats} promises, so a change to the file
+ * layout has something to break against.
  */
 public final class DuelStatsCheck {
 
@@ -80,8 +75,8 @@ public final class DuelStatsCheck {
     }
 
     /**
-     * Past the compaction threshold the file has to settle at exactly the keep count, holding the
-     * newest rows — dropping the wrong end would silently erase a player's recent form.
+     * Past the compaction threshold the file has to settle at the keep count, holding the newest
+     * rows; dropping the wrong end would erase a player's recent form.
      */
     private static void capsAndKeepsTheNewest(Path root) {
         DuelStats stats = new DuelStats(root);
@@ -101,7 +96,7 @@ public final class DuelStatsCheck {
                 "lifetime matches trimmed to " + stats.of("u3").matches);
     }
 
-    /** A loss resets the current streak; the best is a high-water mark that never comes back down. */
+    /** A loss resets the current streak; the best is a high-water mark that never falls. */
     private static void countsStreaks(Path root) {
         DuelStats stats = new DuelStats(root);
         stats.record("u4", series("w1", true, ""));

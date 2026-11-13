@@ -19,16 +19,12 @@ import java.util.UUID;
 /**
  * The team cards: one card per side, each with a colour bar, a title and a column of slots.
  *
- * <p>Drawn as one widget rather than as a card widget plus a button per slot. The cards are a single
- * object — they are laid out against each other, they have to share a grid, and the empty slots have
- * to line up across cards or the whole thing stops reading as a roster. Splitting it into twenty
- * widgets would mean a layout pass that has to agree with the draw pass, which is the shape of bug
- * that produces a click landing one card over.</p>
+ * <p>Drawn as one widget rather than as a card widget plus a button per slot: the cards are laid
+ * out against each other, share a grid, and their empty slots have to line up across cards.
  *
- * <p>Colour is the card's identity, and it is the wool colour, not the chat colour: the point is
- * that a player told "you are on the green side" can look at a green wool block and see the same
- * colour. Text is lifted towards white so it stays readable on the near-black panel — the bar keeps
- * the raw wool value, so the two never disagree about which side a card is.</p>
+ * <p>Colour is the wool colour, so a player told "you are on the green side" can match it against a
+ * wool block. Text is lifted towards white for readability on the dark panel; the bar keeps the raw
+ * wool value.
  */
 public class RosterBoard extends PvWidget {
 
@@ -67,22 +63,18 @@ public class RosterBoard extends PvWidget {
     /**
      * Narrowest card that still shows an avatar, a name and the remove glyph without truncating.
      *
-     * <p>Two columns need two of these plus the gap. Below that the grid drops to one column: at the
-     * 426x240 logical canvas the roster pane is about 200px wide, and two 96px cards truncate every
-     * name to three characters — a roster you cannot read is worse than a roster you have to scroll.
-     * </p>
+     * <p>Two columns need two of these plus the gap. Below that the grid drops to one column, since
+     * two 96px cards would truncate every name to three characters.
      */
     private static final int MIN_CARD_W = 150;
 
     private final List<List<Member>> teams = new ArrayList<>();
     /**
-     * Members pushed off the end of a card when {@code b.teamSize} shrank, kept in case it grows back.
+     * Members pushed off the end of a card when {@code b.teamSize} shrank, kept in case it grows
+     * back.
      *
-     * <p>Parallel to {@link #teams} and empty in the ordinary case. Shrinking has to remove them —
-     * the cards are the roster, and a card with more members than slots cannot be drawn — but
-     * removing them for good turned a slider nudge into data loss: lower 每队人数 to 2 to look at
-     * something, put it back to 5, and three hand-picked names were gone with no way to tell which.
-     * Holding them here makes the operation reversible, which is what a slider should be.</p>
+     * <p>Parallel to {@link #teams} and empty in the ordinary case. A card with more members than
+     * slots cannot be drawn, so shrinking moves them here instead of deleting them.
      */
     private final List<List<Member>> spilled = new ArrayList<>();
     private final boolean editable;
@@ -100,15 +92,11 @@ public class RosterBoard extends PvWidget {
     }
 
     /**
-     * Slot count follows the {@code b.teamSize} rule, which lives on another tab.
+     * Sets the slot count, moving members past the new last slot into {@link #spilled} and putting
+     * them back when the count grows.
      *
-     * <p>Mutable rather than constructor-only because the panel is one screen: a player who lowers
-     * "每队人数" on page B and comes back has to see the cards shrink, or the setting looks inert.</p>
-     *
-     * <p>Shrinking moves the members past the new last slot into {@link #spilled} rather than
-     * deleting them, and growing puts them back. The cards still cannot show more members than
-     * slots, so the two pages never disagree about how many people are in the match — but a slider
-     * that is dragged down and back up no longer costs the player three names.</p>
+     * <p>The cards never show more members than slots, so the two pages cannot disagree about the
+     * size of the match.
      */
     public void setSlots(int slots) {
         int next = Math.max(1, slots);
@@ -117,7 +105,7 @@ public class RosterBoard extends PvWidget {
         }
         this.slots = next;
         // Defensive: the two lists are maintained together, but a caller that reaches into teams()
-        // directly would desync them and this loop is the first place that would notice.
+        // directly would desync them.
         while (spilled.size() < teams.size()) {
             spilled.add(new ArrayList<>());
         }
@@ -137,7 +125,7 @@ public class RosterBoard extends PvWidget {
         return slots;
     }
 
-    /** Everybody on every card — the number the "at least two sides" check is a floor over. */
+    /** Everybody on every card; the "at least two sides" check is a floor over this count. */
     public int playerCount() {
         int count = 0;
         for (List<Member> side : teams) {
@@ -177,13 +165,15 @@ public class RosterBoard extends PvWidget {
         return addPlayer(team, name, uuid, 0);
     }
 
-    /** @param state 0 unanswered, 1 accepted, 2 declined — only meaningful on a read-only board */
+    /**
+     * @param state 0 unanswered, 1 accepted, 2 declined; read-only boards only
+     */
     public boolean addPlayer(int team, String name, String uuid, int state) {
         if (team < 0 || team >= teams.size() || teams.get(team).size() >= slots) {
             return false;
         }
-        // Spilled members count as taken too: growing the slots later would otherwise put the same
-        // person on two cards.
+        // Spilled members count as taken too, or growing the slots later would put the same person
+        // on two cards.
         for (List<Member> side : teams) {
             for (Member member : side) {
                 if (member.uuid.equals(uuid)) {
@@ -209,7 +199,7 @@ public class RosterBoard extends PvWidget {
         }
     }
 
-    /** {@code "uuid,uuid;uuid"} — the wire format the server parses back into cards. */
+    /** Returns {@code "uuid,uuid;uuid"}, the wire format the server parses back into cards. */
     public String encode() {
         StringBuilder sb = new StringBuilder();
         for (int team = 0; team < teams.size(); team++) {
@@ -227,7 +217,7 @@ public class RosterBoard extends PvWidget {
         return sb.toString();
     }
 
-    /** How many sides have somebody on them — the number the start condition actually uses. */
+    /** Returns how many sides have somebody on them; the start condition uses this count. */
     public int playingTeams() {
         int count = 0;
         for (List<Member> side : teams) {
@@ -240,7 +230,7 @@ public class RosterBoard extends PvWidget {
 
     // ------------------------------------------------------------------ layout
 
-    /** 2 when two readable cards fit, 1 when they do not. Never 0. */
+    /** Returns 2 when two readable cards fit, 1 when they do not. Never 0. */
     private int columns() {
         return width >= MIN_CARD_W * 2 + GAP ? 2 : 1;
     }
@@ -274,11 +264,10 @@ public class RosterBoard extends PvWidget {
     }
 
     /**
-     * The scroll pane hands out the width, and the grid has to re-answer "how tall am I" for it.
+     * Recomputes the height for the width the scroll pane handed out.
      *
-     * <p>Column count is a function of width, so a card row that fits on two columns at 450px needs
-     * two rows at 200px. Without this the pane would total the heights from the previous width and
-     * cut the last card off.</p>
+     * <p>Column count is a function of width, so the same cards need two rows at 200px where they
+     * need one at 450px.
      */
     @Override
     public void onWidth(int width) {
@@ -310,9 +299,8 @@ public class RosterBoard extends PvWidget {
         List<Member> side = teams.get(team);
         boolean empty = side.isEmpty();
 
-        // The wash is what makes a card belong to a side without painting the panel over: 10% of the
-        // wool colour on the card surface is enough to tell red from blue at a glance, and it leaves
-        // the panel's five-step ladder intact underneath.
+        // 10% of the wool colour on the card surface is enough to tell red from blue at a glance
+        // and leaves the panel's five-step ladder intact underneath.
         PvDraw.roundPanel(ctx, cx, cy, cw, ch, PvTheme.RADIUS,
                 PvTheme.BORDER_STRONG, PvTheme.teamWash(team, PvTheme.CARD, 0.10F));
         // The bar keeps the raw wool colour so it can be matched against a block on the floor.
@@ -365,9 +353,8 @@ public class RosterBoard extends PvWidget {
         int textY = sy + (SLOT_H - 8) / 2;
         int nameColor = rejected ? PvTheme.TEXT_MUTED : PvTheme.TEXT;
         String name = member.name;
-        // Player names are the most variable text in the whole interface and the card is the
-        // narrowest frame that holds one, so this is where shrinking earns its keep: 16 characters
-        // at full size do not fit a 180px card next to a head and a remove mark.
+        // Player names are the most variable text in the interface and the card is the narrowest
+        // frame that holds one: 16 characters at full size do not fit next to a head and a mark.
         int nameMax = rowW - HEAD - 22;
         PvDraw.textFitLeft(ctx, tr, name, rowX + HEAD + 5, textY, nameMax, nameColor);
 

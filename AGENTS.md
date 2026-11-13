@@ -388,6 +388,23 @@ python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
 - 工程流程（构建、联调、仓库结构、脚本、提交）在 `CONTRIBUTING.md`，本文件不重复。
 - 技术细节与设计理由写进 `docs/`，也不写进 README。
 
+### 7b. 注释
+
+**注释只写代码做什么、怎么用，不写它是怎么变成现在这样的。** 改动史进提交信息与 `CHANGELOG.md`，
+论证进 `docs/`。完整规则与正反例在 `CONTRIBUTING.md` 的「注释」一节，这里只列会卡住你的硬项：
+
+- 全英文，**注释里不出现任何非 ASCII 字符**（中文、`—`、`→`、弯引号都算）。
+- 不写第一人称（I / we / our），不写 `used to` / `no longer` / `the old code` / `this fix` 一类叙述。
+- 成段说明用 Javadoc（`/** */`），单个不超过 12 行；连续 `//` 不超过 2 行。
+- Javadoc 摘要句首字母大写、句号结尾；`<p>` 与 `@param` 前留一个空 `*` 行；不写 `@author` / `@since`。
+- public 顶层类型必须有 Javadoc；不留注释掉的代码；注释行不超过 100 列。
+- `*.gradle` / `*.sh` / `*.py` / `*.toml` 里的注释只留解释非显然行为的，能删就删。
+
+```bash
+python scripts/check-comments.py            # 改完必须跑，exit 0 才算过
+python scripts/check-comments.py --summary  # 哪个文件最多
+```
+
 ### 8. 性能
 
 - **稳态 tick 已经不用管，别去优化读路径。** 唯一真贵的是贴图，而贴图的瓶颈是**逐方块的调色板

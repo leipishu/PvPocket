@@ -8,13 +8,12 @@ import java.util.Locale;
 /**
  * The two things a player can save a preset of.
  *
- * <p>They are saved in the same file and shared through the same code path, but they are never
- * interchangeable: a loadout string and a rule string are both "text that encodes a configuration"
- * and nothing else. Keeping the kind on every preset is what stops a rule set from being loaded into
- * the item editor, where it would decode to a pile of defaults and look like a broken save.</p>
+ * <p>Both are saved in the same file and shared through the same code path, but a loadout string
+ * and a rule string are never interchangeable. The kind on every preset stops a rule set from
+ * being loaded into the item editor.
  *
  * <p>The id is the wire and disk form, so it must not change with the client's language. The label
- * is {@code pvpocket.preset.kind.<id>}.</p>
+ * is {@code pvpocket.preset.kind.<id>}.
  */
 public enum PresetKind {
 
@@ -23,9 +22,7 @@ public enum PresetKind {
     /**
      * The rule set, without the roster.
      *
-     * <p>"Without the roster" is not a limitation to work around — the sides are a decision about
-     * <em>this</em> match and the people in it, and a preset that silently re-seated players would be
-     * a preset that rearranges somebody else's team.</p>
+     * <p>The sides belong to one match and its players, so a preset never re-seats anyone.
      */
     RULES("rules");
 
@@ -46,7 +43,7 @@ public enum PresetKind {
         return PvLang.str(labelKey);
     }
 
-    /** Returns null for anything unrecognised — the caller decides whether that is an error. */
+    /** Returns null for anything unrecognised; the caller decides whether that is an error. */
     public static PresetKind byId(String id) {
         for (PresetKind kind : values()) {
             if (kind.id.equals(id)) {

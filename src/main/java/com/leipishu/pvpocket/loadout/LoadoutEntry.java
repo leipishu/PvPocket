@@ -1,13 +1,10 @@
 package com.leipishu.pvpocket.loadout;
 
 /**
- * One line of a loadout: a kind, its appearance, and the handful of numbers the player is allowed to
- * set.
+ * One line of a loadout: a kind, its appearance, and the numbers the player may set.
  *
- * <p>Flat on purpose. Every field is something the editor draws as one row, and every field is
- * something the codec has to round-trip — a nested structure would add mapping code without adding a
- * single capability. Fields that do not apply to a kind are simply left at their defaults and cost
- * nothing but a few bytes in the encoded string.</p>
+ * <p>Every field is one editor row and one codec field. Fields that do not apply to a kind stay at
+ * their defaults.
  */
 public final class LoadoutEntry {
 
@@ -18,17 +15,17 @@ public final class LoadoutEntry {
 
     public ItemKind kind = ItemKind.SWORD;
     public Material material = Material.IRON;
-    /** Food item id, splash potion effect id, or block id — depending on {@link #kind}. */
+    /** Food item id, splash potion effect id, or block id, depending on {@link #kind}. */
     public String variant = "";
     public int count = 1;
-    /** 0-35 inventory, 36-39 armour, 40 offhand. Negative means "assign automatically". */
+    /** Slot index: 0-35 inventory, 36-39 armour, 40 offhand. Negative assigns automatically. */
     public int slot = -1;
 
     /** Total attack damage x10. 0 keeps the item's vanilla value. */
     public int damageTenths = 0;
     /** Armour points x10. Only meaningful for armour kinds. */
     public int armorTenths = 0;
-    /** {@link #DURABILITY_DEFAULT}, {@link #DURABILITY_UNBREAKABLE}, or an exact max damage. */
+    /** One of {@link #DURABILITY_DEFAULT}, {@link #DURABILITY_UNBREAKABLE}, or an exact max. */
     public int durability = DURABILITY_DEFAULT;
     /** Knockback enchantment level, 0-3. */
     public int knockback = 0;
@@ -38,31 +35,29 @@ public final class LoadoutEntry {
     /**
      * Size of the second stack this entry also grants.
      *
-     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT — one field because
-     * it is one concept: "how many of the thing this needs beside it". The wire position is
-     * unchanged from when it was called {@code companionCount}, so old presets still decode.</p>
+     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT.
      */
     public int companionCount = 0;
     /** Splash potion duration in seconds. */
     public int durationSec = 0;
-    /** Splash potion amplifier, 0 = level I. */
+    /** Splash potion amplifier, 0 is level 1. */
     public int amplifier = 0;
 
-    /** Which exclusive trident enchantment this row carries. Only meaningful for {@link ItemKind#TRIDENT}. */
+    /**
+     * Which exclusive trident enchantment this row carries. Only meaningful for
+     * {@link ItemKind#TRIDENT}.
+     */
     public TridentStyle tridentStyle = TridentStyle.NONE;
-    /** Firework rocket flight duration, 1-3. Only meaningful for {@link ItemKind#FIREWORK_ROCKET}. */
+    /**
+     * Firework rocket flight duration, 1-3. Only meaningful for {@link ItemKind#FIREWORK_ROCKET}.
+     */
     public int fireworkFlight = 1;
 
     /**
      * Whether the Q key refuses to throw the stacks this entry grants away.
      *
-     * <p>On by default, and that default is the point: the row exists because a sword thrown away
-     * mid-round cannot be got back, and the gesture that loses it is one key. A player who wants to
-     * drop things during a round turns it off per item; nobody has to remember to turn it on.</p>
-     *
-     * <p>The lock travels on the stack itself (see {@code LoadoutLock}) rather than being looked up
-     * per slot, because a player may move the item anywhere in the inventory — or into a chest — and
-     * it must stay locked wherever it ends up.</p>
+     * <p>On by default, because a sword thrown away mid-round cannot be recovered. The lock travels
+     * on the stack itself (see {@code LoadoutLock}), so it survives moving the item.
      */
     public boolean noDrop = true;
 
@@ -84,8 +79,7 @@ public final class LoadoutEntry {
                 entry.variant = "minecraft:white_wool";
                 entry.count = 32;
             }
-            // A companion that defaults to zero would make every freshly added row useless the
-            // moment it appears, which reads as "the item is broken" rather than "set the count".
+            // A zero companion would leave a freshly added row unusable until the count is set.
             case BOW -> entry.companionCount = 32;
             case END_CRYSTAL -> entry.companionCount = 16;
             case TNT -> entry.companionCount = 1;
@@ -100,25 +94,21 @@ public final class LoadoutEntry {
     }
 
     /**
-     * A stable name for "what this row grants", used to find the row again from a granted stack.
+     * A stable name for what this row grants, for finding the row again from a granted stack.
      *
-     * <p>The lock travels on the stack (see {@code LoadoutLock}), and the stack outlives the row that
-     * produced it: it can be moved, split, put in a chest. When the player turns 禁止丢弃 off, the
-     * sword already in their hand has to lose its mark, and the only thing that connects the two is
-     * this string — so it is written into the mark and read back. It deliberately excludes the
-     * numbers: a damage slider change must not orphan the stack.</p>
+     * <p>The lock travels on the stack (see {@code LoadoutLock}), which outlives the row that
+     * produced it, so this string is written into the mark and read back. The numbers are excluded,
+     * so a damage edit does not orphan the stack.
      */
     public String fingerprint() {
         return kind.id + '|' + material.id + '|' + variant + '|' + tridentStyle.id;
     }
 
     /**
-     * A detached duplicate, for editors that edit a draft and only commit on confirm.
+     * A detached duplicate, for editors that edit a draft and commit on confirm.
      *
-     * <p>The loadout editor is modal: 取消 has to leave the entry exactly as it was, and the field
-     * controls write straight into whatever object they are handed. Handing them a copy and copying
-     * back on 确定 is the only way to get "cancel really cancels" without a second set of
-     * change-tracking for every field.</p>
+     * <p>The field controls write into whatever object they are handed, so the editor edits a copy
+     * and copies back on confirm.
      */
     public LoadoutEntry copy() {
         LoadoutEntry e = new LoadoutEntry();
@@ -169,9 +159,9 @@ public final class LoadoutEntry {
     // ------------------------------------------------------------------ codec
 
     /**
-     * Field order is frozen: it is the wire format between client and server and the on-disk format of
-     * a saved preset. Appending a field is safe because {@link #decode} tolerates a short string;
-     * reordering is not, so new fields go at the end.
+     * Field order is frozen: it is the wire format between client and server and the on-disk format
+     * of a saved preset. Appending a field is safe because {@link #decode} tolerates a short
+     * string; reordering is not, so new fields go at the end.
      */
     public String encode() {
         return String.join("|",
@@ -215,14 +205,10 @@ public final class LoadoutEntry {
         entry.tridentStyle = TridentStyle.byId(part(parts, 13, "none"));
         entry.fireworkFlight = Math.max(LoadoutCatalog.FIREWORK_FLIGHT_MIN,
                 Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, num(parts, 14, 1)));
-        // Defaults to 1 (locked). A preset saved before this field existed decodes as locked, which
-        // is the same accident-prevention a freshly added row gets; defaulting to 0 would make the
-        // behaviour depend on when the file happened to be written.
+        // Defaults to 1 (locked), so a preset without this field still protects its stacks.
         entry.noDrop = num(parts, 15, 1) != 0;
-        // A preset saved before Riptide became a TridentStyle still carries its old bit. Reading it
-        // once here is what keeps that preset from silently losing its enchantment; the bit itself is
-        // cleared so the string re-encodes in the new shape. The kind guard matters because a bit set
-        // on the wrong kind used to be a validation error and must not become a silent field write.
+        // A preset that still carries the retired riptide bit is read as RIPTIDE and the bit is
+        // cleared, so the string re-encodes in the current shape. Trident rows only.
         if (entry.kind == ItemKind.TRIDENT
                 && entry.tridentStyle == TridentStyle.NONE
                 && (entry.flags & WeaponFlag.RETIRED_RIPTIDE_BIT) != 0) {

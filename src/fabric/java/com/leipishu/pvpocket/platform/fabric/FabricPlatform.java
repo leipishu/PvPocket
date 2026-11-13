@@ -26,13 +26,13 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
- * Fabric 侧的 {@link PvPlatform}：把 Fabric API 的事件翻译成平台接口的形状。
+ * Fabric implementation of {@link PvPlatform}, mapping Fabric API events onto the platform
+ * interface.
  *
- * <p>这个类里不该出现任何判断。写到这里来的每个 if，都是在替 {@code PvBootstrap} 回答业务
- * 问题，而业务问题必须对所有加载器给同一个答案。</p>
- *
- * <p>唯一的例外是类型收窄：Fabric 的事件把 {@code LivingEntity} 交给你，而接口只问玩家。
- * 「非玩家一律放行」是接口的约定（见 {@link #onAllowDamage}），不是策略。</p>
+ * <p>Methods here translate events only. Business decisions belong to {@code PvBootstrap} so
+ * that every loader answers the same way. Type narrowing is the one exception: Fabric hands
+ * over a {@code LivingEntity} where the interface asks for a player, and
+ * {@link #onAllowDamage} passes non-players through by contract.
  */
 public final class FabricPlatform implements PvPlatform {
 
@@ -41,7 +41,7 @@ public final class FabricPlatform implements PvPlatform {
         return "fabric";
     }
 
-    // ------------------------------------------------------------------ 网络
+    // ------------------------------------------------------------------ networking
 
     @Override
     public <T extends CustomPacketPayload> void registerPlayToServer(
@@ -58,8 +58,8 @@ public final class FabricPlatform implements PvPlatform {
     @Override
     public <T extends CustomPacketPayload> void onServerReceive(
             CustomPacketPayload.Type<T> type, BiConsumer<ServerPlayer, T> handler) {
-        // Fabric 的 receiver 跑在 netty 线程上，碰世界就是未定义行为。这个跳线程属于平台，
-        // 所以接收方的代码里看不到 `server.execute`——NeoForge 那边本来就在服务端线程，不必跳。
+        // Fabric delivers on the netty thread, where touching the world is undefined. The hop to
+        // the server thread lives here so handlers never call server.execute.
         ServerPlayNetworking.registerGlobalReceiver(type, (payload, context) -> {
             ServerPlayer player = context.player();
             context.server().execute(() -> handler.accept(player, payload));
@@ -76,7 +76,7 @@ public final class FabricPlatform implements PvPlatform {
         ServerPlayNetworking.send(player, payload);
     }
 
-    // ------------------------------------------------------------------ 生命周期
+    // ------------------------------------------------------------------ lifecycle
 
     @Override
     public void onServerStarted(Consumer<MinecraftServer> action) {
@@ -124,11 +124,11 @@ public final class FabricPlatform implements PvPlatform {
                 action.accept(dispatcher));
     }
 
-    // ------------------------------------------------------------------ 否决点
+    // ------------------------------------------------------------------ veto points
 
     @Override
     public void onAllowDamage(DamageVeto veto) {
-        // Fabric 这条事件对所有 LivingEntity 触发；接口只问玩家，其余放行。
+        // Fires for every LivingEntity; non-players pass through, as the interface requires.
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) ->
                 !(entity instanceof ServerPlayer victim) || veto.allow(victim, source, amount));
     }
@@ -141,7 +141,7 @@ public final class FabricPlatform implements PvPlatform {
 
     @Override
     public void onAllowChat(ChatVeto veto) {
-        // Fabric 给的是「未装饰的内容 + 装饰参数」，拼成整行是平台的事——见 ChatVeto 的注释。
+        // Fabric supplies undecorated content and params; joining them is platform work.
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register((message, sender, params) ->
                 veto.allow(sender, params.decorate(message.decoratedContent())));
     }

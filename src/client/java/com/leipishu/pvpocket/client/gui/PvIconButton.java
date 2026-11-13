@@ -8,26 +8,23 @@ import net.minecraft.sounds.SoundEvents;
 /**
  * A square, label-free button whose glyph is drawn rather than typed.
  *
- * <p>Exists because the visual specification forbids graphic characters in strings: a close button
- * labelled {@code ×} would render through whatever glyph the font happens to have, at a weight the
- * panel does not control. {@link PvDraw#cross} and {@link PvDraw#chevron} are hard pixels at every
- * GUI scale, which is the only way a 5px glyph stays a 5px glyph.</p>
+ * <p>The glyph comes from {@link PvDraw#cross} or {@link PvDraw#chevron}. Both are hard pixels at
+ * every GUI scale, so a 5px glyph stays 5px.
  *
- * <p>It is a real widget rather than a rect checked inside its parent so that the layout audit sees
- * it, and so hover and focus animate through the same tweens as every other control.</p>
+ * <p>A real widget, so the layout audit sees it and hover and focus animate like other controls.
  */
 public class PvIconButton extends PvWidget {
 
     public enum Glyph {
         /** Dismiss. Drawn 1.5px thick, centred. */
         CROSS,
-        /** Pointing right or left; {@link #direction} chooses. */
+        /** Pointing right or left, chosen by {@link #direction}. */
         CHEVRON
     }
 
     private final Glyph glyph;
     private final Runnable action;
-    /** +1 or -1, used by {@link Glyph#CHEVRON}. */
+    /** Chevron direction: +1 or -1, read by {@link Glyph#CHEVRON}. */
     public int direction = 1;
     public int color = PvTheme.TEXT_DIM;
     public int hoverColor = PvTheme.TEXT;
@@ -42,11 +39,9 @@ public class PvIconButton extends PvWidget {
     /**
      * A disabled icon button does not hover.
      *
-     * <p>The pager is why: on the first page the "previous" arrow is disabled, and a button that
-     * lights up under the pointer while refusing the click is the interface promising something it
-     * will not do. Damping the highlight on {@code enabled} rather than skipping the fill also
-     * means the glow fades out if the control is disabled while the pointer is on it, instead of
-     * snapping off.</p>
+     * <p>The pager disables "previous" on the first page, and a highlight there would promise a
+     * click that is refused. Damping the fill on {@code enabled} also fades the glow out instead
+     * of snapping it off.
      */
     @Override
     public void updateHover(int mouseX, int mouseY) {

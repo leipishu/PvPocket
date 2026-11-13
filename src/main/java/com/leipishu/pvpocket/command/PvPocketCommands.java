@@ -27,24 +27,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Command surface for S1. The rule GUI replaces most of this later; the commands stay as the
- * scriptable, testable path.
+ * Command surface for the mod. The rule GUI covers most of the same ground; these commands remain
+ * the scriptable, testable path.
  *
- * <p><b>Command syntax is never translated.</b> {@code /pvpocket}, its literals, and the argument
+ * <p>Command syntax is never translated. {@code /pvpocket}, its literals, and the argument
  * placeholders in the help text ({@code <player>}, {@code <true|false>}) are tokens the dispatcher
- * parses; they appear identically in every language file and are passed to the translation as
- * literal arguments rather than as part of a translated sentence. Only the description beside them
- * changes with the reader's language.</p>
+ * parses, so they are identical in every language file. Only the description beside them changes
+ * with the reader's language.
  */
 public final class PvPocketCommands {
 
     /**
      * Column the descriptions start at, in characters.
      *
-     * <p>The font is proportional, so this lines the help text up approximately rather than exactly —
-     * which is what the full-width spaces it replaces did as well, and what a translated command list
-     * can do at all: the usage column is a fixed ASCII token, so it is the one thing that can be
-     * padded to a stable width.</p>
+     * <p>The font is proportional, so this lines the help text up approximately. The usage
+     * column is a fixed ASCII token, which is what makes it the part that can be padded.
      */
     private static final int USAGE_COLUMN = 34;
 
@@ -55,16 +52,12 @@ public final class PvPocketCommands {
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("pvpocket")
                 .executes(PvPocketCommands::help);
 
-        // No arguments. Who fights whom is a two-dimensional list, and Brigadier has no grammar for
-        // one: a selector can say "everyone here" but cannot say "these two on one side and those
-        // two on the other", which is the only thing that matters once a match has more than two
-        // sides. The roster is built in the panel instead, and the sides are then explicit.
+        // No arguments: Brigadier has no grammar for "these two on one side and those two on the
+        // other", so the roster is built in the panel and the sides are explicit.
         root.then(Commands.literal("duel").executes(PvPocketCommands::duel));
 
-        // No accept/propose/deny here. Those three live on the rule panel and only there: the panel
-        // is opened by the server at every point where one of them could be pressed, so a command
-        // was a second path to the same three intents with nothing the panel cannot do — and three
-        // lines of the help text spent explaining a slower way to click a button.
+        // Accept, propose and deny live on the rule panel only; the server opens it wherever one of
+        // them could be pressed.
         root.then(Commands.literal("help").executes(PvPocketCommands::help));
         root.then(Commands.literal("review").executes(PvPocketCommands::review));
         root.then(Commands.literal("surrender").executes(PvPocketCommands::surrender));
@@ -75,8 +68,8 @@ public final class PvPocketCommands {
                 .then(Commands.literal("reset")
                         .requires(source -> source.hasPermission(3))
                         .executes(PvPocketCommands::arenaReset))
-                // Operator-only: this decides how many duels the server can run at once, and it
-                // writes to the world's saved layout.
+                // Operator-only: it sets how many duels the server can run and writes the saved
+                // layout.
                 .then(Commands.literal("copy")
                         .requires(source -> source.hasPermission(3))
                         .then(Commands.argument("map", StringArgumentType.word())
@@ -86,8 +79,7 @@ public final class PvPocketCommands {
                                                 IntegerArgumentType.integer(1, 8))
                                         .executes(ctx -> arenaCopy(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "count"))))))
-                // Operator-only, same reason as copy: it writes the saved layout, and it erases a
-                // stamped arena while it does.
+                // Operator-only, as copy: it writes the saved layout and erases a stamped arena.
                 .then(Commands.literal("remove")
                         .requires(source -> source.hasPermission(3))
                         .then(Commands.argument("map", StringArgumentType.word())
@@ -98,7 +90,7 @@ public final class PvPocketCommands {
                                         .executes(ctx -> arenaRemove(ctx,
                                                 IntegerArgumentType.getInteger(ctx, "count")))))));
         root.then(Commands.literal("guard")
-                // Operator-only, because the flag is the one way to stay in the sandbox on purpose.
+                // Operator-only: the flag keeps a player in the sandbox.
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.argument("enabled", BoolArgumentType.bool())
                         .executes(ctx -> guard(ctx, BoolArgumentType.getBool(ctx, "enabled")))));
@@ -120,11 +112,10 @@ public final class PvPocketCommands {
     }
 
     /**
-     * One help line: the usage as a literal, the description from the language file.
+     * Writes one help line: the usage as a literal, the description from the language file.
      *
-     * <p>Split rather than baked into a single translated sentence so that a translator cannot
-     * accidentally translate {@code /pvpocket spectate leave} into something the dispatcher does not
-     * accept.</p>
+     * <p>Split so that a translator cannot translate {@code /pvpocket spectate leave} into
+     * something the dispatcher does not accept.
      */
     private static void helpLine(CommandSourceStack source, String usage, String descriptionKey) {
         String pad = " ".repeat(Math.max(2, USAGE_COLUMN - usage.length()));
@@ -203,8 +194,8 @@ public final class PvPocketCommands {
                         leased.size())
                 .withStyle(ChatFormatting.AQUA), false);
 
-        // The gallery is the point: every map sits in its own cell of the dimension, so "select the
-        // colosseum" is a teleport to fixed coordinates rather than a paste at the origin.
+        // Every map sits in its own cell of the dimension, so selecting one is a teleport to fixed
+        // coordinates rather than a paste at the origin.
         if (gallery.isEmpty()) {
             source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.empty")
                     .withStyle(ChatFormatting.GRAY), false);
@@ -243,11 +234,10 @@ public final class PvPocketCommands {
     }
 
     /**
-     * Suggests the map ids for {@code /pvpocket arena copy}.
+     * Suggests map ids for {@code /pvpocket arena copy}.
      *
      * <p>Ids rather than display names: the argument is a token the dispatcher matches, and a
-     * translated name would be a different token in every language. The name is shown next to the
-     * id in the feedback so the operator can see which one they picked.</p>
+     * translated name would be a different token in every language.
      */
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions>
             suggestMaps(CommandContext<CommandSourceStack> ctx,
@@ -262,19 +252,12 @@ public final class PvPocketCommands {
     }
 
     /**
-     * {@code /pvpocket arena copy <map> [count]} — gives a map more cells.
+     * Gives a map more cells: {@code /pvpocket arena copy <map> [count]}.
      *
-     * <p>This is the answer to "the server has more rooms than maps". A cell is a whole arena of the
-     * dimension, and a map only owns as many as it was given, so a busy evening on four flat rooms
-     * runs out at four unless somebody says otherwise. Copies are made here rather than on demand
-     * because the number of concurrent duels is a capacity decision — an operator who has planned
-     * for two colosseums wants the third pair turned away with a clear message, not quietly
-     * squeezed into the gap next to a running fight.</p>
-     *
-     * <p>Each copy is a real cell with its own coordinates, recorded in {@code pvpocket/arena.json},
-     * so it survives a restart and can be visited with {@code /tp}. That is the whole point of
-     * copying the structure rather than re-pasting it somewhere: the copy is the same build at a
-     * stable address.</p>
+     * <p>A cell is a whole arena of the dimension, and a map owns only as many as it was given.
+     * Copies are made here rather than on demand because the number of concurrent duels is a
+     * capacity decision. Each copy is a real cell with its own coordinates, recorded in
+     * {@code pvpocket/arena.json}, so it survives a restart.
      */
     private static int arenaCopy(CommandContext<CommandSourceStack> ctx, int count) {
         CommandSourceStack source = ctx.getSource();
@@ -290,8 +273,7 @@ public final class PvPocketCommands {
             source.sendFailure(PvLang.t("pvpocket.command.arena.copy_unknown", id));
             return 0;
         }
-        // Loop variables are not effectively final, and the feedback below is a lazy supplier — it
-        // is built now and rendered later, so it may only capture constants.
+        // Loop variables are not effectively final, and the feedback below is a lazy supplier.
         final com.leipishu.pvpocket.arena.ArenaMap chosen = map;
         int made = 0;
         for (int i = 0; i < count; i++) {
@@ -303,8 +285,7 @@ public final class PvPocketCommands {
             final int[] centre = com.leipishu.pvpocket.arena.ArenaManager.cellCentre(slot);
             final var region = com.leipishu.pvpocket.arena.ArenaManager.regionAtSlot(slot);
             // Two lines, not one: "reserved" and "built" are different promises. A flat copy has no
-            // blocks until a duel asks for a size, and an operator who flew there expecting a
-            // platform would think the command had failed.
+            // blocks until a duel asks for a size.
             if (region == null) {
                 source.sendSuccess(() -> PvLang.t("pvpocket.command.arena.copy_reserved",
                         chosen.labelText(), centre[0], centre[1]), false);
@@ -322,16 +303,10 @@ public final class PvPocketCommands {
     }
 
     /**
-     * {@code /pvpocket arena remove <map> [count]} — the inverse of {@code copy}.
+     * Takes cells away from a map: {@code /pvpocket arena remove <map> [count]}.
      *
-     * <p>Both halves of the capacity decision belong in one place. An operator who has over-planned
-     * an evening needs the cells back, and without this the only way was to edit
-     * {@code pvpocket/arena.json} by hand — a file whose whole design is "do not touch this, the
-     * slot numbers are addresses".</p>
-     *
-     * <p>There is no lower bound: a map can be taken down to no cells, at which point the rule panel
-     * stops offering it. That is the honest way to retire a map — the alternative would be a flag
-     * that hides it from one panel while {@code allocate} still happily stamps it.</p>
+     * <p>The inverse of {@code copy}. There is no lower bound: a map can be taken down to no cells,
+     * at which point the rule panel stops offering it.
      */
     private static int arenaRemove(CommandContext<CommandSourceStack> ctx, int count) {
         CommandSourceStack source = ctx.getSource();
@@ -362,9 +337,8 @@ public final class PvPocketCommands {
                     chosen.labelText(), cell, left), false);
         }
         if (gone == 0) {
-            // Two refusals, two sentences. "It is in use" is a wait; "there is nothing left" is a
-            // statement about the map, and telling an operator to wait for a duel that does not
-            // exist would be the wrong kind of wrong.
+            // Two refusals, two sentences: "it is in use" is a wait, "there is nothing left" is a
+            // statement about the map.
             if (last == com.leipishu.pvpocket.arena.ArenaManager.REMOVE_BUSY) {
                 source.sendFailure(PvLang.t("pvpocket.command.arena.remove_busy", chosen.labelText()));
             } else {
@@ -383,9 +357,8 @@ public final class PvPocketCommands {
     /**
      * Hard reset of the duel dimension.
      *
-     * <p>Announced to everyone, not just the operator. The command ends other people's matches
-     * without their consent and then freezes the world for a few seconds while the gallery
-     * re-stamps, and a server that goes quiet for no visible reason reads as a crash.</p>
+     * <p>Announced to everyone, not just the operator: the command ends other players' matches and
+     * then freezes the world for a few seconds while the gallery re-stamps.
      */
     private static int arenaReset(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
@@ -414,9 +387,8 @@ public final class PvPocketCommands {
     /**
      * Turns the automatic removal of stray players on or off for the calling player.
      *
-     * <p>Self-targeting on purpose. The flag is an "I am going in there to look" permission, and a
-     * command that could hand it to somebody else would be a way to park a player in the sandbox
-     * indefinitely without them ever seeing the prompt.</p>
+     * <p>Self-targeting: the flag is a permission to look around the sandbox, and a command that
+     * could hand it to somebody else would let a player park there indefinitely.
      */
     private static int guard(CommandContext<CommandSourceStack> ctx, boolean enabled) {
         CommandSourceStack source = ctx.getSource();
@@ -443,9 +415,9 @@ public final class PvPocketCommands {
     /**
      * Opens the match panel.
      *
-     * <p>The panel, not a chat listing: the point of the command is to get into a duel as a
-     * spectator, and a chat line cannot be clicked. The server pushes the list as a payload and the
-     * client draws it, which is the same split the rule panel uses.</p>
+     * <p>The panel rather than a chat listing: the command exists to get into a duel as a
+     * spectator, and a chat line cannot be clicked. The server pushes the list as a payload and
+     * the client draws it.
      */
     private static int list(CommandContext<CommandSourceStack> ctx) {
         try {
@@ -531,9 +503,9 @@ public final class PvPocketCommands {
     /**
      * Opens the loadout editor without going through the rule panel.
      *
-     * <p>The panel's loadout button is the normal path; this is the same call for players who closed
-     * the panel by accident, and the only way to drive the editor from the console during testing. It
-     * works with no duel open at all — that is the "configure before challenging" case.</p>
+     * <p>The panel's loadout button is the normal path; this is the same call for players who
+     * closed the panel, and the only way to drive the editor from the console during testing.
+     * It works with no duel open.
      */
     private static int loadoutEdit(CommandContext<CommandSourceStack> ctx) {
         try {
@@ -545,12 +517,10 @@ public final class PvPocketCommands {
     }
 
     /**
-     * {@code /pvpocket loadout accept|decline} — the between-round loadout handshake.
+     * Accepts or declines the between-round loadout swap.
      *
      * <p>A command rather than a panel button because there is no mid-series panel to put a button
-     * on: the rules panel is a draft/negotiation screen and opening it mid-series would be a
-     * different feature. These two leaves are the first path to this decision, not a second one
-     * beside a GUI.</p>
+     * on: the rules panel is a draft and negotiation screen.
      */
     private static int loadoutAccept(CommandContext<CommandSourceStack> ctx) {
         try {
@@ -581,10 +551,8 @@ public final class PvPocketCommands {
     /**
      * One-line summary of a loadout row, for the diagnostic command.
      *
-     * <p>Built as {@link Text} rather than a string because each part is a translated word —
-     * "damage", "unbreakable", the flag names — and the row has to read correctly in whichever
-     * language the reader's client is running. Separators stay literal: a space and a multiplication
-     * sign mean the same thing everywhere.</p>
+     * <p>Built as a component rather than a string because each part is a translated word, so the
+     * row reads correctly in the reader's language. Separators stay literal.
      */
     private static MutableComponent describe(LoadoutEntry entry) {
         MutableComponent out = entry.kind.labelText().copy();
@@ -620,8 +588,8 @@ public final class PvPocketCommands {
         if (entry.kind == ItemKind.FIREWORK_ROCKET) {
             out.append(PvLang.t("pvpocket.command.loadout.entry.firework_flight", entry.fireworkFlight));
         }
-        // The companion stack is named per kind rather than as a generic "companion": a diagnostic
-        // line that says "companion ×16" makes the reader go and look up which item that is.
+        // The companion stack is named per kind rather than as a generic "companion", so the line
+        // says which item it is.
         if (entry.kind.hasCompanion() && entry.companionCount > 0
                 && !(entry.kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY))) {
             String key = switch (entry.kind) {

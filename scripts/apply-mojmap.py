@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
-"""按 Yarn → Mojmap 对照表改写源码。
+"""Rewrites source files according to the Yarn -> Mojmap table.
 
-分工：`mojmap-table.py` 只负责生成对照表（那是唯一需要联网、需要两份映射接合的地方），本脚本只做
-文本替换。两者分开是因为替换规则需要反复调，而对照表生成一次就够了。
+Four passes, from fully reliable to possibly ambiguous:
 
-替换分四步，从"完全可靠"排到"可能有歧义"：
+1. Fully qualified names: net.minecraft.util.math.BlockPos -> net.minecraft.core.BlockPos.
+2. Simple names: a file importing net.minecraft.world.World gets `World` -> `Level` in its
+   body. Only for classes the file really imports, and in a single pass (no A->B->C chain).
+3. Member names: `.getAttackCooldownProgress(` -> `.getAttackStrengthScale(`. Without type
+   information this only handles `.name(` and `.name`, and a name with two different targets
+   in one file is skipped and reported.
+4. Class paths inside strings: mixin `method = "...(Lnet/...;...)"` and
+   `@At(target = "Lnet/...;")`. The compiler never sees those, Mixin does.
 
-1. **全限定名**：`net.minecraft.util.math.BlockPos` → `net.minecraft.core.BlockPos`。只可能出现在
-   导入行和少数内联处，替换是安全的。
-2. **简单名**：文件导入了 `net.minecraft.world.World`，正文里写的 `World` 要变成 `Level`。
-   只对**该文件真的导入过的**类生效，且单趟替换（A→B、B→C 不会连锁）。
-3. **成员名**：`.getAttackCooldownProgress(` → `.getAttackStrengthScale(`。这一步没有类型信息，所以
-   保守：只认 `.名字(` 和 `.名字` 形式，且同一个文件里同一个旧名字若对应两个不同的新名字就跳过并
-   报告（那种情况必须人看）。
-4. **字符串里的类路径**：mixin 的 `method = "...(Lnet/minecraft/util/math/BlockPos;...)"` 和
-   `@At(target = "Lnet/minecraft/...;")`。编译器完全看不见它们，但 mixin 运行时看得见。
+Lines starting with `//`, `/*` or `*` are skipped entirely.
 
-注释与 javadoc 不参与替换（以 `//`、`/*`、`*` 开头的行整行跳过），否则散文里的 "World" 会被改成
-"Level"，那属于把文档改坏。
-
-用法：
+Usage:
     scripts/apply-mojmap.py build/mojmap/yarn-mojmap-1.21.1.tsv [--dry-run]
 """
 
@@ -29,21 +24,13 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 源码在仓库根：cell 只决定怎么编译 src/，源码本身不分版本也不分加载器。
+# Sources live at the repository root: a cell only decides how to compile src/.
 SOURCES = os.path.join(ROOT, "src")
 
 COMMENT_LINE = re.compile(r"^\s*(//|/\*|\*)")
 
-# 不做成员改名的名字。
-#
-# 成员名替换没有类型信息，而 Java 标准库与 fastutil 的集合方法名和 MC 的方法名大面积重合：
-# `List.get` / `Map.Entry.getValue` / `Set.contains` / `List.add` / `List.of` / `Builder.build`
-# 全都撞上 MC 的同名方法。按名字全局替换的结果是 `slots.get(slot)` 变成 `slots.offset(slot)`、
-# `entry.getValue()` 变成 `entry.location()`——编译报错指向一行完全无辜的集合操作。
-#
-# 所以这些名字一律不改，留给编译器逐站点发现（真需要改的 MC 调用会报"找不到符号"，那是可定位的；
-# 误改的 JDK 调用只会让错误指向别处）。这份名单只增不减：加错了顶多多几条编译错误，漏一个就是
-# 一批语义错误。
+# Member names that are never renamed. JDK and fastutil collections reuse MC method names
+# (List.get, Map.Entry.getValue, List.of), so renaming by name corrupts collection calls.
 JDK_NAMES = set("""
 get getValue getKey getOrDefault getOrThrow setValue contains containsKey containsValue
 add addAll remove removeAll removeIf put putAll putIfAbsent computeIfAbsent computeIfPresent
@@ -59,14 +46,8 @@ addFirst addLast getFirst getLast poll peek push pop offer
 getLong putLong removeLong containsLong longIterator longStream long2ObjectEntrySet
 """.split())
 
-# 我们自己起的名字，恰好和某个 MC 方法同名。
-#
-# 这一类不是"JDK 撞名"，是"我们的领域词撞名"：`ArenaManager.Screen.bounds()` 被 AABB 的
-# `unitCubeFromLowerCorner` 顶掉、`LoadoutEntry.damage()` 被 `Entity.hurt` 顶掉、
-# `ArenaRegion.onBlockChanged()` 被 `Level.onBlockStateChange` 顶掉。三处报错都指向调用处，
-# 而声明在另一个文件里、名字看着完全正常。
-#
-# 判断标准：这个名字在本仓库里**只属于我们**，MC 那边即使有同名的也不会被我们调用。
+# Domain names of this repository that collide with an MC member (bounds, damage,
+# onBlockChanged). Renaming them breaks the declarations that use them.
 OWN_COLLISIONS = set("""
 bounds damage onBlockChanged encode floorY from
 """.split())
@@ -78,10 +59,10 @@ REGEX_RULES = []
 
 
 def load_table(path):
-    """读表，成员按**所属类**分组。
+    """Reads the table, grouping members by owning class.
 
-    分组不是为了好看：层次展开后方法有十八万条，每个文件再按 (类, 名) 全表扫一遍就是几亿次比较，
-    跑一个版本要几分钟。分组之后每个文件只碰自己 import 的那几十个类。
+    Grouping is a performance requirement: after hierarchy expansion there are 180k methods,
+    and a full scan per file would be hundreds of millions of comparisons.
     """
     classes = {}
     methods = {}
@@ -98,25 +79,15 @@ def load_table(path):
             elif parts[0] == "field":
                 fields.setdefault(parts[1], {})[parts[2]] = parts[3]
             elif parts[0] == "static":
-                # static  接收者类简名  旧名  新名  [参数个数，缺省 -1 = 不限]
-                #
-                # 静态调用写成 `ResourceLocation.of(a, b)`，接收者就是类名本身，可以精确命中——
-                # 而 `of` 在 JDK 集合上到处都是（`List.of`），按名字全局改会误伤，所以只能这样分出来。
-                # 同名重载去向不同的（`of(s)` → parse、`of(a, b)` → fromNamespaceAndPath）靠参数个数区分。
+                # static  receiver  old  new  [arg count, default -1 = any]: a static call names
+                # its receiver class, so overloads can be told apart by argument count.
                 count = int(parts[4]) if len(parts) > 4 and parts[4].strip() else -1
                 STATIC_METHODS[(parts[1], parts[2], count)] = parts[3]
             elif parts[0] == "staticfield":
                 STATIC_FIELDS[(parts[1], parts[2])] = parts[3]
             elif parts[0] == "regex":
-                # 正则写错（漏一个转义括号是最常见的）时立刻说清楚是哪一行，而不是让整趟改名
-                # 跑到一半崩在某个文件上——那样源码会停在一个"改了一半"的状态，报出来的错误
-                # 全是残留物，看起来像模组坏了。
-                # regex  正则  替换（Python 语法，可用 \1 回引）
-                #
-                # 留给"必须看上下文才能定的那几处"：`ItemEnchantments.Mutable.add` 与
-                # `ItemAttributeModifiers.Builder.add` 同名但去向不同，`builder` 这个变量名在同一个
-                # 文件里出现了两次。这类不能按名字、也不能按接收者类名定位，只能写死一段上下文。
-                # 替换串里的 \n 还原成换行：TSV 是按行读的，多行替换只能在单元格里写转义。
+                # regex  pattern  replacement (Python syntax, \1 backreferences). These cover the
+                # sites that need context: two `add` members in one file with different targets.
                 try:
                     REGEX_RULES.append((re.compile(parts[1]), parts[2].replace("\\n", "\n")))
                 except re.error as error:
@@ -130,16 +101,15 @@ def simple(fqn):
 
 
 def is_identifier(name):
-    """匿名内部类在表里叫 `Outer$3`，它的"名字"是 `3`——不是标识符，不能拿去替换。"""
+    """`Outer$3` has the name `3`, which is not an identifier and cannot be substituted."""
     return bool(name) and (name[0].isalpha() or name[0] in "_$") and all(
         ch.isalnum() or ch in "_$" for ch in name)
 
 
 def nested_target(fqn, classes):
-    """`a.b.Outer.Inner` 在表里是 `a.b.Outer$Inner`；逐段把点号换成 $ 去试。
+    """`a.b.Outer.Inner` is `a.b.Outer$Inner` in the table; try each dot-to-dollar split.
 
-    返回表里的 Mojmap 名（仍是 $ 形式），找不到返回 None。只试最后几段，因为 `Outer.Inner.Deep`
-    这种两层嵌套也要能命中。
+    Returns the Mojmap name still in $ form, or None. Two levels of nesting also have to hit.
     """
     parts = fqn.split(".")
     for depth in range(1, len(parts) - 1):
@@ -150,18 +120,18 @@ def nested_target(fqn, classes):
 
 
 MIXIN_TARGET = re.compile(r"@Mixin\(\s*([\w.]+)\s*\.class\s*\)")
-# method = "名字" 或 method = "名字(描述符)…"；名字永远紧跟引号，描述符才可能被 + 拼开。
+# MIXIN_METHOD reads `method = "name"`: the name always follows the quote directly.
 MIXIN_METHOD = re.compile(r'(method\s*=\s*")(\w+)')
-# @At(target = "Lpkg/Cls;名字(…")
+# AT_TARGET reads `@At(target = "Lpkg/Cls;name(desc)")`.
 AT_TARGET = re.compile(r'(target\s*=\s*"L)([\w/$]+);(\w+)')
 ACCESSOR = re.compile(r'@(Accessor|Invoker)\(\s*"(\w+)"\s*\)')
 
 
 def rewrite_mixin_strings(text, classes, methods, fields, import_map, report, where):
-    """把 mixin 注解里的方法名 / 字段名 / @At 目标改成 Mojmap 名。
+    """Rewrites method names, field names and @At targets inside mixin annotations.
 
-    这些是**字符串**，编译器一个字都不看；改错了的表现是注入点匹配不到，mixin 静默跳过，游戏照跑，
-    只是那个功能没了。`MixinTargetCheck` 事后能抓到，但先改对更省事。
+    These are strings, so the compiler ignores them. A wrong one means the injection point
+    does not match, the mixin is skipped silently, and the feature disappears.
     """
     match = MIXIN_TARGET.search(text)
     if match is None:
@@ -193,11 +163,8 @@ def rewrite_mixin_strings(text, classes, methods, fields, import_map, report, wh
 
     text = AT_TARGET.sub(at_repl, text)
 
-    # 被 `+` 拼开的目标：`"Lpkg/Cls;" + "方法(描述符)返回"`。
-    #
-    # 长描述符几乎总是这么写的，而 AT_TARGET 只看得见第一个字面量里的类名，方法名留在第二个
-    # 字面量里没人管。表现是：类改对了、方法名还是 Yarn 的，mixin 注入点匹配不到（0 targets），
-    # 游戏照跑、功能静默消失。MixinTargetCheck 当时也没抓到，因为它同样只读第一个字面量。
+    # A target split by `+`: `"Lpkg/Cls;" + "method(descriptor)ret"`. AT_TARGET only sees the
+    # class name in the first literal, so the method name needs its own pass.
     split_target = re.compile(r'"L([\w/$]+);"(\s*\+\s*)"(\w+)')
 
     def split_repl(m):
@@ -229,31 +196,25 @@ def rewrite_file(path, classes, methods, fields, report):
     imports = re.findall(r"^import\s+([\w.]+)\s*;", original, re.M)
     import_map = {fqn.rsplit(".", 1)[-1]: fqn for fqn in imports}
 
-    # 接收者是不是"我们自己的对象"，靠变量声明判断——见 local_types。
+    # Whether the receiver is a local object, decided from declarations; see local_types.
     declared = local_types(original)
     own = own_types()
-    # 本文件自己声明的方法名。无接收者的调用（`quad(...)`、`send(...)`）分不清是"我们自己的
-    # 方法"还是"静态导入的 MC 方法"，而这个名字在本文件里被声明过，那就是我们自己的。
+    # Names declared in this file. A call without a receiver cannot be told apart from a
+    # statically imported MC method, and a declaration here settles it.
     mine = own_names(path)
 
     def ours(receiver):
         return receiver in own or receiver in ("this", "super") or declared.get(receiver) in own
 
-    # ---- 0. mixin 注解里的字符串
-    #
-    # 必须排在最前面，而且必须用 Yarn 名去查表：这些字符串是"旧名字"，一旦前面的步骤把文件里的
-    # 导入改成 Mojmap，就再也对不上表的键了。
+    # ---- 0. strings in mixin annotations. This runs first and looks names up as Yarn: after
+    # the imports become Mojmap, the table keys stop matching.
     text = rewrite_mixin_strings(original, classes, methods, fields, import_map, report,
                                 os.path.basename(path))
 
     imported = [fqn for fqn in imports if fqn in classes]
 
-    # ---- 1. 全限定名（点号形式）
-    #
-    # 正则按"最长前缀"退让，而不是整串查表。源码里会出现 `net.minecraft.enchantment.Enchantments.KNOCKBACK`
-    # 这种**类名后面还挂着成员**的写法，整串当然查不到表——早期版本就这么静默放过了，于是导入行
-    # 改对了、内联的那一处没改，报错是"程序包 net.minecraft.enchantment 不存在"，指向一行看起来
-    # 完全正确的代码。
+    # ---- 1. fully qualified names. The regex backs off to the longest known prefix, because
+    # source can write `net.minecraft.enchantment.Enchantments.KNOCKBACK` with a member attached.
     def fqn_repl(match):
         parts = match.group(0).split(".")
         for cut in range(len(parts), 2, -1):
@@ -269,7 +230,7 @@ def rewrite_file(path, classes, methods, fields, report):
 
     text = re.sub(r"\bnet\.minecraft\.[\w.]*\w\b", fqn_repl, text)
 
-    # 嵌套类的导入：源码写的是 Outer.Inner，表里是 Outer$Inner，上面的全限定名替换看不见它。
+    # Nested imports: source writes Outer.Inner and the table has Outer$Inner.
     for fqn in imports:
         if fqn in classes:
             continue
@@ -279,17 +240,12 @@ def rewrite_file(path, classes, methods, fields, report):
             import_map[fqn.rsplit(".", 1)[-1]] = target
             imported.append(target)
 
-    # ---- 遮蔽：把全限定名和字符串字面量挖掉，后面两步只该动"代码里的裸名字"
-    #
-    # 这一步是必须的，不是保险。成员名替换匹配的是 `.名字`，而 `net.minecraft.world` 里正好有一个
-    # `.world`——MC 有字段 world → level（Entity.level），于是整条包名会被改成 `net.minecraft.level`，
-    # 而导入行自己看着还挺像回事。踩过一次：118 个文件全被这条规则污染。
+    # ---- mask fully qualified names and string literals before the next two passes. Member
+    # replacement matches `.name`, and `net.minecraft.world` contains `.world`.
     masked, stash = mask(text)
 
-    # ---- 2. 简单名
-    #
-    # 键是源码里写的那个标识符，值是它该变成的标识符。顶层类两边都是最后一段；嵌套导入
-    # （import ...CustomPayload.Id）左边是 Id、右边是 Type，得分开取。
+    # ---- 2. simple names. The key is the identifier as written. For a nested import
+    # (CustomPayload.Id) the two sides take their last segment separately.
     simple_map = {}
     kept = set()
     for fqn in imports:
@@ -304,13 +260,8 @@ def rewrite_file(path, classes, methods, fields, report):
         if old != new:
             simple_map[old] = new
 
-    # 继承来的嵌套类型：`implements CustomPayload` 之后正文里可以直接写 `Id`，根本没有 import。
-    # 只对**本文件导入过的外层类**的嵌套类型做，且同名冲突就跳过——这是启发式，编译器兜底。
-    #
-    # 冲突判断必须看**全表**，不能只看本文件导入的那几个外层类：`Builder` 这种名字在几十个类里
-    # 都有，`AttributeModifiersComponent.Builder` → `ItemAttributeModifiers.Builder`（名字没变），
-    # 而 `ItemEnchantmentsComponent.Builder` → `ItemEnchantments.Mutable`。只看本文件的话两者
-    # 都进了表、后一个把前一个顶掉，于是 `ItemAttributeModifiers.Builder` 被改成 `Mutable`。
+    # Nested types inherited from an imported outer class need no import. The conflict check has
+    # to look at the whole table: `Builder` appears in dozens of classes with different targets.
     every_inner = {}
     for yarn_fqn, moj_fqn in classes.items():
         if "$" not in yarn_fqn or "$" not in moj_fqn:
@@ -337,17 +288,16 @@ def rewrite_file(path, classes, methods, fields, report):
     for name in sorted(nested_conflict):
         nested_simple.pop(name, None)
         report.append("%s：嵌套类型名 %s 对应多个新名字，跳过" % (os.path.basename(path), name))
-    # 不去串：`Id`→`Type` 之后若再把 `Type`→`TypeAndCodec` 也放进同一张表，单趟替换里
-    # `CustomPayload.Id` 先变成 `...Type`，紧接着那个 `Type` 又被改成 `TypeAndCodec`——名字是对的
-    # 起点、错的重点。凡是"新名字又是另一个旧名字"的条目一律丢掉。
+    # No chaining: with `Id`->`Type` and `Type`->`TypeAndCodec` in one map, a single pass would
+    # turn Id into TypeAndCodec. Entries whose new name is another old name are dropped.
     chained = {new for new in nested_simple.values() if new in nested_simple}
     for old, new in nested_simple.items():
         if old in chained:
             continue
         simple_map.setdefault(old, new)
 
-    # 嵌套类：源码里写的是 Outer.Inner，不是 Outer$Inner。表里两者都是 $ 形式，要还原成点号路径。
-    # 必须先于裸名字替换——否则 Outer 先被改名，这条点号路径就再也匹配不上了。
+    # Nested classes: the table uses $, source uses a dot path. This runs before the bare-name
+    # pass, otherwise Outer is renamed first and the dot path never matches.
     nested_map = {}
     for yarn_fqn, moj_fqn in classes.items():
         if "$" not in yarn_fqn or "$" not in moj_fqn:
@@ -364,9 +314,8 @@ def rewrite_file(path, classes, methods, fields, report):
             nested_map[old_path] = new_path
 
     if simple_map:
-        # 撞名判断看的是"没被改名的导入"，不是"文件里出现过的名字"：单趟替换里 A→B、B→C 可以同时
-        # 成立（RegistryKeys→Registries 与 Registries→BuiltInRegistries 就是一对），只有新的名字
-        # 被一个**不改名**的导入占着时才是真冲突。
+        # A clash is real only when the new name is held by an import that is not renamed: in a
+        # single pass A->B and B->C can both hold.
         for old, new in list(simple_map.items()):
             if new in kept:
                 report.append("%s：简单名 %s → %s 会撞上已有的导入，跳过"
@@ -384,7 +333,7 @@ def rewrite_file(path, classes, methods, fields, report):
         masked = sub_outside_comments(masked, pattern,
                                       lambda m: simple_map[m.group(1)])
 
-    # ---- 3. 成员名
+    # ---- 3. member names
     method_map = {}
     field_map = {}
     conflicts = set()
@@ -402,59 +351,43 @@ def rewrite_file(path, classes, methods, fields, report):
         field_map.pop(name, None)
         report.append("%s：成员名 %s 在同一文件里对应多个新名字，跳过" % (os.path.basename(path), name))
 
-    # JDK 同名方法一律不改，理由见 JDK_NAMES 上的注释。
+    # JDK names are never renamed; see the JDK_NAMES comment.
     for name in [n for n in method_map if n in JDK_NAMES or n in OWN_COLLISIONS]:
         method_map.pop(name, None)
 
-    # 字段：全表范围内同名不同义的，一律不改。
-    #
-    # 字段没有层次展开（同名会串味），所以按类分组的表看起来是干净的；但这里的 field_map 是按
-    # **名字**合并的，`Blocks.AIR` 于是被 `Entity.AIR → DATA_AIR_SUPPLY_ID` 顶掉了——错误信息
-    # 是"找不到符号 DATA_AIR_SUPPLY_ID"，指向一行 `Blocks.AIR`。只有同名的所有类都指向同一个
-    # 新名字时才敢改。
+    # Fields with the same name but different targets anywhere in the table are never renamed:
+    # `Blocks.AIR` would otherwise be taken over by `Entity.AIR -> DATA_AIR_SUPPLY_ID`.
     for name in [n for n in field_map if n in ambiguous_fields(fields)]:
         field_map.pop(name, None)
 
-    # 本文件自己声明的名字不动：`private UUID getUuid()` 里的 `getUuid` 是我们自己的方法，
-    # 顺手被当成 MC 的成员改名，报错会指向一个根本不该改的声明。只按本文件算——按全仓库算会把
-    # 真正需要改的调用一起挡掉（`getUuid` 就是这样被整批漏掉的）。
-    # 不按"本文件声明过的名字"整批排除：ArenaManager 里有一个自己的 formatted 辅助方法，于是那个
-    # 文件里所有 `text.copy().formatted(...)` 都不改了。声明本身不会被 `.名字(` 匹配到，所以真正
-    # 需要防的是"接收者是我们自己的对象"，那件事由下面的 own_types 负责。
+    # Names declared in this file are left alone: renaming a private `getUuid()` points the
+    # error at a declaration that should never have changed.
     pass
 
     if method_map:
-        # 只改 ".名字("，并且要求**接收者不是我们自己的类**。`PvPocket.id(...)` 就栽在这里：
-        # `id` 同时是某个 MC 类的成员，于是模组自己的工具方法被改成了 `createType`，
-        # 编译报的是"找不到 id"，而错的地方看起来完全无辜。
-        # `(?<![\w$])` 是必需的：`$` 是合法的标识符续接字符，`pvpocket$save(` 里的 `save`
-        # 会被当成一个无接收者的方法名改掉，变成 `pvpocket$savePlayerData(`——声明没变、调用变了。
+        # Only `.name(` is rewritten, and only when the receiver is not a local class.
+        # The `(?<![\w$])` guard is required: `$` is a legal identifier character.
         pattern = re.compile(r"(?<![\w$])(?:([\w$]+)\.)?(" + "|".join(
             sorted(map(re.escape, method_map), key=len, reverse=True)) + r")\s*\(")
 
         def method_repl(m):
             receiver, name = m.group(1), m.group(2)
             if receiver is None:
-                # 接收者组是可选的，所以**方法声明**也会被这条正则命中：`public static void
-                # onBlockChanged(` 里的名字前面没有点号，看起来和"无接收者的调用"一模一样。
-                # 不改声明的后果是灾难性的——声明改名了、调用处（接收者是我们自己的类，被
-                # own_types 挡下）没改名，于是 `SessionManager.get()` 报"没有这个方法"，而
-                # 声明明明还在那里，只是叫别的名字。
+                # The receiver group is optional, so declarations match too: `void
+                # onBlockChanged(` looks exactly like a call without a receiver.
                 if is_declaration(m.string, m.start()) or name in mine:
                     return m.group(0)
-                # `copy().formatted(...)` 这种链式调用点号前面是右括号，没有接收者名字可用。
-                # 那个点号本来就在，不要自己再加一个——加过一次，全仓库变成 `..withStyle(`。
+                # A chained call (`copy().formatted(...)`) has a `)` before the dot; the dot is
+                # already there, so it must not be added again.
                 return method_map[name] + "("
             if ours(receiver):
                 return m.group(0)
             return receiver + "." + method_map[name] + "("
 
         masked = pattern.sub(method_repl, masked)
-        # 方法引用：Foo::oldName
         ref = re.compile(r"::(" + "|".join(sorted(map(re.escape, method_map), key=len,
                                                 reverse=True)) + r")\b")
-        # 方法引用同理：`BoundaryRenderer::render` 里的 render 是我们自己的方法，
-        # 按名字换成 MC 的 runTick 之后，"方法引用无效"的报错会指向 register 那一行。
+        # Method references too: `BoundaryRenderer::render` names a local method.
         masked = ref.sub(lambda m: m.group(0) if m.group(1) in mine
                          else "::" + method_map[m.group(1)], masked)
 
@@ -465,9 +398,8 @@ def rewrite_file(path, classes, methods, fields, report):
                                                          reverse=True)) + r")\b(?!\s*\()")
             masked = pattern.sub(lambda m: "." + only_fields[m.group(1)], masked)
 
-    # 手工补充的那几条最后**无条件**再走一遍。它们会被 per-file 的"同名不同义"过滤掉——文件里
-    # 同时导入了 Text 和 ScoreboardEntry 时，formatted 就有两个去向，于是整批跳过。手工那几条是
-    # 逐条核对过的，不需要再让程序犹豫。
+    # The hand-written overrides run again unconditionally: per-file conflict filtering drops
+    # them when one file imports two classes that share the name.
     if OVERRIDES_METHODS:
         pattern = re.compile(r"(?<![\w$])(?:([\w$]+)\.)?(" + "|".join(
             sorted(map(re.escape, OVERRIDES_METHODS), key=len, reverse=True)) + r")\s*\(")
@@ -475,7 +407,7 @@ def rewrite_file(path, classes, methods, fields, report):
         def override_repl(m):
             receiver, name = m.group(1), m.group(2)
             if receiver is None:
-                # 和上面同理：无接收者且不是链式调用，说明这是声明，不能动。
+                # Same as above: no receiver and no chaining means a declaration.
                 if is_declaration(m.string, m.start()) or name in mine:
                     return m.group(0)
                 return OVERRIDES_METHODS[name] + "("
@@ -485,19 +417,15 @@ def rewrite_file(path, classes, methods, fields, report):
 
         masked = pattern.sub(override_repl, masked)
 
-    # ---- 3b. 静态成员（接收者是类名，可以精确命中）
-    #
-    # `ResourceLocation.of(a, b)` / `ResourceKey.of(...)` / `UUIDUtil.PACKET_CODEC` 这类调用，
-    # 接收者是**类名本身**，没有"这是谁的实例"的歧义，可以安全地按 (接收者, 名字, 参数个数) 定位。
-    # 参数个数是必需的：`ResourceLocation.of(s)` → `parse(s)`，`of(ns, path)` →
-    # `fromNamespaceAndPath(ns, path)`，同名不同去向。
+    # ---- 3b. static members. The receiver is a class name, so `ResourceLocation.of` can be
+    # matched exactly; the argument count tells the two `of` overloads apart.
     for (owner, old, count), new in sorted(STATIC_METHODS.items()):
         pattern = re.compile(r"\b" + re.escape(owner) + r"\." + re.escape(old) + r"\s*\(")
 
         def static_repl(m, owner=owner, new=new, count=count):
             if count >= 0 and count_args(m.string, m.end() - 1) != count:
                 return m.group(0)
-            # 匹配串里带着左括号，替换时得自己补回去。
+            # The pattern includes the open paren, so the replacement adds it back.
             return owner + "." + new + "("
 
         masked = pattern.sub(static_repl, masked)
@@ -508,11 +436,11 @@ def rewrite_file(path, classes, methods, fields, report):
 
     text = unmask(masked, stash)
 
-    # ---- 3c. 手写的上下文规则（必须看得到完整上下文，所以放在 unmask 之后）
+    # ---- 3c. hand-written context rules, which need the full unmasked text.
     for pattern, replacement in REGEX_RULES:
         text = pattern.sub(replacement, text)
 
-    # ---- 4. 字符串里的类路径（mixin 注解看得见，编译器看不见）
+    # ---- 4. class paths inside strings (mixin sees them, the compiler does not).
     def path_repl(match):
         fqn = match.group(1).replace("/", ".")
         target = classes.get(fqn)
@@ -529,10 +457,9 @@ def rewrite_file(path, classes, methods, fields, report):
 
 
 def count_args(text, open_paren):
-    """数一数 `open_paren` 这个左括号起的调用里有几个顶层参数（`()` 算 0 个）。
+    """Counts top-level arguments in the call starting at `open_paren` (`()` counts as 0).
 
-    只看括号深度，不解析表达式——够用来区分 `of(s)` 和 `of(a, b)`，而字符串里的逗号早就被 mask
-    成占位符了，不会混进来。
+    Only bracket depth is tracked, which is enough to tell `of(s)` from `of(a, b)`.
     """
     depth = 0
     commas = 0
@@ -555,19 +482,17 @@ def count_args(text, open_paren):
 
 
 def sub_outside_comments(text, pattern, repl):
-    """按行替换，整行注释（// /* *）原样保留。
+    """Substitutes line by line, leaving whole-line comments (`//`, `/*`, `*`) untouched.
 
-    注释里的 "World" 是散文，不是类型；把 javadoc 改成 "Level" 属于把文档改坏。行尾注释会被一起
-    替换，这是刻意接受的代价——为了它去写一个真正的词法器不值。
+    A trailing comment is replaced along with the code, which is an accepted trade-off.
     """
     out = []
     for line in text.split("\n"):
         if not COMMENT_LINE.match(line):
             out.append(pattern.sub(repl, line))
             continue
-        # 一行里注释结束后还接着代码的（`/** 说明 */    public static void foo(`），后半段仍然是
-        # 代码，整行跳过会把那一行的改名漏掉。踩过一次：PvPocketNetworking 里有一行就是这样，
-        # 于是整个文件留着一个 ServerPlayerEntity。
+        # Code can continue after `/** ... */` on the same line; skipping the whole line would
+        # leave that code unrenamed.
         end = line.find("*/")
         if end >= 0 and line.lstrip().startswith("/*"):
             out.append(line[:end + 2] + pattern.sub(repl, line[end + 2:]))
@@ -583,7 +508,7 @@ MASK = "\x01%d\x01"
 
 
 def mask(text):
-    """把全限定名与字符串字面量换成占位符，返回 (遮蔽后的文本, 占位符表)。"""
+    """Replaces fully qualified names and string literals with placeholders."""
     stash = []
 
     def take(match):
@@ -606,7 +531,7 @@ OWN_TYPES = None
 DECLARATION = re.compile(
     r"\b(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?[\w<>\[\],. ]+?\s+(\w+)\s*[(;=]")
 
-# 方法/字段声明里名字前面会出现的东西：基本类型、修饰符、泛型收尾、返回类型。
+# Tokens that precede a name in a declaration: primitives, modifiers, generics.
 DECL_TAIL = re.compile(
     r"(?:\b(?:void|boolean|byte|short|int|long|float|double|char|var|public|private|protected|"
     r"static|final|abstract|synchronized|native|default|transient|volatile)\b"
@@ -615,15 +540,10 @@ DECL_TAIL = re.compile(
 
 
 def is_declaration(text, start):
-    """`start` 处的名字是不是一个声明（而不是调用）。
+    """True when the name at `start` is a declaration rather than a call.
 
-    调用总有点号在前面（`x.foo(` / `).foo(` / `this.foo(` / `super.foo(`）；声明前面是返回类型或
-    修饰符。只有"前面什么都没有"这一种情况需要判断，而它恰好是最危险的那种：声明改了名、调用处
-    因为接收者是我们自己的类而被放过，于是编译器报"没有这个方法"，可那个方法就在文件里。
-
-    **带 `@Override` 的声明不算**：那种声明实现的是 MC 的接口或父类，名字必须跟着 MC 走
-    （`shouldPause` → `isPauseScreen`、`close` → `onClose`）。把它们当声明保护起来，报错会是
-    "方法不会覆盖或实现超类型的方法"，指向一行看起来完全正确的 `@Override`。
+    A call always has a dot in front of it; a declaration has a return type or a modifier. A
+    declaration with `@Override` is not protected: its name has to follow MC.
     """
     if start == 0:
         return False
@@ -633,7 +553,8 @@ def is_declaration(text, start):
     tail = before.rsplit("\n", 1)[-1]
     if DECL_TAIL.search(tail):
         return not has_override(before)
-    # 返回类型是普通类名（`MutableText name(` / `Component get(`）：前面那个词首字母大写。
+    # A plain class name as return type (`MutableText name(`, `Component get(`): the word
+    # before it starts with an upper case letter.
     word = re.search(r"([\w$]+)\s*$", tail)
     if word and word.group(1)[0].isupper():
         return not has_override(before)
@@ -641,10 +562,7 @@ def is_declaration(text, start):
 
 
 def has_override(before):
-    """这个声明上面（同一条语句链里）有没有 `@Override`。
-
-    往回找，遇到 `;`、`{`、`}` 就说明已经跨过了上一个成员。
-    """
+    """True when `@Override` sits above this declaration in the same member."""
     window = before[-400:]
     for index in range(len(window) - 1, -1, -1):
         if window[index] in ";{}":
@@ -657,10 +575,9 @@ AMBIGUOUS_FIELDS = None
 
 
 def ambiguous_fields(fields):
-    """全表里同名但指向不同新名字的字段名。
+    """Field names that map to different new names somewhere in the table.
 
-    `AIR` 就是典型：`Blocks.AIR` 不变，`Entity.AIR` → `DATA_AIR_SUPPLY_ID`。按名字合并之后，
-    改 `Blocks.AIR` 会变成改成一个 Entity 的私有字段名。
+    `AIR` is the typical case: `Blocks.AIR` stays, `Entity.AIR` becomes DATA_AIR_SUPPLY_ID.
     """
     global AMBIGUOUS_FIELDS
     if AMBIGUOUS_FIELDS is None:
@@ -673,7 +590,7 @@ def ambiguous_fields(fields):
 
 
 def own_types():
-    """本模组自己的类型名（就是文件名），用来判断接收者是不是我们自己的对象。"""
+    """Type names of this mod (its file names), used to recognise our own receivers."""
     global OWN_TYPES
     if OWN_TYPES is None:
         names = set()
@@ -690,12 +607,10 @@ LOCAL_DECL = re.compile(
 
 
 def local_types(text):
-    """这个文件里 `变量名 → 声明的类型名`。
+    """`variable name -> declared type name` for one file.
 
-    没有类型信息时，`seed.save()` 和 `player.save()` 长得一模一样，于是我们自己类的
-    `Loadout.save()` 会被 MC 的某个 `save` 顶掉——报错指向调用处，而声明在另一个文件里、
-    名字看着完全正常。这里把"变量声明成什么类型"扫出来，至少能挡住"接收者显然是我们自己的类"
-    这一类误伤。字段、参数、局部变量、增强 for、catch 都覆盖到了。
+    Without type information `seed.save()` and `player.save()` look alike, so our own
+    `Loadout.save()` would be taken over by an MC `save`.
     """
     found = {}
     for match in LOCAL_DECL.finditer(text):
@@ -704,7 +619,7 @@ def local_types(text):
 
 
 def own_names(path):
-    """这个文件自己声明的方法/字段名。"""
+    """Method and field names declared in this file."""
     with open(path, encoding="utf-8") as handle:
         return set(DECLARATION.findall(handle.read()))
 

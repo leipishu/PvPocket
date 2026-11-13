@@ -12,18 +12,12 @@ import java.util.Locale;
 /**
  * Every item a loadout can contain, in panel order.
  *
- * <p>The four pages the player sees are {@link Page}; the kinds themselves are flat because the
- * differences between them are almost entirely "which item id do I resolve to" and "which attributes
- * make sense". Keeping them in one enum means the data row, the codec and the editor are all one
- * shape, which matters more here than taxonomic purity.</p>
+ * <p>The four pages the player sees are {@link Page}. A materialised kind resolves to
+ * {@code minecraft:<material>_<kind>}, as in {@code wooden_sword}; anything else is declared
+ * non-materialised and resolves to {@code minecraft:<kind>}.
  *
- * <p>Material handling is uniform by construction: a materialised kind resolves to
- * {@code minecraft:<material>_<kind>}, which is exactly how vanilla names them
- * ({@code wooden_sword}, {@code netherite_helmet}). Anything that does not follow that pattern is
- * declared non-materialised and resolves to {@code minecraft:<kind>}.</p>
- *
- * <p>The display name is {@code pvpocket.item.<id>}, so the enum constant's id and the translation
- * key share one word — there is no third place where a kind's name can drift.</p>
+ * <p>The display name is {@code pvpocket.item.<id>}, so the constant's id and the translation key
+ * share one word.
  */
 public enum ItemKind {
 
@@ -116,8 +110,8 @@ public enum ItemKind {
     /**
      * Resolves the concrete vanilla item.
      *
-     * <p>Returns null rather than throwing: the loadout is player-authored data that arrives over the
-     * network, so an unknown combination has to be a rejected entry, not a crashed server.</p>
+     * <p>Returns null rather than throwing: the loadout is player-authored data that arrives over
+     * the network, so an unknown combination is a rejected entry rather than a crash.
      */
     public Item resolve(Material material) {
         String path = itemPath(material);
@@ -131,17 +125,7 @@ public enum ItemKind {
     }
 
     // ------------------------------------------------------------------ availability
-    //
-    // Which kinds and materials a build can offer is a property of the *game*, not of this mod, and
-    // the game keeps changing it: the mace arrived in 1.21, the spear in 1.21.11, copper as a weapon
-    // tier later still. Hard-coding a version table would mean every port has to remember to edit it,
-    // and getting it wrong shows the player a row that grants nothing.
-    //
-    // So the registry is the table. The only thing that has to be version-independent is the shape of
-    // the question, which is why the predicate is injected: `availableOf(page)` asks the real item
-    // registry, while the offline self-check passes a fixed set of ids and asserts what each target
-    // version would offer. Without that split this logic could only be tested by launching the game
-    // once per version.
+    // The item registry answers which kinds exist; the predicate is injected for the self-check.
 
     /** Answers "does this item id exist in this build". The only registry-touching part. */
     @FunctionalInterface
@@ -149,7 +133,9 @@ public enum ItemKind {
         boolean has(String path);
     }
 
-    /** True for kinds whose concrete item comes from {@link LoadoutEntry#variant}, not from a material. */
+    /**
+     * True for kinds whose item comes from {@link LoadoutEntry#variant} rather than a material.
+     */
     public boolean resolvesByVariant() {
         return this == FOOD || this == BLOCK || this == POTION;
     }
@@ -160,9 +146,8 @@ public enum ItemKind {
     }
 
     public boolean available(ItemIds ids) {
-        // FOOD / BLOCK / POTION carry no item id of their own — the entry's variant names the item,
-        // and every variant in the catalog is a vanilla item that predates all of these versions.
-        // Asking the registry for "food" would answer no and hide the whole page.
+        // FOOD, BLOCK and POTION carry no id of their own; the entry's variant names the item, so
+        // asking the registry for "food" would hide the whole page.
         if (resolvesByVariant()) {
             return true;
         }
@@ -192,9 +177,7 @@ public enum ItemKind {
     /**
      * The materials that produce a real item for this kind, in tier order.
      *
-     * <p>Per kind rather than global on purpose: copper is a weapon tier in 1.21.11 but not every
-     * kind has a copper variant, and a material offered for a kind it cannot build is a cycle that
-     * stops on an item that does not exist.</p>
+     * <p>Per kind rather than global, because not every kind has a variant at every tier.
      */
     public List<Material> materials() {
         return materials(ItemKind::registryHas);
@@ -225,9 +208,7 @@ public enum ItemKind {
      * True for kinds that actually wear out.
      *
      * <p>Drives the durability rows in the editor and the {@code MAX_DAMAGE} write in the builder.
-     * A firework rocket carrying {@code max_damage} would be an item with a durability bar that
-     * never moves and a stack that cannot be used up the usual way, which is worse than having no
-     * field at all — so the question is asked once, here, rather than as a blacklist in two places.</p>
+     * A firework rocket with {@code max_damage} would draw a durability bar that never moves.
      */
     public boolean hasDurability() {
         return switch (this) {
@@ -237,12 +218,10 @@ public enum ItemKind {
     }
 
     /**
-     * True for kinds that are useless on their own and need a second stack beside them.
+     * True for kinds that need a second stack beside them.
      *
      * <p>A bow without arrows, an end crystal with nothing to put it on, and TNT with nothing to
-     * light it are the same shape of problem: the entry is one decision ("I am bringing a bow") but
-     * two stacks. The editor shows one extra count for these, and {@code LoadoutBuilder} emits the
-     * second stack — the same path arrows have always taken.</p>
+     * light it. The editor shows an extra count and {@code LoadoutBuilder} emits the second stack.
      */
     public boolean hasCompanion() {
         return this == BOW || this == END_CRYSTAL || this == TNT;

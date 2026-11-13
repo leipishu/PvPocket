@@ -9,17 +9,12 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * Client to server: one action taken on the home screen.
  *
- * <p>An action number plus one string, rather than three payload types. Every action here ends in a
- * call the server already exposes — {@code openRoster} and its preset variants, {@code resetArena},
- * {@code setGuardEnabled} — so the payload's only job is to name which one, and a numeric action
- * keeps an older server from having to know about a newer button. Unknown actions are logged and
- * ignored.</p>
+ * <p>An action number plus one string, so the payload only names which server call to make and an
+ * older server ignores a newer button. {@code arg} is the encoded preset for the two preset
+ * actions, a map id for the copy and remove actions, and {@code "1"} / {@code "0"} for the guard.
  *
- * <p>{@code arg} is the encoded preset for the two preset actions, a map id for the copy and remove
- * actions, and {@code "1"} / {@code "0"} for the guard. It is re-validated on arrival exactly like a
- * hand-submitted rule set: the client is allowed to express intent, never to declare what the intent
- * decodes to. The four operator actions are checked against the caller's permission level on the
- * server — the panel not offering them is a convenience, not the lock.</p>
+ * <p>The server re-validates {@code arg} and checks the four operator actions against the caller's
+ * permission level. Unknown actions are logged and ignored.
  */
 public record HomeActionPayload(int action, String arg) implements CustomPacketPayload {
 

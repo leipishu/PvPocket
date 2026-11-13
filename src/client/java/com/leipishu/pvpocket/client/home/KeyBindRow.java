@@ -12,18 +12,12 @@ import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * One key binding, with the key cap on the right and capture on click.
+ * One key binding row: label on the left, key cap on the right, capture on click.
  *
- * <p><b>It writes to vanilla's binding, not to a copy.</b> {@code KeyBinding#setBoundKey} plus
- * {@code Options#write} is the same path the vanilla controls screen uses, so the mod's keys appear
- * there, survive a restart, and there is exactly one place a binding can be wrong. A private key map
- * would need its own conflict resolution, its own persistence and its own way of disagreeing with the
- * screen the player actually thinks of as "the controls".</p>
+ * <p>Writes through to the vanilla {@code KeyMapping} and saves the options file, so the binding
+ * persists and appears on the vanilla controls screen.
  *
- * <p>Capture is a static hand-off rather than a focus state: the screen asks
- * {@link #isCapturing()} before it handles Escape or Tab, because otherwise pressing Esc to cancel a
- * capture would close the whole panel — and Esc is the one key a player is most likely to press while
- * a row says "press a key".</p>
+ * <p>Call {@link #isCapturing()} before handling Escape or Tab: an open capture consumes every key.
  */
 public class KeyBindRow extends PvWidget {
 
@@ -87,8 +81,7 @@ public class KeyBindRow extends PvWidget {
     private void apply(int keyCode, int scanCode) {
         KeyMapping conflict = conflicting(keyCode, scanCode);
         if (conflict != null && conflict != binding) {
-            // Refused rather than stolen: silently taking the jump key would leave a player unable to
-            // jump with no clue which panel did it.
+            // A key held by another binding is refused and reported in the action bar.
             Minecraft client = Minecraft.getInstance();
             if (client.player != null) {
                 client.player.displayClientMessage(PvLang.t("pvpocket.msg.home.key_conflict",
@@ -97,21 +90,17 @@ public class KeyBindRow extends PvWidget {
             return;
         }
         binding.setKey(InputConstants.getKey(keyCode, scanCode));
-        // Both halves matter: the index is what makes the new key fire this tick, the write is what
-        // makes it survive the session.
+        // resetMapping makes the new key fire this tick; options.save persists it across sessions.
         KeyMapping.resetMapping();
         Minecraft.getInstance().options.save();
     }
 
     /**
-     * Finds another binding already holding this key.
+     * Returns another binding that already holds this key, or null.
      *
-     * <p>Compared with {@code matchesKey} rather than by reading the bound key, because
-     * {@code KeyBinding} exposes no getter for it — only {@code setBoundKey} and the localised
-     * forms. {@code matchesKey} is the same comparison the game itself uses to dispatch input, so
-     * "conflict" here means exactly what "two actions on one key" means to vanilla. A binding held
-     * by a mouse button never matches a keyboard code, which is the right answer: the two cannot
-     * collide.</p>
+     * <p>The comparison uses {@code matchesKey}, which is how the game dispatches input, since
+     * {@code KeyMapping} exposes no getter for the bound key. A mouse button never matches a
+     * keyboard code.
      */
     private KeyMapping conflicting(int keyCode, int scanCode) {
         for (KeyMapping other : Minecraft.getInstance().options.keyMappings) {
@@ -146,14 +135,11 @@ public class KeyBindRow extends PvWidget {
                 : binding.getTranslatedKeyMessage().getString();
         int color = capturing == this ? PvTheme.ACCENT
                 : hot ? PvTheme.TEXT : PvTheme.TEXT_DIM;
-        // The key cap is a fixed 92px box, and a bound key's name is whatever vanilla calls it
-        // ("Left Shift", "Mouse Button 4"), so it shrinks before it is cut.
+        // The cap is 92px wide, so a long key name shrinks before it is cut.
         PvDraw.textFitCenter(ctx, tr, text, capX + CAP_W / 2, capY + (CAP_H - 8) / 2 + 1,
                 CAP_W - 6, color);
 
-        // The label column is whatever the cap leaves, which on a 174px row is 74px: enough for
-        // "Cycle spectator / camera" over two lines, not enough for 91px on one. The row is 24px
-        // tall, so the second line costs nothing.
+        // The label takes what the cap leaves, 74px on a 174px row, and wraps to two lines.
         PvDraw.textWrapLeft(ctx, tr, label, x, y, height, capX - 8 - x, 2, PvTheme.TEXT);
         overflowTip(label, PvDraw.willCut(tr, label, capX - 8 - x, 2));
     }
@@ -172,8 +158,7 @@ public class KeyBindRow extends PvWidget {
         if (!contains(mouseX, mouseY)) {
             return null;
         }
-        // A cut label outranks "click to rebind": the tip is discoverable by trying, the end of a
-        // truncated action name is not.
+        // A cut label takes priority over the rebind hint.
         return overflow() != null ? overflow()
                 : PvLang.str("pvpocket.gui.home.settings.key_tip");
     }

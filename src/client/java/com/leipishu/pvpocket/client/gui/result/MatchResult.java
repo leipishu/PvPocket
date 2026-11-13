@@ -9,18 +9,14 @@ import java.util.List;
 /**
  * One finished series, as the result screen and its poster read it.
  *
- * <p>Parsed once when the payload arrives rather than once per frame: the card is redrawn sixty times
- * a second and re-splitting three strings that often to draw the same twelve rows is work nobody
- * asked for. The screen holds one of these and nothing else.</p>
+ * <p>Parsed once when the payload arrives rather than once per frame: the card is redrawn sixty
+ * times a second.
  *
- * <p>Deliberately <b>not</b> {@code HomeState.History}. That type is the reader's own row out of a
- * stored history file, with the reasons flattened to "did I win this round" — enough for a list, not
- * enough for a card. This one keeps every side's roster and every round's absolute winner, because
- * the card has to show both sides and the poster has to show the whole match.</p>
+ * <p>Unlike {@code HomeState.History}, this keeps every side's roster and every round's absolute
+ * winner, because the card shows both sides and the poster shows the whole match.
  *
- * <p>{@link #winnerSide} is {@code -1} when the series ended without a winner. That is two different
- * outcomes and {@link #reason} tells them apart: {@code DRAW} is a cap reached with the lead shared,
- * anything else is a series that was cut short.</p>
+ * <p>{@link #winnerSide} is {@code -1} when the series ended without a winner; {@link #reason}
+ * tells a shared lead ({@code DRAW}) apart from a series cut short.
  */
 public record MatchResult(String sessionId, String map, String mode, int mySide, int winnerSide,
                           long endedAt, long duration, String reason,
@@ -49,7 +45,7 @@ public record MatchResult(String sessionId, String map, String mode, int mySide,
         return winnerSide < 0;
     }
 
-    /** The reader's own side, or {@code null} when the payload named a side that is not in the list. */
+    /** Returns the reader's own side, or {@code null} when the payload named an unknown side. */
     public Side mine() {
         for (Side side : sides) {
             if (side.index() == mySide) {
@@ -66,7 +62,7 @@ public record MatchResult(String sessionId, String map, String mode, int mySide,
         return text.equals(key) ? map : text;
     }
 
-    /** {@code 1v1} / {@code 2v2} for an even split, {@code 3v3} for anything wider. */
+    /** Returns {@code 1v1} / {@code 2v2} for an even split, {@code 3v3} for anything wider. */
     public String teamsLabel() {
         int perSide = 1;
         for (Side side : sides) {
@@ -91,10 +87,8 @@ public record MatchResult(String sessionId, String map, String mode, int mySide,
     /**
      * Parses the payload, or returns {@code null} when it is not readable.
      *
-     * <p>Null rather than an empty card: a payload this client cannot parse is a version skew, and a
-     * result screen that says "0 : 0, no rounds" is worse than no result screen — it looks like the
-     * match never happened. The receiver drops it and the chat line remains, which is the same
-     * sentence the player would have got from an older build.</p>
+     * <p>Null rather than an empty card: an unparseable payload is a version skew, and a result
+     * screen showing "0 : 0, no rounds" looks like the match never happened.
      */
     public static MatchResult parse(SeriesResultPayload payload) {
         if (payload == null) {

@@ -11,14 +11,11 @@ import net.minecraft.sounds.SoundEvents;
 /**
  * Multi-select control rendered as a row of equal-width chips.
  *
- * <p>Used for the rules whose value is a set rather than a scalar — win conditions, environmental
- * hazards, the block blacklist. Equal widths keep the row on the 8px grid regardless of how long the
- * labels are.</p>
+ * <p>For rules whose value is a set rather than a scalar: win conditions, environmental hazards,
+ * the block blacklist. Equal widths keep the row on the 8px grid whatever the label lengths.
  *
- * <p>Selection is carried by fill, border and text colour at once, and each chip crossfades
- * independently. That is not decoration: with three chips on screen, a chip that changes state on
- * the same frame as its neighbour is easy to miss, and a 120ms fade draws the eye to the one that
- * moved.</p>
+ * <p>Selection is carried by fill and text colour, and each chip crossfades independently over
+ * 120ms.
  */
 public class PvChips extends PvValueControl {
 
@@ -33,11 +30,9 @@ public class PvChips extends PvValueControl {
     /**
      * Chips that exclude every other chip; see {@link RuleCatalog#exclusiveBits}.
      *
-     * <p>{@code e.hazard} is the only user: 无 is not a fourth hazard, it is the absence of the other
-     * three. Without this mask the row can sit in "无 and 岩浆 both lit", which the reader resolves by
-     * letting 无 win — so the panel shows a hazard that is switched off. The state is refused here
-     * because the widget is the only place it can be refused without the display disagreeing with
-     * the behaviour.</p>
+     * <p>Used by the hazard rule, where "none" means the absence of the other three. A set that
+     * lights "none" and a hazard at once is refused here, so the display cannot disagree with the
+     * value.
      */
     private final int exclusive;
     private final float[] selT;
@@ -94,9 +89,8 @@ public class PvChips extends PvValueControl {
             float sel = selT[i];
             float hot = hotT[i];
 
-            // No border. A tinted fill with a tinted 1px outline is two amber edges on a 22px tag,
-            // and at that size the outline reads as a darker bar above and below the label rather
-            // than as an edge. The fill and the label colour carry the state on their own.
+            // No border: a tinted fill with a tinted 1px outline is two amber edges on a 22px tag.
+            // The fill and the label colour carry the state on their own.
             int fill = PvTheme.blend(
                     PvTheme.mix(PvTheme.CARD_HOVER, PvTheme.CARD_ACTIVE, hot),
                     PvTheme.mix(PvTheme.ACCENT_SOFT, PvTheme.alpha(PvTheme.ACCENT, 0.30F), hot),
@@ -109,16 +103,14 @@ public class PvChips extends PvValueControl {
             }
 
             PvDraw.roundRect(ctx, cx, y, cw, H, 3, fill);
-            // Equal-width chips cannot grow for a longer word, so the label gives way instead:
-            // shrunk first, then wrapped onto a second line, and cut only when even two lines at the
-            // floor are not enough. "Respawn anchors" is 85px on one line and 33px per line as
-            // "Respawn / anchors", which is the difference between a 45px chip and a truncated one.
+            // Equal-width chips cannot grow, so the label shrinks, wraps onto a second line and is
+            // cut when two lines do not fit; "Respawn anchors" is 85px on one line.
             PvDraw.textWrapCenter(ctx, tr, def.choiceLabel(i), cx + cw / 2, y, H, cw - 10,
                     MAX_LINES, textColor);
         }
 
-        // The row is one tab stop, not one per chip: tabbing through five chips to reach the next
-        // rule would make the panel feel like it is fighting the keyboard.
+        // The row is one tab stop, not one per chip: five chips before the next rule would make
+        // keyboard navigation slow.
         drawFocusRing(ctx, 3);
     }
 
@@ -132,7 +124,7 @@ public class PvChips extends PvValueControl {
             return null;
         }
         // Per chip, not per row: the tooltip names the one under the pointer, and only when that
-        // one had to be cut.
+        // one was cut.
         String label = def.choiceLabel(index);
         Font tr = Minecraft.getInstance().font;
         return PvDraw.willCut(tr, label, chipWidth() - 10, MAX_LINES) ? label : null;
@@ -160,17 +152,14 @@ public class PvChips extends PvValueControl {
             value = (exclusive & bit) != 0 ? bit : (value & ~exclusive) | bit;
         } else if ((exclusive & bit) == 0) {
             value &= ~bit;
-            // Clearing the last ordinary chip is the same state as the exclusive chip, so the
-            // exclusive one is set instead of leaving the row dark. Without this the same meaning
-            // has two spellings — 0 and 1 — and the reader cannot tell which one they are looking
-            // at.
+            // Clearing the last ordinary chip means the same as the exclusive chip, so the
+            // exclusive one is set instead of leaving the row dark.
             if (exclusive != 0 && (value & ~exclusive) == 0) {
                 value = exclusive;
             }
         } else {
             // The exclusive chip cannot be cleared on its own: it already means "none of the
-            // others", and a dark 无 next to three dark chips would be the fourth spelling of the
-            // same state.
+            // others".
             return true;
         }
         Minecraft.getInstance().getSoundManager()

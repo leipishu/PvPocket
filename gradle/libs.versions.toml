@@ -1,18 +1,11 @@
-# 默认版本目录（Gradle 自动从 gradle/libs.versions.toml 加载，名字叫 `libs`）。
-#
-# 这里只放**跨 Minecraft 版本共享**的东西：加载器工具链本身的版本。它们不随 MC 版本变——
-# Loom 1.11 能构建整个 1.21.x 系列，ModDevGradle 2.0 同理。
-#
-# 每格的 minecraft / fabric-api / neoforge 版本不在这里，在 gradle/catalogs/<mc>.toml，
-# 原因见那个目录里的 README。
+# Default catalog (`libs`), loaded from gradle/libs.versions.toml.
+# Only loader toolchain versions live here; per-version coordinates are in gradle/catalogs/.
 
 [versions]
 fabricLoader = "0.16.9"
 fabricLoom = "1.11.8"
 neoforgeModdev = "2.0.148"
 
-# 插件坐标也放目录里，这样 cell 的 build.gradle 只写 `alias(...)`，不用再拼 `${loom_version}`
-# 这种字符串。字符串拼错的后果是「插件没加载」，而 `alias` 拼错是编译期就能看见的。
 [plugins]
 fabricLoom = { id = "fabric-loom", version.ref = "fabricLoom" }
 neoforgeModdev = { id = "net.neoforged.moddev", version.ref = "neoforgeModdev" }

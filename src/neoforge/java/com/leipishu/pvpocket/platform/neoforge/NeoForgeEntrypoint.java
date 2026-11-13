@@ -14,15 +14,14 @@ import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 
 /**
- * NeoForge 的入口。
+ * NeoForge entrypoint: installs the server and client platforms and wires both sides.
  *
- * <p>与 {@code FabricEntrypoint} 的差别只有一处：Fabric 有独立的客户端入口，NeoForge 只有一个
- * 构造器，客户端那一半靠 {@link FMLEnvironment#dist} 判断。所以这里多一个 if——但那个 if 是
- * 「这个 jar 跑在哪个物理端」，不是业务判断，属于平台。</p>
+ * <p>NeoForge has a single constructor rather than a separate client entrypoint, so the client
+ * half is selected by {@link FMLEnvironment#dist}. That branch describes the physical side the
+ * jar runs on, not a business decision.
  *
- * <p>客户端类只在 {@code Dist.CLIENT} 分支里被引用。单 jar 打包意味着专用服务端也带着这些
- * class，但只要不执行到这一行，JVM 就不会去解析它们——这是 NeoForge 侧保证「专用服务端不加载
- * 客户端代码」的方式，Fabric 那边靠的是 split source set。</p>
+ * <p>Client classes are referenced only inside the {@code Dist.CLIENT} branch. A dedicated
+ * server ships these classes but never resolves them, which keeps client code unloaded there.
  */
 @Mod(PvPocket.MOD_ID)
 public final class NeoForgeEntrypoint {

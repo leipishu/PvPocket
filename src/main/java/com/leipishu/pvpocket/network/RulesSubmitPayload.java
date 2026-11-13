@@ -7,18 +7,14 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Client to server: the outcome of one panel session.
+ * Client to server: the outcome of one rule panel session.
  *
- * <p>Like every other client message in this mod this is an <em>intent</em>, not a state change.
- * The server re-derives who is allowed to do what from the session record before acting on it: a
- * proposal from someone who is not a participant, or from the side that is currently supposed to
- * be reviewing, is dropped.</p>
+ * <p>An intent, not a state change. The server re-derives who may do what from the session record
+ * before acting: a proposal from someone who is not a participant, or from the side that is
+ * supposed to be reviewing, is dropped.
  *
  * <p>{@code roster} is the team cards, {@code "uuid,uuid;uuid"}. It only means anything on the
- * first send — the one that turns a draft into an invite — and is empty on every later message,
- * because the roster is fixed once the invite is out. It travels with the rules rather than in a
- * payload of its own so that "these are the sides and these are the terms" arrives as one decision
- * the server can accept or refuse as a whole.</p>
+ * first send, the one that turns a draft into an invite, and is empty afterwards.
  */
 public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPacketPayload {
 

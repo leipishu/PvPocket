@@ -15,19 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The bar that says you are watching somebody else's fight.
+ * The bar that says the camera is watching somebody else's fight, and whose it is.
  *
- * <p>Two facts have to be on screen at once and neither is obvious from inside spectator mode: that
- * the camera belongs to another player, and whose it is. A spectator who attaches to a body and
- * forgets is a spectator who reports "my health is wrong" — the health bar they are looking at is
- * the target's.</p>
+ * <p>Two facts have to be on screen at once: whose camera this is, and that it belongs to another
+ * player. Otherwise a spectator reads the target's health bar as their own.
  *
- * <p>Bottom-centre rather than top: the scoreboard already owns the top of the screen, and the two
- * would overlap exactly when a match is most interesting. The hotbar is below and the chat is to the
- * left, so the strip just above the hotbar is the one region nothing else claims.</p>
- *
- * <p>The position counter ("1 / 2") is what makes the cycle key usable. Pressing V with no feedback
- * is indistinguishable from pressing V on a key that does nothing.</p>
+ * <p>The bar sits bottom-centre, above the hotbar, where nothing else is drawn. The counter
+ * ("1 / 2") is what makes the cycle key usable.
  */
 public final class SpectatorHud implements PvClientPlatform.HudLayer {
 
@@ -74,8 +68,7 @@ public final class SpectatorHud implements PvClientPlatform.HudLayer {
         }
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.options.hideGui) {
-            // F1 hides the HUD, and a spectator bar that ignores that is a bar the player cannot
-            // get rid of while trying to watch a fight cleanly.
+            // F1 hides the HUD, and the bar respects it so a fight can be watched cleanly.
             return;
         }
         float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
@@ -90,9 +83,8 @@ public final class SpectatorHud implements PvClientPlatform.HudLayer {
                 names.add(pair.substring(0, colon));
             }
         }
-        // A negative index is the detached state: the camera is back on the spectator's own body, so
-        // there is no "who" to name. Saying so is what makes the two modes tellable apart, because
-        // in both of them the same match is being watched.
+        // A negative index is the detached state: the camera is back on the spectator's own body.
+        // That is what tells the two modes apart.
         boolean attached = payload.index() >= 0 && !names.isEmpty();
         String who = attached
                 ? names.get(Math.floorMod(payload.index(), names.size()))
@@ -101,8 +93,8 @@ public final class SpectatorHud implements PvClientPlatform.HudLayer {
                 ? " " + (Math.floorMod(payload.index(), names.size()) + 1) + "/" + names.size()
                 : "";
 
-        // The map name and the round arrive as an id and a number, not as a sentence: the server
-        // that sends them has no language, and this bar is drawn on a client that does.
+        // The map name and the round arrive as an id and a number. The server has no language, and
+        // this bar is drawn on a client that does.
         String where = payload.mapId().isEmpty()
                 ? PvLang.str("pvpocket.gui.hud.unknown_map")
                 : PvLang.str("pvpocket.map." + payload.mapId());
@@ -124,9 +116,8 @@ public final class SpectatorHud implements PvClientPlatform.HudLayer {
                 PvTheme.alpha(PvTheme.BORDER, appearT),
                 PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
 
-        // A live dot rather than a word: this is a state, not a label. It breathes on a 2s period so
-        // it reads as "running" instead of as a static bullet, at an amplitude small enough that it
-        // never pulls the eye off the fight.
+        // A live dot rather than a word: this is a state, not a label. It breathes on a 2s period,
+        // so it reads as running.
         float pulse = 0.55F + 0.45F * (0.5F + 0.5F * (float) Math.sin(phase / PULSE_PERIOD * Math.PI * 2D));
         PvDraw.dot(ctx, x + PAD_X + 3, y + height / 2, 3,
                 PvTheme.alpha(PvTheme.ACCENT, appearT * pulse));

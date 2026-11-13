@@ -12,16 +12,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import java.util.List;
 
 /**
- * The detail dialog behind one history row: per-round outcomes, who was on which side, and a way to
- * take the result somewhere else.
+ * Modal detail view for one history record: per-round outcomes, both sides, and a copy button.
  *
- * <p>A modal on {@code PvScreen.overlay} rather than a second screen, for the reason the base class
- * documents: the overlay is drawn last <em>and</em> hit-tested first, so a click on the scrim closes
- * the dialog instead of pressing the row underneath it.</p>
+ * <p>Add it to {@code PvScreen.overlay}. The overlay is drawn last and hit-tested first, so a click
+ * on the scrim reaches this widget instead of the row underneath.
  *
- * <p>Rounds are laid out in two columns. A series can run to fifteen rounds and a single column of
- * them does not fit a 232px card; two columns of eight do, and the reading order (down, then across)
- * matches the order they were played.</p>
+ * <p>Rounds are laid out in two columns of eight. A series can reach fifteen rounds, which does not
+ * fit a single column of a 232px card.
  */
 public class HistoryDetail extends PvWidget {
 
@@ -65,8 +62,7 @@ public class HistoryDetail extends PvWidget {
         if (!visible) {
             return;
         }
-        // The scrim is the dialog's own: the overlay fills the viewport, and a dialog that draws only
-        // its card leaves the panel behind it looking pressable.
+        // The scrim belongs to the dialog; the overlay fills the viewport.
         PvDraw.rect(ctx, x, y, width, height, PvTheme.alpha(PvTheme.SCRIM, 0.85F));
 
         int cx = cardX();
@@ -100,23 +96,16 @@ public class HistoryDetail extends PvWidget {
         PvDraw.hLine(ctx, cx + 16, cy + 60, cw - 32, PvTheme.DIVIDER);
 
         int colW = (cw - 32 - 12) / 2;
-        // The round list is the only part of this card whose height is not fixed, so it is the part
-        // that has to be measured against what is left: title, meta line, score, two dividers, the
-        // sides line and the button row are all pinned to the card, and on the smallest canvas
-        // (320x180, where the card is 160 tall) a fixed eight rows per column ran straight through
-        // the sides line and the buttons. Two columns of what fits, and a count of the rest.
+        // The round list is the only variable-height part of the card, so it is measured against
+        // the space between the header and the button row.
         int listTop = cy + 68;
         int listBottom = cy + ch - 52 - 8;
         int rowsPerColumn = Math.max(1, Math.min(PER_COLUMN, (listBottom - listTop) / ROW_H));
         int capacity = rowsPerColumn * 2;
         boolean truncated = rounds.size() > capacity;
-        // When it does not all fit, the last slot says how much is missing instead of being spent on
-        // a round: a detail view that silently drops the last four rounds of a series is worse than
-        // one that admits to it.
+        // When the rounds do not all fit, the last slot reports the remaining count.
         int shown = truncated ? capacity - 1 : rounds.size();
-        // The label column is measured, not assumed. "Round 10" is half again as wide as "Round 1",
-        // and a fixed 34px offset put the result straight through the last digit on the tenth round —
-        // which is exactly the round a long series reaches.
+        // The label column is measured: "Round 10" is wider than "Round 1".
         int labelW = 0;
         for (int i = 0; i < shown; i++) {
             labelW = Math.max(labelW, tr.width(PvLang.str("pvpocket.gui.home.detail.round", i + 1)));
@@ -134,9 +123,8 @@ public class HistoryDetail extends PvWidget {
             int resultX = rx + labelW + 6;
             PvDraw.text(ctx, tr, result, resultX, ry,
                     round.won() ? PvTheme.ACCENT : PvTheme.TEXT_DIM);
-            // The reason is clipped to what is left rather than right-aligned over the result: two
-            // strings drawn towards each other from opposite edges overlap in the middle, and which
-            // round that happens on depends on the language.
+            // The reason text is clipped to the remaining width rather than right-aligned over
+            // the result, so the two strings cannot overlap in the middle.
             String tail = reasonLabel(round.reason()) + "  " + HomeText.duration(round.ms());
             int tailRoom = rx + colW - (resultX + tr.width(result)) - 6;
             if (tailRoom > 8) {
@@ -156,7 +144,7 @@ public class HistoryDetail extends PvWidget {
         String sides = record.teamMates().isEmpty()
                 ? PvLang.str("pvpocket.gui.home.history.solo")
                 : PvLang.str("pvpocket.gui.home.detail.sides", record.teamMates(), record.opponents());
-        // Both sides' names on one line: unbounded input in a 360px card.
+        // Both sides on one line; the names are unbounded input in a 360px card.
         PvDraw.textFitLeft(ctx, tr, sides, cx + 16, peopleY, cw - 32, PvTheme.TEXT_DIM);
 
         int by = cy + ch - 28;
@@ -180,11 +168,10 @@ public class HistoryDetail extends PvWidget {
     }
 
     /**
-     * Copies a one-line summary for pasting into chat.
+     * Copies a one-line summary of the result to the clipboard.
      *
-     * <p>Not the full detail: the point of copying a result is to show it to somebody, and a block of
-     * per-round lines pasted into a chat window is unreadable. The line carries what a reader needs to
-     * know who won, on what, and by how much.</p>
+     * <p>The line carries the map, the score, the outcome and the opponents. Per-round detail is
+     * left out, since the result is meant to be pasted into chat.
      */
     private void copyToClipboard() {
         String line = "PvPocket · " + record.mapLabel() + " · "
@@ -203,8 +190,7 @@ public class HistoryDetail extends PvWidget {
         if (close.visible && close.mouseClicked(mx, my, button)) {
             return true;
         }
-        // Anywhere else on the scrim is a dismiss: a dialog that requires hitting a 48px button to
-        // leave is a dialog that traps a player who does not know Esc works.
+        // A click anywhere else on the scrim dismisses the dialog.
         return contains(mx, my);
     }
 

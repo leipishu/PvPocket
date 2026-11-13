@@ -1,10 +1,6 @@
 param(
-    # Posts a key straight into the game window's message queue.
-    #
-    # SendKeys depends on the window really having keyboard focus, and on this machine it silently
-    # does not -- the game reports as the foreground window, renders fine, and still never sees the
-    # key. PostMessage skips focus entirely: GLFW translates WM_KEYDOWN in its window proc, so the
-    # keybinding fires whether or not the window is active.
+    # Posts a key into the game window's message queue. SendKeys never reaches this game, even
+    # when the window reports as the foreground window; PostMessage skips focus entirely.
     [string]$Username = "Dev3",
     [string]$Key = "G",
     # Virtual-key code for keys that are not a single character (F5 = 0x74, Esc = 0x1B). Takes

@@ -29,21 +29,15 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Where each player was the last time they were <em>not</em> in the duel dimension.
+ * Where each player was the last time they were not in the duel dimension.
  *
- * <p>This is a backstop, not the primary path. Everything in the mod that moves a player into
- * {@code pvpocket:arena} — a duel, a spectator camera — has a matching restore that puts them back.
- * The restores all live in memory, though, and the one thing that cannot survive is the server dying
- * with somebody inside. Their {@code playerdata} then records a position in the arena, and the next
- * login spawns them on a floating plot in a world they cannot leave.</p>
+ * <p>This is a backstop. Every move into {@code pvpocket:arena} has a matching restore, but a
+ * server that dies with a player inside leaves an arena position in their {@code playerdata}, and
+ * the next login spawns them on a floating plot.
  *
- * <p>The snapshot a duel takes is the right answer for a participant and useless for a spectator:
- * spectators are never snapshotted, because nothing about them is frozen. So the position is
- * remembered continuously instead — cheaply, since it only changes when the player crosses a block
- * boundary — and written to disk in one file that is rewritten at most every half minute.</p>
- *
- * <p>Recording is skipped while the player is in the arena, which is what makes the saved value
- * mean "before the duel" rather than "the last place I stood".</p>
+ * <p>The position is remembered continuously and written to one file, rewritten at most every 30
+ * seconds. Recording is skipped while the player is in the arena, so the saved value means "before
+ * the duel".
  */
 public final class HomePositions {
 
@@ -58,10 +52,8 @@ public final class HomePositions {
         /**
          * Game mode as it was outside the arena, e.g. {@code survival}.
          *
-         * <p>Saved for one reason: a spectator whose restore never ran logs back in still in
-         * {@code SPECTATOR}, and a spectator outside the arena cannot break blocks, take damage or
-         * be targeted — they are stuck as a ghost in their own base. Position alone would move them
-         * and leave that behind.</p>
+         * <p>A spectator whose restore never ran logs back in still in {@code SPECTATOR}, which
+         * cannot be escaped from inside the game. Position alone would leave that behind.
          */
         public String gameMode;
 
@@ -120,8 +112,8 @@ public final class HomePositions {
     /**
      * Notes where the player is, if they are somewhere worth noting.
      *
-     * <p>Called for every online player every tick, so it has to be free in the common case: one
-     * world check, one map lookup, one comparison against a squared distance.</p>
+     * <p>Called for every online player every tick, so the common case is one world check, one map
+     * lookup and one squared-distance comparison.
      */
     public void remember(ServerPlayer player) {
         Level world = player.level();
@@ -148,10 +140,8 @@ public final class HomePositions {
     /**
      * Moves a player who logged in inside the duel dimension back out.
      *
-     * <p>There is no legitimate way to log in standing in the arena: every arrival there is a
-     * teleport the mod itself performs, and each of those has a restore that runs before the
-     * playerdata is written. So an arrival there means a restore was lost — a crash, a kill, a
-     * dimension unloaded mid-duel — and the only useful thing to do is undo it.</p>
+     * <p>Every arrival in the arena is a teleport the mod performs, so an arrival on login means a
+     * restore was lost.
      *
      * @return true if the player was moved
      */
@@ -162,9 +152,8 @@ public final class HomePositions {
     /**
      * Moves out a player who is in the duel dimension without a match to be in.
      *
-     * <p>Same destination and the same fallback as {@link #rescue}, different cause: this one is
-     * the live guard, for somebody who walked, teleported or fell in without a session. Only the
-     * sentence changes, because "你上次在决斗场地里退出" would be a lie about what just happened.</p>
+     * <p>Same destination and fallback as {@link #rescue}, different cause: this is the live guard,
+     * for somebody who walked, teleported or fell in without a session.
      *
      * @return true if the player was moved
      */
@@ -175,8 +164,8 @@ public final class HomePositions {
     /**
      * The shared body of both exits.
      *
-     * @param whyKey translation key for the reason, used as the first half of the sentence
-     * @param reason short tag for the log line
+     * <p>{@code whyKey} is the translation key for the reason, used as the first half of the
+     * sentence; {@code reason} is a short tag for the log line.
      */
     private boolean moveOut(ServerPlayer player, String whyKey, String reason) {
         if (!ArenaManager.isArena(player.level())) {
@@ -185,8 +174,7 @@ public final class HomePositions {
         Home home = homes.get(player.getStringUUID());
         ServerLevel target = home == null ? null : resolve(player, home.dimension);
         if (target == null) {
-            // No record, or the record points at a dimension that no longer exists. Spawn is worse
-            // than where they were but better than a plot floating in the void.
+            // No record, or the record names a missing dimension. Spawn beats a plot in the void.
             target = player.getServer().overworld();
             player.teleportTo(target, target.getSharedSpawnPos().getX() + 0.5D,
                     target.getSharedSpawnPos().getY(), target.getSharedSpawnPos().getZ() + 0.5D,
@@ -211,18 +199,15 @@ public final class HomePositions {
     /**
      * Undoes a spectator game mode that outlived the session that set it.
      *
-     * <p>Only when the player is <em>still</em> a spectator: that is the state nothing else can fix,
-     * because {@code SPECTATOR} cannot be escaped from inside the game. Any other mode is left
-     * alone — the player may have changed it deliberately, and this class is a backstop, not an
-     * authority on how somebody wants to play.</p>
+     * <p>Applies only when the player is still a spectator, the state that cannot be escaped from
+     * inside the game. Any other mode is left alone.
      */
     private static void releaseSpectatorMode(ServerPlayer player, Home home) {
         if (player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
             return;
         }
         GameType fallback = home == null ? GameType.SURVIVAL : GameType.byName(home.gameMode, GameType.SURVIVAL);
-        // Authorised change: this runs while the player is still standing in the arena dimension,
-        // which is exactly the situation the sandbox rule exists to block for everyone else.
+        // Authorised change: this runs while the player is still in the arena dimension.
         Sandbox.changeGameMode(player, fallback);
     }
 

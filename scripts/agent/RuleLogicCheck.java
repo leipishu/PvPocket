@@ -2,20 +2,20 @@ import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
 
 /**
- * 选项切换（ENUM / MULTI / INT）的离线自检。
+ * Offline check of option cycling for ENUM, MULTI and INT rules.
  *
- * 跑的是编译出来的真实 RuleDefinition，不是把公式抄一遍——所以它验证的是「面板上那个左右箭头
- * 真的能走到每一个选项，而且只走一遍」，而不是「我以为是这么写的」。
+ * <p>Runs against the compiled {@link RuleDefinition}, so it verifies that the panel arrow
+ * reaches every choice once and returns to the start, not that a copied formula is right.
  *
- * 不需要客户端：只需要 build/classes/java/main 加上 loom 的依赖类路径。入口是
- * scripts/check-rules-logic.sh，退出码 0 通过 / 1 失败，可以直接挂 CI。
+ * <p>Needs no client: {@code build/classes/java/main} plus the Loom dependency classpath is
+ * enough. Entry point is {@code scripts/check-rules-logic.sh}; exit code 0 passes, 1 fails.
  */
 public final class RuleLogicCheck {
 
     private static int failures;
 
     public static void main(String[] args) {
-        // 目录里真实存在的选项数：2..6（含 e.template 的 6 张图）
+        // Choice counts that occur in the catalogue: 2 to 6, including the 6 maps of e.template.
         for (int count = 2; count <= 6; count++) {
             RuleDefinition def = RuleDefinition.enumOf("t.enum" + count, RuleGroup.A, 0,
                     RuleDefinition.choices("t.enum" + count, count));
@@ -33,7 +33,7 @@ public final class RuleLogicCheck {
     }
 
     private static void checkEnum(RuleDefinition def, int count) {
-        // 1. 从默认值出发，一路向右必须恰好访问每一个选项各一次，并回到起点
+        // 1. From the default, stepping right visits every choice once and returns to the start.
         int start = def.defaultValue;
         int v = start;
         boolean[] seen = new boolean[count];
@@ -57,7 +57,7 @@ public final class RuleLogicCheck {
         if (v != start) {
             fail("enum" + count + ": " + count + " 步之后回到 " + v + "，应为 " + start);
         }
-        // 2. 向左同理（双向对称）
+        // 2. The same holds stepping left.
         v = start;
         for (int i = 0; i < count; i++) {
             v = def.step(v, -1);
@@ -65,7 +65,7 @@ public final class RuleLogicCheck {
         if (v != start) {
             fail("enum" + count + ": 向左 " + count + " 步之后回到 " + v + "，应为 " + start);
         }
-        // 3. 越界值被夹回，且夹回之后仍然可循环
+        // 3. Out-of-range values clamp back and remain cyclable.
         int clamped = def.clamp(count + 5);
         if (clamped != count - 1) {
             fail("enum" + count + ": clamp(" + (count + 5) + ") = " + clamped + "，应为 " + (count - 1));
@@ -73,7 +73,7 @@ public final class RuleLogicCheck {
         if (def.clamp(-3) != 0) {
             fail("enum" + count + ": clamp(-3) 应为 0");
         }
-        // 4. 每一个值都有文字（选项键由 id 派生，键缺失时会退回键名本身，不是空串）
+        // 4. Every value has a key; a missing translation falls back to the key name.
         for (int i = 0; i < count; i++) {
             String key = def.choiceKeys[i];
             if (key == null || key.isEmpty()) {
@@ -94,7 +94,7 @@ public final class RuleLogicCheck {
         if (def.clamp(0) != 0) {
             fail("multi: clamp(0) 应保持 0");
         }
-        // 默认值必须落在位宽内
+        // The default must fit the bit width.
         if ((def.defaultValue & ~def.max) != 0) {
             fail("multi: 默认值超出位宽");
         }
@@ -102,7 +102,7 @@ public final class RuleLogicCheck {
 
     private static void checkInt() {
         RuleDefinition def = RuleDefinition.intRange("t.int", RuleGroup.A, 16, 224, 8, 48);
-        // 步进到两端就停住，不越界也不回绕
+        // Stepping stops at either end: no wrap and no overflow.
         int v = 16;
         for (int i = 0; i < 40; i++) {
             v = def.step(v, -1);
@@ -120,8 +120,7 @@ public final class RuleLogicCheck {
         if (def.clamp(1000) != 224 || def.clamp(-1000) != 16) {
             fail("int: clamp 没夹住");
         }
-        // 夹的同时要吸附到步长网格：面板上的箭头只能走网格上的值，盘上那个 45 若原样留下来，
-        // 屏幕上就有一个「显示 45、按一下变 53」的行，再也回不去。
+        // Clamping also snaps to the step grid, since the arrows only visit grid values.
         if (def.clamp(45) != 48) {
             fail("int: clamp(45) 应吸附到网格上的 48，实际 " + def.clamp(45));
         }
@@ -136,7 +135,7 @@ public final class RuleLogicCheck {
                 break;
             }
         }
-        // 默认值必须落在范围内，且本身就在网格上
+        // The default must be in range and on the grid.
         if (def.defaultValue < def.min || def.defaultValue > def.max) {
             fail("int: 默认值越界");
         }
@@ -146,20 +145,20 @@ public final class RuleLogicCheck {
     }
 
     /**
-     * 落盘/上线时的规范化：锁住的位、互斥的位、被夹过的值。
+     * Checks normalisation on load: locked bits, exclusive bits and clamped values.
      *
-     * 这一段比上面几段重要，因为它管的是「规则集从字符串变成内存里的值」那一步——手改的包、
-     * 旧版本的存档、别人写的预设都从这里进来，而规范化是唯一挡在它们和对局之间的东西。
+     * <p>Decoding turns a rule string into in-memory values. Hand-edited packets, old saves and
+     * third-party presets all enter there, and normalisation is what guards the match.
      */
     private static void checkNormalise() {
         com.leipishu.pvpocket.rules.DuelRules decoded =
                 com.leipishu.pvpocket.rules.DuelRules.decode(
                         "a.winConditions=0;e.hazard=0;e.template=99;c.mode=99");
-        // 击杀位锁死：清掉之后必须被强制补回来
+        // The kill bit is locked: clearing it forces it back on.
         if ((decoded.get("a.winConditions") & 1) == 0) {
             fail("normalise: a.winConditions 的击杀位没有被强制补回");
         }
-        // e.hazard 的「无」与其余位互斥；两种写法收敛成同一个值
+        // e.hazard "none" is exclusive with the other bits; both spellings converge on one value.
         int none = decoded.get("e.hazard");
         if (none != 1) {
             fail("normalise: e.hazard=0 应收敛为「无」(1)，实际 " + none);
@@ -172,14 +171,14 @@ public final class RuleLogicCheck {
         if (lavaOnly != 4) {
             fail("normalise: e.hazard=4 应保持 4，实际 " + lavaOnly);
         }
-        // 越界值被夹住，而且要留下痕迹——这是「我同意的图和实际打的图不是一张」的唯一证据
+        // Out-of-range values clamp and are recorded; the record is the only evidence of it.
         if (decoded.clampedValues().isEmpty()) {
             fail("normalise: 夹过的值没有记录");
         }
         if (decoded.get("e.template") >= com.leipishu.pvpocket.arena.ArenaMaps.ALL.size()) {
             fail("normalise: e.template 没有被夹进地图数量内");
         }
-        // 历史 journal 里真的出现过 e.sizeX=45，而它的步长是 8：盘上值吸附到网格，并且留痕
+        // e.sizeX has step 8, so 45 must snap to the grid and be recorded.
         com.leipishu.pvpocket.rules.DuelRules offGrid =
                 com.leipishu.pvpocket.rules.DuelRules.decode("e.sizeX=45");
         if (offGrid.get("e.sizeX") != 48) {
@@ -188,11 +187,11 @@ public final class RuleLogicCheck {
         if (!"45->48".equals(offGrid.clampedValues().get("e.sizeX"))) {
             fail("normalise: e.sizeX 的吸附没有留痕");
         }
-        // 正常的规则集不应留下任何「被夹过」的痕迹
+        // A valid rule set records no clamping.
         if (!com.leipishu.pvpocket.rules.DuelRules.decode("").clampedValues().isEmpty()) {
             fail("normalise: 空规则集不应记录任何夹取");
         }
-        // 默认值本身是干净的：不夹、不吸附，所以不该有任何痕迹
+        // The defaults are already clean, so they record nothing.
         if (!com.leipishu.pvpocket.rules.DuelRules.defaults().clampedValues().isEmpty()) {
             fail("normalise: 默认规则集不应记录任何夹取");
         }

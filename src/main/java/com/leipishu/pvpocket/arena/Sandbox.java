@@ -7,35 +7,15 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 
 /**
- * The policy of the duel dimension: a player inside it is a guest with no admin rights.
+ * Sandbox policy of the duel dimension: a player inside it is a guest with no admin rights.
  *
- * <p>The dimension is called the sandbox in the rules panel and this class is what makes the name
- * true. Two things are refused there, and both exist for the same reason — the outcome of a duel is
- * supposed to be decided by the duel:</p>
+ * <p>Two things are refused inside the arena. A player may only run {@code /pvpocket}, checked
+ * before the command tree sees the command. Game mode changes requested by a player are refused at
+ * the interaction manager, which also covers direct calls that never touch a command.
  *
- * <ol>
- *   <li><b>Commands.</b> A player standing in the arena may only run {@code /pvpocket}. Everything
- *       else is refused before the command tree ever sees it, which is what makes the refusal
- *       uniform: {@code /gamemode}, {@code /tp}, {@code /give}, {@code /effect} and any command
- *       another mod adds are all blocked by the same rule rather than by a deny-list that has to be
- *       kept up to date.</li>
- *   <li><b>Game mode changes.</b> Refused at the interaction manager, not at the command, so the
- *       ban also covers the paths that never touch a command: another mod calling
- *       {@code changeGameMode} directly, or a client-side shortcut that ends up doing the same.</li>
- * </ol>
- *
- * <p><b>The mod's own changes are exempt</b>, and they have to be: entering a round switches a
- * participant to survival, entering spectator mode switches a watcher to spectator, and leaving
- * puts the old mode back. Those go through {@link #changeGameMode}, which raises an authorisation
- * for the duration of the call. A blanket ban without that exemption would make spectating and
- * round start silently do nothing, which is a far worse failure than the one this class is
- * preventing.</p>
- *
- * <p><b>The operator keeps a way in.</b> The rule is about who asks, not about who is affected: a
- * change requested by a player is refused, a change requested by the server is not. So the console,
- * RCON and command blocks can still run {@code /gamemode} on a player standing in the arena, which
- * is the only way to get somebody out of a state the mod itself failed to restore. A sandbox that
- * nobody can fix from outside is not a sandbox, it is a trap.</p>
+ * <p>Changes made by the server are allowed: sources without a player entity (console, RCON,
+ * command blocks) pass, and the mod's own changes go through {@link #changeGameMode}, which raises
+ * an authorisation for the duration of the call.
  */
 public final class Sandbox {
 
@@ -45,9 +25,8 @@ public final class Sandbox {
     /**
      * Depth of the current authorised game-mode change.
      *
-     * <p>A counter rather than a boolean because a nested call is possible: {@code PlayerSnapshot}
-     * restoring a game mode can run from inside a session transition that is itself already
-     * authorised. Unwinding to zero one level too early would refuse the inner change.</p>
+     * <p>A counter rather than a boolean so a nested call, such as a snapshot restore inside a
+     * session transition, does not unwind the outer scope early.
      */
     private static int authorised;
 
@@ -62,10 +41,9 @@ public final class Sandbox {
     /**
      * Whether this command may run.
      *
-     * <p>Sources without a player entity — console, RCON, command blocks, the mod's own scripted
-     * commands — are always allowed. The check is on the <em>sender</em>, not on the world, because
-     * the whole point is to restrict players rather than to disable the command system in the
-     * dimension.</p>
+     * <p>Sources without a player entity, such as console, RCON, command blocks and the mod's own
+     * scripted commands, are always allowed, as are null arguments. The check is on the sender,
+     * not on the world.
      */
     public static boolean commandAllowed(CommandSourceStack source, String rawCommand) {
         if (source == null || rawCommand == null) {
@@ -83,13 +61,12 @@ public final class Sandbox {
     /**
      * The command's root literal, with any namespace stripped.
      *
-     * <p>Stripping the namespace is what makes {@code /pvpocket:pvpocket list} work: Brigadier
-     * accepts a fully qualified root, and a player who types one has not left the allow-list.</p>
+     * <p>Stripping the namespace lets {@code /pvpocket:pvpocket list} match the allow-list.
      */
     static String rootOf(String rawCommand) {
         String trimmed = rawCommand.trim();
-        // The slash is already gone by the time a command reaches the manager, but accepting it
-        // costs one branch and removes a whole class of "the rule did not fire" bug reports.
+        // The slash is already gone by the time a command reaches the manager. Accepting it anyway
+        // costs one branch and covers callers that pass the raw typed text.
         if (trimmed.startsWith("/")) {
             trimmed = trimmed.substring(1);
         }
@@ -105,10 +82,8 @@ public final class Sandbox {
     /**
      * Changes a player's game mode with the sandbox rule lifted for the duration of the call.
      *
-     * <p>Every game-mode change the mod makes on purpose has to come through here. A direct
-     * {@code player.changeGameMode} from inside the arena is refused by
-     * {@code ServerPlayerInteractionManagerMixin}, and the failure is silent — the round would
-     * simply start in the wrong mode.</p>
+     * <p>Call this instead of {@code player.setGameMode} while the player is in the arena. A direct
+     * call is refused by {@code ServerPlayerInteractionManagerMixin} and fails silently.
      */
     public static void changeGameMode(ServerPlayer player, GameType mode) {
         beginAuthorised();
@@ -120,12 +95,10 @@ public final class Sandbox {
     }
 
     /**
-     * Opens an authorisation scope. Must be paired with {@link #endAuthorised} in a finally block.
+     * Opens an authorisation scope. Pair with {@link #endAuthorised} in a finally block.
      *
-     * <p>Used by the command hook to cover the operator: a console or RCON command that changes a
-     * game mode has to work, otherwise an operator cannot get a player out of a broken state without
-     * first teleporting them out of the dimension. The rule is about players, not about the command
-     * system.</p>
+     * <p>Used by the command hook so a console or RCON command that changes a game mode still
+     * works on a player standing in the arena.
      */
     public static void beginAuthorised() {
         authorised++;
@@ -139,15 +112,15 @@ public final class Sandbox {
     }
 
     /**
-     * Read by {@code ServerPlayerInteractionManagerMixin}: true while a mode change is authorised.
+     * True while a game mode change is authorised.
      *
-     * <p>Public only because the mixins live in another package. Not part of the mod's API.</p>
+     * <p>Public only because the mixins live in another package. Not part of the mod's API.
      */
     public static boolean gameModeChangeAllowed() {
         return authorised > 0;
     }
 
-    /** Logged once per refusal so a silently ignored third-party change leaves a trace. */
+    /** Logs one line per refused change, so an ignored third-party change leaves a trace. */
     public static void logRefusal(ServerPlayer player, GameType mode) {
         PvPocket.LOGGER.info("Refused game mode change to {} for {} inside the sandbox",
                 mode.getShortDisplayName(), player.getName().getString());

@@ -17,7 +17,7 @@ import java.nio.file.Path;
 import java.util.function.Consumer;
 
 /**
- * Fabric 的客户端平台实现。只做转发，例外只有两处，都在注释里说明了为什么。
+ * Fabric implementation of {@link PvClientPlatform}: forwards client events to the shared wiring.
  */
 public final class FabricClientPlatform implements PvClientPlatform {
 
@@ -29,9 +29,8 @@ public final class FabricClientPlatform implements PvClientPlatform {
     @Override
     public <T extends CustomPacketPayload> void onServerPacket(
             CustomPacketPayload.Type<T> type, Consumer<T> handler) {
-        // 第一处例外：跳线程。Fabric 的 receiver 跑在 netty 线程上，碰任何客户端状态都是未定义
-        // 行为（界面会在渲染线程读同一批字段）。这个跳转属于平台，所以接收方的代码里看不到
-        // `client.execute`。
+        // Fabric delivers on the netty thread, where client state is off limits; the render thread
+        // reads the same fields. The hop lives here so handlers never call client.execute.
         ClientPlayNetworking.registerGlobalReceiver(type, (payload, context) ->
                 context.client().execute(() -> handler.accept(payload)));
     }
@@ -64,8 +63,8 @@ public final class FabricClientPlatform implements PvClientPlatform {
 
     @Override
     public void registerKeyMapping(KeyMapping mapping) {
-        // 第二处例外：Fabric 要求把实例交给它登记，之后原版才会在控制页里列出这个键。返回值就是
-        // 传进去的那个实例，所以这里丢掉它不损失信息。
+        // Fabric requires the instance so vanilla can list the key on the controls screen; the
+        // call hands back the same instance, so discarding the result loses nothing.
         KeyBindingHelper.registerKeyBinding(mapping);
     }
 
@@ -97,12 +96,11 @@ public final class FabricClientPlatform implements PvClientPlatform {
     }
 
     /**
-     * Fabric 的上下文 → 平台的中立 record。
+     * Converts a Fabric render context into the platform-neutral {@link WorldFrame}.
      *
-     * <p>六个字段逐一对应，没有遗漏也没有编造：{@code WorldRenderContext} 在 1.21.1 上正好提供
-     * 这六项。多取一个字段就等于要求 NeoForge 那边也提供它，而那边的
-     * {@code RenderLevelStageEvent} 并不带 {@code LightTexture}——到时候这里就是编译不过的地方，
-     * 也是唯一需要改的地方。</p>
+     * <p>All six fields come from {@code WorldRenderContext}, which supplies exactly these.
+     * Reading a field here requires the NeoForge side to supply it too, and
+     * {@code RenderLevelStageEvent} has no {@code LightTexture}.
      */
     private static WorldFrame frame(WorldRenderContext context) {
         return new WorldFrame(

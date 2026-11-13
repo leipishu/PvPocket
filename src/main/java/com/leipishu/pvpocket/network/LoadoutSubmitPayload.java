@@ -7,12 +7,10 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Client to server: "save this loadout onto my side of the session".
+ * Client to server: save this loadout onto the sender's side of the session.
  *
- * <p>The payload carries a loadout string, never item stacks. Stacks would let a client ask for any
- * item in the game; a loadout string is re-validated against the whitelist and the caps on the server
- * before a single item is constructed, so the worst a tampered client can do is submit a loadout that
- * gets rejected.</p>
+ * <p>The payload carries a loadout string, never item stacks. The string is re-validated against
+ * the whitelist and the caps on the server before any item is constructed.
  */
 public record LoadoutSubmitPayload(String sessionId, String loadout) implements CustomPacketPayload {
 

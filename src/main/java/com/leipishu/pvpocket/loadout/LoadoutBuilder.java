@@ -32,20 +32,12 @@ import java.util.Optional;
 /**
  * Turns a {@link Loadout} into real items.
  *
- * <p>Three decisions shape everything here:</p>
+ * <p>Attribute modifiers are replaced rather than appended, so the material is display only and the
+ * chosen damage is what the item hits for. Enchantments carry the behaviour: sweeping, Infinity,
+ * Riptide and knockback are vanilla enchantments rather than reimplemented effects.
  *
- * <ol>
- *   <li><b>Attributes are replaced, not appended.</b> A vanilla iron sword carries
- *       {@code attribute_modifiers} that make it hit for 6. If the loadout only <em>added</em> a
- *       modifier, the material would still matter and the player's chosen damage would be a lie. The
- *       component is therefore overwritten wholesale, which is what makes "material is display only"
- *       actually true.</li>
- *   <li><b>Enchantments carry the behaviour.</b> Sweeping, Infinity, Riptide and knockback are real
- *       vanilla enchantments rather than re-implemented effects, so they behave like the thing the
- *       player expects and the tooltip tells the truth.</li>
- *   <li><b>Nothing here is random or time-dependent.</b> The same loadout must produce byte-identical
- *       items every round, otherwise "reset to the initial state" would drift.</li>
- * </ol>
+ * <p>Nothing here is random or time-dependent, so the same loadout produces identical items on
+ * every round.
  */
 public final class LoadoutBuilder {
 
@@ -58,9 +50,8 @@ public final class LoadoutBuilder {
     /**
      * Builds every stack, in loadout order.
      *
-     * <p>Companions are emitted here rather than inside {@link #toStack} because a bow without
-     * Infinity, an end crystal and TNT each need a second item: the stack list is the only place
-     * that can express "this entry produced two things".</p>
+     * <p>Companions are emitted here rather than in {@link #toStack}, because the stack list is the
+     * only place that can express "this entry produced two things".
      */
     public static List<ItemStack> build(Loadout loadout, RegistryAccess registries, int teamIndex) {
         List<ItemStack> stacks = new ArrayList<>();
@@ -82,19 +73,14 @@ public final class LoadoutBuilder {
     }
 
     /**
-     * The second stack an entry brings, or {@link ItemStack#EMPTY} for the kinds that bring one.
+     * The second stack an entry brings, or {@link ItemStack#EMPTY} when it brings none.
      *
-     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT. One method because
-     * the three are one shape: the entry is a single decision, the grant is two stacks, and the count
-     * is the field the editor shows. {@link #grant} needs the same answer when it has to find a free
-     * slot for it, so it must not be written twice.</p>
+     * <p>Arrows for a bow, obsidian for an end crystal, flint and steel for TNT. {@link #grant}
+     * needs the same answer when it looks for a free slot, so it must not be written twice.
      *
-     * <p><b>An Infinity bow still gets exactly one arrow.</b> It used to get none, on the reasoning
-     * that Infinity means the arrow is never consumed — but vanilla refuses to draw at all unless the
-     * inventory holds at least one arrow, so a bow granted without any is a bow that cannot shoot.
-     * One is the whole of what it needs: the enchantment keeps it there. The count field is ignored
-     * for that case rather than clamped, because "32 arrows" and "one arrow" are the same thing to a
-     * bow with Infinity and the editor has no business asking.</p>
+     * <p>An Infinity bow gets exactly one arrow, because vanilla refuses to draw unless the
+     * inventory holds an arrow and the enchantment keeps that one in place. The count field is
+     * ignored for that case rather than clamped.
      */
     private static ItemStack companionStack(LoadoutEntry entry) {
         if (!entry.kind.hasCompanion()) {
@@ -118,7 +104,9 @@ public final class LoadoutBuilder {
         return lockIfNeeded(new ItemStack(item, entry.companionCount), entry);
     }
 
-    /** Builds one stack. Returns {@link ItemStack#EMPTY} for anything the item registry cannot resolve. */
+    /**
+     * Builds one stack, or {@link ItemStack#EMPTY} for an item the registry cannot resolve.
+     */
     public static ItemStack toStack(LoadoutEntry entry, RegistryAccess registries, int teamIndex) {
         Item item = resolveItem(entry, teamIndex);
         if (item == null || item == Items.AIR) {
@@ -141,13 +129,11 @@ public final class LoadoutBuilder {
     /**
      * Applies the entry's {@code noDrop} to a stack it just produced.
      *
-     * <p>Written here rather than in {@link #grant} so the two other ways a loadout becomes items —
-     * {@code /pvpocket loadout give} and the companion stacks — cannot drift: every stack the builder
-     * returns has been through this, or it has no lock because the entry asked for none.</p>
+     * <p>Every stack the builder returns passes through here, including companion stacks, so the
+     * three ways a loadout becomes items cannot drift.
      *
-     * <p>The mark carries the entry's fingerprint rather than a bare {@code true}, which is what lets
-     * {@link LoadoutLock#restamp} take the lock back off a stack when the player turns the switch off
-     * after the item was already handed out.</p>
+     * <p>The mark carries the entry's fingerprint rather than a bare flag, which lets
+     * {@link LoadoutLock#restamp} take the lock back off a stack.
      */
     private static ItemStack lockIfNeeded(ItemStack stack, LoadoutEntry entry) {
         if (entry.noDrop) {
@@ -167,9 +153,8 @@ public final class LoadoutBuilder {
     /**
      * Rewrites the white wool entry into the side's colour.
      *
-     * <p>"羊毛套娃" — both sides get wool, but not the same wool, so a player can tell their own
-     * structure from the opponent's at a glance. Only the sentinel id is rewritten; if a player
-     * deliberately picks a specific colour, that choice wins.</p>
+     * <p>Both sides get wool, but not the same wool, so a player can tell their own structure from
+     * the opponent's. Only the sentinel id is rewritten; a specific colour the player picked wins.
      */
     private static ResourceLocation teamAdjustedVariant(LoadoutEntry entry, int teamIndex) {
         String variant = entry.variant;
@@ -213,9 +198,8 @@ public final class LoadoutBuilder {
 
     private static void applyDurability(ItemStack stack, LoadoutEntry entry) {
         if (!entry.kind.hasDurability()) {
-            // A hand-edited string can put a durability on a firework rocket. Writing max_damage
-            // there would produce an item with a durability bar that never moves, so the field is
-            // ignored rather than honoured.
+            // A hand-edited string can put a durability on a firework rocket, where max_damage
+            // would draw a bar that never moves.
             return;
         }
         if (entry.durability == LoadoutEntry.DURABILITY_UNBREAKABLE) {
@@ -224,8 +208,8 @@ public final class LoadoutBuilder {
         }
         if (entry.durability > 0) {
             stack.set(DataComponents.MAX_DAMAGE, entry.durability);
-            // A fresh item must not start damaged: MAX_DAMAGE alone leaves the damage value from the
-            // base item, which for a re-used stack would carry a previous round's wear into this one.
+            // A fresh item must not start damaged: MAX_DAMAGE alone keeps the base item's damage
+            // value, which for a re-used stack carries the previous round's wear.
             stack.set(DataComponents.DAMAGE, 0);
         }
     }
@@ -269,9 +253,8 @@ public final class LoadoutBuilder {
     /**
      * Gives a firework rocket its flight duration and nothing else.
      *
-     * <p>No explosions on purpose: a rocket with a firework star deals area damage when it bursts,
-     * which would quietly turn the elytra's fuel into a weapon. The empty explosion list is what
-     * makes it pure thrust.</p>
+     * <p>A rocket with a firework star deals area damage when it bursts, so the explosion list
+     * stays empty and the rocket is pure thrust.
      */
     private static void applyFireworks(ItemStack stack, LoadoutEntry entry) {
         if (entry.kind != ItemKind.FIREWORK_ROCKET) {
@@ -293,8 +276,7 @@ public final class LoadoutBuilder {
         if (effect.isEmpty()) {
             return;
         }
-        // Duration is expressed in seconds in the editor and in ticks in the game. Instant effects
-        // ignore it, which is why the editor greys the row out for those rather than pretending.
+        // Duration is seconds in the editor and ticks in the game; instant effects ignore it.
         int ticks = Math.max(20, entry.durationSec * 20);
         MobEffectInstance instance = new MobEffectInstance(effect.get(), ticks, entry.amplifier);
         int color = PotionContents.getColor(List.of(instance));
@@ -305,9 +287,8 @@ public final class LoadoutBuilder {
     /**
      * Hands the loadout over without touching what the player already carries.
      *
-     * <p>This exists for the {@code /pvpocket loadout give} test path. It is deliberately a different
-     * method from {@link #grant}: clearing the inventory is correct at round start, where the snapshot
-     * already holds the survival contents, and catastrophic anywhere else.</p>
+     * <p>Used by the {@code /pvpocket loadout give} test path. {@link #grant} clears the inventory
+     * instead, which is only correct at round start.
      */
     public static int give(ServerPlayer player, Loadout loadout, int teamIndex) {
         int given = 0;
@@ -325,8 +306,8 @@ public final class LoadoutBuilder {
     /**
      * Replaces the player's inventory with the loadout.
      *
-     * <p>Called after the snapshot is on disk, never before: the snapshot is the only copy of the
-     * survival inventory, and clearing first would delete it.</p>
+     * <p>Call after the snapshot is on disk: the snapshot is the only copy of the survival
+     * inventory, and clearing first would delete it.
      */
     public static int grant(ServerPlayer player, Loadout loadout, int teamIndex) {
         Inventory inventory = player.getInventory();

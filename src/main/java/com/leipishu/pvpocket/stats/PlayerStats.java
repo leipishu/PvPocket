@@ -3,13 +3,11 @@ package com.leipishu.pvpocket.stats;
 /**
  * One player's lifetime counters on this server.
  *
- * <p>Plain fields so Gson needs no adapters and so an old {@code stats.json} stays readable: a
- * missing field keeps its initialiser rather than failing the whole file, which is the same
- * tolerance {@code PresetStore} applies to a bad row.</p>
+ * <p>Plain fields, so Gson needs no adapters and an older {@code stats.json} stays readable: a
+ * missing field keeps its initialiser.
  *
- * <p><b>These numbers are not recomputable.</b> They are accumulated as the events happen, so a
- * change to what a counter means invalidates everything already stored. The definitions are written
- * down in {@code docs/zh/02-rules.md}; treat them as a format, not as an implementation detail.</p>
+ * <p>These numbers are not recomputable. They accumulate as events happen, so a change to what a
+ * counter means invalidates stored data. The definitions live in {@code docs/zh/02-rules.md}.
  */
 public final class PlayerStats {
 

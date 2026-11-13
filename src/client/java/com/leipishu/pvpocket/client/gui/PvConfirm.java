@@ -7,22 +7,15 @@ import net.minecraft.client.gui.GuiGraphics;
 import java.util.List;
 
 /**
- * "Are you sure?" for an action that cannot be undone.
+ * "Are you sure?" dialog for an action that cannot be undone.
  *
- * <p>A dialog rather than a second press on the same button, which is what the preset row does for
- * its delete. The difference is the blast radius: deleting a preset costs its author one preset, and
- * the two callers here end every duel on the server or throw away a loadout the player has just spent
- * five minutes on. A mis-click that a second press can confirm is not enough of a speed bump for
- * either, so the question gets its own surface, its own sentence, and its own cancel button.</p>
+ * <p>A dialog rather than a second press on the same button, because its callers end every duel on
+ * the server or discard an unsaved loadout.
  *
- * <p>The body is two strings rather than one paragraph: the first says what will happen, the second
- * says what cannot be undone. Both are fitted and wrapped rather than trusted — a translated
- * sentence is routinely twice the width of the English one, and a confirmation that cuts its own
- * warning mid-word is a confirmation nobody reads.</p>
+ * <p>The body is two strings: the first says what will happen, the second says what cannot be
+ * undone. Both are fitted and wrapped.
  *
- * <p>Lives in {@code gui} rather than beside its first caller because the loadout editor asks the
- * same question with a different colour on the button: "discard these changes" is destructive for
- * the draft and reversible for the panel, so the caller owns the button style and the note colour.</p>
+ * <p>The caller owns the confirm button style and the note colour.
  */
 public class PvConfirm extends PvWidget {
 
@@ -44,8 +37,8 @@ public class PvConfirm extends PvWidget {
         this.body = body;
         this.note = note;
         this.noteColor = noteColor;
-        // The colour is on the confirming button, not on the trigger: by the time this is drawn the
-        // question has already been asked, and the answer is the half that acts.
+        // The colour is on the confirming button rather than the trigger, since the confirm button
+        // is the one that acts.
         this.confirm = new PvButton(confirmLabel, confirmStyle, onConfirm).size(84, BTN_H);
         this.cancel = new PvButton(cancelLabel, PvButton.Style.GHOST, onClose).size(56, BTN_H);
     }

@@ -1,47 +1,25 @@
-// NeoForge 1.21.1 这一格。与 Fabric 那一格是**平行**的：共享 src/，自己只多出
-// src/neoforge 与 src/client-neoforge 两个目录。
-//
-// 为什么加载器必须落在 project 边界上：Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与
-// remap，两个同时应用会互相覆盖。这也是 settings.gradle 里一个 cell 一个子项目的原因。
+// NeoForge 1.21.1 cell. Parallel to the Fabric cell: shared src/, plus src/neoforge and
+// src/client-neoforge.
 
 plugins {
-    // 与 Fabric 那一格同理：版本在 gradle/libs.versions.toml 的 [plugins] 里，不读 gradle.properties。
+    // Plugin versions come from gradle/libs.versions.toml, so both cells can pick their own.
     alias(libs.plugins.neoforgeModdev)
 }
 
-// 与加载器无关的那一半：产物名、Java 级别、编码、许可、dev 客户端清单、statsCheck。
-// 和 Fabric 那一格是同一个文件——用户名、窗口尺寸、自动进服地址只写一次。
+// Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
 apply from: rootProject.file('gradle/pvpocket-cells.gradle')
 
-// ---------------------------------------------------------------------------
-// 镜像：这一段是这台机器能不能构建的全部原因，别删。
-//
-// ModDevGradle 在 apply 时往 repositories 里塞三个仓库，其中两个在 maven.neoforged.net 上：
-//
-//     https://maven.neoforged.net/mojang-meta/
-//     https://libraries.minecraft.net/
-//     https://maven.neoforged.net/releases/
-//
-// 那个域名在本机 DNS 被污染（解析出来是 104.244.46.x / 182.50.139.x 这类不相干的地址），
-// TCP 连上去停在 SYN_SENT 永远不回。Gradle 的失败方式是「换下一个 CDN 节点再等一次」，
-// 所以症状不是报错而是**卡死**：`createMinecraftArtifacts` 十几分钟一行日志都不出。
-//
-// exclusiveContent 在这里没用——它解决的是「同一个模块该问哪个仓库」，而这里的问题是
-// 「问了就挂住」，压根走不到「这个仓库没有」那一步。唯一有效的做法是把整个容器清空重来。
-//
-// **repositories.clear() 必须写在下面的 repositories 块之前**：写在后面就等于先声明镜像、
-// 再让插件的原地址排到前面，等于没改。
+// maven.neoforged.net resolves to unrelated addresses here and connections hang instead of failing,
+// so the plugin's repository list is cleared and rebuilt against the official CDN mirror.
 repositories.clear()
 
 repositories {
-    // neoforged.forgecdn.net 是 NeoForged 的官方 CDN，路径结构与 maven.neoforged.net 逐字相同，
-    // 所以换的只是主机名，坐标一个都不用改。`/releases` 末尾没有斜杠、也不能少那个 s。
+    // Same layout as maven.neoforged.net, so only the host changes. Keep the plural /releases.
     maven {
         name = 'NeoForgedReleases'
         url = 'https://neoforged.forgecdn.net/releases'
     }
-    // 原仓库里的 mojang-meta 是「Mojang 版本清单 + 客户端/服务端 jar」的代理，这一份同样要换，
-    // 否则前面清空的那两个仓库里会剩下这一个仍然挂在原地。
+    // Proxies the Mojang version manifest and the client/server jars; also has to be mirrored.
     maven {
         name = 'NeoForgedMojangMeta'
         url = 'https://neoforged.forgecdn.net/mojang-meta'
@@ -51,22 +29,15 @@ repositories {
         url = 'https://libraries.minecraft.net/'
     }
     mavenCentral()
-    // sponge-mixin：NeoForge 的 POM 依赖 net.fabricmc:sponge-mixin。
+    // sponge-mixin is a NeoForge POM dependency and is published on the Fabric maven.
     maven {
         name = 'Fabric'
         url = 'https://maven.fabricmc.net/'
     }
 }
 
-// 源码：与 Fabric 那一格共享 src/main 与 src/client，只多两个加载器目录。
-// 同样是「同一个 source set、多个 srcDir」，隔离靠 scripts/check-boundary.py。
-//
-// **客户端代码也进 main**，与 Fabric 相反：Loom 的 splitEnvironmentSourceSets() 把客户端拆成独立
-// 源集，NeoForge 没有这个东西，它是单 jar——客户端类打进同一个包，靠「专用服务端永远不加载这些
-// 类」而不是靠源集隔离。所以这里只有一个 source set，四个 srcDir。
-//
-// 路径都要显式写 rootProject.file(...)：这个 project 的 projectDir 是 versions/1.21.1-neoforge，
-// 默认的 src/main/java 会解析到那里去，什么都没有。
+// One source set, four srcDir entries: NeoForge ships a single jar, so client classes go into main
+// and are kept off the dedicated server by never loading them rather than by source set isolation.
 sourceSets {
     main {
         java.srcDir rootProject.file('src/main/java')
@@ -83,18 +54,14 @@ sourceSets {
 neoForge {
     version = project.neoforge_version
 
-    // 源码已经是官方映射（Mojmap），NeoForge 用的也是它，所以不需要任何映射转换。
-    // 这也正是当初全面改 Mojmap 的理由：移植一格的代价从「重写一遍」变成「换一个构建文件」。
-
+    // Sources are already Mojmap, which is what NeoForge uses, so no mapping step is needed.
     mods {
         pvpocket {
             sourceSet sourceSets.main
         }
     }
 
-    // 与 Fabric 那一格同一份清单、同一个 run 目录命名规则（runs/<cell>/<run>）。
-    // 字段名不同（gameDirectory / programArguments / jvmArguments），值全部来自
-    // gradle/pvpocket-cells.gradle。
+    // Same client list and run dir rule as the Fabric cell; only the field names differ.
     runs {
         server {
             server()

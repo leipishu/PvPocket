@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Minimal RCON client for driving the dev server from a script.
 
-Why this exists: the dev server runs as a background process, so its stdin is not reachable from a
-test script. RCON is the only way to run a command *as a player* (`execute as Dev1 run ...`), which
-is what makes it possible to open the rule panel on a real client without a human at the keyboard.
+The dev server runs as a background process, so RCON is the way to run a command as a player
+(`execute as Dev1 run ...`) without a human at the keyboard.
 
 Usage:
     python scripts/rcon.py "execute as Dev1 run pvpocket duel Dev2"
-    python scripts/rcon.py --wait 3 "list"        # keep reading for N extra seconds
 """
 import argparse
 import socket
@@ -47,7 +45,7 @@ def connect(host, port, password, timeout=5.0):
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.settimeout(timeout)
     sock.sendall(_pack(1, SERVERDATA_AUTH, password))
-    # The server may emit an empty RESPONSE_VALUE before the auth result; read until we see it.
+    # An empty RESPONSE_VALUE can arrive before the auth result; read until the auth packet.
     while True:
         request_id, packet_type, _ = _read_packet(sock)
         if packet_type == SERVERDATA_AUTH_RESPONSE:

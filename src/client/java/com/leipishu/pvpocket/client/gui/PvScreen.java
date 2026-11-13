@@ -14,21 +14,10 @@ import java.util.List;
 /**
  * Base screen for the custom GUI layer.
  *
- * <p>Owns four things that every self-drawn screen needs and that are easy to get wrong once and
- * then wrong everywhere:</p>
- * <ol>
- *   <li><b>The backdrop.</b> A single dim layer instead of the vanilla blur + gradient, so the world
- *       behind stays legible and the panel keeps a stable contrast ratio.</li>
- *   <li><b>The entrance.</b> A short fade from black over the panel rect, not a slide and not a
- *       per-widget stagger: a moving panel would have its drawn position disagree with its hit box
- *       for the duration of the animation, and a click that lands 4px off is a bug report, not a
- *       flourish.</li>
- *   <li><b>Tooltips last.</b> They are drawn after everything else, which is the only way a tooltip
- *       belonging to a row inside a scissor-clipped scroll pane can escape the clip.</li>
- *   <li><b>Keyboard focus.</b> Tab/Shift-Tab traversal, arrows to change a value, Enter to activate,
- *       Esc to close. A self-drawn GUI that only responds to the mouse is unusable for anyone who
- *       does not use one.</li>
- * </ol>
+ * <p>It owns four things every self-drawn screen needs: a single dim backdrop instead of the
+ * vanilla blur, a short fade from black over the panel rect, tooltips drawn after everything else
+ * so they escape a scroll pane's clip, and keyboard focus with Tab traversal, arrow nudging, Enter
+ * activation and Esc to close.
  */
 public abstract class PvScreen extends Screen {
 
@@ -47,15 +36,12 @@ public abstract class PvScreen extends Screen {
     /**
      * The chrome: a title band across the top, optionally continued down the left as a sidebar.
      *
-     * <p>Both are the same surface, so they are drawn as one L rather than as a card beside a card.
-     * The content well is then a second shape laid over the chrome, square where it meets the
-     * chrome and rounded at the panel's own bottom-right corner. Zero for either dimension means
-     * "this panel has no such band", which is how the match list keeps a header and no sidebar.</p>
+     * <p>Both are the same surface, drawn as one L. The content well is a second shape laid over
+     * the chrome, square where it meets the chrome and rounded at the panel's bottom-right corner.
+     * Zero for either dimension means this panel has no such band.
      *
-     * <p>There is deliberately no border anywhere in this arrangement. A 1px outline around a
-     * floating sidebar is what made it read as a card that had been dropped into the panel; with the
-     * outline gone the two surfaces have to separate by value alone, which is why
-     * {@code PvTheme.SIDEBAR} sits a full step above {@code PvTheme.PANEL}.</p>
+     * <p>There is no border anywhere in this arrangement: the two surfaces separate by value, which
+     * is why {@code PvTheme.SIDEBAR} sits a full step above {@code PvTheme.PANEL}.
      */
     protected int chromeW;
     protected int chromeH;
@@ -69,32 +55,26 @@ public abstract class PvScreen extends Screen {
     /**
      * The screen that opened this one, or {@code null} when it was opened from the game.
      *
-     * <p>Only one level deep on purpose: every screen in this mod is reachable from the home screen
-     * in one step, so a stack would be machinery for a depth that does not exist. A screen pushed by
-     * the server (an invite, the match list) leaves this null — closing it returns to the game,
-     * because the player did not come from a menu and does not want to land in one.</p>
+     * <p>Only one level deep: every screen in this mod is reachable from the home screen in one
+     * step. A screen pushed by the server leaves this null, so closing it returns to the game.
      */
     protected PvScreen parent;
 
     /**
      * Modal layer. Drawn after every root, and given the mouse before any of them.
      *
-     * <p>Separate from {@link #roots} rather than appended to it because both halves of "on top"
-     * have to be enforced, and the list order only gives one of them. Drawing last puts it above;
-     * hit-testing first is what stops a click that lands on the modal's backdrop from also pressing
-     * the button underneath it. A dialog that is merely drawn last is a dialog that fires the thing
-     * behind it.</p>
+     * <p>Separate from {@link #roots} because both halves of "on top" have to be enforced. Drawing
+     * last puts it above; hit-testing first stops a click on its backdrop from pressing the button
+     * underneath.
      */
     protected PvWidget overlay;
 
     /**
      * Whether any screen currently owns the pointer with a modal layer.
      *
-     * <p>Static because the widgets that need to know cannot reach the screen instance: a scroll
-     * pane is constructed by whoever builds the page, long before there is a screen to ask, and it
-     * re-renders itself inside its own pass rather than through the screen's root loop. The client
-     * is single-threaded and only one screen renders at a time, so one flag is enough — it is
-     * recomputed at the top of every frame and cleared when the screen closes.</p>
+     * <p>Static because the widgets that need it cannot reach the screen instance. The client is
+     * single-threaded and one screen renders at a time, so one flag is enough; it is recomputed at
+     * the top of every frame and cleared when the screen closes.
      */
     private static boolean modalPointer;
 
@@ -113,7 +93,7 @@ public abstract class PvScreen extends Screen {
         super(title);
     }
 
-    /** The world keeps running behind the panel; a duel should not be pauseable by opening rules. */
+    /** The world keeps running behind the panel; a duel is not pauseable by opening rules. */
     @Override
     public boolean isPauseScreen() {
         return false;
@@ -122,10 +102,8 @@ public abstract class PvScreen extends Screen {
     /**
      * Closes back to whoever opened this screen.
      *
-     * <p>Overridden here rather than in each screen because the default has to be "return to where I
-     * came from": a rule panel opened from the home screen that dumped the player into the world
-     * would make the home screen a one-way door, and every child screen would have to remember to
-     * override this to avoid it.</p>
+     * <p>Overridden here rather than in each screen, so a child screen cannot strand the player in
+     * the world instead of returning to the menu it came from.
      */
     @Override
     public void onClose() {
@@ -136,11 +114,8 @@ public abstract class PvScreen extends Screen {
     /**
      * Clears the modal flag when the screen goes away.
      *
-     * <p>Not every screen leaves through {@link #close()} — the server can push a screen over this
-     * one, and the game can replace it outright — so the flag is cleared here as well. It is
-     * recomputed on the next frame regardless, but between the two the flag is read by panes that
-     * belong to the *outgoing* screen, and a frame of "everything is un-hoverable" is cheaper to
-     * avoid than to explain.</p>
+     * <p>Not every screen leaves through {@link #close()}: the server can push a screen over this
+     * one. It is recomputed on the next frame, but panes of the outgoing screen read it first.
      */
     @Override
     public void removed() {
@@ -157,7 +132,7 @@ public abstract class PvScreen extends Screen {
         return Minecraft.getInstance().font;
     }
 
-    /** Centres a panel of at most {@code maxW × maxH} inside the current GUI viewport. */
+    /** Centres a panel of at most {@code maxW x maxH} inside the current GUI viewport. */
     protected void layoutPanel(int maxW, int maxH) {
         panelW = Math.min(width - 20, maxW);
         panelH = Math.min(height - 20, maxH);
@@ -183,7 +158,7 @@ public abstract class PvScreen extends Screen {
         PvDraw.hLine(ctx, panelX + r + 1, panelY + 1, panelW - r * 2 - 2, PvTheme.HIGHLIGHT);
     }
 
-    /** 0 at the frame the screen opens, 1 once the entrance has finished. */
+    /** Returns 0 at the frame the screen opens, 1 once the entrance has finished. */
     private float openProgress() {
         return PvAnim.easeOutCubic(openT / OPEN_TIME);
     }
@@ -192,9 +167,8 @@ public abstract class PvScreen extends Screen {
     public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
         cursorX = mouseX;
         cursorY = mouseY;
-        // Recomputed every frame rather than tracked at the call sites: setOverlay/dismissOverlay
-        // are only two of the ways the layer changes (a dialog can hide itself), and a stale true
-        // would leave every scroll pane in the mod permanently un-hoverable.
+        // Recomputed every frame rather than tracked at the call sites: a dialog can hide
+        // itself, and a stale true would leave every scroll pane un-hoverable.
         modalPointer = hasOverlay();
         // Opens the measurement window before anything is drawn: text is recorded as it is painted,
         // so a window that opened at the end of the frame would only ever see widget boxes.
@@ -211,28 +185,21 @@ public abstract class PvScreen extends Screen {
 
         drawBackdrop(ctx);
         drawPanelFrame(ctx);
-        // Everything drawn from here to the modal layer is one surface: the panel's own text and
-        // every root widget are allowed to collide with each other in the audit, and nothing else
-        // is compared against them.
+        // Everything from here to the modal layer is one surface: the panel's text and every root
+        // widget may collide with each other in the audit.
         PvAudit.layer(PvAudit.CHROME_LAYER);
-        // The pointer as far as the panel is concerned. A modal is a scrim: nothing beneath it is
-        // under the cursor, and "nothing" has to be expressed as a coordinate outside every widget,
-        // because plenty of widgets work out their own hover from the numbers handed to render()
-        // rather than from updateHover() — a card that highlights its row, a stepper that lights the
-        // cap under the pointer, a text field that places its caret. Clearing updateHover() alone
-        // left all of those lit behind an open dialog.
+        // The pointer as far as the panel is concerned: with a modal up, nothing beneath it is
+        // under the cursor, expressed as a coordinate outside every widget.
         int px = overlay == null ? mouseX : -1;
         int py = overlay == null ? mouseY : -1;
         drawContent(ctx, px, py, delta);
 
-        // Item icons live at z = 150 in a depth-tested layer, so a scrim at z = 0 can never cover
-        // them (see PvDraw.itemsVisible). While a modal is up the panel underneath is dimmed, and
-        // dimmed-with-icons-poking-through is worse than dimmed-and-flat.
+        // Item icons live at z = 150 in a depth-tested layer, so a scrim at z = 0 cannot cover
+        // them (see PvDraw.itemsVisible).
         PvDraw.itemsVisible = overlay == null;
         for (PvWidget widget : roots) {
-            // Cleared, not frozen. A widget left glowing from the frame before the dialog opened is
-            // a widget the player thinks they can still press; freezing the previous state was the
-            // same mistake in slower motion.
+            // Cleared, not frozen: a widget left glowing from the frame before the dialog opened
+            // is a widget the player thinks they can still press.
             widget.updateHover(px, py);
             widget.render(ctx, px, py, delta);
         }
@@ -251,9 +218,8 @@ public abstract class PvScreen extends Screen {
     /**
      * Feeds this frame's widget rectangles to {@link PvAudit} and runs the checks.
      *
-     * <p>Called at the end of {@link #render} on purpose: the scroll panes lay their children out
-     * inside their own render pass, so anything measured earlier would be measuring last frame's
-     * scroll offset. Off unless the audit harness is running.</p>
+     * <p>Called at the end of {@link #render}, because the scroll panes lay their children out
+     * inside their own render pass. Off unless the audit harness is running.
      */
     private void auditFrame() {
         if (!PvAudit.ON) {
@@ -271,12 +237,9 @@ public abstract class PvScreen extends Screen {
     }
 
     /**
-     * @param laidOut whether this widget was actually rendered this frame. A scroll pane skips the
-     *                rows outside its viewport, and a skipped row never positions its inline control
-     *                — so descending into one measures a control still sitting at 0,0 at its
-     *                constructor size, which reads as "the control escapes the row" five times over.
-     *                The row's own box is still measured: an off-screen row that overlaps its
-     *                neighbour is a layout bug worth knowing about.
+     * @param laidOut whether this widget was actually rendered this frame; a row skipped by a
+     *                scroll pane never positions its inline control, so descending into one
+     *                measures a control still at 0,0
      */
     private static void auditWidget(PvWidget widget, String group, String id, String parent,
                                     String layer, int clipX, int clipY, int clipW, int clipH,
@@ -290,10 +253,8 @@ public abstract class PvScreen extends Screen {
         if (!laidOut) {
             return;
         }
-        // A scroll pane's children leave the viewport by design — that is what scrolling is — so
-        // they are measured against the pane's rect for collisions but not for containment, and
-        // they are a surface of their own: a row half-scrolled under the status line is clipped,
-        // not overlapping it.
+        // A scroll pane's children leave the viewport by design, so they are measured against the
+        // pane's rect for collisions but not for containment.
         boolean scroll = widget instanceof PvScrollPane;
         String childLayer = scroll ? PvAudit.paneLayer(widget) : layer;
         List<PvWidget> children = widget.childrenForAudit();
@@ -309,10 +270,8 @@ public abstract class PvScreen extends Screen {
     /**
      * How many distinct layouts the audit should visit.
      *
-     * <p>A screen that only ever audits its opening state hides most of itself: the rule panel has
-     * eight pages and two dialogs, and every one of them is a separate arrangement of the same
-     * widgets. {@link PvAuditHarness} asks for this count and then calls {@link #auditVariant} for
-     * each index, so a page that overlaps something gets reported without a human clicking to it.</p>
+     * <p>A screen that only audits its opening state hides most of itself: the rule panel has eight
+     * pages and two dialogs. {@link PvAuditHarness} calls {@link #auditVariant} for each index.
      */
     public int auditVariantCount() {
         return 1;
@@ -325,9 +284,8 @@ public abstract class PvScreen extends Screen {
     /**
      * Puts a widget on the modal layer, or clears it with {@code null}.
      *
-     * <p>The layer is always the full viewport — every dialog so far centres itself in it and draws
-     * its own scrim — so the size is assigned here instead of at each of the call sites, where it
-     * would also have to be repeated in {@code init()} to survive a window resize.</p>
+     * <p>The layer is always the full viewport, so the size is assigned here rather than at each
+     * call site, where it would also have to be repeated in {@code init()} after a resize.
      */
     protected void setOverlay(PvWidget widget) {
         overlay = widget;
@@ -354,9 +312,8 @@ public abstract class PvScreen extends Screen {
     /**
      * Black overlay fading off the panel rect.
      *
-     * <p>Chosen over animating the alpha of every colour in the panel: a single rounded fill is one
-     * draw call, it cannot desynchronise from the widgets underneath, and on a near-black panel the
-     * result is indistinguishable from a real cross-fade.</p>
+     * <p>A single rounded fill is one draw call and cannot desynchronise from the widgets
+     * underneath, unlike animating the alpha of every colour in the panel.
      */
     private void drawEntrance(GuiGraphics ctx) {
         float k = openProgress();
@@ -375,16 +332,14 @@ public abstract class PvScreen extends Screen {
     /**
      * Tooltip with a dwell delay and a fade.
      *
-     * <p>The delay is what stops the tooltip from strobing while the pointer crosses a column of
-     * rows on the way somewhere else; the fade keeps it from appearing as a hard-edged rectangle
-     * over a dark panel.</p>
+     * <p>The delay stops the tooltip strobing while the pointer crosses a column of rows; the fade
+     * keeps it from appearing as a hard-edged rectangle over a dark panel.
      */
     private void drawTooltip(GuiGraphics ctx, float d) {
         String tip = null;
         if (hasOverlay()) {
-            // The modal is the only thing under the pointer. Walking the roots as well was how a
-            // background row's hint appeared on top of an open dialog — the overlay's own tooltip
-            // was null, so the loop below found one behind the scrim.
+            // The modal is the only thing under the pointer. Walking the roots as well let a
+            // background row's hint appear on top of an open dialog.
             tip = overlay.tooltipAt(cursorX, cursorY);
         } else {
             for (PvWidget widget : roots) {
@@ -438,11 +393,9 @@ public abstract class PvScreen extends Screen {
     /**
      * The widget list as it was when the event arrived.
      *
-     * <p>Every input handler below walks this instead of {@link #roots}, because a handler is
-     * allowed to change the screen: a button that rebuilds the pane, a card that adds or removes a
-     * side, "还原" which tears the whole layout down and runs {@code init()} again. Iterating the
-     * live list while that happens throws {@code ConcurrentModificationException} and takes the
-     * client down — which is exactly what pressing "+ 添加队伍" used to do.</p>
+     * <p>Every input handler below walks this instead of {@link #roots}, because a handler may
+     * rebuild the screen. Iterating the live list while that happens throws
+     * {@code ConcurrentModificationException}.
      */
     private List<PvWidget> snapshot() {
         return new ArrayList<>(roots);
@@ -450,8 +403,8 @@ public abstract class PvScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        // The modal gets the click first and consumes it whether or not it handled anything: a click
-        // on the scrim is "dismiss", not "dismiss and also press whatever was behind the scrim".
+        // The modal gets the click first and consumes it whether or not it handled anything: a
+        // click on the scrim is "dismiss", not "dismiss and also press what was behind".
         if (hasOverlay()) {
             overlay.mouseClicked(mx, my, button);
             return true;
@@ -517,14 +470,12 @@ public abstract class PvScreen extends Screen {
             return true;
         }
         // A modal gets the keyboard before the panel's own bindings: a text field inside a dialog
-        // has to see Backspace and Left/Right, which the screen would otherwise consume as focus
-        // traversal and value nudging.
+        // has to see Backspace and Left/Right.
         if (hasOverlay() && overlay.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        // Screenshots are worth keeping while a rule set is on screen — players compare loadouts
-        // and rules this way. Vanilla loses the F2 binding as soon as a screen opens, so the panel
-        // re-implements the one line of it that matters instead of inheriting that gap.
+        // Screenshots are worth keeping while a rule set is on screen, and vanilla loses the F2
+        // binding as soon as a screen opens.
         if (keyCode == GLFW.GLFW_KEY_F2) {
             Minecraft client = Minecraft.getInstance();
             Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(),

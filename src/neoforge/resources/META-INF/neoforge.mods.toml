@@ -13,11 +13,8 @@ Isolated duel sessions for SMP servers: custom loadouts, best-of-N rounds, per-r
 logoFile = "assets/pvpocket/icon.png"
 authors = "leipishu"
 
-# 两个 mixin 配置：一个服务端与客户端共用，一个只对客户端生效。
-#
-# 与 Fabric 的差别：Fabric 在 fabric.mod.json 里给配置标 `"environment": "client"`，加载器自己
-# 决定不加载；NeoForge 没有这个字段，所以那份配置里的每个 mixin 都写在 JSON 的 `client` 数组里，
-# 由 Mixin 自己按 side 跳过。效果相同，位置不同。
+# Two mixin configs: one shared by server and client, one client only. NeoForge has no per-config
+# environment field, so the client config lists its mixins in the JSON `client` array instead.
 [[mixins]]
 config = "pvpocket.mixins.json"
 

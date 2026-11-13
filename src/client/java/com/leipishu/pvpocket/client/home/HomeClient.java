@@ -13,15 +13,10 @@ import org.lwjgl.glfw.GLFW;
 import java.util.List;
 
 /**
- * The client half of the home screen: its key, its request, and the tick that opens it.
+ * Client half of the home screen: its key binding, its requests and the tick that opens it.
  *
- * <p><b>The hotkey only fires with no screen open.</b> That is not politeness — opening the home
- * screen over a rule draft would leave the draft panel's unsent edits behind a screen that has no way
- * back to them, and the player would have to close the home screen to discover the draft is still
- * there. One condition prevents a whole class of "where did my edits go".</p>
- *
- * <p>Default key is {@code B}. Not {@code P}: vanilla binds that to Social Interactions, and a mod
- * that silently owns a vanilla key is a mod that breaks a screen the player did not know they had.</p>
+ * <p>The hotkey opens the screen only when no other screen is open, so a rule draft is never hidden
+ * behind it. The default key is {@code B}; {@code P} stays with vanilla Social Interactions.
  */
 public final class HomeClient {
 
@@ -40,8 +35,7 @@ public final class HomeClient {
 
         PvClientPlatform.get().onClientTick(() -> {
             Minecraft client = Minecraft.getInstance();
-            // Drained in a loop for the same reason the spectator keys are: two presses in
-            // one tick are two intents.
+            // Drained in a loop, so two presses in one tick count as two intents.
             while (home.consumeClick()) {
                 if (client.screen == null && client.player != null) {
                     client.setScreen(new HomeScreen());
@@ -60,11 +54,10 @@ public final class HomeClient {
     }
 
     /**
-     * Asks the server for a snapshot.
+     * Asks the server for a state snapshot.
      *
-     * <p>Best effort: a server without the channel gets nothing and the screen keeps its local
-     * content. The alternative — waiting for an answer that will never come — would leave a permanent
-     * "loading" line on a single-player world with an older build.</p>
+     * <p>Best effort: a server without the channel is skipped and the screen keeps its local
+     * content.
      */
     public static void request() {
         if (PvClientPlatform.get().canSend(HomeRequestPayload.ID)) {
@@ -78,7 +71,7 @@ public final class HomeClient {
         }
     }
 
-    /** Spectating from the home screen goes through the channel the match list already uses. */
+    /** Sends a spectate request through the channel the match list uses. */
     public static void send(com.leipishu.pvpocket.network.SpectateRequestPayload payload) {
         if (PvClientPlatform.get().canSend(com.leipishu.pvpocket.network.SpectateRequestPayload.ID)) {
             PvClientPlatform.get().send(payload);
@@ -86,13 +79,10 @@ public final class HomeClient {
     }
 
     /**
-     * True when the server speaks the home protocol, used to disable actions that need it.
+     * Returns true when the server speaks the home protocol; actions that need it depend on this.
      *
-     * <p>Asked of the <b>request</b> channel, not the snapshot: {@code canSend} answers "is this
-     * channel declared in the direction I would be sending", and the snapshot only ever travels
-     * server-to-client — so asking about it returns false on every server, including a perfectly
-     * current one. That mistake showed up as a permanently greyed-out "start a duel" button on a
-     * server that answered the request in the same tick.</p>
+     * <p>Checked on the request channel, which travels client to server. The snapshot channel only
+     * travels server to client, so {@code canSend} on it answers false on every server.
      */
     public static boolean supported() {
         return PvClientPlatform.get().canSend(HomeRequestPayload.ID);

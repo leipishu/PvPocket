@@ -26,50 +26,18 @@ import org.joml.Quaternionf;
 /**
  * First-person hand of the body a spectator is riding in.
  *
- * <p>Vanilla draws nothing here: {@code GameRenderer.renderHand} bails out on
- * {@code getCurrentGameMode() != SPECTATOR}, and even without that guard it would render
- * {@code client.player} — the empty-handed ghost — rather than the fighter being watched. So the
- * hand is the one part of the possessed view that has to be drawn by hand.</p>
+ * <p>Vanilla draws nothing in spectator mode, and would render {@code client.player} rather than
+ * the watched fighter, so the hand is drawn here.
  *
- * <h2>Coordinate space</h2>
- *
- * <p>This is the part that is easy to get wrong, and getting it wrong looks like "the off hand is
- * drawn in the main hand" rather than like a matrix bug. {@code GameRenderer.renderWorld} builds
- * {@code matrix4f = new Matrix4f().rotation(camera.rotation().conjugate())} and hands it to both
- * {@code WorldRenderer.render} and {@code renderHand}. The world renderer pushes it onto the model
- * view stack and pops it again before returning; {@code renderHand} then does</p>
- *
- * <pre>{@code
- * matrixStack.mulPose(matrix4f.invert(new Matrix4f()));
- * modelView.pushMatrix().mul(matrix4f);
- * }</pre>
- *
- * <p>The stack therefore holds the <em>inverse</em> view rotation — camera-to-world — so that a
- * {@code translate(0.56, -0.52, -0.72)} means "half a block right of the eye" instead of "half a
- * block along world +X". Multiplying the two back together cancels out, which is why the hand ends
- * up fixed to the screen while the world rotates around it.</p>
- *
- * <p>{@code PvClientPlatform#onWorldRenderLast} fires at the tail of {@code WorldRenderer.render},
- * after the model view pop but while the stack still holds the view rotation (the pop happens a few
- * instructions later, around {@code renderChunkDebugInfo}). So the stack is already in the state
- * {@code renderHand} expects and only the position-matrix inverse has to be supplied.</p>
- *
- * <p>「最后一刻」这个位置是平台承诺的，不是加载器名字：Fabric 那边是
- * {@code WorldRenderEvents.LAST}，NeoForge 那边是 {@code RenderLevelStageEvent} 的
- * {@code AFTER_LEVEL}。栈的状态在两边相同，所以这段推导可以原样搬过去。</p>
- *
- * <h2>Depth</h2>
- *
- * <p>Vanilla clears the depth buffer before drawing the hand so that a wall 0.6 blocks from the eye
- * cannot slice it. The same clear is safe at {@code LAST}: the world is fully drawn, and the only
- * passes left are the block outline debug overlay and the GUI, neither of which reads depth.
- * Disabling the depth test instead would break face sorting <em>within</em> the item model.</p>
+ * <p>The pose stack at this hook still holds the view rotation, so only the position-matrix inverse
+ * is supplied: {@code translate(0.56, -0.52, -0.72)} then means half a block right of the eye. The
+ * depth buffer is cleared first, as vanilla does, so a nearby wall cannot slice the hand.
  */
 public final class PossessedHandRenderer {
 
     /**
-     * Vanilla animates this from 1 to 0 while an item is being swapped into the hand. A remote body
-     * is never observed mid-swap, so it is always fully equipped.
+     * Vanilla animates this from 1 to 0 while an item is swapped into the hand. A remote body is
+     * never observed mid-swap, so it is 0.
      */
     private static final float EQUIP_PROGRESS = 0.0F;
 
@@ -92,8 +60,7 @@ public final class PossessedHandRenderer {
         if (client.level == null || client.player == null || client.options.hideGui) {
             return;
         }
-        // Possession is a first-person experience; in third person the camera sits behind the body
-        // and a hand floating in front of it would be a bug rather than a feature.
+        // Possession is a first-person view: in third person a hand before the camera is wrong.
         if (client.options.getCameraType() != CameraType.FIRST_PERSON) {
             return;
         }
@@ -106,8 +73,8 @@ public final class PossessedHandRenderer {
         }
 
         float tickDelta = frame.delta().getGameTimeDeltaPartialTick(true);
-        // The view rotation the world was just rendered with, rebuilt from the same camera so this
-        // stays correct even if the stack were left dirty by another renderer.
+        // The view rotation the world was rendered with, rebuilt from the same camera so a stack
+        // left dirty by another renderer cannot affect it.
         Matrix4f viewRotation = new Matrix4f()
                 .rotation(frame.camera().rotation().conjugate(new Quaternionf()));
 
@@ -140,13 +107,11 @@ public final class PossessedHandRenderer {
     }
 
     /**
-     * Mirrors {@code HeldItemRenderer.renderFirstPersonItem} for the two cases a spectator can
-     * actually observe: an empty hand (draw the arm) and a held item (equip offset plus swing arc).
+     * Draws one hand, mirroring {@code HeldItemRenderer.renderFirstPersonItem} for the two cases a
+     * spectator can observe: an empty hand (the arm) and a held item (equip offset plus swing arc).
      *
-     * <p>The use-action branches — eating, drinking, drawing a bow, blocking with a shield — are
-     * deliberately not reproduced. They are driven by {@code getUsedItemHand()} and
-     * {@code getUseItemRemainingTicks()}, which vanilla does not synchronise for other players; guessing
-     * would animate the wrong hand, which is exactly the "状态不太对" this class is fixing.</p>
+     * <p>The use-action branches (eating, drinking, drawing a bow, blocking with a shield) are not
+     * reproduced, because they depend on state vanilla does not synchronise for other players.
      */
     private static void drawHand(Minecraft client, PoseStack matrices,
                                  MultiBufferSource.BufferSource consumers,
@@ -159,7 +124,7 @@ public final class PossessedHandRenderer {
 
         matrices.pushPose();
         if (stack.isEmpty()) {
-            // Vanilla never draws an empty off hand — only the main arm is visible.
+            // Vanilla never draws an empty off hand; only the main arm is visible.
             if (mainHand && !player.isInvisible()) {
                 renderArmHoldingItem(client, matrices, consumers, light, EQUIP_PROGRESS, swing, arm, player);
             }
@@ -178,13 +143,13 @@ public final class PossessedHandRenderer {
         matrices.popPose();
     }
 
-    /** {@code HeldItemRenderer.applyEquipOffset}. */
+    /** Mirrors {@code HeldItemRenderer.applyEquipOffset}. */
     private static void applyEquipOffset(PoseStack matrices, HumanoidArm arm, float equipProgress) {
         int side = arm == HumanoidArm.RIGHT ? 1 : -1;
         matrices.translate(side * 0.56F, -0.52F + equipProgress * -0.6F, -0.72F);
     }
 
-    /** {@code HeldItemRenderer.applySwingOffset}. */
+    /** Mirrors {@code HeldItemRenderer.applySwingOffset}. */
     private static void applySwingOffset(PoseStack matrices, HumanoidArm arm, float swingProgress) {
         int side = arm == HumanoidArm.RIGHT ? 1 : -1;
         float arc = Mth.sin(swingProgress * swingProgress * (float) Math.PI);
@@ -195,7 +160,7 @@ public final class PossessedHandRenderer {
         matrices.mulPose(Axis.YP.rotationDegrees(side * -45.0F));
     }
 
-    /** {@code HeldItemRenderer.renderArmHoldingItem}, with the arm owner swapped for the target. */
+    /** Mirrors {@code HeldItemRenderer.renderArmHoldingItem}, with the target as the arm owner. */
     private static void renderArmHoldingItem(Minecraft client, PoseStack matrices,
                                              MultiBufferSource.BufferSource consumers, int light,
                                              float equipProgress, float swingProgress, HumanoidArm arm,

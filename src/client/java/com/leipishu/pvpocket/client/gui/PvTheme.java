@@ -1,32 +1,16 @@
 package com.leipishu.pvpocket.client.gui;
 
 /**
- * The visual language, defined once so that every panel in the mod looks like it came from the same
- * product instead of each screen inventing its own skin.
+ * The visual language, defined once so every panel in the mod shares one skin.
  *
- * <p>Rules of the system, revision 3:</p>
- * <ul>
- *   <li>Near-black surfaces with a five-step elevation ladder, not one shared grey. The light theme
- *       inverts the ladder rather than tinting it.</li>
- *   <li>One warm accent (amber) for selection and the primary action; red is reserved for
- *       destructive actions and keeps its own hover shade.</li>
- *   <li>4px radius on controls, 6px on panels. Nothing is pill-shaped except the switch track.</li>
- *   <li>An 8px spacing grid; panel padding is 16px.</li>
- *   <li>One type size: 1.0× (9px). Hierarchy comes from weight and colour.</li>
- *   <li>Four interaction states everywhere, all of them animated. Disabled lowers contrast; it
- *       never hides.</li>
- * </ul>
+ * <p>Near-black surfaces with a five-step elevation ladder. One warm accent (amber) for selection
+ * and the primary action; red is reserved for destructive actions. 4px radius on controls, 6px on
+ * panels, and nothing pill-shaped except the switch track. An 8px spacing grid with 16px panel
+ * padding. One type size: 1.0x (9px); hierarchy comes from weight and colour. Four interaction
+ * states everywhere, all animated; disabled lowers contrast and never hides.
  *
- * <h2>Why these are not constants</h2>
- *
- * <p>They were {@code static final int}, which javac folds into every call site as a literal. That
- * made a runtime theme switch impossible in a way that is very hard to diagnose: assigning a new
- * value to the field compiles, runs, and changes nothing, because the 282 places that read it do not
- * read the field at all. Dropping {@code final} is the whole fix — no call site had to change.</p>
- *
- * <p>Colours are ARGB. The panel is 97% opaque: on black, a translucent surface reads as grey haze
- * rather than as a surface, and the point of this palette is that the panel is the darkest thing on
- * screen except the wells inside it.</p>
+ * <p>Tokens are mutable fields rather than constants, so {@link #apply} can switch the palette at
+ * runtime. Colours are ARGB; the panel is 97% opaque.
  */
 public final class PvTheme {
 
@@ -36,19 +20,18 @@ public final class PvTheme {
         LIGHT
     }
 
-    // Scrim — 77% black behind a modal panel. Deep enough that the world cannot compete with the
+    // Scrim: 77% black behind a modal panel. Deep enough that the world cannot compete with the
     // text, shallow enough that a player still knows where they are standing.
     public static int SCRIM;
 
     // Surfaces, darkest to lightest. The ladder is the whole depth model: there are no gradients
-    // and no drop shadows on panels, so "raised" has to be spelled with one of these five values.
+    // and no drop shadows on panels, so "raised" is spelled with one of these five values.
     public static int PANEL;
     /**
      * The chrome: the title band and the sidebar column, drawn as one continuous surface.
      *
-     * <p>It has to be a full step away from {@link #PANEL}, not a nudge: the chrome and the content
-     * well meet along two straight edges with no line between them, and a 3% luminance step reads as
-     * a smudge on the panel rather than as a change of region.</p>
+     * <p>A full step away from {@link #PANEL}, because the two regions meet along straight edges
+     * with no line between them.
      */
     public static int SIDEBAR;
     public static int CARD;
@@ -64,12 +47,11 @@ public final class PvTheme {
     /**
      * A hairline along the top inside edge; the only "light source" in the system.
      *
-     * <p>White at 4% in the dark theme, black at 5% in the light one — the point is that the top edge
-     * catches light, and on a white surface light is what the surface already is.</p>
+     * <p>White at 4% in the dark theme, black at 5% in the light one.
      */
     public static int HIGHLIGHT;
 
-    // Accent — amber. Selection, primary action, switch track, slider fill, focus ring.
+    // Accent - amber. Selection, primary action, switch track, slider fill, focus ring.
     public static int ACCENT;
     public static int ACCENT_HOVER;
     public static int ACCENT_PRESSED;
@@ -77,7 +59,7 @@ public final class PvTheme {
     public static int ACCENT_SOFT;
     public static int ON_ACCENT;
 
-    // Danger — red stays red. Used for reject, cancel and remove, and nothing else.
+    // Danger - red stays red. Used for reject, cancel and remove, and nothing else.
     public static int DANGER;
     public static int DANGER_HOVER;
     public static int DANGER_PRESSED;
@@ -90,19 +72,18 @@ public final class PvTheme {
     public static int TEXT_DIM;
     public static int TEXT_MUTED;
 
-    // Status — HUD only. A single desaturated green so "live" and "match point" stay tellable apart
+    // Status - HUD only. A single desaturated green so "live" and "match point" stay tellable apart
     // from the amber accent at a glance, without adding a second brand colour to the panels.
     public static int LIVE;
 
     /**
      * The four side colours, as wool.
      *
-     * <p>Red, blue, green and yellow, and the values are the wool colours rather than the chat
-     * colours: a player who is told "the red team" has to be able to point at a red block on the
-     * ground and have it match what the panel showed them. They are dark, so anything that has to be
-     * read as text uses {@link #teamText} instead — see {@link #teamInk}.</p>
+     * <p>Red, blue, green and yellow, using the wool colours rather than the chat colours, so a
+     * team named "red" matches a red block on the ground. They are dark, so text uses
+     * {@link #teamInk}.
      *
-     * <p>These do not change with the theme: they are the colour of a block in the world.</p>
+     * <p>These do not change with the theme: they are the colour of a block in the world.
      */
     public static final int[] TEAM_WOOL = {
             0xFFA12722, // red
@@ -122,7 +103,7 @@ public final class PvTheme {
     public static final int TAB_H = 24;
     public static final int SCROLLBAR_W = 6;
 
-    /** One switch for the whole animation layer; false makes every control snap like before. */
+    /** One switch for the whole animation layer; false makes every control snap. */
     public static boolean MOTION = true;
 
     private static Theme current = Theme.DARK;
@@ -141,10 +122,9 @@ public final class PvTheme {
     /**
      * Installs a palette.
      *
-     * <p>Every token is assigned, including the ones the two themes share. A partial switch is the
-     * one bug this design invites — a surface that stays dark under a light theme is not a subtle
-     * mistake, it is a black rectangle in the middle of the screen — so the two blocks below are kept
-     * as full parallel lists.</p>
+     * <p>Every token is assigned, including the ones the two themes share. A surface that stays
+     * dark under a light theme is a black rectangle in the middle of the screen, so the two blocks
+     * below are full parallel lists.
      */
     public static void apply(Theme theme) {
         current = theme == null ? Theme.DARK : theme;
@@ -163,9 +143,8 @@ public final class PvTheme {
             DIVIDER = 0xFFE6E6EA;
             HIGHLIGHT = 0x0A000000;
 
-            // Darkened rather than kept: #F5A524 is 1.9:1 on white, which is unusable as text, and
-            // the accent is used as text in 38 places. One darker value fixes all of them at once
-            // without touching a call site.
+            // Darkened: #F5A524 is 1.9:1 on white, which is unusable as text, and the accent is
+            // used as text in 38 places.
             ACCENT = 0xFFB26A00;
             ACCENT_HOVER = 0xFFCC7A00;
             ACCENT_PRESSED = 0xFF8F5500;
@@ -227,10 +206,9 @@ public final class PvTheme {
     /**
      * The wool colour lifted (or dropped) until it can carry text on the panel.
      *
-     * <p>Wool red is {@code #A12722} — 4.6:1 on the dark panel, which is not enough for a 9px label.
-     * Blending half-way towards the theme's ink keeps the hue recognisable as the same wool and lands
-     * around 9:1. The card's colour bar uses the raw wool value, so the two never disagree about
-     * which side a card is; only the legibility differs.</p>
+     * <p>Wool red is {@code #A12722}, 4.6:1 on the dark panel, which is not enough for a 9px label.
+     * Blending half-way towards the theme's ink keeps the hue and lands around 9:1. The card's
+     * colour bar uses the raw wool value.
      */
     public static int teamInk(int index) {
         return mix(team(index), current == Theme.LIGHT ? 0xFF000000 : 0xFFFFFFFF, 0.52F);
@@ -254,10 +232,8 @@ public final class PvTheme {
     /**
      * Blends every channel including alpha.
      *
-     * <p>{@link #mix} deliberately keeps the alpha of its source, which is what surfaces want when
-     * they fade between two opaque fills. Crossfading a translucent fill over an opaque one is the
-     * other case, and needs the alpha to move too — without this the accent wash would pop in at
-     * full strength halfway through the fade.</p>
+     * <p>{@link #mix} keeps the alpha of its source, which suits two opaque fills. Crossfading a
+     * translucent fill over an opaque one needs the alpha to move too.
      */
     public static int blend(int from, int to, float t) {
         t = Math.max(0F, Math.min(1F, t));

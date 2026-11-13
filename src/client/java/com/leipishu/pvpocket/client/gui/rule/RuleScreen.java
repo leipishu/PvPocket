@@ -37,27 +37,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The rule panel: the screen a duel actually starts from.
+ * The rule panel: the screen a duel is proposed from.
  *
- * <p>One screen serves both roles. The proposer sees the same layout as the reviewer, with the same
- * labels, the same ranges and the same defaults — only the footer actions differ. Two screens would
- * have drifted apart within a week, and the whole point of the negotiation is that both sides are
- * looking at the same thing.</p>
+ * <p>One screen serves the proposer and the reviewer. Both roles see the same layout, labels,
+ * ranges and defaults; only the footer actions differ.
  *
  * <p>Nothing is committed until a footer button is pressed. Closing the panel sends an explicit
- * dismiss so the server can drop a draft instead of leaving a proposal hanging forever.</p>
+ * dismiss so the server can drop the draft.
  */
 public class RuleScreen extends PvScreen {
 
     private static final int MAX_W = 580;
     private static final int MAX_H = 348;
     /**
-     * Chrome metrics. The header is one row of text and nothing else, so 30px is the height of a
-     * 16px chip plus 7px of air above and below — the 42px version carried a second line, and a
-     * second line is what made the bar read as a thick lid rather than as a title.
+     * Height of the header band. It holds one row: a 16px chip plus 7px of air above and below.
      */
     private static final int HEADER_H = 30;
-    /** The status line under the well: one 9px line with air, no buttons of its own. */
+    /** Height of the status line under the well: one 9px line with air, no buttons. */
     private static final int STATUS_H = 18;
     /** Height of a commit button stacked in the sidebar. */
     private static final int ACTION_H = 18;
@@ -68,7 +64,7 @@ public class RuleScreen extends PvScreen {
     /** Sidebar width: wide enough for the longest label it holds, and no wider. */
     private static final int SIDEBAR_MIN = 72;
     private static final int SIDEBAR_MAX = 100;
-    /** The roster toolbar row that holds "add team", above the cards and outside the scroll pane. */
+    /** The roster toolbar row holding "add team", above the cards and outside the scroll pane. */
     private static final int TOOLBAR_H = 24;
 
     private final RulesOpenPayload payload;
@@ -83,25 +79,20 @@ public class RuleScreen extends PvScreen {
     /** Title-row chip: the preset dialog. */
     private PvButton presetButton;
     /**
-     * 编辑配装, on the 配装 page's toolbar.
-     *
-     * <p>It used to be a chip in the title row, which made the header carry a link to a whole other
-     * screen next to the version and the subtitle. A page-level action belongs on its page: the
-     * player reading the 配装 rules is the one who wants to open the editor, and nobody else needs
-     * to be told the editor exists from the title band.</p>
+     * The loadout page toolbar button that opens the loadout editor.
      */
     private PvButton loadoutButton;
     /** The commit buttons stacked at the foot of the sidebar, bottom-most first. */
     private final List<PvButton> actionButtons = new ArrayList<>();
-    /** 还原, in the status line, present only while something has been edited. */
+    /** The revert button in the status line; present only while something has been edited. */
     private PvButton revertButton;
-    /** y of the gap above the topmost commit button; the tab strip ends here. */
+    /** Y offset of the gap above the topmost commit button; the tab strip ends here. */
     private int actionTop;
     /** Whether the current page has a toolbar band above the scroll pane. */
     private boolean toolbarVisible;
     /** Whether the commit buttons are a row under the well instead of a stack in the sidebar. */
     private boolean compact;
-    /** Whether the current stack contains 还原; the stack is rebuilt when this flips. */
+    /** Whether the stack holds the revert button; the stack is rebuilt when this flips. */
     private boolean footerHasRevert;
     private boolean submitted;
 
@@ -121,16 +112,13 @@ public class RuleScreen extends PvScreen {
 
     @Override
     protected void init() {
-        // init() also runs on resize, so everything that survives a resize has to be carried over
-        // rather than rebuilt: the open tab and the roster the player has been assembling. Losing
-        // the cards because the window changed size is the kind of bug that only shows up on a
-        // second monitor, which is exactly when nobody is looking for it.
+        // init() also runs on resize. The open tab and the roster survive it, so carry them over
+        // rather than rebuilding them.
         int keepTab = tabs == null ? 0 : tabs.selected();
         roots.clear();
         layoutPanel(MAX_W, MAX_H);
 
-        // Built before the column is measured: the sidebar has to hold the longest commit label as
-        // well as the longest tab label, so it cannot be sized until the buttons exist.
+        // Built before the column is measured: the sidebar width depends on the commit labels.
         List<PvButton> stack = buildStack();
 
         chromeH = HEADER_H;
@@ -138,8 +126,7 @@ public class RuleScreen extends PvScreen {
         int paneX = panelX + chromeW + 12;
         int paneW = panelW - chromeW - 24;
 
-        // The roster is tab 0 and the opening tab: the first question of an invite is who is in it,
-        // and the rules only mean anything once there is a match to apply them to.
+        // Tab 0 is the roster, and it is the tab the panel opens on.
         tabs = PvTabs.ofPanel(groups, PvLang.str("pvpocket.gui.roster.tab"), keepTab);
         tabs.dirtyTest(this::groupDirty);
         tabs.x = panelX;
@@ -188,12 +175,9 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Width of the sidebar column: the longest label it has to hold plus its insets, clamped.
+     * Returns the sidebar column width: the longest label it holds plus its insets, clamped.
      *
-     * <p>Derived from the labels rather than fixed, because the same column carries "Players" in one
-     * language and 参与者 in another, and "Accept & start" beside 同意并开始. A fixed width is either
-     * wasteful in one or truncating in the other. Both kinds of label count: the tabs and the commit
-     * stack share the column, and in English the buttons are the wider of the two.</p>
+     * <p>Both label kinds count, since the tabs and the commit stack share the column.
      */
     private int sidebarWidth(List<PvButton> stack) {
         Font tr = font();
@@ -203,9 +187,8 @@ public class RuleScreen extends PvScreen {
         }
         // 34 = 2 x SIDE_PAD + 10px text inset + 12px for the dirty dot column.
         int need = widest + 34;
-        // A commit button is the column's width minus SIDE_PAD on each side, and its label is
-        // fitted to that minus 4 — so 16 is what a label needs beyond its own width. English is the
-        // case that binds here: "Accept & start" is 84px against a 42px "Players" tab.
+        // A commit button spans the column minus SIDE_PAD on each side and fits its label to that
+        // minus 4, so a label needs its own width plus 16.
         for (PvButton button : stack) {
             need = Math.max(need, tr.width(button.label()) + 16);
         }
@@ -227,10 +210,8 @@ public class RuleScreen extends PvScreen {
         }
         toolbarVisible = false;
         pane.clear();
-        // The content well runs from the header to the status line, at the full height of the
-        // panel's right-hand region. A page with a toolbar row above its content gives that row its
-        // height back below. Set here rather than in init() because the tabs share one pane
-        // instance.
+        // The well runs from the header to the status line. A page with a toolbar row above its
+        // content takes that row's height back below. Set here because the tabs share one pane.
         pane.y = panelY + HEADER_H;
         // The compact stack took a row of the well's height; see buildActions.
         pane.height = panelH - HEADER_H - STATUS_H - (compact ? ACTION_H + ACTION_GAP : 0);
@@ -251,24 +232,14 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Whether this rule's control is usable at all, given what the other rules are set to.
+     * Returns whether this rule's control is usable, given what the other rules are set to.
      *
-     * <p>Two pairs are only meaningful together, and the panel used to leave both halves fully
-     * editable — which is how a rule gets the reputation of not working.</p>
+     * <p>{@code a.roundLimit} and {@code a.timeoutVerdict} need a timeout win condition, otherwise
+     * the clock never runs. {@code e.sizeX/Y/Z} apply to the flat plot only; every other map
+     * carries its own bounding box.
      *
-     * <ul>
-     *   <li>{@code a.roundLimit} and {@code a.timeoutVerdict} describe a clock that only runs when
-     *       超时 is one of the accepted win conditions ({@code SessionManager#tickRoundLimit} returns
-     *       early otherwise). Setting a 15-minute limit with 超时 unchecked produced no clock at all,
-     *       silently.</li>
-     *   <li>{@code e.sizeX/Y/Z} only apply to the flat plot. Every other map carries its own
-     *       bounding box and {@code ArenaManager#allocate} uses that instead, so the sliders were
-     *       moving a number nobody reads.</li>
-     * </ul>
-     *
-     * <p>Greyed rather than hidden: the value is still part of the rule set and still shown in the
-     * summary, and a row that disappears makes the panel feel like it lost something. The hint on
-     * each row explains the dependency, and the row's label dims to match its control.</p>
+     * <p>A disabled row is greyed, not hidden: its value is still part of the rule set and still
+     * appears in the summary. The row's hint explains the dependency.
      */
     private boolean rowEnabled(RuleDefinition def) {
         switch (def.id) {
@@ -286,23 +257,17 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The roster page: a fixed toolbar with "add team", and the cards scrolling underneath it.
+     * Builds the roster page: a fixed toolbar with the add-team button, and the cards scrolling
+     * underneath it.
      *
-     * <p>The cards used to be a root widget with no clipping, so a fourth side simply drew past the
-     * bottom of the panel and over the footer — the content box is 128px tall on a 426x240 canvas and
-     * two rows of cards are 190px. Putting them in the scroll pane is the only arrangement that
-     * survives an arbitrary number of sides.</p>
-     *
-     * <p>The add-team button stays outside the pane, and above it: it is a page-level action, it has
-     * to remain visible while the list is scrolled to the last card, and it is a Tab stop — the cards'
-     * own "+" hotspots are pointer-only.</p>
+     * <p>The add-team button stays outside the pane so it stays visible while the list is scrolled,
+     * and so it stays a Tab stop; the cards' own "+" hotspots are pointer-only.
      */
     private void buildRosterPage() {
         // The slot count is a rule (b.teamSize), so the cards follow the slider on page B.
         board.setSlots(edited.get("b.teamSize"));
-        // Seeded exactly once, and "once" is read off the board itself rather than kept in a flag:
-        // init() runs again on resize and a flag would have to be reset in the right places, while
-        // an empty board can only mean "never seeded" (the board refuses to drop below two cards).
+        // Seeded once, read off the board itself: an empty board means "never seeded", since the
+        // board never drops below two cards.
         if (board.teamCount() == 0) {
             seedBoard();
         }
@@ -330,12 +295,9 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The 配装 page's toolbar: 编辑配装, above the rules it edits.
+     * Builds the loadout page toolbar: the edit-loadout button, above the rules it edits.
      *
-     * <p>Same band as the roster's "+ 添加队伍", for the same reason: it is a page-level action that
-     * has to stay reachable while the list is scrolled, and it opens something rather than changing
-     * a value, so it cannot be a row. It is a normal (outlined) button rather than a ghost chip now
-     * that it is the only thing on the band — a bare word over the well would read as a heading.</p>
+     * <p>The button stays outside the scroll pane so it stays reachable while the list is scrolled.
      */
     private void buildLoadoutToolbar() {
         loadoutButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
@@ -359,8 +321,8 @@ public class RuleScreen extends PvScreen {
             byTeam.computeIfAbsent(slot.team(), k -> new java.util.ArrayList<>()).add(slot);
             teams = Math.max(teams, slot.team() + 1);
         }
-        // Two cards is the floor even with one player in the list: the draft opens with two empty
-        // cards, and a proposal that arrived with a side nobody is on still has to draw that side.
+        // Two cards is the floor even with one player in the list: a proposal that arrived with a
+        // side nobody is on still has to draw that side.
         board.addTeam();
         board.addTeam();
         for (int team = 0; team < Math.max(teams, 2); team++) {
@@ -377,13 +339,10 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Whether the roster has reached {@code b.maxPlayers}.
+     * Returns whether the roster has reached {@code b.maxPlayers}.
      *
-     * <p>Checked here as well as on the server because the server's refusal arrives at "同意并开始",
-     * which is the worst possible moment to learn about it: the player has already picked sides and
-     * is looking at a button that will not work. The card grid cannot express this on its own —
-     * 4 teams x 5 slots is twenty places, and the cap is a separate number — so the footer says it.
-     * </p>
+     * <p>The card grid cannot express this on its own: 4 teams x 5 slots is twenty places, and the
+     * cap is a separate number. The footer states it.
      */
     private boolean atPlayerCap() {
         return board != null && board.playerCount() >= edited.get("b.maxPlayers");
@@ -402,8 +361,7 @@ public class RuleScreen extends PvScreen {
                 }
             }
         }
-        // Drop anybody already on a card: the server would refuse them, and a list that offers a
-        // name it is about to reject is a list the player stops trusting.
+        // Drop anybody already on a card: the server would refuse them.
         java.util.Set<String> taken = new java.util.HashSet<>();
         for (java.util.List<RosterBoard.Member> side : board.teams()) {
             for (RosterBoard.Member member : side) {
@@ -449,18 +407,15 @@ public class RuleScreen extends PvScreen {
             case FIXED -> null;
         };
         if (control != null) {
-            // One listener, not two: onChange replaces rather than chains, so the "write the value
-            // back" step and the "keep the two series numbers consistent" step have to be the same
-            // callback or the second silently drops the first.
+            // One listener only: onChange replaces rather than chains, so writing the value back
+            // and keeping the series numbers consistent have to be the same callback.
             control.onChange(v -> {
                 edited.set(def.id, v);
                 if ("a.maxRounds".equals(def.id)) {
                     clampWinsNeeded();
                 }
-                // Rows whose usability depends on this one have to be rebuilt, not patched: the
-                // dependency lives in RuleRow.editable, which is fixed at construction. Deferred to
-                // the next tick because this callback runs inside the control's own click handler
-                // and rebuilding the pane under it would pull the ground out from under the event.
+                // Rows depending on this one are rebuilt, not patched, since their enabled state is
+                // fixed at construction. Deferred a tick so the pane is not rebuilt mid-click.
                 if ("a.winConditions".equals(def.id)) {
                     Minecraft.getInstance().execute(this::buildRows);
                 }
@@ -473,23 +428,20 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The two series numbers are steppers, not sliders.
+     * Returns whether the rule uses a stepper instead of a slider.
      *
-     * <p>They are exact counts a player thinks in — "7 rounds, first to 4" — and the range is 1..15,
-     * so a slider makes landing on exactly 4 a matter of pixel aim. Everything else in the panel
-     * stays a slider because everything else is a quantity you feel your way to.</p>
+     * <p>The series numbers are exact counts in the range 1..15, so a slider would make landing on
+     * a value a matter of pixel aim.
      */
     private static boolean isStepped(String ruleId) {
         return "a.maxRounds".equals(ruleId) || "a.winsNeeded".equals(ruleId);
     }
 
     /**
-     * Keeps "win 4 of at most 3" from being a state the panel can sit in.
+     * Lowers {@code a.winsNeeded} to {@code a.maxRounds} when the target exceeds the cap.
      *
-     * <p>Lowering the round cap below the win target is a legal thing to do on the way to a new
-     * setting, so the win target follows the cap down instead of the cap being refused. The server
-     * clamps the same pair on arrival — this is what stops the panel from showing a target that
-     * cannot be reached.</p>
+     * <p>Lowering the cap is a legal step toward a new setting, so the target follows it down. The
+     * server clamps the same pair on arrival.
      */
     private void clampWinsNeeded() {
         int maxRounds = edited.get("a.maxRounds");
@@ -500,25 +452,20 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * True when another duel is already standing on this map.
+     * Returns whether another duel is already standing on the map at this index.
      *
-     * <p>The bitmask comes from the server on every panel open, so it is a snapshot: a map can be
-     * taken a second after the panel opens. That race is settled at "同意并开始", which re-checks
-     * and refuses — this method only stops the player from picking a map that was already gone,
-     * which is the common case and the one that would otherwise waste a full negotiation.</p>
+     * <p>The bitmask comes from the server on panel open, so a map can be taken a moment later.
+     * The submit re-checks and refuses; this only keeps the player from picking a taken map.
      */
     private boolean mapTaken(int index) {
         return index >= 0 && index < Integer.SIZE && (payload.busyMaps() & (1 << index)) != 0;
     }
 
     /**
-     * Selecting a map carries its size with it.
+     * Applies a map choice and copies its size into the size rules.
      *
-     * <p>The server overrides the size rules with the map's bounding box anyway, so leaving the
-     * sliders on 48x48 would be showing the player a number that is not going to be used. The rows
-     * are rebuilt instead of patched in place because the size sliders belong to the same pane the
-     * click came from, and poking their value mid-callback is how a slider ends up drawing itself
-     * from a stale index.</p>
+     * <p>The server overrides the size rules with the map's bounding box, so the sliders would
+     * otherwise show a number that is not used.
      */
     private void pickTemplate(int choice) {
         edited.set("e.template", choice);
@@ -528,42 +475,31 @@ public class RuleScreen extends PvScreen {
             edited.set("e.sizeZ", map.sizeZ);
             edited.set("e.sizeY", map.sizeY);
         }
-        // Rebuilt on both branches. The flat branch used to return early, which was fine while the
-        // size rows were always editable — now that they are greyed out on every other map, coming
-        // back to 平坦 has to re-enable them, and that state is fixed when the row is constructed.
+        // Rebuilt on both branches: coming back to the flat map has to re-enable the size rows,
+        // whose enabled state is fixed at construction.
         Minecraft.getInstance().execute(this::buildRows);
     }
 
     /**
      * Stacks the commit buttons at the foot of the sidebar, primary lowest.
      *
-     * <p>They used to be a row along the bottom of the panel, which cost the content area a 34px
-     * band and forced the sidebar to stop above it. In a 72px column the same buttons stack, and
-     * the primary sits nearest the corner where a form's confirm button belongs.</p>
-     *
-     * <p>Only the actions that <em>commit</em> the negotiation live here. 还原 and 编辑配装 are not
-     * commits — one undoes an edit, the other opens a screen — so they went to the status line and
-     * the 配装 page's toolbar, which is also what keeps the stack at three buttons. Five would not
-     * fit beside eight tabs in a 190px column at any legible size.</p>
+     * <p>Only actions that commit the negotiation live here. Revert and the loadout editor are not
+     * commits, so they sit on the status line and on the loadout page toolbar.
      */
     private void buildActions() {
         buildActions(buildStack());
     }
 
     /**
-     * The commit buttons for this role, unpositioned.
+     * Builds the commit buttons for this role, unpositioned.
      *
-     * <p>Separate from the layout because the sidebar is measured from them: the column has to be
-     * wide enough for "Accept & start" as well as for "Sides", and those two disagree by 48px in
-     * English. Building the buttons first and the column second is the only order in which the
-     * width can be right — the other order truncates the label or lets it hang over the well.</p>
+     * <p>The sidebar width is measured from them, so they are built before the column.
      */
     private List<PvButton> buildStack() {
         PvButton primary;
         List<PvButton> stack = new ArrayList<>();
         if (payload.role() == RulesOpenPayload.ROLE_DRAFT) {
-            // Draft: nothing has been sent yet, so the only decisions are "send it" and "drop it".
-            // No reject and no revert — there is no earlier revision to go back to.
+            // Draft: nothing has been sent yet, so the actions are send and cancel.
             primary = new PvButton(PvLang.str("pvpocket.gui.roster.button.send"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
@@ -581,11 +517,8 @@ public class RuleScreen extends PvScreen {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_ACCEPT));
-            // "Accept" means "this revision, as it stands", and the server takes the revision from
-            // its own record rather than from the packet — so a player who moved a slider here and
-            // then pressed this button had the edit dropped without a word anywhere. That is the
-            // only way this panel could lose work silently, so the button refuses while there is
-            // anything unsent and the tooltip names the two ways forward.
+            // "Accept" takes the revision from the server's record, so an unsent edit would be
+            // dropped. The button refuses while anything is unsent and the tooltip says why.
             if (changeCount() > 0) {
                 primary.enabled = false;
                 primary.tooltip = PvLang.str("pvpocket.gui.rule.accept_blocked");
@@ -601,25 +534,22 @@ public class RuleScreen extends PvScreen {
     }
 
     private void buildActions(List<PvButton> stack) {
-        // Rebuild-safe: the stack is rebuilt when the edit count crosses zero (see syncActions), and
-        // without this the old buttons would stay in the root list and both sets would be drawn.
+        // Rebuild-safe: the stack is rebuilt when the edit count crosses zero (see syncActions),
+        // and without this the old buttons would stay in the root list.
         roots.removeAll(actionButtons);
         actionButtons.clear();
 
         compact = compactStack(stack.size());
         if (compact) {
-            // One row across the bottom of the well, above the status line. The column cannot hold
-            // the strip and the stack at this panel height, and the well can spare 22px because it
-            // scrolls — the sidebar cannot spare anything, because a tab strip that loses entries
-            // loses them for good.
+            // One row across the bottom of the well, above the status line: the column cannot hold
+            // the strip and the stack at this height, and the well scrolls.
             int gaps = ACTION_GAP * (stack.size() - 1);
             int span = panelW - chromeW - 24;
             int wanted = gaps;
             int[] want = new int[stack.size()];
             for (int i = 0; i < stack.size(); i++) {
-                // Each button takes the width of its own label when the row can afford it, so 拒绝
-                // does not get the same 64px as 同意并开始; when it cannot, they share the span and
-                // the label is fitted rather than printed over its neighbour.
+                // Each button takes its label width when the row can afford it, and the label is
+                // fitted to a shared span when it cannot.
                 want[i] = font().width(stack.get(i).label()) + 16;
                 wanted += want[i];
             }
@@ -655,9 +585,8 @@ public class RuleScreen extends PvScreen {
             revertButton = null;
         }
         if (footerHasRevert) {
-            // Not in a draft: there 还原 would also clear the sides the player has just placed (a
-            // draft's roster counts as "received"), and a button that wipes five clicks of setup must
-            // not sit next to 发送邀请.
+            // Not in a draft: there revert would also clear the sides the player has placed, since
+            // a draft's roster counts as received.
             revertButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.revert"),
                     PvButton.Style.GHOST, this::revert);
             revertButton.size(font().width(revertButton.label()) + 16, PvButton.CHIP_H);
@@ -669,12 +598,11 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Whether the sidebar column can hold both the tab strip and the commit stack.
+     * Returns whether the sidebar column can hold both the tab strip and the commit stack.
      *
      * <p>Eight entries plus three buttons need 213px of panel height at the shortest legible tab
-     * pitch. At 320x180 the panel is 160, so the tabs and the buttons cannot share the column at
-     * any size a label can still be read at — one of them has to leave, and the strip cannot: a tab
-     * that is not drawn is a page that cannot be reached.</p>
+     * pitch. Below that the stack moves under the well, since a tab that is not drawn cannot be
+     * reached.
      */
     private boolean compactStack(int stackSize) {
         int needed = HEADER_H + SIDE_PAD + PvTabs.minHeight(groups.size() + 1) + TAB_GAP
@@ -683,12 +611,10 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Fits the tab strip into whatever the commit stack left.
+     * Fits the tab strip into the height the commit stack left.
      *
-     * <p>A strip that clips its last entries is worse than a dense one: the hidden groups are not
-     * merely off-screen, they are unreachable, because there is nothing to scroll. The strip
-     * compresses instead, and only the reviewer role — the one with three commit buttons — gets
-     * down to the floor.</p>
+     * <p>A strip that clips its last entries makes those groups unreachable, since there is nothing
+     * to scroll.
      */
     private void layoutTabs() {
         if (tabs == null) {
@@ -699,12 +625,9 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The title row's single chip.
+     * Builds the title row's single chip, which opens the preset dialog.
      *
-     * <p>Only 预设 is left up here. It opens a dialog over this panel, which is the class of action
-     * the title row holds; 编辑配装 opens a whole other screen and moved onto the 配装 page's toolbar,
-     * where the player who wants it is already looking. The row is now title, subtitle, version and
-     * one link, which is what it can carry at a legible size.</p>
+     * <p>The title row holds the title, the subtitle, the version and this one link.
      */
     private void buildChips() {
         if (presetButton != null) {
@@ -719,7 +642,7 @@ public class RuleScreen extends PvScreen {
         roots.add(presetButton);
     }
 
-    /** Asks the server to open the loadout editor; the server answers with a {@code loadout_open}. */
+    /** Asks the server for the loadout editor; the server answers with a {@code loadout_open}. */
     private void openLoadout() {
         if (PvClientPlatform.get().canSend(LoadoutRequestPayload.ID)) {
             PvClientPlatform.get().send(new LoadoutRequestPayload());
@@ -727,12 +650,10 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Adds or removes 还原 as the edit count crosses zero.
+     * Adds or removes the revert button as the edit count crosses zero.
      *
-     * <p>The stack used to be built only from {@code init()}, so 还原 appeared after a window resize
-     * and not when the player actually changed a rule — the one moment it means anything. Rebuilding
-     * on the transition instead of every frame keeps the buttons from being torn down and recreated
-     * in the middle of a slider drag.</p>
+     * <p>Rebuilding on the transition rather than every frame keeps the buttons from being torn
+     * down in the middle of a slider drag.
      */
     private void syncActions() {
         boolean want = payload.role() != RulesOpenPayload.ROLE_DRAFT && changeCount() > 0;
@@ -754,16 +675,12 @@ public class RuleScreen extends PvScreen {
         PvDraw.text(ctx, tr, title, panelX + 14, panelY + 11, PvTheme.TEXT);
 
         int titleEnd = panelX + 14 + tr.width(title) + 10;
-        // A team match names the sides instead of the opponents. "Duel with Dev2, Dev4" answers
-        // "who am I fighting", but in a 2v2 the question that actually needs answering before
-        // agreeing is "who is on my side" — and the sides are drawn by hand now, so the invite order
-        // says nothing about them. It gets its own sentence rather than reusing the "Duel with %s"
-        // one, which would read "Duel with 1队 Dev1+Dev3 · 2队 ...".
+        // A team match names the sides instead of the opponents: the question before agreeing is
+        // who is on the reader's side. It gets its own sentence rather than the "Duel with" one.
         String subtitle;
         if (rosterEditable()) {
-            // Nothing has been sent yet, so there is no counterpart to name. The subtitle carries the
-            // shape of the roster being built instead — the one fact that changes as names land on
-            // cards, and the one that decides whether "发送" can go ahead at all.
+            // Nothing has been sent yet, so there is no counterpart to name. The subtitle carries
+            // the shape of the roster being built instead.
             subtitle = PvLang.str("pvpocket.gui.roster.subtitle",
                     board == null ? 0 : board.playingTeams(),
                     board == null ? 0 : board.playerCount());
@@ -776,10 +693,8 @@ public class RuleScreen extends PvScreen {
                     : PvLang.str("pvpocket.gui.rule.subtitle.proposer", otherLabel());
         }
 
-        // The revision is a chip rather than loose accent text: at 12px of amber, a bare "v0" read as
-        // part of the subtitle. A chip gives it an edge and tells the eye it is a separate fact.
-        // Drawn inline (right-anchored against the preset button) instead of as a PvBadge widget, but
-        // it takes its height and width from PvBadge so the two pills cannot drift apart.
+        // The revision is a chip rather than loose accent text, so it reads as a separate fact.
+        // Drawn inline but sized from PvBadge, so the two pills cannot drift apart.
         String version = "v" + payload.revision();
         int versionW = PvBadge.widthOf(version);
         int versionX = presetButton.x - 6 - versionW;
@@ -800,15 +715,10 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The status line: what state the draft is in, the loadout tally, and 还原.
+     * Draws the status line: the draft state, the loadout tally, and the revert button.
      *
-     * <p>It replaces the old footer band, which held the same text plus five buttons on a 382px line
-     * and ran out of width in the reviewer role — the one role where "3 rules changed" is the fact
-     * that decides what to press next. The buttons moved to the sidebar; what is left is one line
-     * that finally has room for both halves.</p>
-     *
-     * <p>还原 sits here rather than in the stack because it is the inverse of the change count it
-     * stands next to: the line reads "3 rules changed … 还原", which is the whole sentence.</p>
+     * <p>The revert button sits next to the change count it undoes, so the line reads
+     * "3 rules changed ... revert".
      */
     private void drawStatus(GuiGraphics ctx, Font tr, boolean reviewer) {
         int top = panelY + panelH - STATUS_H;
@@ -819,21 +729,14 @@ public class RuleScreen extends PvScreen {
         int changes = changeCount();
 
         // The draft status talks about the roster, not about the other side: there is no other side
-        // yet, and "you are proposing to nobody" would be a sentence the player has to decode.
-        //
-        // On the roster page it names the blocker rather than restating the button. "Send when the
-        // sides are set" was the same sentence as the button label, and a line that ends in an
-        // ellipsis is not a hint. Naming what is still missing is shorter and is the one thing the
-        // reader cannot see for themselves: the cards show who is placed, not how many sides the
-        // rules require.
+        // yet. On the roster page it names the blocker rather than restating the button label.
         String status;
         int color = PvTheme.TEXT_MUTED;
         if (rosterEditable()) {
             int teams = board == null ? 0 : board.playingTeams();
             int people = board == null ? 0 : board.playerCount();
-            // The cap is named before the generic "send when ready": it is the one blocker that the
-            // cards cannot show, because the grid has room for twenty places and the cap is a
-            // separate number. Naming it is what stops the player from counting slots.
+            // The cap is named before the generic hint: it is the one blocker the cards cannot
+            // show, because the grid has twenty places and the cap is a separate number.
             status = atPlayerCap()
                     ? PvLang.str("pvpocket.gui.roster.footer.at_cap", edited.get("b.maxPlayers"))
                     : teams < 2
@@ -854,10 +757,8 @@ public class RuleScreen extends PvScreen {
             }
         }
 
-        // The loadout tally keeps its place on the right: it is the only place the agreement counter
-        // appears, and a negotiation where nobody can see "agreed 1/2" is one nobody can act on. It
-        // gives way to the status text rather than the other way round, but only down to the point
-        // where the status text is still a sentence.
+        // The loadout tally keeps its place on the right: it is the only place the agreement
+        // counter appears. It yields width to the status text, which stays a sentence.
         int cursor = revertButton == null ? right : revertButton.x - 8;
         String loadout = loadoutSummary();
         if (!loadout.isEmpty()) {
@@ -882,9 +783,7 @@ public class RuleScreen extends PvScreen {
      * One player as the server describes them.
      *
      * <p>The wire form is {@code name|uuid:count:team:state}. The uuid rides inside the name field
-     * because the payload's participant list was already at the codec's field budget and a fourth
-     * field would have cost a new payload; the split is done here once so that nothing downstream
-     * has to remember which colon is which.</p>
+     * to stay within the codec's field budget; the split happens here once.
      */
     private record Slot(String name, String uuid, int count, int team, int state) {
     }
@@ -905,25 +804,19 @@ public class RuleScreen extends PvScreen {
                 out.add(new Slot(id[0], id[1], Integer.parseInt(parts[1]),
                         Integer.parseInt(parts[2]), Integer.parseInt(parts[3])));
             } catch (NumberFormatException e) {
-                // A record the server did not write in this format is one this panel cannot show;
-                // dropping it is better than drawing a row whose numbers came from nothing.
+                // A record in a format this panel cannot read is dropped rather than drawn with
+                // numbers that came from nothing.
             }
         }
         return out;
     }
 
     /**
-     * The loadout tag, built from the numbers the server sent.
+     * Builds the loadout tag from the counts the server sent, for example
+     * {@code Dev1 8, Dev2 9, agreed 1/2}.
      *
-     * <p>{@code Dev1 8 · Dev2 9 · agreed 1/2}, with the participant list encoded as
-     * {@code name|uuid:count:team:state}. Assembled on the client so the separator and the words
-     * match the reader's language, and so the panel does not have to parse a sentence it did not
-     * write.</p>
-     *
-     * <p>Only the counts appear here. The side each player landed on is a separate question with a
-     * separate answer — see {@link #teamsSummary()} — because putting both on one line makes it too
-     * wide for four players, and the fallback then drops <em>everything</em> and leaves the panel
-     * showing "Agreed 0/4" with no roster at all.</p>
+     * <p>Only the counts appear here; the side each player landed on is drawn by
+     * {@link #teamsSummary()}.
      */
     private String loadoutSummary() {
         StringBuilder counts = new StringBuilder();
@@ -948,23 +841,18 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Who is on which side, {@code "1队 Dev1+Dev3 · 2队 Dev2+Dev4"}.
+     * Returns who is on which side, for example {@code 1 Dev1+Dev3, 2 Dev2+Dev4}.
      *
-     * <p>Read out of the same records the loadout tag uses, so it costs no extra payload field and
-     * can never disagree with it. This is the line that makes the roster verifiable: the sides are
-     * drawn by hand now, so without a preview the reviewer is agreeing to a match-up they have never
-     * seen.</p>
+     * <p>Read from the same records the loadout tag uses, so it costs no extra payload field.
      *
-     * <p>Empty for a one-on-one, where the opponent's name already says everything and a "1队 Dev1 ·
-     * 2队 Dev2" prefix would be noise.</p>
+     * <p>Empty for a one-on-one, where the opponent's name already says everything.
      */
     private String teamsSummary() {
         if (payload.total() <= 2) {
             return "";
         }
-        // Team index -> members, in the order the server listed them (which is the roster order).
-        // Only the grouping matters here: the loadout is one set for the whole match, so no member
-        // of a side is "the one whose kit the side fights with" any more.
+        // Team index -> members, in the order the server listed them, which is the roster order.
+        // The loadout is one set for the whole match, so no member owns the side's kit.
         java.util.Map<Integer, StringBuilder> byTeam = new java.util.TreeMap<>();
         for (Slot slot : slots()) {
             StringBuilder names = byTeam.computeIfAbsent(slot.team(), k -> new StringBuilder());
@@ -997,11 +885,9 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Whether any rule on that tab differs from what the server sent — the tab strip's dot.
+     * Returns whether any rule on that tab differs from what the server sent; the tab strip's dot.
      *
-     * <p>Index 0 is the roster and never gets a dot: the sides are the player's own work, and every
-     * card already shows what was placed, so the dot would be lit from the moment the panel opens
-     * and would mean nothing.</p>
+     * <p>Index 0 is the roster and never gets a dot: every card already shows what was placed.
      */
     private boolean groupDirty(int index) {
         if (index <= 0 || index > groups.size()) {
@@ -1016,12 +902,10 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * The preset dialog for the rule set.
+     * Opens the preset dialog for the rule set.
      *
-     * <p>Only {@code edited} travels: a preset is the settings, and the roster is decided in the
-     * panel every time. That is also why loading one does not seed or clear the cards — a player who
-     * has drawn their sides and then picks a different rule set has not changed their mind about who
-     * is playing.</p>
+     * <p>Only {@code edited} travels. The roster is decided in the panel, so loading a preset does
+     * not seed or clear the cards.
      */
     private void openPresets() {
         setOverlay(new PresetOverlay(PresetKind.RULES,
@@ -1032,17 +916,16 @@ public class RuleScreen extends PvScreen {
 
     private void applyPreset(String encoded) {
         edited = DuelRules.decode(encoded);
-        // Through init() rather than buildRows(): the slot count is a rule (b.teamSize), so a preset
-        // can change how many players a card holds, and the footer's 还原 has to appear with it.
+        // Through init() rather than buildRows(): the slot count is a rule (b.teamSize), so a
+        // preset can change how many players a card holds.
         roots.clear();
         init();
     }
 
     private void revert() {
         edited = incoming.copy();
-        // A draft's roster is part of what was "received", so reverting has to take the cards back
-        // too — otherwise the button would undo the rules and leave the sides as they were drawn,
-        // which is neither the incoming state nor the current one.
+        // A draft's roster is part of what was received, so reverting clears the cards too.
+        // Otherwise the button would undo the rules and leave the sides as drawn.
         if (rosterEditable() && board != null) {
             board.clear();
         }
@@ -1055,12 +938,8 @@ public class RuleScreen extends PvScreen {
             return;
         }
         if (rosterEditable()) {
-            // A draft stays open after sending. The server validates the roster against who is
-            // actually online and against the rules that were just sent, and a refusal has to leave
-            // the cards exactly where they are so the player can fix the one thing that is wrong —
-            // closing the panel here would throw away an invite that took five clicks to assemble
-            // and give the error message nowhere to land. A successful send replaces this screen
-            // with the proposal panel a tick later, so nothing is left hanging.
+            // A draft stays open after sending: a refusal has to leave the cards where they are so
+            // the player can fix the problem. A successful send replaces this screen a tick later.
             send(action);
             return;
         }
@@ -1073,17 +952,16 @@ public class RuleScreen extends PvScreen {
         if (!PvClientPlatform.get().canSend(RulesSubmitPayload.ID)) {
             return;
         }
-        // The roster rides on every submit and is empty once the invite is out: the server ignores
-        // it outside the draft, and sending it again from a reviewer would be a second way to
-        // rearrange sides that the reviewer has no business having.
+        // The roster rides on every submit and is empty once the invite is out; the server ignores
+        // it outside the draft.
         String roster = rosterEditable() ? board.encode() : "";
         PvClientPlatform.get().send(new RulesSubmitPayload(action, edited.encode(), roster));
     }
 
     /**
-     * Closing is a decision too. A proposer who walks away from an unfinished draft would otherwise
-     * leave the other side holding an invite that can never be answered, so the dismissal is sent
-     * explicitly and the server voids the draft.
+     * Closes the panel and sends a dismiss unless something was already submitted.
+     *
+     * <p>A proposer who walks away would otherwise leave an invite that can never be answered.
      */
     @Override
     public void onClose() {
@@ -1099,8 +977,7 @@ public class RuleScreen extends PvScreen {
     }
 
     /**
-     * Server-driven close: the negotiation already ended on the authoritative side, so there is
-     * nothing to report back and reporting anything would be a lie about a finished session.
+     * Closes the screen without reporting back. The negotiation already ended on the server.
      */
     public void closeSilently() {
         submitted = true;
@@ -1110,12 +987,12 @@ public class RuleScreen extends PvScreen {
     // ------------------------------------------------------------------ audit
 
     /**
-     * Every arrangement this screen can be in: eight tabs, two dialogs, and the edited state.
+     * Returns the number of arrangements this screen can be in: eight tabs, two dialogs and the
+     * edited state.
      *
-     * <p>The pages are separate variants because each one puts a different number of rows of a
-     * different height into the same well, and the edited state is separate again because 还原
-     * appearing on the status line is the only thing that changes the status line's width budget.
-     * See {@link PvScreen#auditVariantCount()}.</p>
+     * <p>The pages are separate variants because each puts a different number of rows of a
+     * different height into the same well. The edited state is separate because the revert button
+     * changes the status line's width budget.
      */
     @Override
     public int auditVariantCount() {
@@ -1139,8 +1016,8 @@ public class RuleScreen extends PvScreen {
             openPicker(0);
             return;
         }
-        // 10: one rule changed, so the status line grows 还原 and the accept button locks itself —
-        // the only state in which the panel draws its widest status line.
+        // 10: one rule changed, so the status line grows the revert button and the accept button
+        // locks itself; the widest status line the panel draws.
         edited.set("a.maxRounds", Math.max(1, edited.get("a.maxRounds") - 1));
         edited.set("a.winsNeeded", Math.max(1, edited.get("a.winsNeeded") - 1));
         syncActions();

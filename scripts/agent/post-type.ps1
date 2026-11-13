@@ -1,11 +1,6 @@
 param(
-    # Opens the in-game chat and types a string into it, then presses Enter.
-    #
-    # Same constraint as post-key.ps1: SendKeys never reaches this game even when it reports as the
-    # foreground window, so everything goes in as posted window messages. Characters have to be sent
-    # as WM_CHAR, not WM_KEYDOWN -- the chat field is filled by GLFW's char callback, which is fed by
-    # WM_CHAR; a key-down only produces a keystroke, and a keystroke with no character is nothing in
-    # a text field.
+    # Opens chat and types a string, then presses Enter. Characters go in as WM_CHAR: the chat
+    # field is fed by GLFW's char callback, and a key-down alone produces no character.
     [string]$Username = "Dev1",
     [string]$Text = "",
     [switch]$NoEnter,

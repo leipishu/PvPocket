@@ -11,9 +11,9 @@ import java.time.format.DateTimeFormatter;
 /**
  * Date, time and duration formatting for the home screen.
  *
- * <p>Fixed numeric patterns with no locale involved, because the game's font has one digit width and
- * a locale that spells the month in letters would make a column of timestamps ragged. The words
- * around the numbers ("3 天前") <em>are</em> translated — the numerals are not.</p>
+ * <p>Every pattern is a fixed numeric one. The game font has a single digit width, so a locale that
+ * spelled the month in letters would make a column of timestamps ragged. The words around the
+ * numbers are translated; the numerals are not.
  */
 public final class HomeText {
 
@@ -32,7 +32,7 @@ public final class HomeText {
         return LocalTime.now().format(CLOCK);
     }
 
-    /** {@code yyyy-MM-dd} plus the localised weekday. */
+    /** Returns the date as {@code yyyy-MM-dd} plus the localised weekday. */
     public static String date() {
         LocalDate today = LocalDate.now();
         String weekday = PvLang.str("pvpocket.gui.home.weekday." + today.getDayOfWeek().name()
@@ -40,12 +40,12 @@ public final class HomeText {
         return today + " · " + weekday;
     }
 
-    /** {@code MM-dd HH:mm}. */
+    /** Returns the timestamp as {@code MM-dd HH:mm}. */
     public static String stamp(long millis) {
         return Instant.ofEpochMilli(millis).atZone(zone()).format(STAMP);
     }
 
-    /** {@code m:ss} for a round or a match length. */
+    /** Returns a round or match length as {@code m:ss}. */
     public static String duration(long millis) {
         long total = Math.max(0L, millis / 1000L);
         long minutes = total / 60L;
@@ -54,10 +54,10 @@ public final class HomeText {
     }
 
     /**
-     * "just now" / "12 minutes ago" / "3 days ago".
+     * Returns a relative phrase such as "just now", "12 minutes ago" or "3 days ago".
      *
-     * <p>Falls back to an absolute stamp past a week: "37 days ago" is a number nobody converts back
-     * into a date, while a date is a date.</p>
+     * <p>Falls back to an absolute stamp past a week, since a large day count is harder to read
+     * than a date.
      */
     public static String relative(long millis) {
         long delta = System.currentTimeMillis() - millis;

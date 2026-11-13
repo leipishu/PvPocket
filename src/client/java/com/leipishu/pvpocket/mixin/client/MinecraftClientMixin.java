@@ -19,17 +19,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Turns "right mouse held with a sword" into a blocking intent.
  *
- * <p>Vanilla never enters a use state for swords, so the server would have no way to know the key
- * is held. The client is the only place that information exists, hence this hook.</p>
+ * <p>Hooks {@code Minecraft.tick} to read the use key and send the intent, and
+ * {@code Minecraft.startAttack} to drop the 1.21 miss delay in a legacy round.
  *
- * <p>The rule-set check here is an optimisation, not a security boundary: the server re-validates
- * every request. Skipping the packet for players who are not in a legacy round keeps a busy server
- * from carrying a stream of pointless payloads from everyone holding right-click.</p>
- *
- * <p>Every term of that gate is a way for the feature to fail silently, and all of them look the same
- * from inside the game — "right-click does nothing". A single line per change of the three bits is
- * therefore kept at INFO: it is the only way to tell "the request never left" from "the server
- * refused it" (the server logs the other half).</p>
+ * <p>The rule-set check here is an optimisation; the server re-validates every request.
  */
 @Mixin(Minecraft.class)
 public abstract class MinecraftClientMixin {
@@ -38,33 +31,28 @@ public abstract class MinecraftClientMixin {
     private static int lastGate = -1;
 
     /**
-     * Dev-only: pretend this client is holding a sword block, so the pose can be inspected without
-     * setting up a legacy duel. Started with {@code -PdebugBlocking}, which passes
-     * {@code -Dpvpocket.debug.blocking=true}.
+     * Dev-only: forces the local mirror to report a sword block. Started with
+     * {@code -PdebugBlocking}, which passes {@code -Dpvpocket.debug.blocking=true}.
      *
-     * <p>Set on the local mirror and deliberately <em>not</em> sent: outside a legacy round the
-     * server refuses the request and echoes the refusal back, so a forced flag that was also sent
-     * would be cleared again on the next tick. That is also why this is a state override rather
-     * than a render override — the previous debug switch forced the pose for every sword in the
-     * world, which made normal holding look broken.</p>
+     * <p>Set on the mirror only and never sent; outside a legacy round the server refuses the
+     * request and clears it again.
      */
     private static final boolean DEBUG_BLOCKING = Boolean.getBoolean("pvpocket.debug.blocking");
 
-    /** A payload that arrived before the player existed is applied here, before anything reads it. */
+    /** Applies a payload that arrived before the player existed. Hooked at {@code tick} HEAD. */
     @Inject(method = "tick", at = @At("HEAD"))
     private void pvpocket$applyPendingState(CallbackInfo ci) {
         PvPocketClient.applyPendingState();
     }
 
     /**
-     * 对局里死亡不弹「你死了」屏幕。
+     * Suppresses the death screen during a match and respawns immediately.
      *
-     * <p>原版那张屏幕只做一件事：等玩家点「重生」。而竞技场的一局结束是服务端判的，下一局
-     * 会自己开始——中间多出来的是一次必须完成的点击，点慢了整场比赛就停在那里，赢家只能站着
-     * 看输家的死亡屏幕。所以这里替玩家把重生请求发出去，并且不让屏幕出现。</p>
+     * <p>Hooks {@code Minecraft.setScreen}: a {@link DeathScreen} is cancelled and a respawn
+     * request is sent instead.
      *
-     * <p>判定用 HUD 是否激活，而不是「在不在 arena 维度」：观战者也在那个维度里，但他们死了
-     * 应当照常看到屏幕；而对局中的人在间隔期仍然有 HUD。</p>
+     * <p>Gated on the match HUD rather than the arena dimension, because spectators also stand in
+     * that dimension and should still see the screen.
      */
     @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
     private void pvpocket$skipArenaDeathScreen(Screen screen, CallbackInfo ci) {
@@ -91,8 +79,7 @@ public abstract class MinecraftClientMixin {
         boolean sword = client.player.getMainHandItem().getItem() instanceof SwordItem;
         boolean legacy = CombatState.isLegacy(client.player.getUUID());
         if (DEBUG_BLOCKING && sword) {
-            // Held locally only. BlockingInput is reset rather than told "false" so nothing is sent
-            // and the server cannot answer with a state that clears this again.
+            // Held locally only; resetting keeps the value off the wire.
             CombatState.setBlocking(client.player.getUUID(), true);
             BlockingInput.reset();
             return;
@@ -108,20 +95,11 @@ public abstract class MinecraftClientMixin {
     }
 
     /**
-     * A whiff costs no time in 1.8; in 1.21.1 it costs half a second.
+     * Removes the 1.21 miss delay in a legacy round.
      *
-     * <p>{@code doAttack} sets {@code attackCooldown = 10} whenever the crosshair is on nothing and
-     * {@code interactionManager.hasLimitedAttackSpeed()} is true — which it always is in survival.
-     * That counter gates {@code doAttack} itself, so after every miss the next click is swallowed for
-     * ten ticks. 1.8 has no equivalent: its {@code leftClickCounter} is only ever set by clicking a
-     * block, never by swinging at air.</p>
-     *
-     * <p>This is the single largest difference in the rhythm of a trade. In 1.8 you can swing, miss,
-     * and swing again on the next tick; in 1.21.1 the second swing never happens, and because the
-     * counter is invisible the game reads as "my clicks are being dropped".</p>
-     *
-     * <p>Returning false suppresses the penalty without touching the counter itself, so block
-     * breaking (which reads the same field) keeps its normal cadence.</p>
+     * <p>Hooks {@code MultiPlayerGameMode.hasMissTime()} inside {@code Minecraft.startAttack}.
+     * Returning false suppresses the 10-tick attack cooldown that a miss sets in survival; block
+     * breaking reads the same field and keeps its normal cadence.
      */
     @ModifyExpressionValue(method = "startAttack",
             at = @At(value = "INVOKE",

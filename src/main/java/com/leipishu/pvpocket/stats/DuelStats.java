@@ -19,28 +19,23 @@ import java.util.Map;
 /**
  * Lifetime counters and finished-match history, per player, per world.
  *
- * <p>Two files, because they have two different write patterns:</p>
- * <ul>
- *   <li>{@code stats/stats.json} — every counter for every player, rewritten whole. Counters change
- *       on every hit, so they are held in memory and flushed at series end, on disconnect and on
- *       shutdown; a write per hit would be a disk write per half second of combat.</li>
- *   <li>{@code history/<uuid>.jsonl} — one line per finished series, appended. A player's history is
- *       always read as a whole ("my last twenty"), so a file per player is one sequential read; a
- *       shared file would make every append a full rewrite of everybody's records.</li>
- * </ul>
+ * <p>{@code stats/stats.json} holds every counter for every player and is rewritten whole.
+ * Counters are held in memory and flushed at series end, on disconnect and on shutdown.
  *
- * <p>Nothing here is authoritative for gameplay: a lost counter costs a number on a panel, never a
- * match. That is why a failed write logs and continues instead of throwing.</p>
+ * <p>{@code history/<uuid>.jsonl} holds one line per finished series, appended. A player's history
+ * is always read whole, so a file per player is one sequential read.
+ *
+ * <p>Nothing here is authoritative for gameplay: a lost counter costs a number on a panel, so a
+ * failed write logs and continues.
  */
 public final class DuelStats {
 
-    /** Bumped if a counter's meaning changes; the loader refuses nothing, but the field is evidence. */
+    /** Bumped when a counter's meaning changes; the loader reads it as evidence only. */
     private static final int VERSION = 1;
 
     /**
-     * How many finished series a player keeps. This is the number the player is promised, and it is
-     * enforced on read: the file itself holds up to {@link #HISTORY_COMPACT_AT} rows between
-     * compactions, because rewriting it on every append would turn an O(1) append into an O(n) one.
+     * How many finished series a player keeps, enforced on read. The file holds up to
+     * {@link #HISTORY_COMPACT_AT} rows between compactions.
      */
     public static final int HISTORY_KEEP = 200;
     /** Rewrite the file down to {@link #HISTORY_KEEP} once it passes this. */
@@ -107,10 +102,8 @@ public final class DuelStats {
     /**
      * Health points dealt to an opponent.
      *
-     * <p>Not clamped to the victim's remaining health: the damage value arriving here is what the
-     * attack produced after armour, and a 20-point hit on a player with 3 points left still counts
-     * as 20. Clamping would make "total damage" depend on how the last hit landed rather than on how
-     * hard it hit.</p>
+     * <p>Not clamped to the victim's remaining health: a 20-point hit on a player with 3 points
+     * left counts as 20. Clamping would make the total depend on how the last hit landed.
      */
     public synchronized void addDamage(String uuid, float amount) {
         if (amount <= 0F) {
@@ -133,10 +126,9 @@ public final class DuelStats {
     /**
      * Files one finished series for one participant.
      *
-     * <p>Idempotent on {@link MatchRecord#id}: {@code finishSeries} can be reached twice (a clean end
-     * and then the reconciler), and a duplicated row would show the same match twice forever. The
-     * check reads the tail of the player's own file rather than keeping an in-memory set, because the
-     * duplicate can arrive after a restart.</p>
+     * <p>Idempotent on {@link MatchRecord#id}, because {@code finishSeries} can be reached twice.
+     * The check reads the tail of the player's own file rather than an in-memory set, since a
+     * duplicate can arrive after a restart.
      */
     public synchronized void record(String uuid, MatchRecord record) {
         if (alreadyRecorded(uuid, record.id)) {
@@ -178,10 +170,8 @@ public final class DuelStats {
     /**
      * Newest first, at most {@link #HISTORY_KEEP} rows.
      *
-     * <p>The clamp is here rather than only in the compactor because the file is allowed to grow past
-     * the promised count before it is rewritten — so a reader that trusted the file would hand back
-     * 209 rows for a limit the panel promises is 200. The promise is what gets enforced; the file
-     * layout is an implementation detail.</p>
+     * <p>The clamp is here rather than only in the compactor, because the file may hold up to
+     * {@link #HISTORY_COMPACT_AT} rows.
      */
     public synchronized List<MatchRecord> history(String uuid, int limit) {
         List<MatchRecord> out = new ArrayList<>();
@@ -264,9 +254,8 @@ public final class DuelStats {
         Path file = historyFile(uuid);
         try {
             Files.createDirectories(file.getParent());
-            // A crash mid-write leaves a partial row with no terminator. Appending straight onto it
-            // glues the new record to the broken one, and then *both* are unreadable — the check for
-            // this is the one that found it. One byte of separation is the whole fix.
+            // A crash mid-write leaves a partial row with no terminator, so appending onto it would
+            // glue the record to the broken one and lose both.
             if (!endsWithNewline(file)) {
                 Files.writeString(file, System.lineSeparator(), StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -301,9 +290,7 @@ public final class DuelStats {
     /**
      * Drops the oldest rows once the file grows past the compaction threshold.
      *
-     * <p>Every fifty matches, not every match: the rewrite is a full read and write, and doing it on
-     * each append would turn an O(1) append into an O(n) one for the sake of a bound nobody is close
-     * to.</p>
+     * <p>Runs only past {@link #HISTORY_COMPACT_AT}, because the rewrite is a full read and write.
      */
     private void compactIfLong(Path file) {
         try {

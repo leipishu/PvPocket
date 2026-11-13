@@ -11,15 +11,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * The first-person half of the 1.8 block feedback: four corner brackets around the crosshair.
+ * First-person half of the 1.8 block feedback: four corner brackets around the crosshair.
  *
- * <p>1.8 itself drew nothing in first person — the sword sat in the default position and the only
- * evidence of a block was the reduced damage. That was survivable in 1.8 because everybody had spent
- * years with the mechanic; here it reads as "right-click does nothing", which is a bug report.</p>
- *
- * <p>Brackets rather than a ring or a tint: the crosshair has to stay readable, and the middle of the
- * screen is where a player is aiming. Drawn in the mod's single warm accent so it is recognisably
- * this mod's cue and not a vanilla one.</p>
+ * <p>Hooks {@code Gui.renderCrosshair} at TAIL and draws the brackets when the local player is
+ * blocking. Drawn in the mod's warm accent.
  */
 @Mixin(Gui.class)
 public abstract class InGameHudMixin {
@@ -30,7 +25,7 @@ public abstract class InGameHudMixin {
     /** Half the box around the 15x15 crosshair. */
     private static final int SPAN = 11;
 
-    /** {@code #F5A524} at 72% alpha — the accent, dimmed so it does not compete with the crosshair. */
+    /** The accent {@code #F5A524} at 72% alpha, dimmed against the crosshair. */
     private static final int GUARD_COLOR = 0xB8F5A524;
 
     @Inject(method = "renderCrosshair", at = @At("TAIL"))
@@ -46,9 +41,7 @@ public abstract class InGameHudMixin {
         int top = centerY - SPAN;
         int right = centerX + SPAN;
         int bottom = centerY + SPAN;
-        // Eight 1px bars: a horizontal and a vertical arm per corner. fill() rather than a rounded
-        // rectangle for the same reason the panel code uses it — a 1px shape is the one case where
-        // the per-row slicing of roundRect degenerates and draws nothing.
+        // Eight 1px bars, one horizontal and one vertical arm per corner. fill() is exact at 1px.
         context.fill(left, top, left + ARM, top + 1, GUARD_COLOR);
         context.fill(left, top, left + 1, top + ARM, GUARD_COLOR);
         context.fill(right - ARM, top, right, top + 1, GUARD_COLOR);

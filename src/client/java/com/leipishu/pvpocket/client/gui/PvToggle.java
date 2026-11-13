@@ -8,18 +8,12 @@ import net.minecraft.sounds.SoundEvents;
 /**
  * Boolean switch: a pill track with a sliding knob.
  *
- * <p>The only pill-shaped control in the system. A 4px radius on a 14px-tall track reads as a
- * slider, and the one thing a switch must never be confused with is the control next to it that
- * also has a fill and a knob.</p>
+ * <p>The only pill-shaped control in the system; a 4px radius on a 14px track would read as a
+ * slider. No border: a 1px outline on a 14px pill would make the track three-tone, so the fill
+ * alone carries the state.
  *
- * <p>No border. A 1px outline on a 14px pill is 7% of its height and turns the track into a
- * three-tone object — outline, track, knob — which at this size reads as a heavier control than it
- * is. The fill alone carries the state.</p>
- *
- * <p>The knob is driven by a fixed-duration tween with a slight overshoot rather than by damping:
- * a switch has exactly two destinations and the motion is the confirmation that the state changed,
- * so a small amount of weight is worth more here than retargetability. The value itself flips
- * immediately, so a fast click never loses an input to the animation.</p>
+ * <p>The knob uses a fixed-duration tween with a slight overshoot. The value flips immediately, so
+ * a fast click is never lost to the animation.
  */
 public class PvToggle extends PvValueControl {
 
@@ -90,7 +84,7 @@ public class PvToggle extends PvValueControl {
         return true;
     }
 
-    /** Keyboard path: Enter and either arrow all flip, matching the other value controls. */
+    /** Keyboard path: Enter and either arrow flip the value. */
     @Override
     public void activate() {
         flip();

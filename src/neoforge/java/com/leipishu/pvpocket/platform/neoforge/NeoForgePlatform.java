@@ -32,18 +32,16 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
- * NeoForge 侧的 {@link PvPlatform}。
+ * NeoForge implementation of {@link PvPlatform}.
  *
- * <p>与 {@code FabricPlatform} 同形：只转发，不写判断。三处不能一一对应的地方都在下面标了。</p>
- *
- * <p><b>网络为什么要先攒起来。</b>Fabric 允许「先注册 codec，之后再绑接收器」；NeoForge 的
- * {@link PayloadRegistrar} 要求两者在同一次调用里给齐，而那次调用发生在
- * {@link RegisterPayloadHandlersEvent} 触发时——比 {@code PvBootstrap.wire} 晚。所以这里先把
- * codec 与处理器各存一份，等事件来了再一起交出去。这个时间差属于加载器，不属于业务。</p>
+ * <p>Same shape as {@code FabricPlatform}: forwards events and holds no decisions. Payloads are
+ * buffered because {@link PayloadRegistrar} takes the codec and the handler in one call, which
+ * happens on {@link RegisterPayloadHandlersEvent}, later than {@code PvBootstrap.wire}.
  */
 public final class NeoForgePlatform implements PvPlatform {
 
-    /** 一条已登记的 payload：类型 + codec。处理器在 {@link #serverHandlers}/{@link #clientHandlers} 里。 */
+    /** A registered payload: type plus codec. Handlers live in {@link #serverHandlers} and
+     * {@link #clientHandlers}. */
     private record Entry<T extends CustomPacketPayload>(
             CustomPacketPayload.Type<T> type,
             StreamCodec<? super RegistryFriendlyByteBuf, T> codec) {
@@ -67,7 +65,7 @@ public final class NeoForgePlatform implements PvPlatform {
         return "neoforge";
     }
 
-    // ------------------------------------------------------------------ 网络
+    // ------------------------------------------------------------------ networking
 
     @Override
     public <T extends CustomPacketPayload> void registerPlayToServer(
@@ -88,9 +86,10 @@ public final class NeoForgePlatform implements PvPlatform {
     }
 
     /**
-     * 客户端侧的接收器。**不在 {@link PvPlatform} 上**，因为那是客户端的接口
-     * （{@code PvClientPlatform}）——但它要写进同一张表，否则 {@code playToClient} 就没有处理器
-     * 可交。两个接口在 NeoForge 上共享一次注册，是这一格的实现细节。
+     * Registers the client-side receiver for a payload type.
+     *
+     * <p>Not on {@link PvPlatform}, whose client side is {@code PvClientPlatform}. The handler
+     * goes into the same table so {@code playToClient} has something to call.
      */
     public <T extends CustomPacketPayload> void onClientReceive(
             CustomPacketPayload.Type<T> type, Consumer<T> handler) {
@@ -98,10 +97,10 @@ public final class NeoForgePlatform implements PvPlatform {
     }
 
     /**
-     * 把所有攒下来的 payload 一次性交给 NeoForge。
+     * Hands every buffered payload to NeoForge in one call.
      *
-     * <p>版本号写死 {@code "1"}：这是 NeoForge 的网络协议版本，双方不一致就握手失败。项目只有
-     * 一个版本，所以它没有理由是个变量——真要改，那是「线格式变了」，应该同时改所有客户端。</p>
+     * <p>The protocol version is the literal {@code "1"}; both sides must agree or the handshake
+     * fails. Changing it changes the wire format and requires a matching client update.
      */
     private void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar("1");
@@ -116,7 +115,7 @@ public final class NeoForgePlatform implements PvPlatform {
     private <T extends CustomPacketPayload> void playToServer(
             PayloadRegistrar registrar, Entry<T> entry) {
         registrar.playToServer(entry.type(), entry.codec(), (payload, context) -> {
-            // NeoForge 的处理器本来就在服务端线程上，所以这里没有 execute 一跳。
+            // NeoForge already runs handlers on the server thread, so no execute hop is needed.
             if (context.player() instanceof ServerPlayer player) {
                 BiConsumer<ServerPlayer, Object> handler = serverHandlers.get(entry.type());
                 if (handler != null) {
@@ -138,8 +137,7 @@ public final class NeoForgePlatform implements PvPlatform {
 
     @Override
     public boolean canSend(ServerPlayer player, CustomPacketPayload.Type<?> type) {
-        // NeoForge 把「这条连接认不认这个频道」记在 listener 上；原版没有这个概念，所以这一项
-        // 在 Fabric 那边问的是另一套 API，语义相同。
+        // The connection records on its listener which channels it accepts.
         return player.connection.hasChannel(type);
     }
 
@@ -148,7 +146,7 @@ public final class NeoForgePlatform implements PvPlatform {
         PacketDistributor.sendToPlayer(player, payload);
     }
 
-    // ------------------------------------------------------------------ 生命周期
+    // ------------------------------------------------------------------ lifecycle
 
     @Override
     public void onServerStarted(Consumer<MinecraftServer> action) {
@@ -206,11 +204,11 @@ public final class NeoForgePlatform implements PvPlatform {
         gameBus.addListener(RegisterCommandsEvent.class, event -> action.accept(event.getDispatcher()));
     }
 
-    // ------------------------------------------------------------------ 否决点
+    // ------------------------------------------------------------------ veto points
 
     @Override
     public void onAllowDamage(DamageVeto veto) {
-        // NeoForge 这条事件对所有 LivingEntity 触发；接口只问玩家，其余放行。与 Fabric 一致。
+        // Fires for every LivingEntity; non-players pass through, matching Fabric.
         gameBus.addListener(LivingIncomingDamageEvent.class, event -> {
             if (event.getEntity() instanceof ServerPlayer victim
                     && !veto.allow(victim, event.getSource(), event.getAmount())) {
@@ -222,7 +220,7 @@ public final class NeoForgePlatform implements PvPlatform {
     @Override
     public void onAllowBlockBreak(BlockBreakVeto veto) {
         gameBus.addListener(BlockEvent.BreakEvent.class, event -> {
-            // getLevel() 声明成 LevelAccessor；服务端跑这条事件时它一定是 Level。
+            // getLevel() is declared LevelAccessor; on the server path it is always a Level.
             if (!veto.allow(event.getPlayer(), (Level) event.getLevel(), event.getPos())) {
                 event.setCanceled(true);
             }
@@ -231,9 +229,8 @@ public final class NeoForgePlatform implements PvPlatform {
 
     @Override
     public void onAllowChat(ChatVeto veto) {
-        // NeoForge 的 ServerChatEvent 在广播之前触发，取消即不广播——与 Fabric 的
-        // ALLOW_CHAT_MESSAGE 是同一个时机。它给的 getMessage() 已经是装饰好的整行，
-        // 正好是 ChatVeto 要的形状。
+        // ServerChatEvent fires before the broadcast, so cancelling suppresses it. getMessage()
+        // already returns the decorated line that ChatVeto expects.
         gameBus.addListener(ServerChatEvent.class, event -> {
             Component decorated = event.getMessage();
             if (!veto.allow(event.getPlayer(), decorated)) {

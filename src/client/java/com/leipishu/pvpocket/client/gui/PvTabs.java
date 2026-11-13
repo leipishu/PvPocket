@@ -13,21 +13,13 @@ import java.util.function.IntPredicate;
 /**
  * Vertical tab strip for the rule groups, drawn as a sidebar rail.
  *
- * <p>Vertical rather than horizontal because the labels are short and the panel is wider than it is
- * tall: a vertical strip costs 72px of width and saves 26px of the scarce axis, and it leaves room
- * for all eight entries without a scroll or an overflow menu.</p>
+ * <p>Vertical because the labels are short and the panel is wider than it is tall: a vertical strip
+ * costs 72px of width and saves 26px of height, and holds all eight entries without a scroll.
  *
- * <p>The strip no longer owns a surface. It used to draw its own rounded, bordered panel inside the
- * screen's panel, which is what made it read as a card dropped into the layout — the sidebar is
- * chrome now, drawn once by {@link PvScreen#drawPanelFrame} and continuous with the title band, so
- * the strip only draws what belongs to the tabs themselves: the selected pill and the labels.
- * Nothing here may draw a background again; a second surface over the chrome reintroduces the seam
- * the one-piece layout exists to remove.</p>
+ * <p>The strip draws no surface of its own. {@link PvScreen#drawPanelFrame} draws the chrome, and
+ * the strip draws only the selected pill and the labels.
  *
- * <p>There is no selection marker either. An accent bar pinned to the sidebar's outer edge used to
- * slide between tabs, and it made the strip read as a second navigation column stacked on the
- * first: the pill already says which entry is current, and a bar beside it says it a second time in
- * a louder colour. One selection cue, and it is the one the pointer and the keyboard both move.</p>
+ * <p>There is no separate selection marker: the pill is the only cue.
  */
 public class PvTabs extends PvWidget {
 
@@ -35,25 +27,23 @@ public class PvTabs extends PvWidget {
     /**
      * Shortest legible tab pitch.
      *
-     * <p>A label is 8px tall, so anything under 11 either clips the glyphs or puts two labels closer
-     * together than the eye can separate them. Below this the strip cannot compress any further,
-     * which is what {@link #minHeight} reports to the panel.</p>
+     * <p>A label is 8px tall, so anything under 11 clips the glyphs or puts two labels closer than
+     * the eye can separate them. {@link #minHeight} reports this floor to the panel.
      */
     private static final int MIN_TAB_H = 11;
     /** Radius of the "this page differs from what was received" dot. */
     private static final int DOT_R = 2;
 
     private final List<String> labels;
-    /** Non-null only for the rule-group strip, which is the only caller that needs the group back. */
+    /** Non-null only for the rule-group strip, the only caller that needs the group back. */
     private final List<RuleGroup> groups;
     private int selected;
     private Runnable onChange;
     /**
      * Asked once per tab per frame; true draws a dot on that tab.
      *
-     * <p>A predicate rather than a precomputed {@code List<Boolean>}: the values change while the
-     * strip is on screen (a slider is dragged on the page beside it), and a stale copy would leave
-     * the dot off until the next rebuild.</p>
+     * <p>A predicate rather than a precomputed list, because the values change while the strip is
+     * on screen.
      */
     private IntPredicate dirtyTest;
     private int tabHeight = PvTheme.TAB_H;
@@ -66,13 +56,11 @@ public class PvTabs extends PvWidget {
     /**
      * The rule panel's strip: the roster page first, then the rule groups.
      *
-     * <p>The roster is a tab of this panel rather than a screen of its own because the two halves of
-     * "who is playing" and "under what rules" are one decision — the player builds the sides, sets
-     * the terms, and sends once. A separate screen would need its own footer, its own cancel path
-     * and its own idea of when a draft is abandoned.</p>
+     * <p>The roster is a tab of this panel rather than a screen of its own, so "who is playing" and
+     * "under what rules" share one footer and one cancel path.
      *
-     * <p>The first slot has no {@link RuleGroup}: {@link #group()} returns null for it, which is how
-     * the screen knows to draw the roster board instead of rule rows.</p>
+     * <p>The first slot has no {@link RuleGroup}: {@link #group()} returns null for it, which is
+     * how the screen knows to draw the roster board instead of rule rows.
      */
     public static PvTabs ofPanel(List<RuleGroup> groups, String rosterLabel, int selected) {
         List<String> labels = new java.util.ArrayList<>();
@@ -98,9 +86,8 @@ public class PvTabs extends PvWidget {
     /**
      * Marks tabs whose content differs from what the server sent.
      *
-     * <p>The dot replaced the group letter that used to sit there. The letter was a duplicate of the
-     * rule id prefix — it told the reader something they could not act on — while this space is the
-     * one place where "you changed something in here" can be shown without opening the tab.</p>
+     * <p>The dot sits in the column reserved at the right of each label, so a change is visible
+     * without opening the tab.
      */
     public void dirtyTest(IntPredicate test) {
         this.dirtyTest = test;
@@ -109,18 +96,14 @@ public class PvTabs extends PvWidget {
     /**
      * Shrinks the tab pitch so every tab stays reachable.
      *
-     * <p>A tab strip that clips its last entries is worse than a dense one: the hidden groups are
-     * not merely off-screen, they are unreachable, because there is nothing to scroll. The panel
-     * calls this with whatever vertical space is actually available, so at a small window the tabs
-     * compress instead of disappearing.</p>
+     * <p>A tab strip that clips its last entries makes them unreachable, because there is nothing
+     * to scroll. The panel calls this with the vertical space available.
      */
     public void fitInto(int availableHeight) {
         int n = Math.max(1, labels.size());
         int pitch = (availableHeight - INSET * 2 - (n - 1)) / n;
-        // The floor is 11 rather than 13: the sidebar also carries the commit buttons at its foot,
-        // and on a 220px panel eight entries plus three buttons only fit if a tab may go this
-        // short. Anything less and the last entry would be drawn past the panel edge, which is worse
-        // than a dense strip — a clipped tab is an unreachable tab.
+        // The floor is 11 rather than 13: the sidebar also carries the commit buttons, and eight
+        // entries plus three buttons only fit on a 220px panel at this pitch.
         tabHeight = Math.max(MIN_TAB_H, Math.min(PvTheme.TAB_H, pitch));
         height = INSET * 2 + labels.size() * tabHeight + (labels.size() - 1);
     }
@@ -128,9 +111,8 @@ public class PvTabs extends PvWidget {
     /**
      * Height the strip needs for {@code count} entries at the shortest legible pitch.
      *
-     * <p>The panel uses this to decide whether a sidebar can hold the strip and the commit buttons
-     * at all. Below this height the strip would be drawn over whatever is under it, because
-     * {@link #fitInto} refuses to go shorter and there is nothing else to give.</p>
+     * <p>The panel uses this to decide whether a sidebar can hold the strip and the commit buttons.
+     * Below this height the strip is drawn over whatever is under it.
      */
     public static int minHeight(int count) {
         int n = Math.max(1, count);
@@ -216,11 +198,7 @@ public class PvTabs extends PvWidget {
                     ? PvTheme.TEXT
                     : PvTheme.mix(PvTheme.TEXT_DIM, PvTheme.TEXT, hotT[i]);
             // Labels are measured, not trusted: "Consumables" is 64px in the default font and the
-            // strip is 96px wide, so a caller that shrinks the strip would otherwise paint the label
-            // straight over its own edge and into the content beside it. The dot column is reserved
-            // even when the tab is clean, so a label never shifts sideways when it lights up.
-            // Shrinking before truncating matters most here: a tab is the only name a page has, and
-            // "Consumabl…" beside "Blocks" is a tab strip with one tab that looks broken.
+            // strip is 96px wide. The dot column is reserved even when the tab is clean.
             PvDraw.textFitLeft(ctx, tr, labels.get(i), tabLeft() + 10, textY,
                     tabWidth() - 10 - (DOT_R * 2 + 8), textColor);
             if (dirtyTest != null && dirtyTest.test(i)) {
@@ -235,8 +213,8 @@ public class PvTabs extends PvWidget {
     /**
      * Arrow keys walk the strip when it has focus.
      *
-     * <p>Reached through the screen's existing nudge path rather than a private key handler, so the
-     * strip behaves like every other focusable control: Tab to it, arrows to change it.</p>
+     * <p>Reached through the screen's nudge path rather than a private key handler, so the strip
+     * behaves like every other focusable control.
      */
     @Override
     public void nudge(int direction) {

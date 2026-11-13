@@ -8,17 +8,13 @@ import org.lwjgl.glfw.GLFW;
 /**
  * A single-line text field, drawn by hand like everything else in this panel.
  *
- * <p>Vanilla's {@code TextFieldWidget} was not reused because it brings its own colours, its own
- * border and its own idea of padding, and matching it to this palette costs more than writing the
- * four things a field actually needs: a caret, insertion, deletion and a horizontal scroll offset.</p>
+ * <p>It provides a caret, insertion, deletion and a horizontal scroll offset.
  *
- * <p><b>No selection.</b> Every field in this panel holds a name or a six-character code, and a
- * selection model would add drag-select, shift-arrows and a highlight pass to every render for a
- * feature nobody will reach for in a 24-character field. Ctrl+C therefore copies the whole field and
- * Ctrl+A is not bound — both are stated in the class rather than left to be discovered.</p>
+ * <p>No selection: every field holds a name or a six-character code. Ctrl+C copies the whole field
+ * and Ctrl+A is not bound.
  *
- * <p>Focus is owned by whoever hosts the field: this widget only draws the caret when
- * {@link #focused} is set, and never asks the screen for focus itself.</p>
+ * <p>Focus is owned by the host: this widget draws the caret when {@link #focused} is set and never
+ * asks the screen for focus itself.
  */
 public class PvTextField extends PvWidget {
 
@@ -61,7 +57,7 @@ public class PvTextField extends PvWidget {
         return text;
     }
 
-    /** Replaces the contents and puts the caret at the end, which is where a fresh value is edited. */
+    /** Replaces the contents and puts the caret at the end, where a fresh value is edited. */
     public void text(String value) {
         String next = value == null ? "" : value;
         text = next.length() > maxLength ? next.substring(0, maxLength) : next;
@@ -85,7 +81,7 @@ public class PvTextField extends PvWidget {
 
     // ------------------------------------------------------------------ editing
 
-    /** Appends one typed character. Control characters never arrive here; the screen filters them. */
+    /** Appends one typed character. The screen filters out control characters first. */
     @Override
     public boolean charTyped(char chr, int modifiers) {
         if (!focused || !enabled || text.length() >= maxLength) {
@@ -153,9 +149,8 @@ public class PvTextField extends PvWidget {
             case GLFW.GLFW_KEY_V -> {
                 if (ctrl) {
                     String pasted = client.keyboardHandler.getClipboard();
-                    // A pasted code usually arrives with spaces or a trailing newline from a chat
-                    // message; stripping control characters here is what makes "copy from chat"
-                    // work without the player editing it by hand.
+                    // A pasted code usually arrives with spaces or a trailing newline from chat, so
+                    // control characters are stripped here.
                     StringBuilder sb = new StringBuilder(text);
                     int at = caret;
                     for (int i = 0; i < pasted.length() && sb.length() < maxLength; i++) {
@@ -200,9 +195,8 @@ public class PvTextField extends PvWidget {
         int textY = y + (height - 8) / 2 + 1;
         int inner = width - PAD * 2;
 
-        // Scroll so the caret stays inside the box. Measured on the real font rather than estimated:
-        // a code is all caps and digits, a name is whatever the player typed, and the two widths are
-        // far enough apart that a fixed character budget clips one of them.
+        // Scroll so the caret stays inside the box, measured on the real font: a code is all caps
+        // and digits, a name is whatever the player typed.
         int offset = 0;
         if (!empty) {
             int caretPx = tr.width(text.substring(0, Math.min(caret, text.length())));
@@ -233,8 +227,8 @@ public class PvTextField extends PvWidget {
         if (!visible || !enabled || button != 0 || !contains(mx, my)) {
             return false;
         }
-        // Caret placement by click is deliberately not implemented: the field is at most 24
-        // characters, and "click to focus, Home/End to move" is two keys against a pixel hunt.
+        // Caret placement by click is not implemented: the field is at most 24 characters, and
+        // "click to focus, Home/End to move" is two keys against a pixel hunt.
         caret = text.length();
         blinkT = 0F;
         return true;

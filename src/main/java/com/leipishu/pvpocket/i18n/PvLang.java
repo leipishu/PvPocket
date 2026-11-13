@@ -4,28 +4,16 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Component;
 
 /**
- * Translation helpers, and the key convention every user-visible string in this mod follows.
+ * Translation helpers, and the key convention every user-visible string follows.
  *
- * <p>Text is localised the vanilla way: the server never decides what a sentence looks like, it
- * sends a {@link Text#translatable} with arguments and lets each client resolve it against its own
- * language file. That is why nothing here has a "current language" notion — the only place a
- * language exists is the client that is drawing.</p>
+ * <p>Text is localised the vanilla way: the server sends a translatable component and each client
+ * resolves it against its own language file. No code here holds a current language.
  *
- * <p>Key layout, all under the {@code pvpocket} namespace:</p>
- * <ul>
- *   <li>{@code pvpocket.rule.<id>.label} / {@code .hint} / {@code .c<N>} / {@code .unit} — one
- *       configurable rule, its tooltip, its Nth choice, and the suffix its value carries. The rule
- *       id is already unique and stable (it is the wire format), so it doubles as the key.</li>
- *   <li>{@code pvpocket.item.*}, {@code pvpocket.material.*}, {@code pvpocket.flag.*},
- *       {@code pvpocket.option.*}, {@code pvpocket.map.*} — catalog entries.</li>
- *   <li>{@code pvpocket.gui.<screen>.<element>} — strings the client draws itself.</li>
- *   <li>{@code pvpocket.msg.<area>.<event>} — chat and action-bar lines.</li>
- *   <li>{@code pvpocket.command.*} — {@code /pvpocket} help and diagnostics.</li>
- * </ul>
- *
- * <p>Command syntax is <b>not</b> translated. {@code /pvpocket spectate leave} is a token the server
- * parses, not a sentence, so it appears verbatim in both language files and is passed to
- * {@link #t} as a literal argument rather than as a key.</p>
+ * <p>Keys live under {@code pvpocket}: {@code rule.<id>.label}, {@code .hint}, {@code .c<N>} and
+ * {@code .unit} for rules; {@code item.*}, {@code material.*}, {@code flag.*}, {@code option.*} and
+ * {@code map.*} for catalog entries; {@code gui.*}, {@code msg.*} and {@code command.*} for drawn,
+ * chat and help strings. Command syntax is a literal: {@code /pvpocket spectate leave} is passed
+ * to {@link #t} as an argument rather than as a key.
  */
 public final class PvLang {
 
@@ -46,10 +34,9 @@ public final class PvLang {
     /**
      * Resolves a key to the string the current language shows.
      *
-     * <p><b>Client only.</b> A dedicated server has no language of its own, so a key resolved there
-     * would come back as the key itself; anything the server sends must stay a {@link Text}. This
-     * exists for the self-drawn GUI, whose primitives take {@code String} and measure it directly
-     * with {@code TextRenderer}.</p>
+     * <p>Client only. A dedicated server has no language, so a key resolved there comes back as the
+     * key itself. This exists for the self-drawn GUI, whose primitives take a string and measure it
+     * with {@code TextRenderer}.
      */
     public static String str(String key, Object... args) {
         return t(key, args).getString();

@@ -17,38 +17,15 @@ import net.minecraft.world.level.Level;
 import org.joml.Matrix4f;
 
 /**
- * Draws the arena boundary as a translucent curtain you can walk through.
+ * Draws the arena boundary as a translucent curtain the player can walk through.
  *
- * <p>This is the answer to "there is no way to tell where the boundary is" that is not a wall of
- * blocks. A block ring would have to be broken to leave (which makes the countdown dead code) and
- * would have to be mineable (which makes it a suggestion rather than a boundary). A render-only
- * overlay costs the world nothing, cannot be broken, and cannot be climbed.</p>
+ * <p>Each edge is cut into {@link #SEGMENT}-block pieces faded by distance, so a long edge appears
+ * a few blocks at a time. Colour follows the rule: blue for push-back, red for forfeit.
  *
- * <p>Deliberate choices:</p>
- * <ul>
- *   <li><b>Built from segments, not from one quad per edge.</b> An edge can be 147 blocks long; a
- *       single quad for it is a wall that pops into existence the moment you come within range of
- *       any part of it, including the parts a hundred blocks behind you. Each edge is cut into
- *       {@link #SEGMENT}-block pieces and each piece fades on its own distance, so the boundary
- *       appears a few blocks at a time as you walk towards it. It also cuts the fill rate: only the
- *       pieces near the camera produce vertices at all.</li>
- *   <li><b>Coloured by the rule, always.</b> {@code e.boundary = 拉回} is blue, {@code 判负} is red.
- *       Two rules that behave completely differently should not look the same — and the colour is
- *       the fastest way to confirm from inside the fight that the rule you set is the rule in force.
- *       The countdown does not change it: the boundary is still the boundary while the sides are
- *       held apart.</li>
- *   <li><b>It grows with you.</b> The height the server sends is a minimum; the curtain always
- *       reaches a couple of blocks above the camera. Standing on the ground that changes nothing —
- *       climbing a tower and finding the boundary has ended below your feet is the failure this
- *       avoids.</li>
- *   <li><b>The preparation screens are drawn here too, and they are the white solid ones.</b> One
- *       plane in front of each side, near-opaque, at its real height with a hard top edge, because
- *       that wall has a top and is backed by real barrier blocks. See {@link #drawScreens}.</li>
- * </ul>
+ * <p>The curtain reaches {@link #CURTAIN_ABOVE_CAMERA} above the camera, and the preparation
+ * screens are drawn by the same pass in near-opaque white.
  *
- * <p>Geometry goes through {@link RenderLayer#debugQuads()}, which is the vanilla layer for exactly
- * this: {@code POSITION_COLOR} vertices, translucent, culling disabled. Culling off is why each quad
- * is emitted once and still visible from both sides.</p>
+ * <p>Geometry uses {@code RenderType.debugQuads()}: translucent POSITION_COLOR quads, culling off.
  */
 public final class BoundaryRenderer {
 
@@ -63,10 +40,8 @@ public final class BoundaryRenderer {
     /**
      * Length of one drawn piece of an edge, in blocks.
      *
-     * <p>Two is a compromise between the two costs: shorter pieces fade more smoothly but emit more
-     * quads, and every quad is three draw bands. At two blocks the fade is indistinguishable from a
-     * continuous gradient at walking speed, and a 147-block edge produces 74 pieces of which only
-     * the dozen or so within {@link #RENDER_RANGE} ever reach the buffer.</p>
+     * <p>Two balances fade smoothness against quad count. A 147-block edge produces 74 pieces, of
+     * which only the dozen within {@link #RENDER_RANGE} reach the buffer.
      */
     private static final double SEGMENT = 2.0D;
 
@@ -87,10 +62,8 @@ public final class BoundaryRenderer {
     /**
      * How far above the camera the curtain always reaches.
      *
-     * <p>The server sends a fixed minimum height, which is right for someone standing on the ground
-     * and useless for someone who climbed. A four-block band ends below your eyeline the moment you
-     * are four blocks up, so the one question a player on a tower is actually asking — "where does
-     * the arena end" — would get answered by nothing at all.</p>
+     * <p>The server sends a fixed minimum height, which is useless for someone who climbed. A
+     * four-block band would end below the eyeline of a player four blocks up.
      */
     private static final double CURTAIN_ABOVE_CAMERA = 2.5D;
 
@@ -108,9 +81,8 @@ public final class BoundaryRenderer {
     }
 
     private static void render(PvClientPlatform.WorldFrame frame) {
-        // Either overlay is worth drawing on its own: the screens exist only during the countdown,
-        // when the bounds are always up as well, but a client that lost the bounds packet must not
-        // also lose the wall it is standing behind.
+        // Either overlay is worth drawing alone: the screens exist only during the countdown, but a
+        // client that lost the bounds packet must still see the wall it is behind.
         if (!ArenaBounds.active() && PrepareScreens.get().isEmpty()) {
             return;
         }
@@ -119,9 +91,8 @@ public final class BoundaryRenderer {
         if (world == null || client.player == null) {
             return;
         }
-        // The bounds are only meaningful inside the arena dimension. They are cleared when the round
-        // ends, but a teleport out of the dimension mid-round would otherwise leave a curtain hanging
-        // at coordinates that mean nothing in the world the player is now standing in.
+        // The bounds only mean anything inside the arena dimension: a teleport out mid-round would
+        // leave a curtain at coordinates that mean nothing in the new world.
         if (!world.dimension().equals(ARENA_WORLD)) {
             return;
         }
@@ -133,8 +104,7 @@ public final class BoundaryRenderer {
 
         Vec3 cam = frame.camera().getPosition();
         matrices.pushPose();
-        // Vertices are sent in world coordinates, so the camera has to be cancelled out here. Vanilla
-        // does the same thing when it draws the debug frustum.
+        // Vertices are sent in world coordinates, so the camera offset is cancelled here.
         matrices.translate(-cam.x, -cam.y, -cam.z);
         Matrix4f matrix = matrices.last().pose();
         VertexConsumer vc = consumers.getBuffer(RenderType.debugQuads());
@@ -142,26 +112,22 @@ public final class BoundaryRenderer {
         if (ArenaBounds.active()) {
             drawBoundary(vc, matrix, cam, ArenaBounds.get());
         }
-        // Independent of the bounds on purpose: the screens are not the boundary, and a client that
-        // somehow got the screens without the plot outline should still see the wall it is standing
-        // behind rather than walk into nothing.
+        // Drawn independently of the bounds: a client with screens but no outline still sees the
+        // wall it is standing behind.
         drawScreens(vc, matrix, cam);
 
         matrices.popPose();
     }
 
     /**
-     * The boundary itself: four edges, in the colour of whichever rule is in force.
+     * Draws the boundary itself: four edges in the colour of the rule in force.
      *
-     * <p>It used to turn white and solid during the countdown, because a real barrier ring stood at
-     * these coordinates for those seconds. That made the boundary look like a different object for
-     * five seconds — and hid the one colour that answers "is this a push-back arena or a forfeit
-     * one" exactly when the player is standing still and could read it. The solid white moved to
-     * {@link #drawScreens}, which is the thing that actually becomes solid.</p>
+     * <p>The solid white treatment belongs to {@link #drawScreens}, which is the geometry that
+     * becomes solid during the countdown.
      */
     private static void drawBoundary(VertexConsumer vc, Matrix4f matrix, Vec3 cam,
                                      ArenaBoundsPayload bounds) {
-        // Blue for 拉回 (the boundary undoes your step), red for 判负 (the boundary ends your round).
+        // Blue for push-back (the boundary undoes the step), red for forfeit (it ends the round).
         float r;
         float g;
         float b;
@@ -176,17 +142,14 @@ public final class BoundaryRenderer {
         }
 
         double yLow = bounds.floorY();
-        // A rule boundary has no physical height to be honest about, so it grows with the camera:
-        // standing on a tower and finding the curtain has ended below your feet is the failure this
-        // avoids.
+        // A rule boundary has no physical height, so it grows with the camera.
         double yHigh = Math.max(bounds.floorY() + bounds.height(),
                 Math.min(cam.y + CURTAIN_ABOVE_CAMERA, bounds.floorY() + MAX_CURTAIN));
         double bandTop = Math.min(yLow + BASE_BAND, yHigh);
         double fadeStart = Math.max(bandTop, yHigh - TOP_FADE);
 
-        // Four edges. Each is culled and faded per segment, not per edge: standing two blocks from
-        // the west wall but five hundred blocks north of the plot would pass a whole-edge distance
-        // test and then draw a wall nobody is near.
+        // Each edge is culled and faded per segment, not per edge: standing near one wall but far
+        // along another would pass a whole-edge distance test.
         drawEdge(vc, matrix, cam, bounds.x0(), bounds.z0(), bounds.x0(), bounds.z1(),
                 yLow, bandTop, fadeStart, yHigh, r, g, b, BASE_ALPHA, CURTAIN_ALPHA);
         drawEdge(vc, matrix, cam, bounds.x1(), bounds.z0(), bounds.x1(), bounds.z1(),
@@ -198,16 +161,12 @@ public final class BoundaryRenderer {
     }
 
     /**
-     * The screens standing in front of each side during the countdown, painted solid white.
+     * Draws the screens standing in front of each side during the countdown, in solid white.
      *
-     * <p>This is the treatment the boundary used to get: near-opaque, its real height, and a hard
-     * top edge instead of a soft one — the wall has an actual top, so the drawing should say where
-     * it is. The blocks behind it are {@code barrier}, so what you see and what you bump into are
-     * the same plane.</p>
+     * <p>Near-opaque, at its real height, with a hard top edge: the wall has an actual top, and the
+     * blocks behind it are {@code barrier}, so sight and collision are the same plane.
      *
-     * <p>Same distance fade as the boundary, for the same reason: a screen spans the whole fight
-     * area, and drawing all of it at full strength would fill the view with white from any angle.
-     * The piece in front of you is always within full strength.</p>
+     * <p>The same distance fade as the boundary, since a screen spans the whole fight area.
      */
     private static void drawScreens(VertexConsumer vc, Matrix4f matrix, Vec3 cam) {
         for (PrepareScreensPayload.Screen screen : PrepareScreens.get()) {
@@ -230,8 +189,8 @@ public final class BoundaryRenderer {
             double yLow = screen.floorY();
             double yHigh = screen.floorY() + screen.height();
             double bandTop = Math.min(yLow + BASE_BAND, yHigh);
-            // fadeStart == yHigh means "no soft top": drawEdge skips the fading band when the two are
-            // equal, which is exactly the hard edge a real wall has.
+            // When fadeStart equals yHigh there is no soft top: drawEdge skips the fading band,
+            // which is the hard edge a real wall has.
             drawEdge(vc, matrix, cam, px, pz, qx, qz, yLow, bandTop, yHigh, yHigh,
                     SOLID_R, SOLID_G, SOLID_B, SOLID_BASE_ALPHA, SOLID_BODY_ALPHA);
         }
@@ -265,8 +224,8 @@ public final class BoundaryRenderer {
                 continue;
             }
 
-            // Three bands: the near-opaque foot, the body, and (for a rule boundary) a soft top edge.
-            // A solid wall has no soft top — its top is where the barrier blocks stop.
+            // Three bands: the near-opaque foot, the body, and for a rule boundary a soft top edge.
+            // A solid wall has no soft top, since its top is where the barrier blocks stop.
             if (bandTop > yLow) {
                 quad(vc, matrix, ax, az, bx, bz, yLow, bandTop, r, g, b,
                         baseAlpha * a0, baseAlpha * a1, baseAlpha * a0, baseAlpha * a1);
@@ -283,12 +242,10 @@ public final class BoundaryRenderer {
     }
 
     /**
-     * Opacity at one point on an edge, from its horizontal distance to the camera.
+     * Returns opacity at one point on an edge, from its horizontal distance to the camera.
      *
-     * <p>Returns 0 past {@link #RENDER_RANGE}, which the caller uses to skip the piece entirely
-     * rather than emit invisible vertices — the check exists to save work, not just to look right.
-     * This is what makes the boundary appear a few blocks at a time as the player walks along it:
-     * the far end of a long edge is simply not in the buffer.</p>
+     * <p>Returns 0 past {@link #RENDER_RANGE}, which the caller uses to skip the piece and emit no
+     * vertices.
      */
     private static float strength(double camX, double camZ, double x, double z) {
         double d = Math.hypot(camX - x, camZ - z);

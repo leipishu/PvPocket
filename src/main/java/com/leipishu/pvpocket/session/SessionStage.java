@@ -1,18 +1,11 @@
 package com.leipishu.pvpocket.session;
 
 /**
- * Session lifecycle.
+ * Session lifecycle: DRAFT -> NEGOTIATING -> FROZEN -> ROUND_READY -> ROUND_ACTIVE ->
+ * ROUND_SETTLED -> ROUND_READY (next round) or RESTORING -> ARCHIVED.
  *
- * <pre>
- *   DRAFT -> NEGOTIATING -> FROZEN -> ROUND_READY -> ROUND_ACTIVE
- *                                                          |
- *                                                    ROUND_SETTLED
- *                                                          |
- *                              (next round) ROUND_READY <-+-> RESTORING -> ARCHIVED
- * </pre>
- *
- * <p>Anything at or after {@link #FROZEN} means snapshots exist on disk, so the session must be
- * rolled back rather than discarded. Anything before it has no side effects and can be dropped.</p>
+ * <p>At or after {@link #FROZEN} snapshots exist on disk, so the session must be rolled back
+ * rather than discarded. Earlier stages have no side effects and can be dropped.
  */
 public enum SessionStage {
     DRAFT,
@@ -41,10 +34,8 @@ public enum SessionStage {
     /**
      * Translation key naming the stage, {@code pvpocket.stage.<lowercase name>}.
      *
-     * <p>Only the two stages a spectator can be looking at are worth translating, but every constant
-     * gets a key so a status line never falls back to a bare {@code ROUND_SETTLED} in one language
-     * and a word in another. A key that a language file does not carry renders as itself, which is
-     * the same thing the enum name would have said.</p>
+     * <p>Every constant gets a key, so a status line never falls back to a bare enum name in one
+     * language and a word in another. A key missing from a language file renders as itself.
      */
     public String labelKey() {
         return "pvpocket.stage." + name().toLowerCase(java.util.Locale.ROOT);

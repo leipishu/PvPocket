@@ -13,22 +13,19 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.sounds.SoundEvents;
 
 /**
- * One saved preset in the preset list.
+ * One saved preset in the preset list: name, saved time, a start action and a more action.
  *
- * <p>The two actions are hit rectangles inside the row rather than child widgets. A scroll pane hands
- * every child the full pane width and stacks children vertically, so a 48px button cannot be a sibling
- * of the row it sits on; and a row that owns its own hit regions is the pattern {@code RuleRow} already
- * established for chips. The row itself is a widget, so the audit still measures its box and every
- * string it draws.</p>
+ * <p>The two actions are hit rectangles inside the row, not child widgets, because a scroll pane
+ * hands every child the full pane width and stacks children vertically.
+ *
+ * <p>The row itself is a widget, so the audit measures its box and every string it draws.
  */
 public class PresetRow extends PvWidget {
 
     private static final int H = 36;
     /**
-     * Action sizes are sized to their words, not to the row: at 48 + 40 the two buttons plus their
-     * gaps took 112 of a 174px row, which left the timestamp line 54px for a 79px string. 44 and 36
-     * are still comfortable targets ("Start" is 34px, "More" is 30px) and give the text the 10px it
-     * was missing.
+     * Action widths sized to their words: 44 and 36 leave the text lines 10px more room in a 174px
+     * row than 48 and 40 do. "Start" is 34px wide and "More" is 30px.
      */
     private static final int BTN_W = 44;
     private static final int BTN_H = 20;
@@ -77,9 +74,8 @@ public class PresetRow extends PvWidget {
         int line1 = y + 5;
         int line2 = y + 18;
         int textRoom = startX() - 6 - textX;
-        // A preset name is typed by the player, so its length is not ours to assume; the timestamp
-        // under it is generated and short. Both shrink before they are cut, and a name that was cut
-        // is readable in full on hover.
+        // The preset name is typed by the player, so its length is unknown. Both lines shrink
+        // before they are cut, and a cut name is shown in full on hover.
         PvDraw.textFitLeft(ctx, tr, preset.name(), textX, line1, textRoom, PvTheme.TEXT);
         PvDraw.textFitLeft(ctx, tr,
                 PvLang.str("pvpocket.gui.home.preset.saved", HomeText.relative(preset.savedAt())),

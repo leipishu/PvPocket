@@ -72,11 +72,8 @@ import java.util.stream.Stream;
 /**
  * Orchestrates duel sessions: request, freeze, teleport, settle, restore, reconcile.
  *
- * <p>Two rules drive everything here:</p>
- * <ol>
- *   <li>The journal is written before the state change it describes.</li>
- *   <li>Player state is only touched after the snapshot is safely on disk.</li>
- * </ol>
+ * <p>Invariants: the journal is written before the state change it describes, and player state is
+ * only touched after the snapshot is on disk.
  */
 public final class SessionManager {
 
@@ -88,67 +85,54 @@ public final class SessionManager {
     /**
      * How long the first round waits for a participant who accepted while dead, in server ticks.
      *
-     * <p>Ten seconds is a death screen plus a click, with room for a slow machine. It is not a
-     * grace period for the dead: it is the difference between "you died at the same moment you
-     * accepted, respawn and we go" and voiding a match over a coincidence.</p>
+     * <p>Ten seconds covers a death screen and a click on a slow machine.
      */
     private static final int START_WAIT_TICKS = 200;
 
     /**
-     * How long the first round tolerates a participant who is <em>not in the player list at all</em>,
-     * in server ticks.
+     * How long the first round tolerates a participant absent from the player list, in server
+     * ticks.
      *
-     * <p>Much shorter than {@link #START_WAIT_TICKS}, because this is not a state the player can
-     * click their way out of. Two seconds is still worth spending: a login puts the entry in the
-     * list a tick or two after the accept packet can arrive, and a match voided over that is a match
-     * voided over nothing. Anything longer is a disconnect, and a disconnect voids the series on
-     * its own.</p>
+     * <p>Much shorter than {@link #START_WAIT_TICKS}: a login adds the entry a tick or two after
+     * the accept packet, and anything longer is a disconnect.
      */
     private static final int ABSENT_GRACE_TICKS = 40;
 
     /**
-     * Upper bound on how long a participant can stay "not yet on the plot" before the boundary rule
-     * applies to them anyway, in milliseconds.
+     * Upper bound on how long a participant can stay off the plot before the boundary rule
+     * applies, in milliseconds.
      *
-     * <p>This is a safety valve, not a grace window. See {@link #awaitingFirstEntry}: the normal
-     * case is settled on the first tick the player is observed inside, which is immediate.</p>
+     * <p>A safety valve rather than a grace window; see {@link #awaitingFirstEntry}.
      */
     private static final long SETTLE_DEADLINE_MS = 30_000L;
 
     /**
      * Minimum gap between two boundary notices to the same player, in milliseconds.
      *
-     * <p>A player leaning on the edge produces one pull-back per tick; without a gate that is a
-     * chat flood, twenty journal lines a second, and a client that spends the whole fight being
-     * teleported half a block.</p>
+     * <p>A player leaning on the edge produces one pull-back per tick, so notices are throttled.
      */
     private static final long BOUNDARY_NOTICE_GAP_MS = 1_500L;
 
     /**
      * The minimum height the client draws the boundary curtain at, in blocks.
      *
-     * <p>A minimum, not the height: the client raises the curtain to clear its own camera, because a
-     * fixed band stops being visible the moment somebody climbs. Four is what a player standing on
-     * the ground needs — tall enough to see without looking up, short enough that the arena still
-     * reads as open sky above.</p>
+     * <p>The client raises the curtain to clear its own camera, so this is a floor. Four blocks is
+     * tall enough to see without looking up.
      */
     private static final double BOUNDARY_CURTAIN_HEIGHT = 4.0D;
 
     /**
      * How long a player may stand outside the plot before the round is forfeited.
      *
-     * <p>Five seconds, fixed rather than a rule, because it is the answer to "how long does it take
-     * to notice you are out and walk back", not a balance knob. It is also long enough to survive a
-     * one-second lag spike, which is the only false positive that matters.</p>
+     * <p>Five seconds, fixed rather than a rule, and long enough to survive a one-second lag spike.
      */
     private static final long BOUNDARY_COUNTDOWN_MS = 5_000L;
 
     /**
      * Hard ceiling on one session's roster.
      *
-     * <p>Four sides of five is the largest shape the roster panel can draw, so anything above
-     * twenty is a request the interface cannot express. Enforced when the roster is submitted so a
-     * malformed client packet is refused rather than creating a session that could never start.</p>
+     * <p>Four sides of five is the largest shape the roster panel can draw. Enforced when the
+     * roster is submitted, so a malformed client packet is refused.
      */
     private static final int MAX_PARTICIPANTS = 20;
 
@@ -156,7 +140,9 @@ public final class SessionManager {
     private static final int MIN_TEAMS = 2;
     private static final int MAX_TEAMS = 4;
 
-    /** session id + "/" + uuid -> when they crossed out, and the last whole second announced. */
+    /**
+     * Key is {@code sessionId/uuid}: when the player crossed out, and the last second announced.
+     */
     private record BoundaryExit(long since, int announced) {
     }
 
@@ -182,50 +168,45 @@ public final class SessionManager {
     /**
      * Session id -> the intermission second last pushed to clients.
      *
-     * <p>The HUD is otherwise pushed only when something the server decided changes; a countdown
-     * changes every second on its own, so it needs its own push. Storing the last value keeps that
-     * to one packet per second per session instead of one per tick.</p>
+     * <p>A countdown changes every second on its own, so it needs its own push. Storing the last
+     * value keeps that to one packet per second per session.
      */
     private final Map<String, Integer> countdownPushed = new HashMap<>();
     /** Players currently outside their plot, waiting out the boundary countdown. */
     private final Map<String, BoundaryExit> boundaryExits = new HashMap<>();
     /**
-     * {@code sessionId/playerUuid} of participants already seen standing on their plot this round.
+     * {@code sessionId/playerUuid} of participants seen standing on their plot this round.
      *
-     * <p>Keyed per player, not per session, because the thing being waited for is a client finishing
-     * its chunk download — which happens at a different moment for each side.</p>
+     * <p>Keyed per player, since the chunk download finishes at a different moment for each side.
      */
     private final Set<String> settledIn = new HashSet<>();
-    /** {@code sessionId/playerUuid} -> wall clock of the last pull-back notice, for throttling. */
+    /**
+     * Key is {@code sessionId/playerUuid}: wall clock of the last pull-back notice, for throttling.
+     */
     private final Map<String, Long> boundaryNotices = new HashMap<>();
     /** Rounds that have teleported everybody in but have not gone live yet. */
     private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
     /**
      * Spectators, and the state needed to put them back.
      *
-     * <p>A separate object rather than another dozen fields here: watching a duel is the only thing
-     * in this class that moves a player who is not in a session, and keeping that boundary explicit
-     * is what stops "restore the participant" logic from quietly growing a second meaning.</p>
+     * <p>Kept apart from the session fields, since watching a duel moves a player who is not in a
+     * session.
      */
     private final Spectators spectators;
     /**
-     * Where each player was before the arena. Loaded here rather than owned by a session because it
-     * outlives every session: it exists precisely for the case where a session died with somebody
-     * still inside.
+     * Where each player was before the arena. Outlives every session, so it covers a session that
+     * died with somebody still inside.
      */
     private final HomePositions homes;
     /**
      * Watches for players standing in the arena with nothing to do there.
      *
-     * <p>Owned here rather than by {@link Spectators} because the two answer different questions:
-     * spectatorship is a state somebody opted into, and this is the absence of every such state.</p>
+     * <p>Separate from {@link Spectators}: spectatorship is a state somebody opted into, and this
+     * is the absence of every such state.
      */
     private final ArenaGuard guard;
     /**
-     * Lifetime counters and finished-match history.
-     *
-     * <p>Owned here rather than by a session because it outlives every session — the whole point of
-     * a career record is that it survives the match that produced it.</p>
+     * Lifetime counters and finished-match history. Outlives every session.
      */
     private final DuelStats stats;
     private int sweepTimer;
@@ -290,8 +271,7 @@ public final class SessionManager {
     // ------------------------------------------------------------------ startup / shutdown
 
     public void load() {
-        // Counters first: a session that finishes during the same tick as the first join would
-        // otherwise write into a store that has not read the file yet, and overwrite a career.
+        // Stats load first, so a session finishing this tick cannot write into an unread store.
         stats.load();
         try {
             storage.ensureLayout();
@@ -323,18 +303,10 @@ public final class SessionManager {
     }
 
     /**
-     * Startup reconciliation.
+     * Startup reconciliation: queue restore debt, then void unfinished sessions.
      *
-     * <p>Two independent jobs, in this order:</p>
-     * <ol>
-     *   <li><b>Restore debt.</b> Any participant whose snapshot was written but never applied is
-     *       queued for restore, <em>regardless of the session's stage</em>. This is deliberately not
-     *       limited to unfinished sessions: a player who disconnects mid-round gets a deferred
-     *       restore, the session then completes normally and becomes {@link SessionStage#ARCHIVED},
-     *       and a stage-filtered sweep would drop the debt silently on the next restart — losing
-     *       exactly the survival state this mod exists to protect.</li>
-     *   <li><b>Rollback.</b> Anything unfinished is voided. No attempt is made to resume a round.</li>
-     * </ol>
+     * <p>Every participant whose snapshot was written but never applied is queued for restore,
+     * regardless of stage. Unfinished sessions are voided; no attempt is made to resume a round.
      */
     public void reconcile() {
         for (DuelSession session : sessions.values()) {
@@ -365,9 +337,7 @@ public final class SessionManager {
     }
 
     public void shutdown() {
-        // First, before any session is finished: the rest of this method teleports participants out
-        // of the arena and writes their snapshots, and a spectator whose camera is on a player being
-        // teleported across dimensions is a spectator watching nothing.
+        // Eject spectators first, or a camera follows a player being teleported out of the arena.
         spectators.ejectEverything("SERVER_STOP");
         for (DuelSession session : sessions.values()) {
             if (session.stage == SessionStage.ROUND_ACTIVE) {
@@ -378,9 +348,7 @@ public final class SessionManager {
                 roundStartedAt.remove(session.id);
                 roundReadyAt.remove(session.id);
                 transition(session, SessionStage.ROUND_SETTLED);
-                // Straight to restore: there is no next round to prepare for, and leaving the
-                // snapshots unapplied would turn a clean stop into a restore debt the next boot has
-                // to discover and act on.
+                // Straight to restore: there is no next round to prepare for.
                 finishSeries(session, -1);
             } else if (session.stage == SessionStage.ROUND_READY) {
                 roundReadyAt.remove(session.id);
@@ -391,9 +359,7 @@ public final class SessionManager {
         ArenaManager.clearAll();
         journals.values().forEach(SessionJournal::close);
         journals.clear();
-        // Last write before the process goes away. Everything above has already moved players out
-        // of the arena, so these are the positions they will be rescued to if the next boot finds
-        // anybody still standing on a plot.
+        // Last write before the process exits; these are the positions the next boot rescues to.
         homes.flush();
         stats.flush();
     }
@@ -403,11 +369,10 @@ public final class SessionManager {
     /**
      * Turns the automatic removal of stray players on or off for one player.
      *
-     * <p>The flag is per player and persisted, which is what makes it usable as an operator tool:
-     * "I am going in to look at the dimension, do not throw me out" has to survive the restart that
-     * often follows a look at a broken dimension.</p>
+     * <p>The flag is per player and persisted, so an operator inspecting the dimension stays put
+     * across a restart.
      *
-     * @return the new state, i.e. whether the guard is enabled for this player
+     * @return whether the guard is enabled for this player after the call
      */
     public boolean setGuardEnabled(ServerPlayer player, boolean enabled) {
         boolean now = guard.setEnabled(player.getUUID(), enabled);
@@ -419,10 +384,8 @@ public final class SessionManager {
     /**
      * Ends every live session without asking anybody.
      *
-     * <p>Uses {@link #abort} rather than the settle path on purpose. Settling is a game action: it
-     * awards the round to somebody and can fall through to an intermission, which is the opposite of
-     * what a reset wants. Aborting restores the snapshots, releases the lease and voids the session,
-     * which is the complete list of things that have to happen before the terrain can be erased.</p>
+     * <p>Aborts rather than settles: aborting restores the snapshots, releases the lease and voids
+     * the session, which is what has to happen before the terrain can be erased.
      *
      * @return how many sessions were ended
      */
@@ -452,21 +415,12 @@ public final class SessionManager {
     /**
      * Hard reset of the whole duel dimension: end everything, wipe it, re-stamp the gallery.
      *
-     * <p>The repair tool for a dimension that has gone wrong — debris left by a crash, a map whose
-     * baseline was captured from a half-edited cell, two duels that somehow shared a plot. Nothing
-     * short of re-stamping fixes those, because the baseline <em>is</em> what was in the world when
-     * the map was pasted.</p>
+     * <p>The repair tool for a dimension that has gone wrong, since the map baseline is whatever
+     * was in the world when the map was pasted.
      *
-     * <p>Order matters at every step. Spectators go first, because a camera attached to a
-     * participant who is about to be teleported out is a camera watching nothing. Sessions go second,
-     * because aborting them is what restores the players' real inventories and releases the leases.
-     * Stray players go third, so the wipe cannot pull the floor out from under somebody who was not
-     * in a session to begin with. Only then is the dimension cleared.</p>
-     *
-     * <p>The re-stamp is queued rather than done inline: a full gallery is five cells of ~150k
-     * blocks each, about 4.5 s of server thread, and blocking the tick for that long trips the
-     * watchdog and times out every connected client. The queued path is the same one startup uses,
-     * so it is already exercised on every boot.</p>
+     * <p>Order matters. Spectators go first, then sessions (which restore inventories and release
+     * leases), then stray players, and only then is the dimension cleared. The re-stamp is queued,
+     * since five cells of about 150k blocks each would trip the watchdog.
      *
      * @return how many sessions were ended, or -1 if a rebuild was already running
      */
@@ -477,17 +431,14 @@ public final class SessionManager {
         spectators.ejectEverything("ARENA_RESET");
         int ended = forceEndAll("ARENA_RESET");
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            // No-op for everybody the sessions already sent home; this is for the player who was in
-            // the dimension for a reason that no longer exists.
+            // No-op for players the sessions already sent home.
             homes.evict(player);
-            // CombatState.clearAll() below is server-side only; without this everybody keeps
-            // seeing the last block pose that was pushed to them.
+            // Clear the client-side block pose too; clearAll() below is server-side only.
             PvPocketNetworking.broadcastBlocking(player, false);
         }
         CombatState.clearAll();
-        // Before clearAll(), because the region objects are what know how tall the debris in a cell
-        // can be. Covers the cells the re-stamp will not touch: the flat plot, which is rebuilt at
-        // whatever size the next duel asks for, and any spare cell.
+        // Before clearAll(), because the regions know how tall the debris can be. Covers the cells
+        // the re-stamp will not touch: the flat plot and any spare cell.
         ArenaManager.wipeUnstampedCells(server);
         ArenaManager.clearAll();
         ArenaManager.beginWarmUp();
@@ -499,27 +450,15 @@ public final class SessionManager {
     // ------------------------------------------------------------------ player events
 
     public void onJoin(ServerPlayer player) {
-        // Unconditional, because the client mirror is a correctness requirement rather than a hint:
-        // a stale legacy flag would leave the player with a permanent block penalty. One tiny packet
-        // per join is a cheap price for never having to reason about how the state got there.
+        // Unconditional: a stale legacy flag would leave the player with a permanent block penalty.
         PvPocketNetworking.sendState(player);
-        // A client that reconnects mid-match has no HUD state, and the payload is only pushed on
-        // score changes — so re-send it here instead of waiting for the next round boundary.
+        // A client that reconnects mid-match has no HUD state, so re-send it here.
         pushHudTo(player);
-        // Same for the spectator bar: a spectator who reconnects has no bar, and unlike the HUD
-        // there is no round boundary that would eventually repair it.
+        // Same for the spectator bar, which has no round boundary to repair it.
         spectators.pushState(player);
 
-        // Deliberately no restore attempt here. ServerPlayConnectionEvents.JOIN fires before the
-        // player is registered with the PlayerManager, so a lookup by UUID still misses them and the
-        // restore would be deferred forever. Deferred restores are drained from tick() instead,
-        // which does not depend on event ordering and also covers every other path that can leave a
-        // debt behind.
-        //
-        // The same ordering applies to the arena rescue, and for a second reason: the initial
-        // position packet has not gone out yet, so a teleport issued now would be overwritten by
-        // the one the join sequence sends a few lines later. Looked up by uuid rather than captured
-        // because a respawn inside the same tick replaces the entity.
+        // Deferred: JOIN fires before the player is in the PlayerManager, and the join sequence
+        // sends its own position packet after this point.
         UUID joining = player.getUUID();
         deferred.add(() -> {
             ServerPlayer online = server.getPlayerList().getPlayer(joining);
@@ -532,10 +471,8 @@ public final class SessionManager {
     /**
      * Pushes the intermission countdown, at most once per second per session.
      *
-     * <p>The rest of the HUD is pushed on change; a countdown is the exception because it changes
-     * by itself. Comparing against {@link #countdownPushed} keeps that to one packet per second
-     * instead of one per tick, which at twenty ticks a second would be twenty times the traffic for
-     * nineteen redundant frames.</p>
+     * <p>A countdown changes by itself, so it is compared against {@link #countdownPushed} instead
+     * of being pushed on change.
      */
     private void tickIntermissionCountdown() {
         if (roundReadyAt.isEmpty()) {
@@ -561,10 +498,8 @@ public final class SessionManager {
     /**
      * Starts any round whose intermission has elapsed.
      *
-     * <p>Runs from {@code tick()} rather than from a scheduler because everything else in this class
-     * is already tick-driven, and a second timing mechanism would be a second thing to reason about
-     * after a restart. A round that cannot start — a participant logged out during the intermission —
-     * voids the series instead of throwing out of the tick loop.</p>
+     * <p>Runs from {@code tick()}. A round that cannot start because a participant logged out voids
+     * the series instead of throwing out of the tick loop.
      */
     private void startDueRounds() {
         if (roundReadyAt.isEmpty()) {
@@ -587,13 +522,10 @@ public final class SessionManager {
             try {
                 startRound(session);
             } catch (RuntimeException e) {
-                // startRound increments the round counter before it can fail, and a cut must not
-                // count a round that was never played.
+                // startRound bumps the round counter before it can fail; a cut counts no round.
                 session.round = before;
                 if (session.participants.stream().anyMatch(p -> online(p) == null)) {
-                    // Somebody logged off during the intermission. That is an ordinary end to a
-                    // series, not a failure: abort() would discard the score and record a clean
-                    // logoff as an anomaly the next boot has to reconcile.
+                    // A participant logged off during the intermission; that ends the series.
                     session.seriesEndReason = "CUT";
                     journal(session).append("SERIES_CUT", "reason", "participant_offline");
                     finishSeries(session, leaderTeam(session, absentTeam(session)));
@@ -608,10 +540,8 @@ public final class SessionManager {
     /**
      * Applies any deferred restores whose player is now online.
      *
-     * <p>Runs every tick over a map that is empty in the common case, so the cost is a single
-     * {@code isEmpty()} check. Attempts are one-shot: the entry is removed before the attempt, so a
-     * snapshot that cannot be applied produces one error instead of one per tick. A subsequent
-     * restart re-queues it from disk if the participant is still marked unrestored.</p>
+     * <p>The entry is removed before the attempt, so a snapshot that cannot be applied produces one
+     * error rather than one per tick.
      */
     private void flushPendingRestores() {
         if (pendingRestore.isEmpty()) {
@@ -619,11 +549,7 @@ public final class SessionManager {
         }
         List<UUID> ready = new ArrayList<>();
         for (Map.Entry<UUID, String> entry : pendingRestore.entrySet()) {
-            // Not merely "in the player list": a player caught mid-respawn is listed but already
-            // discarded, and a restore applied to that entity is lost the moment the new one takes
-            // over. A dead player has the same problem one step earlier — the respawn they have not
-            // clicked yet will replace the entity. Waiting costs nothing; restoring onto a corpse
-            // costs the player their inventory.
+            // Not just "in the player list": a player mid-respawn is listed but already discarded.
             ServerPlayer candidate = server.getPlayerList().getPlayer(entry.getKey());
             if (candidate != null && !candidate.isRemoved() && candidate.isAlive()) {
                 ready.add(entry.getKey());
@@ -649,8 +575,7 @@ public final class SessionManager {
                         .withStyle(ChatFormatting.RED), false);
                 continue;
             }
-            // A deferred restore has two causes and they read very differently to a player: the
-            // session was voided by a crash, or it finished normally and they simply left early.
+            // Two causes, with two different messages: voided by a crash, or left early.
             MutableComponent note = PvLang.t(session.voidReason == null
                     ? "pvpocket.msg.restore.done"
                     : "pvpocket.msg.restore.done_voided");
@@ -659,21 +584,15 @@ public final class SessionManager {
     }
 
     public void onDisconnect(ServerPlayer player) {
-        // Before the participant check below, because a spectator is by definition not a
-        // participant. Their game mode is restored here rather than deferred, so the playerdata
-        // written during this same disconnect records survival rather than spectator — otherwise
-        // they log back in inside the arena with no way to fly out.
+        // Before the participant check: a spectator is not a participant. Restoring the game mode
+        // here makes the playerdata written during this disconnect record survival.
         spectators.onDisconnect(player);
-        // Last chance to record where they were: after this the playerdata is written and the
-        // player is gone, and a disconnect is the one moment the saved home is guaranteed current.
+        // The saved home is guaranteed current here, before the playerdata is written.
         homes.remember(player);
         homes.flush();
         String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
-            // A negotiation is not in sessionByPlayer — nothing has started yet — but a player who
-            // drops out of one leaves everybody else waiting for an answer that can no longer
-            // arrive, and the panel on their side cannot tell "still thinking" from "gone".
-            // Deferred so the session is not mutated in the middle of the disconnect unwinding.
+            // Deferred, so the session is not mutated while the disconnect unwinds.
             DuelSession open = findOpenSession(player.getUUID());
             if (open != null && open.stage == SessionStage.NEGOTIATING) {
                 String uuid = player.getStringUUID();
@@ -689,25 +608,19 @@ public final class SessionManager {
         if (me == null) {
             return;
         }
-        // Leaving is an elimination, not a verdict on the whole round: in a 2v2 the other member of
-        // the side is still standing and can win it. The round only ends when the last member of a
-        // side is gone, which for a 1v1 is the same instant as before.
+        // Leaving is an elimination, not a verdict on the round: the last member of a side ends it.
         deferred.add(() -> eliminate(session, me, "DISCONNECT"));
     }
 
     /**
      * Vetoes damage between team-mates when {@code b.friendlyFire} is off.
      *
-     * <p>A veto rather than a reduction: "teammates cannot hurt each other" is a rule, not a
-     * difficulty slider, and a half-damage version would still let a side kill itself. Only the
-     * direct attacker is checked — a teammate's arrow, trident or TNT counts, because the source
-     * carries who fired it, but environmental damage from a teammate's fire does not, which is the
-     * same line vanilla draws for its own team checks.</p>
+     * <p>Only the direct attacker is checked: a teammate's arrow or TNT counts, but damage from a
+     * teammate's fire does not, which is the line vanilla draws for its own team checks.
      *
-     * <p>Scoped to {@code ROUND_ACTIVE} on purpose. In the preparation window and between rounds
-     * nobody can be hurt anyway (the participants are invulnerable), and a veto that also covered
-     * those stages would silently block damage in the survival world for anybody who happened to
-     * share a session.</p>
+     * <p>Scoped to {@code ROUND_ACTIVE}, since nobody can be hurt in the other stages anyway.
+     *
+     * @return false when the damage must be cancelled
      */
     public boolean allowDamage(ServerPlayer victim, DamageSource source) {
         String sessionId = sessionByPlayer.get(victim.getUUID());
@@ -733,9 +646,7 @@ public final class SessionManager {
         if (mine == null || theirs == null || mine.teamIndex() != theirs.teamIndex()) {
             return true;
         }
-        // Journalled, not just dropped: "my hit did nothing" is otherwise indistinguishable from a
-        // lag spike, and a 2v2 where friendly fire is quietly eating hits is a bug report nobody
-        // can reproduce from the chat log alone.
+        // Journalled, so a blocked hit is distinguishable from a lag spike.
         journal(session).append("FRIENDLY_FIRE_BLOCKED",
                 "attacker", theirs.name, "victim", mine.name, "team", mine.teamIndex());
         return false;
@@ -744,15 +655,8 @@ public final class SessionManager {
     /**
      * The hazards the rule set can switch off: falling, lava, the void, and starvation.
      *
-     * <p>Deliberately not journalled. Friendly fire is journalled because a blocked hit is rare and
-     * looks like lag; standing in lava with the hazard off would write a line every ten ticks and
-     * bury everything else. The rules themselves are already in the journal at session start, which
-     * is the question someone debugging this actually asks.</p>
-     *
-     * <p>Starving is folded in here rather than in a second mixin: with {@code c.hunger} off,
-     * exhaustion never accumulates, so the hunger bar cannot reach zero on its own — but a player
-     * who starts a round already empty (a reloaded save) would still take starvation damage, and
-     * "关闭后不会因饥饿掉血" has to be true for them too.</p>
+     * <p>Not journalled: with the hazard off this path runs every few ticks and would bury the rest
+     * of the journal.
      */
     private boolean allowEnvironmentDamage(DuelSession session, DamageSource source) {
         Rulebook book = session.rulebook();
@@ -774,9 +678,7 @@ public final class SessionManager {
     /**
      * Is this player's hunger allowed to drain? Asked from {@code PlayerEntity#addExhaustion}.
      *
-     * <p>Static and null-safe because it is called from a mixin that runs on the client too: a
-     * client has no manager, and a player who is not in a duel has no session, and in both cases
-     * the answer is "vanilla".</p>
+     * <p>Static and null-safe, since it is called from a mixin that also runs on the client.
      */
     public static boolean hungerEnabled(UUID uuid) {
         DuelSession session = activeSessionOf(uuid);
@@ -789,13 +691,13 @@ public final class SessionManager {
         return session == null || session.rulebook().naturalRegen();
     }
 
-    /** {@code d.allowPickup}, asked from {@code ItemEntity#onPlayerCollision}. */
+    /** Answers {@code d.allowPickup}, asked from {@code ItemEntity#onPlayerCollision}. */
     public static boolean pickupAllowed(UUID uuid) {
         DuelSession session = activeSessionOf(uuid);
         return session == null || session.rulebook().allowPickup();
     }
 
-    /** {@code d.allowCrafting}, asked from {@code Slot#canTakeItems} on a result slot. */
+    /** Answers {@code d.allowCrafting}, asked from {@code Slot#canTakeItems} on a result slot. */
     public static boolean craftingAllowed(UUID uuid) {
         DuelSession session = activeSessionOf(uuid);
         return session == null || session.rulebook().allowCrafting();
@@ -805,15 +707,13 @@ public final class SessionManager {
      * {@code f.allowExplosives}, asked from {@code Explosion#collectBlocksAndDamageEntities} and
      * {@code Explosion#affectWorld}.
      *
-     * <p>The two sides ask different questions, because they know different things. The server looks
-     * the plot up by position: an explosion has no owner — a creeper is nobody's — so the only
-     * thing that identifies which rule set applies is where it went off. The client has no sessions
-     * at all and only ever renders its own surroundings, so it uses the flag its own payload
-     * carried.</p>
+     * <p>The server looks the plot up by position, since an explosion has no owner. The client has
+     * no sessions and uses the flag its own payload carried.
      *
-     * <p>Getting the client copy right is not cosmetic. {@code affectWorld} destroys blocks on
-     * whichever side runs it, so a client that has not been told would carve holes that the server
-     * never confirms — a crater only the person who lit the fuse can see.</p>
+     * <p>{@code affectWorld} destroys blocks on whichever side runs it, so a client that was not
+     * told would carve holes the server never confirms.
+     *
+     * @return false when the explosion must not run
      */
     public static boolean explosivesAllowed(Level world, Vec3 pos) {
         if (world == null) {
@@ -859,19 +759,15 @@ public final class SessionManager {
     private static final int USE_WARN_COOLDOWN = 20;
 
     /**
-     * Last tick each player was told why their click did nothing. Server thread only — the client
-     * copy of the veto returns before it touches this, and a client that never sees the map cannot
-     * race it.
+     * Last tick each player was told why their click did nothing. Server thread only.
      */
     private static final Map<UUID, Integer> useWarnAt = new HashMap<>();
 
     /**
      * Tells a player why their click did nothing.
      *
-     * <p>Only the server speaks. The client runs the same veto so its prediction stays honest, but a
-     * sentence from there would be a local guess at the server's reason. Throttled because holding
-     * right-click with a banned block re-attempts the placement every few ticks, and five lines a
-     * second is not an explanation, it is a wall.</p>
+     * <p>Only the server speaks, and the message is throttled because a held button retries every
+     * few ticks.
      */
     public static void reportUseDenial(Player player, UsePolicy.Denial denial, ItemStack stack) {
         if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayer server)) {
@@ -879,8 +775,7 @@ public final class SessionManager {
         }
         MutableComponent message = switch (denial) {
             case PLACE -> PvLang.t("pvpocket.msg.use.place");
-            // Named, not generic: "方块限制" is five switches, and "something is banned" leaves the
-            // player ticking all five to find out which one they tripped.
+            // Named, so the player knows which of the five filter switches was tripped.
             case BANNED -> PvLang.t("pvpocket.msg.use.banned", PvLang.t(
                     "pvpocket.rule.f.blockFilter.c" + UsePolicy.banIndex(UsePolicy.banOf(stack))));
             case CONSUMABLE -> PvLang.t("pvpocket.msg.use.consumable");
@@ -894,8 +789,7 @@ public final class SessionManager {
     /**
      * {@code d.allowCrafting} refused a take from a result slot.
      *
-     * <p>Worth a sentence, unlike a refused pickup: an item that stays on the ground explains
-     * itself, but a crafting result that simply will not come out looks like a broken slot.</p>
+     * <p>Worth a sentence: a crafting result that will not come out looks like a broken slot.
      */
     public static void reportCraftingDenial(Player player) {
         if (player instanceof ServerPlayer server) {
@@ -904,15 +798,9 @@ public final class SessionManager {
     }
 
     /**
-     * A loadout item with 禁止丢弃 refused to leave the inventory.
+     * A loadout item that refuses to leave the inventory.
      *
-     * <p>Silence would be indistinguishable from a dropped keybind: the item simply stays in the hand
-     * and nothing happens. Throttled with the other refusals because the Q key repeats while held,
-     * and "this item is locked" five times a second is a wall, not an explanation.</p>
-     *
-     * <p>Server only, like the rest: the client runs the same veto so its own prediction does not
-     * remove the stack for a frame, but it does not speak — a sentence from there would be a local
-     * guess at why the server said no.</p>
+     * <p>Throttled with the other refusals because the drop key repeats while held.
      */
     public static void reportDropDenial(Player player) {
         if (player instanceof ServerPlayer server) {
@@ -924,17 +812,12 @@ public final class SessionManager {
      * {@code g.chatScope}: who gets to read a line of chat sent during a round.
      *
      * <p>Registered on {@code ServerMessageEvents.ALLOW_CHAT_MESSAGE}, which fires at the head of
-     * {@code PlayerManager#broadcast} — so returning false cancels vanilla's fan-out and leaves the
-     * delivery to us. That is the point: "仅队友" is not a filter applied to each recipient, it is a
-     * different recipient list.</p>
+     * {@code PlayerManager#broadcast}; returning false cancels vanilla's fan-out and leaves
+     * delivery here. The line still goes through {@code applyChatDecoration} for the speaker name.
      *
-     * <p>Taking the broadcast over means taking the decoration over too. Vanilla prefixes the line
-     * with the speaker's name inside {@code broadcast}; skipping that step would deliver the raw
-     * sentence and leave every line in a duel unattributed, so the same
-     * {@code applyChatDecoration} call is made here.</p>
+     * <p>Scoped to {@code ROUND_ACTIVE}, like the damage veto.
      *
-     * <p>Scoped to {@code ROUND_ACTIVE} like the damage veto, and for the same reason: a rule that
-     * outlives the round would silently mute the lobby for anybody who shares a session.</p>
+     * @return false when the caller must not broadcast the line
      */
     public static boolean allowChat(ServerPlayer sender, Component decorated) {
         SessionManager manager = instance;
@@ -955,8 +838,7 @@ public final class SessionManager {
         }
         Participant mine = session.participant(sender.getStringUUID());
         if (mine == null) {
-            // In the session but not on a side — a spectator. There is no team to talk to, so the
-            // line goes back to them alone rather than to every side at once.
+            // In the session but not on a side: a spectator. The line goes back to them alone.
             sender.displayClientMessage(decorated, false);
             return false;
         }
@@ -975,8 +857,7 @@ public final class SessionManager {
     /**
      * One grey action-bar hint per {@link #USE_WARN_COOLDOWN} ticks, per player.
      *
-     * <p>Throttled because every caller sits on a path the client retries while a button is held:
-     * five lines a second is not an explanation, it is a wall.</p>
+     * <p>Every caller sits on a path the client retries while a button is held.
      */
     private static void warnThrottled(ServerPlayer player, MutableComponent message) {
         if (message == null) {
@@ -998,9 +879,7 @@ public final class SessionManager {
     /**
      * Publishes this round's item-use gate to both sides.
      *
-     * <p>Assembled here rather than inside {@code Rulebook} so the rules layer stays free of the
-     * combat layer's bit layout: the rulebook answers "is placing allowed", the gate is how that
-     * answer is shipped.</p>
+     * <p>Assembled here so {@code Rulebook} stays free of the combat layer's bit layout.
      */
     private static void applyUseGate(DuelSession session, ServerPlayer player) {
         Rulebook book = session.rulebook();
@@ -1018,16 +897,10 @@ public final class SessionManager {
     }
 
     /**
-     * The round clock: {@code a.roundLimit} was a promise with no timer behind it.
+     * The round clock for {@code a.roundLimit}.
      *
-     * <p>Two players who both refuse to engage could keep a round open indefinitely — the only exits
-     * were a surrender or a disconnect, and a surrender can be switched off. The clock reuses the
-     * timestamp the settle deadline already keeps, so it starts when the round actually starts
-     * rather than when the preparation countdown does.</p>
-     *
-     * <p>Runs only when the timeout is also an accepted win condition: {@code a.winConditions}
-     * without 超时 means "this round cannot end on a clock", and a timer that fires into a verdict
-     * nobody accepts is worse than no timer.</p>
+     * <p>Starts when the round starts, not when the preparation countdown does. Runs only when
+     * {@code a.winConditions} also accepts a timeout win.
      *
      * @return true when the round ended here, so the caller must not keep judging it
      */
@@ -1057,8 +930,7 @@ public final class SessionManager {
             if (player == null) {
                 continue;
             }
-            // Built per player rather than once and reused: a Text that is mutated for one recipient
-            // is the same object the next one would get.
+            // Built per player: a Text mutated for one recipient is the same object the next gets.
             MutableComponent line = byHealth ? PvLang.t(key, teamName(session, winner)) : PvLang.t(key);
             player.displayClientMessage(line.withStyle(ChatFormatting.YELLOW), false);
         }
@@ -1069,8 +941,7 @@ public final class SessionManager {
             case DOUBLE_LOSS -> "TIMEOUT_DOUBLE";
         };
         // Deferred, like every other settle reached from this loop: settling runs the intermission
-        // and can finish the series, and doing that while the caller is iterating the sessions is
-        // how the boundary path used to take the server down.
+        // and can finish the series while the caller is iterating the sessions.
         deferred.add(() -> settle(session, reason, winner));
         return true;
     }
@@ -1078,9 +949,7 @@ public final class SessionManager {
     /**
      * The side with the most health left, or {@code -1} when the lead is shared.
      *
-     * <p>Health of the whole side, not of one member: in a 2v2 one player on ten hearts and one on
-     * one heart is not "the team with ten hearts". Eliminated players count as zero — they are
-     * already out of the round.</p>
+     * <p>Health of the whole side, and eliminated players count as zero.
      */
     private int healthLeader(DuelSession session) {
         Map<Integer, Double> totals = new LinkedHashMap<>();
@@ -1121,8 +990,8 @@ public final class SessionManager {
         if (me == null || me.eliminated) {
             return;
         }
-        // Marked here and settled below: the decision is recorded now so a crash between death and
-        // the settle still leaves a journalled outcome.
+        // Marked here and settled below, so a crash between the two still leaves a journalled
+        // outcome.
         me.eliminated = true;
         recordDeath(session, me, player);
         int winner = lastTeamStanding(session);
@@ -1135,15 +1004,8 @@ public final class SessionManager {
                 "alive", survivorsOf(session));
         persist(session);
 
-        // **中间局当场结算，不等玩家在死亡屏幕上点「重生」。**
-        //
-        // 以前的实现把结算挂在 respawn 上，理由是「死者不能被传送，而结算会传送人」。现在
-        // beginIntermission 不传送任何人了（间隔期改由 parkForIntermission 把人停到出生点上方，
-        // 见那里），所以那条理由不成立——而代价是每一局之间都要等输家手点一次重生，否则整场
-        // 比赛停在那里。1v1 里这个等待永远是「赢家站着看输家的死亡屏幕」。
-        //
-        // 决胜局仍然等 respawn：finishSeries 要把快照恢复到一个活着的实体上（恢复会传送并写
-        // 物品栏），死者的实体做不了这件事。那条路本来就只有一局一次，多等一次重生可以接受。
+        // A mid-series round settles immediately, without waiting for the respawn. Only the
+        // deciding round waits, because finishSeries restores the snapshot onto a live entity.
         if (winner >= 0 && !decidesSeries(session, winner)) {
             deferred.add(() -> settle(session, "DEATH", winner));
         }
@@ -1152,8 +1014,7 @@ public final class SessionManager {
     /**
      * Whether a win by {@code winner} would end the series.
      *
-     * <p>Asked before the win is recorded ({@code settle} does that), so the count is off by one on
-     * purpose: this answers "would the next win decide it".</p>
+     * <p>Asked before the win is recorded, so the count is off by one.
      */
     private static boolean decidesSeries(DuelSession session, int winner) {
         return session.wins(winner) + 1 >= session.winsNeeded
@@ -1161,19 +1022,15 @@ public final class SessionManager {
     }
 
     /**
-     * A dead player cannot be teleported, so the settle happens once they are alive again. By then
-     * the entity has been replaced, which is why everything is looked up by uuid.
+     * Settles a round whose decision was deferred to the respawn. Everything is looked up by uuid,
+     * since the entity is replaced.
      *
-     * <p>If their side still has somebody standing, there is nothing to settle — the round goes on and
-     * the dead player is put back into the plot as a spectator so they can watch it. That is the
-     * behaviour a team match needs and a 1v1 never reaches.</p>
+     * <p>If their side still has somebody standing, the round goes on and the dead player is put
+     * back on the plot as a spectator.
      */
     public void onRespawn(ServerPlayer player) {
-        // A respawn replaces the server-side entity but not the client. Whatever the HUD was
-        // showing is still on screen, and every push that would have changed it was addressed to the
-        // entity that no longer exists — so a player who respawns at the wrong moment keeps a duel
-        // bar (or a plot outline) for a match they are no longer in. Re-sending the current state is
-        // the only thing that can clear it, because nothing else will push until the next boundary.
+        // A respawn replaces the server-side entity, so re-send the HUD state; nothing else will
+        // push it before the next boundary.
         pushHudTo(player);
         String sessionId = sessionByPlayer.get(player.getUUID());
         if (sessionId == null) {
@@ -1184,8 +1041,7 @@ public final class SessionManager {
             return;
         }
         if (session.stage == SessionStage.ROUND_READY) {
-            // 间隔期：刚在死亡屏幕上复活的死者。不这么做他会站在主世界的出生点等下一局开始，
-            // 而下一局的开场传送会把他从那里拽回来——中间那几秒他看到的是一张完全无关的地图。
+            // A participant who respawned during the intermission is parked on the plot.
             Participant p = session.participant(player.getStringUUID());
             ArenaRegion region = ArenaManager.region(session.id);
             if (p != null) {
@@ -1208,10 +1064,7 @@ public final class SessionManager {
     /**
      * Puts an eliminated participant back on the plot as a spectator for the rest of the round.
      *
-     * <p>Without this they respawn wherever vanilla drops them — the survival world, with an empty
-     * inventory, for the length of a round they are no longer part of. Spectating is both more useful
-     * and more honest: they are still in the match, they just cannot affect it. The round start puts
-     * them back into survival and at their spawn.</p>
+     * <p>The round start puts them back into survival at their spawn.
      */
     private void watchRestOfRound(DuelSession session, ServerPlayer player) {
         if (session.stage != SessionStage.ROUND_ACTIVE || !player.isAlive()) {
@@ -1225,9 +1078,7 @@ public final class SessionManager {
         Sandbox.changeGameMode(player, GameType.SPECTATOR);
         ArenaManager.teleportToSpawn(player, region, me.teamIndex(), me.member,
                 Math.max(1, session.teamMembers(me.teamIndex()).size()));
-        // The round is still live, so the "decided but unapplied" record is stale: it named this
-        // player's respawn as the thing the settle was waiting for, and the settle is not coming.
-        // Left in place, a later reader would see a decided round that never resolves.
+        // The round is still live, so the "decided but unapplied" record is stale.
         session.pendingWinner = null;
         session.pendingReason = null;
         persist(session);
@@ -1236,13 +1087,11 @@ public final class SessionManager {
     }
 
     /**
-     * 间隔期把一个人停到出生点上方：旁观模式，能动但不能打。
+     * Parks one player three blocks above their spawn for the intermission: spectator mode, able to
+     * move but not to hit.
      *
-     * <p>抬高三格不是装饰：出生点在地面上，而间隔期地形正在逐块还原，贴地停着的玩家会随着
-     * 脚下方块消失往下掉，看起来像卡进了地图。三格足够高到不碰地形，又低到还看得清竞技场。</p>
-     *
-     * <p>旁观模式而不是生存 + 无敌：无敌挡不住「下一局开始前一秒再补一刀」，而旁观连攻击
-     * 都发不出去。这也和团队赛里「死了的队员看队友打完」用的是同一个状态，玩家不用学两套。</p>
+     * <p>The terrain is restored block by block during the intermission, so a player standing on
+     * the ground would fall as the blocks under them disappear.
      */
     private void parkForIntermission(DuelSession session, ServerPlayer player, Participant p,
                                      ArenaRegion region) {
@@ -1259,12 +1108,10 @@ public final class SessionManager {
     // ------------------------------------------------------------------ tick
 
     /**
-     * Keeps the "where was I before the arena" record current.
+     * Keeps the pre-arena position record current.
      *
-     * <p>Sampling every player every tick rather than hooking movement: the store ignores anything
-     * smaller than two blocks, so a stationary player costs one comparison, and hooking a movement
-     * event would miss the case that matters most — a player who logs in, walks nowhere, and
-     * disconnects from inside the arena.</p>
+     * <p>Sampling every player every tick rather than hooking movement, so a player who logs in and
+     * walks nowhere is still recorded.
      */
     private void tickHomes() {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -1281,21 +1128,16 @@ public final class SessionManager {
         }
         flushPendingRestores();
         startDueRounds();
-        // After startDueRounds, not before: a round that just started has already dropped its
-        // roundReadyAt entry, and pushing a countdown for it in the same tick would draw "0" over
-        // the first second of a live round.
+        // After startDueRounds: a round that just started has dropped its roundReadyAt entry.
         tickIntermissionCountdown();
         tickPrepare();
-        // Spectators: drops watchers of finished series and repairs cameras pointing at a body that
-        // was replaced by a respawn. Empty in the common case, so the cost is one isEmpty check.
+        // Drops watchers of finished series and repairs cameras on replaced bodies.
         spectators.tick();
-        // After the spectator pass, not before: that pass can end somebody's watch and teleport them
-        // out in this same tick, and a guard running first would see them as a stray and race it.
+        // After the spectator pass, which can teleport a watcher out in this same tick.
         guard.tick();
         tickHomes();
-        // Natural spawning is cancelled inside the arena dimension, so this is only a net for the
-        // doors that bypass it (spawn eggs, spawner blocks, /summon). Three seconds is frequent
-        // enough that a stray mob never gets to swing at anyone.
+        // Natural spawning is cancelled in the arena dimension; this catches spawn eggs, spawner
+        // blocks and /summon.
         if (++sweepTimer >= SWEEP_INTERVAL) {
             sweepTimer = 0;
             int swept = ArenaManager.sweepMobs(server);
@@ -1307,8 +1149,7 @@ public final class SessionManager {
             if (session.stage != SessionStage.ROUND_ACTIVE) {
                 continue;
             }
-            // The clock runs before the boundary pass and can end the round; settling and then
-            // walking the participants would judge a round that is already over.
+            // The clock runs before the boundary pass and can end the round.
             if (tickRoundLimit(session)) {
                 continue;
             }
@@ -1323,33 +1164,20 @@ public final class SessionManager {
                 }
                 String key = session.id + "/" + p.uuid;
                 if (ArenaManager.isInside(player, region)) {
-                    // First sighting on the plot settles this player. From here on the boundary rule
-                    // is theirs to test — walking out is a decision, not a loading glitch.
+                    // First sighting on the plot settles this player.
                     settledIn.add(key);
-                    // Coming back cancels the countdown. Announced, because a countdown that silently
-                    // stops leaves the player unsure whether they are still at risk.
+                    // Coming back cancels the countdown, and the player is told so.
                     if (boundaryExits.remove(key) != null) {
                         journal(session).append("BOUNDARY_RETURNED", "player", p.name);
                         player.displayClientMessage(PvLang.t("pvpocket.msg.boundary.returned")
                                 .withStyle(ChatFormatting.GREEN), false);
-                        // Wipes the big number instead of leaving a stale "1" hanging in the middle
-                        // of the screen after the player has already saved themselves.
+                        // Clears the big number instead of leaving a stale "1" on screen.
                         player.connection.send(new ClientboundClearTitlesPacket(false));
                     }
                     continue;
                 }
-                // Logged with coordinates on purpose: "left the arena" has two very different
-                // causes (a player walked out, or a teleport did not stick) and the position is
-                // the only thing that tells them apart after the fact.
-                //
-                // Two reasons to snap back instead of judging:
-                //   - the player has not been seen on the plot even once yet, so the position being
-                //     read is a client that is still streaming a dimension it has never loaded;
-                //   - the rule is 拉回, in which case snapping back is the rule.
-                // Anything else falls through to the countdown. Note what is deliberately NOT here:
-                // a fixed opening window. A 10-second window made the rule unobservable — every
-                // setting pulled back identically for the first ten seconds, which read as "the
-                // config panel does nothing".
+                // Logged with coordinates: position separates a walk-out from a stuck teleport.
+                // Snapping back covers the first sighting and the push-back rule.
                 if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)
                         || !session.rulebook().winsBy(Rulebook.WinCondition.OUT_OF_BOUNDS)) {
                     boundaryExits.remove(key);
@@ -1380,8 +1208,7 @@ public final class SessionManager {
                     journal(session).append("BOUNDARY_FORFEIT", "player", p.name,
                             "elapsedMs", now - exit.since());
                     player.connection.send(new ClientboundClearTitlesPacket(false));
-                    // Through eliminate() rather than settle(): leaving the plot removes one player,
-                    // and in a 2v2 that is not the same thing as losing the round.
+                    // Through eliminate(): leaving the plot removes one player, not the side.
                     deferred.add(() -> eliminate(session, p, "OUT_OF_BOUNDS"));
                     break;
                 }
@@ -1397,22 +1224,11 @@ public final class SessionManager {
     /**
      * True while this player has never once been observed standing on their plot this round.
      *
-     * <p>This is what replaced a fixed ten-second opening window. The window was there for one
-     * concrete failure — a client that has never loaded the arena dimension reports a position from
-     * before the teleport for a moment, and judging that as "walked out" loses the round during the
-     * loading screen. But a window is a blunt instrument: for its whole length the boundary rule is
-     * ignored, so every setting behaves the same, and a player who walks out inside it is teleported
-     * back over and over with no way to tell why. It looked exactly like the config panel doing
-     * nothing.</p>
+     * <p>A client that has never loaded the arena dimension reports a position from before the
+     * teleport, and judging that as "walked out" would lose the round during the loading screen.
      *
-     * <p>The condition that actually needs protecting is narrower: <em>has this player ever been on
-     * the plot?</em> Once they have, their position is trustworthy and the rule applies from the very
-     * next tick. The spawn pads are four blocks inside each end, so the first tick after the teleport
-     * settles them — the protection is spent before anyone can move.</p>
-     *
-     * <p>{@link #SETTLE_DEADLINE_MS} is the escape hatch: a player who has somehow never been seen on
-     * the plot for thirty seconds is not loading any more, and keeping them under the pull-back rule
-     * would trap them forever.</p>
+     * <p>{@link #SETTLE_DEADLINE_MS} is the escape hatch: after thirty seconds the pull-back rule
+     * applies regardless.
      */
     private boolean awaitingFirstEntry(DuelSession session, String key) {
         if (settledIn.contains(key)) {
@@ -1430,10 +1246,7 @@ public final class SessionManager {
      * Tells a player who has been snapped back why, at most once every
      * {@link #BOUNDARY_NOTICE_GAP_MS}.
      *
-     * <p>Action bar, not chat: this is a state that repeats, and a repeated chat line pushes the
-     * fight's own messages off the screen. The journal line is throttled by the same gate — nine
-     * identical {@code BOUNDARY_PUSHED_BACK} rows for one player leaning on the edge is noise, not
-     * evidence.</p>
+     * <p>Action bar rather than chat, since this state repeats. The journal uses the same gate.
      */
     private void notifyPushBack(DuelSession session, ServerPlayer player, String key, boolean settling) {
         long now = System.currentTimeMillis();
@@ -1453,16 +1266,11 @@ public final class SessionManager {
     /**
      * Draws the boundary countdown as a single large number in the middle of the screen.
      *
-     * <p>A title rather than the action bar because of where the player's eyes are: someone who has
-     * just walked out of the arena is looking at the horizon, not at the hotbar. The fade is zero-in,
-     * one-second stay, short fade-out so each number replaces the previous one instead of queueing
-     * behind it.</p>
+     * <p>Zero fade-in, 22 ticks of stay and a 4 tick fade-out, so each number replaces the last.
      */
     private static void announceBoundary(ServerPlayer player, int second) {
         player.connection.send(new ClientboundSetTitlesAnimationPacket(0, 22, 4));
-        // Not bold: vanilla bold is a second draw of the same glyph shifted one pixel, which the
-        // bundled bitmap font has a hand-made sheet for but a resource pack's TrueType font does
-        // not — the number reads as smeared at the four-times scale a title is drawn at.
+        // Not bold: a bold glyph is a second draw shifted one pixel, which smears at title scale.
         player.connection.send(new ClientboundSetTitleTextPacket(
                 Component.literal(String.valueOf(second)).withStyle(ChatFormatting.RED)));
     }
@@ -1470,11 +1278,7 @@ public final class SessionManager {
     /**
      * Drops every per-player boundary state belonging to a session. Called at every round boundary.
      *
-     * <p>{@code settledIn} goes too, and that is the important part: the "have I been on the plot
-     * yet" answer is per round, because each round teleports everyone to a spawn pad again. Leaving a
-     * stale entry would skip the loading protection on round two, which is exactly when a client has
-     * the dimension cached and would not need it anyway — but the symmetry is cheaper to reason about
-     * than the exception.</p>
+     * <p>{@code settledIn} goes too, since each round teleports everyone to a spawn pad again.
      */
     private void clearBoundaryExits(DuelSession session) {
         String prefix = session.id + "/";
@@ -1488,28 +1292,14 @@ public final class SessionManager {
     // ------------------------------------------------------------------ negotiation
 
     /**
-     * Opens a negotiation. Nothing is snapshotted and no rule is in force yet — the session sits in
-     * {@link SessionStage#DRAFT} until the challenger sends a first proposal, which is what makes a
-     * abandoned panel harmless: reconcile drops drafts on restart instead of rolling anyone back.
-     *
-     * <p>Any number of targets, so a team match is one command rather than a lobby: the challenger
-     * plus everyone invited form the participant list, and the sides are dealt out round-robin when
-     * the match starts. Sides are <em>derived</em> from the order rather than stored on the invite,
-     * which is what lets the proposer change {@code b.teamCount} in the panel and watch the roster
-     * re-deal itself without anybody being re-invited.</p>
-     */
-    /**
      * Opens the roster panel: a draft session whose only member is the proposer.
      *
-     * <p>The invite is no longer a command argument. {@code /pvpocket duel} used to take a player
-     * selector, which could say "everyone here" but could not say "these two on one side and those
-     * two on the other" — Brigadier has no grammar for a two-dimensional list, so the sides were
-     * dealt round-robin from the invite order instead. Building the roster in the panel makes the
-     * sides explicit, and it costs nothing: the same panel has to open anyway to agree on rules.</p>
+     * <p>The session exists from the moment the panel opens, in {@link SessionStage#DRAFT}, so the
+     * proposer can close the panel and come back with {@code /pvpocket review}. Nothing is
+     * snapshotted and no rule is in force yet.
      *
-     * <p>The session exists from the moment the panel opens, in {@link SessionStage#DRAFT}. One
-     * record per negotiation rather than a client-side draft plus a server-side session, and it is
-     * what lets the proposer close the panel and come back with {@code /pvpocket review}.</p>
+     * <p>The roster built in the panel is the participant list, so the sides are explicit rather
+     * than dealt from an invite order.
      */
     public void openRoster(ServerPlayer proposer) {
         if (sessionByPlayer.containsKey(proposer.getUUID())) {
@@ -1527,17 +1317,12 @@ public final class SessionManager {
         DuelSession open = findOpenSession(proposer.getUUID());
         if (open != null) {
             if (open.stage != SessionStage.DRAFT) {
-                // Somebody else is waiting on an answer here, so the old invite is not the
-                // proposer's to throw away — they have to answer it or refuse it first.
+                // Somebody else is waiting on an answer, so the invite is not theirs to drop.
                 fail(proposer, "pvpocket.msg.duel.own_pending");
                 return;
             }
-            // A draft has no other party, and it is the only place the sides the proposer drew
-            // exist. Voiding it to make room for a new one would throw that work away for no gain;
-            // reopening is what "start a duel" means when a draft is already in progress, and it is
-            // also how a client that crashed mid-draft gets its panel — and its roster — back.
-            // Refusing here instead is what turned a crash into "this player can never start a duel
-            // again", which is the lock this branch exists to remove.
+            // A draft has no other party and holds the drawn sides, so reopening it is what "start
+            // a duel" means while a draft is in progress.
             openPanel(proposer, open, RulesOpenPayload.ROLE_DRAFT);
             return;
         }
@@ -1548,8 +1333,7 @@ public final class SessionManager {
         session.updatedAt = session.createdAt;
         Participant me = new Participant(proposer.getStringUUID(),
                 proposer.getName().getString(), 0, 0);
-        // The proposer's own book becomes the match's set. Everyone invited after this inherits it
-        // instead of bringing their own — see seedLoadout.
+        // The proposer's own book becomes the match's set; everyone invited later inherits it.
         seedLoadout(me, loadouts.get(proposer.getUUID()));
         session.participants.add(me);
         session.teamCount = MIN_TEAMS;
@@ -1569,12 +1353,8 @@ public final class SessionManager {
      * Turns the roster the proposer assembled into the participant list, then invites everybody.
      *
      * <p>Encoding is {@code "uuid,uuid;uuid"}: {@code ,} between team-mates, {@code ;} between
-     * sides. An empty side is a side the proposer did not use and is dropped here, so team indices
-     * stay contiguous. Uuids rather than names because a name can be changed and a uuid cannot.</p>
-     *
-     * <p>Validated before it is applied, not after. An invalid roster that had already been written
-     * onto the session would put strangers into {@code findOpenSession} — they would be told they
-     * have a pending invite to a match nobody ever offered them.</p>
+     * sides. An empty side is dropped, so team indices stay contiguous. Validated before it is
+     * applied.
      *
      * @return true when the roster was accepted and the session moved to negotiation
      */
@@ -1635,11 +1415,8 @@ public final class SessionManager {
             return false;
         }
 
-        // An empty card is a card the proposer did not use, and it stops being meaningful the moment
-        // the invite goes out: the panel that arrives at the other end is rebuilt from the roster, so
-        // a gap in the middle would come back as a third side with nobody on it — a side the HUD
-        // would draw a row for, with a wool colour no block in the arena matches. Compacting here
-        // keeps "team index" and "playing side" the same number everywhere downstream.
+        // An empty card is dropped here, so "team index" and "playing side" stay the same number
+        // everywhere downstream.
         List<List<UUID>> playing = new ArrayList<>();
         for (List<UUID> side : sides) {
             if (!side.isEmpty()) {
@@ -1647,8 +1424,7 @@ public final class SessionManager {
             }
         }
 
-        // Presence is checked last because it is the only part that depends on other players, and a
-        // name is more useful in the refusal than a rule id.
+        // Presence is checked last, since it is the only part that depends on other players.
         List<Participant> built = new ArrayList<>();
         for (int team = 0; team < playing.size(); team++) {
             List<UUID> side = playing.get(team);
@@ -1677,11 +1453,7 @@ public final class SessionManager {
                 }
                 Participant p = new Participant(uuid.toString(), player.getName().getString(),
                         team, member);
-                // A roster rebuild changes who plays, not what they bring. 发送邀请 re-runs this
-                // method over the same uuids, and seeding every participant from the saved book
-                // here threw away a loadout edited in the panel moments earlier — the round then
-                // handed out the previous items, which is indistinguishable from "the switch I
-                // just flipped does nothing". Only genuinely new participants get seeded.
+                // A rebuild keeps existing loadouts; only new participants are seeded.
                 Participant previous = session.participant(uuid.toString());
                 if (previous != null && previous.loadout != null) {
                     p.loadout = previous.loadout;
@@ -1691,9 +1463,7 @@ public final class SessionManager {
                     p.acceptedLoadoutRevision = previous.acceptedLoadoutRevision;
                     p.agreedLoadoutDigest = previous.agreedLoadoutDigest;
                 } else {
-                    // A newcomer does not bring their own kit. The set belongs to the match, and it
-                    // was seeded from the proposer's book when the session was created — inviting
-                    // somebody must not swap the items out from under the players already in it.
+                    // A newcomer inherits the match set, seeded from the proposer's book.
                     seedLoadout(p, sharedLoadout(session));
                 }
                 built.add(p);
@@ -1714,15 +1484,11 @@ public final class SessionManager {
     /**
      * Writes {@code seed} onto a participant that has no loadout yet.
      *
-     * <p>There is exactly one set per match, so the seed is never "this player's own saved
-     * loadout" except for the very first participant: the proposer's book becomes the match's set,
-     * and every player invited afterwards is seeded from that set instead of from their own book.
-     * Handing each side its own kit is what used to make "his sword has Sharpness and mine does
-     * not" possible in a duel that was supposed to be symmetric.</p>
+     * <p>The proposer's book becomes the match's set, and every later participant is seeded from
+     * that set rather than from their own book.
      *
-     * <p><b>Only for newcomers.</b> This seeds a participant that has never existed; a rebuild of
-     * the roster must carry the existing record's loadout over instead, because the panel's loadout
-     * editor writes into the participant and not into this book — see {@link #submitRoster}.</p>
+     * <p>Only for newcomers. A roster rebuild must carry the existing record's loadout over; see
+     * {@link #submitRoster}.
      */
     private void seedLoadout(Participant p, Loadout seed) {
         seed.autoAssignSlots();
@@ -1733,17 +1499,9 @@ public final class SessionManager {
     /**
      * The one set this match fights with.
      *
-     * <p>Both sides carry the same items, the same attributes and the same enchantments; the only
-     * thing that differs between them is the wool colour. That is not a rule any more — it used to
-     * be {@code d.loadoutScope} (每人独立 / 每队统一) and the switch was deleted, because a match
-     * with two different kits is not a duel, it is two players comparing their editors, and every
-     * report of "some of my weapon's attributes only showed up on his side" came from exactly that
-     * state being reachable.</p>
-     *
-     * <p>Derived from the participants rather than stored as a field: every write path copies the
-     * set onto every participant ({@link #adoptSharedLoadout}), so the first live copy <em>is</em>
-     * the set, and deriving it keeps a session written by an older build readable. The preset is
-     * the last resort, for a match that never configured anything.</p>
+     * <p>Both sides carry the same items, attributes and enchantments; only the wool colour
+     * differs. Derived from the first live participant, so a session written by an older build
+     * stays readable. The preset is the last resort.
      */
     private static Loadout sharedLoadout(DuelSession session) {
         for (Participant p : session.participants) {
@@ -1757,10 +1515,8 @@ public final class SessionManager {
     /**
      * Writes one set onto every participant still in the match, and returns it.
      *
-     * <p>Everyone, not just whoever pressed 保存. The copies are what the panels draw and what the
-     * consent digest is computed from, so a save that only touched the submitter's record left the
-     * other players looking at — and agreeing to — a document the round would not read. Keeping all
-     * copies identical is also what makes {@link #sharedLoadout} able to derive the set at all.</p>
+     * <p>The copies are what the panels draw and what the consent digest is computed from, so all
+     * of them stay identical.
      */
     private static Loadout adoptSharedLoadout(DuelSession session, Loadout loadout) {
         String encoded = loadout.encode();
@@ -1793,9 +1549,8 @@ public final class SessionManager {
     /**
      * Refuses a roster the rules cannot hold, before anything is frozen.
      *
-     * <p>Empty cards are not an error here — they are how the roster says "this side does not
-     * play". What is refused is a side that is over the size cap, and a roster that leaves fewer
-     * than two sides with anybody on them, because that is a match with nobody to fight.</p>
+     * <p>Empty cards are allowed: they are how the roster says "this side does not play". Refused
+     * are a side over the size cap and a roster with fewer than two occupied sides.
      */
     private boolean validateRoster(DuelSession session, DuelRules rules, ServerPlayer player) {
         int teamSize = rules.get("b.teamSize");
@@ -1821,7 +1576,9 @@ public final class SessionManager {
         return true;
     }
 
-    /** {@code "2+1"} — how many players each side brought, for the journal and the result line. */
+    /**
+     * How many players each side brought, such as {@code "2+1"}, for the journal and result line.
+     */
     private static String shapeOf(DuelSession session) {
         StringBuilder sb = new StringBuilder();
         for (int team = 0; team < session.teamCount; team++) {
@@ -1834,12 +1591,10 @@ public final class SessionManager {
     }
 
     /**
-     * {@code "2+0"} — how many of each side are still standing.
+     * {@code "2+0"}: how many of each side are still standing.
      *
-     * <p>Separate from {@link #shapeOf} because "how many players did each side bring" and "how many
-     * are left" are the same number only at the start of a round. A journal that logged the roster
-     * size as the survivor count said {@code alive: "2+2"} after two of the four had been killed,
-     * which is the one line somebody would read to work out why a round ended when it did.</p>
+     * <p>Separate from {@link #shapeOf}, since the roster size and the survivor count differ once
+     * the round is under way.
      */
     private static String survivorsOf(DuelSession session) {
         StringBuilder sb = new StringBuilder();
@@ -1871,11 +1626,9 @@ public final class SessionManager {
         return sb.toString();
     }
 
-    /** Sends (or re-sends) the panel to a player. Used by the packet path and by /pvpocket review. */
+    /** Sends the panel to a player, from the packet path or from /pvpocket review. */
     private void openPanel(ServerPlayer player, DuelSession session, int role) {
-        // The tally on the panel is "how many have pressed Accept", not "how many have agreed to the
-        // loadout": with three or more players the second number is always zero until the last
-        // person answers, so showing it would tell everybody the negotiation is going nowhere.
+        // The tally is "how many have pressed Accept", not "how many agreed to the loadout".
         int agreed = acceptedCount(session);
         PvPocketNetworking.openRules(player, new RulesOpenPayload(
                 session.id,
@@ -1887,13 +1640,9 @@ public final class SessionManager {
                         loadoutCounts(session),
                         agreed,
                         liveCount(session),
-                        // Recomputed on every open, not cached: a map frees up the moment the other
-                        // duel ends, and a stale "in use" is a map nobody can pick until they
-                        // reopen the panel.
+                        // Recomputed on every open: a map frees up when the other duel ends.
                         ArenaManager.busyMapMask(session.id),
-                        // Only the draft can edit the roster, so only the draft needs the candidate
-                        // list. Sending it to a reviewer — or to a proposer who has already sent the
-                        // invite — would be four hundred bytes of names they cannot act on.
+                        // Only the draft edits the roster, so only it gets the candidate list.
                         role == RulesOpenPayload.ROLE_DRAFT
                                 ? candidates(player)
                                 : "")));
@@ -1902,12 +1651,8 @@ public final class SessionManager {
     /**
      * Players this proposer could add to a card right now, as {@code "name|uuid"} pairs.
      *
-     * <p>Filtered server-side because only the server knows who is already in a duel, already has an
-     * invite waiting, or is watching rather than playing. A picker that offers a name and then
-     * refuses it is worse than a picker that never offered it.</p>
-     *
-     * <p>Ordered by name so the list does not reshuffle between two opens, and capped by the caller
-     * through {@code b.maxPlayers} rather than here: this is the pool, not the roster.</p>
+     * <p>Filtered server-side, since only the server knows who is in a duel or has an invite
+     * waiting. Ordered by name, and capped by the caller through {@code b.maxPlayers}.
      */
     private String candidates(ServerPlayer reader) {
         List<String> out = new ArrayList<>();
@@ -1928,27 +1673,14 @@ public final class SessionManager {
     }
 
     /**
-     * {@code Dev1|uuid:8:0:1} — item count, side and answer state, one record per participant.
+     * {@code Dev1|uuid:8:0:1} - item count, side and answer state, one record per participant.
      *
-     * <p>Every participant's count is shown, not just the reader's: the loadout is part of what is
-     * being agreed to, so "what am I agreeing to" has to include what the other side is bringing.
-     * The panel pairs this with the agreement counter, which is what turns a silent veto into a
-     * visible one — a player who changed their loadout and broke everyone else's consent can see the
-     * count drop back to 0/2.</p>
+     * <p>The fourth field is the answer state: {@code 0} has not answered, {@code 1} accepted the
+     * current revision, {@code 2} declined.
      *
-     * <p>The side index is the third field because the panel is the only place a roster can be
-     * checked. It used to be re-dealt round-robin from a rule; it is now whatever the proposer drew,
-     * and without this field the cards on the review panel would have nothing to draw from.</p>
-     *
-     * <p>The fourth field is the answer state — {@code 0} has not answered, {@code 1} accepted the
-     * current revision, {@code 2} declined. It rides here rather than in a field of its own because
-     * the panel already walks this list to draw the cards, and a second list would be a second thing
-     * that can disagree with the first.</p>
-     *
-     * <p>Encoded rather than formatted because the reader's language is not known here. Player names
-     * cannot contain {@code :}, {@code ,} or {@code |}, so the format is unambiguous without
-     * escaping. The uuid rides along because the proposer has to send the roster back: the cards are
-     * rebuilt from this list, and a name is not something the server can resolve to an account.</p>
+     * <p>Encoded rather than formatted because the reader's language is not known here. Player
+     * names cannot contain {@code :}, {@code ,} or {@code |}, so the format needs no escaping. The
+     * uuid rides along because the proposer sends the roster back and a name cannot be resolved.
      */
     private static String loadoutCounts(DuelSession session) {
         StringBuilder sb = new StringBuilder();
@@ -1968,9 +1700,8 @@ public final class SessionManager {
     /**
      * One fingerprint over everybody's loadout, order-independent.
      *
-     * <p>Sorted by uuid because {@code participants} order is a list position, not a fact: two
-     * sessions with the same loadouts must produce the same digest regardless of who was added
-     * first, otherwise the value is not comparable across the two sides' panels.</p>
+     * <p>Sorted by uuid, so two sessions with the same loadouts produce the same digest whatever
+     * order the participants were added in.
      */
     private static String combinedLoadoutDigest(DuelSession session) {
         StringBuilder sb = new StringBuilder();
@@ -1985,9 +1716,7 @@ public final class SessionManager {
     /**
      * True when every participant who has answered also accepted the loadout as it stands.
      *
-     * <p>Silent about players who have not answered yet — that is {@link #allResponded}'s job, and
-     * keeping the two questions apart is what lets the panel say "you agreed, waiting for the other
-     * two" instead of blaming the loadout for a consent that simply has not arrived.</p>
+     * <p>Silent about players who have not answered yet; that is {@link #allResponded}'s job.
      */
     private static boolean allLoadoutsAgreed(DuelSession session) {
         String combined = combinedLoadoutDigest(session);
@@ -2005,15 +1734,11 @@ public final class SessionManager {
     /**
      * Invalidates the negotiation after somebody changed their loadout.
      *
-     * <p>The locked rule is "修改后重新向对方征求意见", and the loadout is part of what was proposed.
-     * So a change drops the session back to DRAFT and hands the pen back to whoever changed it: their
-     * panel comes back in proposer mode, everyone else's comes back in reviewer mode, and the next
-     * 发送征询 is what re-establishes consent.</p>
+     * <p>A change drops the session back to {@link SessionStage#DRAFT} and gives the pen back to
+     * whoever changed it: their panel reopens as proposer, everyone else's as reviewer.
      *
      * <p>{@code before} is the combined fingerprint from just before the edit. A save that produced
-     * the same fingerprint has not changed the terms — a player who opened the editor, changed
-     * nothing and pressed save would otherwise watch both panels flicker and the agreement counter
-     * drop to zero for no reason, which teaches people to ignore the one signal that matters.</p>
+     * the same fingerprint changed nothing, so the session is left alone.
      */
     private void noteLoadoutChanged(DuelSession session, Participant changed, String before) {
         String after = combinedLoadoutDigest(session);
@@ -2022,9 +1747,7 @@ public final class SessionManager {
             return;
         }
         if (session.stage == SessionStage.DRAFT) {
-            // Nothing has been sent yet, so there is no consent to invalidate. The author is kept
-            // unless the session has none: the target can open their own loadout editor before the
-            // first proposal, and that must not make them the proposer.
+            // Nothing has been sent yet, so there is no consent to invalidate.
             if (session.awaitingUuid == null) {
                 session.awaitingUuid = changed.uuid;
             }
@@ -2065,15 +1788,8 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.rules.none_pending");
             return;
         }
-        // A draft belongs to exactly one player and is always theirs to edit: there is no reviewer
-        // in it. Getting this wrong is what made a crashed draft unrecoverable — the proposer was
-        // handed a reviewer panel whose only options are accept / reject / re-propose, and none of
-        // those can touch a roster that was never sent. Rejecting marked the proposer rejected
-        // inside their own draft, and nothing in the draft stage ever settles that mark.
-        //
-        // Past the draft the "proposer" is whoever authored the revision on the table, not whoever
-        // is being waited on: the pen passes when somebody edits and re-sends, and the panel has to
-        // follow the pen.
+        // A draft belongs to one player and has no reviewer. Past the draft the "proposer" is
+        // whoever authored the revision on the table, not whoever is being waited on.
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_DRAFT
                 : player.getStringUUID().equals(session.rulesAuthor)
@@ -2088,9 +1804,8 @@ public final class SessionManager {
     /**
      * Handles one panel outcome.
      *
-     * <p>Every branch re-derives permission from the session record. The client tells us what it
-     * wants to do, never whether it is allowed to: only the player the session is waiting on may
-     * act, and only the author of the current revision may replace it.</p>
+     * <p>Every branch re-derives permission from the session record: only the player the session is
+     * waiting on may act, and only the author of the current revision may replace it.
      */
     public void onRulesSubmit(ServerPlayer player, int action, String encoded,
                               String encodedRoster) {
@@ -2110,12 +1825,8 @@ public final class SessionManager {
                 closePanels(session);
                 return;
             }
-            // Past the draft, closing the panel is not "nothing happened". A reviewer who walks
-            // away leaves everybody else waiting for an answer that will never come, and
-            // allResponded never turns true — the match simply stops existing without saying so.
-            // Their silence is recorded as a refusal so the session can settle. The author of the
-            // revision on the table is left alone: their yes is already on the record, and all
-            // they have to do to get the panel back is /pvpocket review.
+            // Past the draft, walking away leaves everybody waiting, so it is recorded as a
+            // refusal. The author of the revision on the table is left alone.
             if (session.stage == SessionStage.NEGOTIATING && !uuid.equals(session.rulesAuthor)) {
                 Participant me = session.participant(uuid);
                 if (me != null && !me.rejected) {
@@ -2136,19 +1847,15 @@ public final class SessionManager {
         }
 
         if (action == RulesSubmitPayload.ACTION_REJECT) {
-            // Refusing is not the same as cancelling any more. With an explicit roster a refusal
-            // takes that player out and the rest of the invite carries on: four invited, one
-            // declines, and the remaining three can still play as a 2v1. The match is only voided
-            // when what is left cannot field two sides.
+            // A refusal takes that player out; the rest of the invite carries on. The match is
+            // voided only when what is left cannot field two sides.
             Participant me = session.participant(uuid);
             if (me == null) {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
             if (session.stage == SessionStage.DRAFT) {
-                // In a draft there is nobody to refuse: the only person in it is the proposer, so
-                // this is a cancel wearing the wrong label. Marking them rejected instead left a
-                // draft that could never be sent and never be answered — a permanent lock.
+                // In a draft the only member is the proposer, so this is a cancel.
                 journal(session).append("SESSION_DROPPED", "stage", "DRAFT", "reason", "REJECTED");
                 session.voidReason = "PROPOSER_REJECTED";
                 transition(session, SessionStage.VOIDED);
@@ -2177,27 +1884,19 @@ public final class SessionManager {
                 return;
             }
             if (me.rejected && session.stage != SessionStage.DRAFT) {
-                // A draft rebuilds the participant list from the roster on every send, so a refusal
-                // recorded against the old list cannot outlive it. Refusing here instead would let
-                // one bad click lock a draft that nobody else can see or release.
+                // A draft rebuilds the participant list on every send, so an old refusal is gone.
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
             DuelRules proposed = DuelRules.decode(encoded);
             List<String> changed = DuelRules.decode(session.rules).differences(proposed);
-            // Two different meanings, told apart by the stage. In DRAFT the proposer is still
-            // building the invite and this is "send it"; in NEGOTIATING the roster is frozen and
-            // this is "I changed the terms, ask again".
+            // In DRAFT this is "send it"; in NEGOTIATING the roster is frozen and this is "ask
+            // again with the new terms".
             if (session.stage == SessionStage.DRAFT) {
-                // Validated against the rules that were just sent, not against the defaults the
-                // draft opened with: a player who drops "每队人数" to 2 while three names sit on a
-                // card has to be told so here, instead of being let into a match its own rules say
-                // cannot exist.
+                // Validated against the rules just sent, not against the defaults the draft
+                // opened with.
                 if (!submitRoster(session, player, encodedRoster, proposed)) {
-                    // Deliberately no reopen: the client keeps its draft panel up after sending, so
-                    // the cards are still on screen and the refusal is a chat line next to them.
-                    // Re-sending a panel here would rebuild the cards from the session — which was
-                    // not touched — and wipe the roster the player was halfway through fixing.
+                    // No reopen: the client keeps its draft panel up, so the cards stay put.
                     return;
                 }
                 me = session.participant(uuid);
@@ -2212,9 +1911,7 @@ public final class SessionManager {
                     "digest", session.rulesDigest,
                     "teams", session.teamCount,
                     "changed", String.join(",", changed));
-            // Proposing is also agreeing: the proposer is looking at this exact loadout set and
-            // pressing send. Recording it here means a 1v1 needs no separate consent step from the
-            // proposer, while a change by either side still invalidates it via the digest.
+            // Proposing is also agreeing: the proposer is looking at this exact loadout set.
             me.acceptedRevision = session.rulesRevision;
             me.agreedLoadoutDigest = combinedLoadoutDigest(session);
             journal(session).append("LOADOUT_AGREED", "player", me.name,
@@ -2247,9 +1944,7 @@ public final class SessionManager {
                         .withStyle(ChatFormatting.DARK_GRAY), false);
                 openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
             }
-            // A re-proposal invalidates every earlier yes, so the proposer's own panel has to come
-            // back with the new revision on it — otherwise the number in the corner keeps claiming
-            // a version nobody is looking at.
+            // A re-proposal invalidates every earlier yes, so the proposer's panel is re-sent.
             openPanel(player, session, RulesOpenPayload.ROLE_PROPOSER);
             return;
         }
@@ -2264,17 +1959,8 @@ public final class SessionManager {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
-            // Accepting is agreeing to the rules *and* to everybody's loadout as they stand. Both
-            // agreements are recorded per participant: with three or more sides there is no single
-            // "the other party" to hand the pen to, so the session starts when every participant has
-            // said yes to the current revision — and a re-proposal bumps the revision, which
-            // invalidates all earlier yeses by construction rather than by bookkeeping.
-            //
-            // The rules carried by an ACCEPT are deliberately not applied: the revision on the table
-            // is what is being agreed to. A client with unsent edits therefore has to send PROPOSE
-            // instead, and the panel refuses to let it send ACCEPT in that state — this branch only
-            // sees the case of an older or hand-built client, and records it so the dropped edit is
-            // visible afterwards instead of leaving no trace at all.
+            // Accepting agrees to the rules and to everybody's loadout as they stand. The rules an
+            // ACCEPT carries are not applied, so a client with unsent edits has to send PROPOSE.
             if (encoded != null && !encoded.isEmpty() && !encoded.equals(session.rules)) {
                 journal(session).append("RULES_ACCEPT_DROPPED_EDITS", "player", me.name,
                         "revision", session.rulesRevision);
@@ -2287,12 +1973,8 @@ public final class SessionManager {
             journal(session).append("LOADOUT_AGREED", "player", me.name,
                     "combined", me.agreedLoadoutDigest);
             persist(session);
-            // Consent is checked before the loadout, not after. They look like the same question —
-            // both are "has everybody said yes to what is on the table" — but a player who has not
-            // answered yet is missing from both, and asking about the loadout first reported the
-            // absence as "还有 N 人没同意当前配装" to somebody whose only real problem was that the
-            // other players had not clicked yet. That sentence sends them to the loadout editor,
-            // which is the one place the problem is not.
+            // Consent is checked before the loadout, so an unanswered invite is not reported as a
+            // loadout disagreement.
             if (!allResponded(session)) {
                 int agreed = acceptedCount(session);
                 player.displayClientMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
@@ -2305,8 +1987,7 @@ public final class SessionManager {
                 return;
             }
             if (!allLoadoutsAgreed(session)) {
-                // Reachable only if a loadout changed after everybody had already said yes. The
-                // invalidation path normally prevents it, so this is a guard, not a route.
+                // Reachable only if a loadout changed after everybody had already said yes.
                 fail(player, "pvpocket.msg.rules.loadout_not_all_agreed");
                 openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
                 return;
@@ -2327,10 +2008,10 @@ public final class SessionManager {
     }
 
     /**
-     * Everybody has answered — accepted the current revision, or declined.
+     * Everybody has answered: accepted the current revision, or declined.
      *
-     * <p>Not "everybody accepted": a decline is an answer, and a negotiation that waits forever for
-     * a player who has already said no is a negotiation nobody can get out of.</p>
+     * <p>Not "everybody accepted". A decline is an answer, and a negotiation cannot wait for a
+     * player who has already said no.
      */
     private static boolean allResponded(DuelSession session) {
         for (Participant p : session.participants) {
@@ -2341,7 +2022,7 @@ public final class SessionManager {
         return true;
     }
 
-    /** Participants still in the match — declined invites excluded. */
+    /** Participants still in the match, with declined invites excluded. */
     private static int liveCount(DuelSession session) {
         int count = 0;
         for (Participant p : session.participants) {
@@ -2359,10 +2040,8 @@ public final class SessionManager {
     /**
      * Starts the match, or ends the invite because what is left cannot field two sides.
      *
-     * <p>The rule this encodes: everybody must have answered, and what remains must still be at
-     * least two sides with somebody on them. Sides need not be the same size — a 2v1 after one
-     * refusal out of four is a match, not an error. Two acceptances that both landed on the same
-     * side are not.</p>
+     * <p>Everybody must have answered, and what remains must be at least two sides with somebody on
+     * them. Sides need not be the same size: a 2v1 after one refusal out of four is a match.
      */
     private void settleNegotiation(DuelSession session, ServerPlayer actor) {
         if (session.stage != SessionStage.NEGOTIATING) {
@@ -2395,13 +2074,8 @@ public final class SessionManager {
     /**
      * A player left while the invite was still being negotiated.
      *
-     * <p>Recorded as a refusal rather than as a cancellation, for the same reason a refusal is: the
-     * rest of the roster may still be able to field two sides. The alternative is that everybody
-     * else sits in front of a panel waiting for an answer from somebody who has already closed the
-     * game, which is a hang with no visible cause on any screen.</p>
-     *
-     * <p>Unlike a deliberate refusal this one is not announced as "X declined" — nobody chose
-     * anything, they lost their connection — so the line says so.</p>
+     * <p>Recorded as a refusal, since the rest of the roster may still field two sides. The line is
+     * worded differently from a deliberate refusal, because nobody chose anything.
      */
     private void dropNegotiator(DuelSession session, String uuid) {
         if (session.stage != SessionStage.NEGOTIATING) {
@@ -2442,33 +2116,26 @@ public final class SessionManager {
             fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
         }
-        // A reset re-stamps one map per tick. Leasing a cell mid-rebuild would race the stamp: the
-        // warm-up skips cells that are leased, so the duel would work, but it would do so on a
-        // gallery that is still half-empty and against a lease taken before the map was re-pasted.
+        // A reset re-stamps one map per tick, and a lease taken mid-rebuild would race the stamp.
         if (ArenaManager.warmUpPending()) {
             fail(accepter, "pvpocket.msg.rules.arena_rebuilding");
             return;
         }
-        // Checked again here rather than trusting the caller: accepting agrees to the rules and to
-        // everyone's loadout, but "everyone agreed" is not a property of the caller — the other side
-        // may have edited their loadout between the proposal and this click.
+        // Checked again here rather than trusting the caller: the other side may have edited their
+        // loadout between the proposal and this click.
         if (!allLoadoutsAgreed(session)) {
             fail(accepter, "pvpocket.msg.rules.loadout_not_all_agreed");
             return;
         }
-        // The lease is taken before anything is frozen. A full grid must fail while the session is
-        // still in NEGOTIATING — after the snapshot the only honest outcome would be a rollback of
-        // two inventories for a reason that had nothing to do with the players.
+        // The lease is taken before anything is frozen, so a full grid fails while still
+        // NEGOTIATING.
         DuelRules rules = DuelRules.decode(session.rules);
         if (!validateRoster(session, rules, accepter)) {
             return;
         }
         int mapIndex = rules.get("e.template");
-        // Checked here as well as in the panel. The panel is a hint — it greys out maps that were
-        // taken when it was opened, and the player may have been looking at it for a minute while
-        // somebody else started a duel on the map they picked. Two duels on one map is not a
-        // cosmetic problem: they would be two copies of the same terrain, and a player told "the
-        // colosseum" has no way to know which one they were sent to.
+        // Checked here as well as in the panel, which may have been open for a minute while
+        // somebody else took the map.
         if (ArenaManager.isMapBusy(mapIndex, session.id)) {
             fail(accepter, "pvpocket.msg.rules.map_busy",
                     ArenaMaps.byIndex(mapIndex).labelText());
@@ -2497,18 +2164,13 @@ public final class SessionManager {
         journal(session).append("RULES_ACCEPTED",
                 "revision", session.rulesRevision,
                 "author", session.rulesAuthor,
-                // Null when the start was triggered by somebody leaving rather than by a click —
-                // the last answer was already on the record in that case.
+                // Null when somebody leaving triggered the start rather than a click.
                 "acceptedBy", accepter == null ? "(auto)" : accepter.getName().getString(),
                 "digest", session.rulesDigest,
-                // The ids that differ from the catalog defaults, spelled out. The encoded string is
-                // also here, but reading it back means decoding thirty-eight pairs by hand, and the
-                // question somebody actually asks of this file is "what was unusual about this
-                // match" — which is a list of three ids, not a wall of defaults.
+                // The ids that differ from the catalog defaults; the encoded string is not
+                // readable by hand.
                 "changed", changedFromDefaults(rules),
-                // Values the normalisation had to move on the way in. Empty in every ordinary
-                // match; non-empty means the rule set a player agreed to is not the one about to
-                // run, which is otherwise invisible (the digest hashes what was stored).
+                // Values normalisation had to move on the way in. Empty in an ordinary match.
                 "clamped", rules.clampedValues(),
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
@@ -2517,42 +2179,21 @@ public final class SessionManager {
     }
 
     /**
-     * Freezes and starts the first round — but only once every participant is actually standing.
+     * Freezes and starts the first round, once every participant is alive and online.
      *
-     * <p>Accepting a duel at the moment you die in the overworld used to throw straight out of the
-     * network handler. The participant's entity had already been discarded by the death itself,
-     * {@code setHealth} cannot revive a corpse, so {@link #startRound} threw "cannot revive
-     * participant" and the series was voided. The abort that followed then restored the snapshot
-     * onto that same discarded entity and marked the participant restored — so the player kept
-     * neither their items nor a match, which is the "half in a duel, still in the overworld"
-     * state.</p>
+     * <p>A dead or absent participant is waited for rather than refused. Only an offline
+     * participant, or one who stays dead past {@link #START_WAIT_TICKS}, voids the series.
      *
-     * <p>So the start waits instead of throwing. A dead participant is not a failure: they are
-     * looking at a death screen and will click respawn, usually within a second or two. Only an
-     * offline participant, or one who stays dead past {@link #START_WAIT_TICKS}, voids the series.</p>
-     *
-     * <p>Waiting happens <em>before</em> {@link #freeze}, not after, and that ordering is the whole
-     * point: the snapshot must describe the player the round will actually start with. Freezing a
-     * corpse writes {@code Health: 0} and an empty inventory into the file that is later restored,
-     * so the match would start (and end) with the participant owning nothing.</p>
-     *
-     * <p>Note that a death in 1.21.1 also removes the entity: the {@code ServerPlayer} is discarded
-     * when it dies and only replaced on respawn, so "dead" arrives here as both
-     * {@code !isAlive()} and {@code isRemoved()}. Anything that writes state has to wait for the
-     * respawn, which is why {@link #restoreParticipant} and {@link #flushPendingRestores} test
-     * {@code isAlive()} instead of trusting the player list.</p>
+     * <p>The wait happens before {@link #freeze}, so the snapshot describes the player the round
+     * starts with. A death in 1.21.1 also discards the entity, so "dead" arrives as both
+     * {@code !isAlive()} and {@code isRemoved()}.
      */
     private void beginStart(DuelSession session, int waited) {
         if (session.stage != SessionStage.NEGOTIATING) {
-            return;   // voided or forfeited while we were waiting
+            return;   // voided or forfeited during the wait
         }
-        // "Not standing yet" has three shapes and they are not interchangeable. Only one of them is
-        // something the player can fix, and only that one deserves a long wait.
-        //
-        // The order of the tests matters: in 1.21.1 a dead player is *also* removed — the entity is
-        // discarded at death and only replaced when the player respawns, so the PlayerList entry
-        // outlives the entity it points at. Testing isRemoved first would file every death under the
-        // short "replaced" grace and void the match a second after it began waiting.
+        // Three shapes, and only one is something the player can fix. A dead player is also removed
+        // in 1.21.1, so isRemoved is tested last.
         Participant blocked = null;
         ServerPlayer blockedPlayer = null;
         String reason = null;
@@ -2589,15 +2230,12 @@ public final class SessionManager {
         if (waited == 0) {
             journal(session).append("START_WAITING", "player", blocked.name, "reason", reason);
             if (!"PARTICIPANT_DEAD".equals(reason)) {
-                // Neither a disconnect nor a half-swapped entity is something the player can act on,
-                // so this goes to the log rather than to chat. The names on the server are the one
-                // piece of context that turns "somebody vanished" into a fact worth acting on.
+                // Not something the player can act on, so it goes to the log, not to chat.
                 PvPocket.LOGGER.warn("Session {} cannot start: {} is {} (online: {})", session.id,
                         blocked.name, reason, server.getPlayerList().getPlayers().stream()
                                 .map(p -> p.getGameProfile().getName()).toList());
             } else {
-                // Said once rather than once per tick: the player is on a death screen, and the one
-                // thing they need to know is that the duel is waiting for them and not broken.
+                // Said once: the player only needs to know the duel is waiting, not broken.
                 blockedPlayer.displayClientMessage(
                         PvLang.t("pvpocket.msg.duel.waiting_respawn")
                                 .withStyle(ChatFormatting.YELLOW), false);
@@ -2607,8 +2245,7 @@ public final class SessionManager {
         if (waited >= limit) {
             journal(session).append("SESSION_ABORTED", "reason", reason,
                     "player", blocked.name, "waited", waited);
-            // Say why. A voided match with no explanation reads as the mod losing the request, and
-            // the next thing the player does is try again — which works, and teaches them nothing.
+            // Say why: a voided match with no explanation reads as the mod losing the request.
             broadcastParticipants(session, PvLang.t("PARTICIPANT_DEAD".equals(reason)
                     ? "pvpocket.msg.duel.start_blocked_dead"
                     : "pvpocket.msg.duel.start_blocked_offline", blocked.name));
@@ -2619,13 +2256,10 @@ public final class SessionManager {
     }
 
     /**
-     * Forfeits the <em>whole series</em>, not the round.
+     * Forfeits the whole series, not the round.
      *
-     * <p>Surrender is the way out of a match you no longer want to be in, not a way to drop one
-     * round. Awarding a single round for it would leave the forfeiting player still in the series
-     * — free to surrender again next round — which is not what anybody means by giving up. The
-     * score is left untouched: nobody won this round, the series simply ends with the opponent as
-     * its winner.</p>
+     * <p>Surrender is the way out of a match, not a way to drop one round. The score is left
+     * untouched: nobody won this round, and the series ends with the opponent as its winner.
      */
     public void surrender(ServerPlayer player) {
         String sessionId = sessionByPlayer.get(player.getUUID());
@@ -2640,13 +2274,8 @@ public final class SessionManager {
             return;
         }
         if (session.pendingWinnerTeam >= 0) {
-            // The round is already decided and waiting for the loser to respawn. Settling again here
-            // would award a second round for the same death — and, worse, could hand the round to
-            // the player who just died.
-            //
-            // Keyed on the winning side, not on pendingWinner: a 2v2 that has lost one member has a
-            // pendingWinner (the dead player's respawn is being watched) but no decided round, and
-            // refusing the survivor's surrender there would trap them in a match they want out of.
+            // The round is already decided, so settling again would award a second round for one
+            // death. Keyed on the winning side, so a 2v2 survivor can still surrender.
             fail(player, "pvpocket.msg.duel.round_settled");
             return;
         }
@@ -2656,17 +2285,14 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        // Whoever is surrendering gives up for their whole side, so the series goes to the best
-        // other side. In a 1v1 that is simply "the opponent"; with three or four sides it is
-        // "whoever is ahead of the rest", because a side that quits cannot hand the match to the
-        // side it was beating.
+        // A surrender gives up for the whole side, so the series goes to the best other side.
         forfeit(session, player, leaderTeam(session, me == null ? -1 : me.teamIndex()));
     }
 
     /**
      * Ends the series by forfeit: the surrendering side loses, {@code winnerTeam} takes the series.
      *
-     * <p>Works from {@code ROUND_READY} as well as {@code ROUND_ACTIVE} — a player who wants out
+     * <p>Works from {@code ROUND_READY} as well as {@code ROUND_ACTIVE}: a player who wants out
      * should not have to sit through the intermission and start another round to say so.</p>
      */
     private void forfeit(DuelSession session, ServerPlayer player, int winnerTeam) {
@@ -2677,15 +2303,10 @@ public final class SessionManager {
                 "round", session.round,
                 "stage", session.stage.name());
         if (session.stage == SessionStage.ROUND_ACTIVE) {
-            // winner=null on purpose: the round has no winner, the series does.
+            // The round is logged with no winner; the series has one.
             journal(session).append("ROUND_ENDED",
                     "round", session.round, "reason", "SURRENDER", "winner", null);
-            // The round goes into the log as well, with no winner, and this is not bookkeeping for
-            // its own sake: the log is what {@link #recordSeries} counts, and it refuses a series
-            // with no settled round. Surrender used to write its own ROUND_ENDED and skip the log,
-            // so a forfeited series reached recordSeries empty and was dropped — the match never
-            // appeared in the player's stats or history at all, while the journal showed it ending
-            // normally. Logged before the start time is dropped, same as {@link #settle}.
+            // Logged with no winner, since recordSeries refuses a series with no settled round.
             long startedAt = roundStartedAt.getOrDefault(session.id, System.currentTimeMillis());
             session.roundLog.add(new DuelSession.RoundLog(-1, "SURRENDER",
                     Math.max(0L, System.currentTimeMillis() - startedAt)));
@@ -2713,17 +2334,15 @@ public final class SessionManager {
     /** Copies a rule set onto the session and refreshes the derived fields plus the fingerprint. */
     private static void applyRulesToSession(DuelSession session, DuelRules rules) {
         session.mode = rules.get("c.mode") == 1 ? CombatMode.LEGACY_1_8.id() : CombatMode.MODERN.id();
-        // The two series numbers are clamped against each other here rather than in the panel,
-        // because this is the one place every path goes through: "win 4 of at most 3" is a state the
-        // sliders can sit in, and a session that stores it can never end on the win count and never
-        // ends on the cap either.
+        // The two series numbers are clamped against each other here, the one place every path
+        // goes through: "win 4 of at most 3" is a state the sliders can sit in.
         session.maxRounds = Math.max(1, rules.get("a.maxRounds"));
         session.winsNeeded = Math.max(1, Math.min(session.maxRounds, rules.get("a.winsNeeded")));
         session.rules = rules.encode();
         session.rulesDigest = rules.digest();
     }
 
-    /** True once the series can no longer be extended: somebody reached the target, or the cap is hit. */
+    /** True once the series is decided: somebody reached the target, or the round cap is hit. */
     private static boolean seriesDecided(DuelSession session) {
         if (session.round >= Math.max(1, session.maxRounds)) {
             return true;
@@ -2740,13 +2359,7 @@ public final class SessionManager {
         String id = uuid.toString();
         for (DuelSession session : sessions.values()) {
             if (session.stage == SessionStage.DRAFT || session.stage == SessionStage.NEGOTIATING) {
-                // Only a session this player is still *in*. A refusal — deliberate, or a drop
-                // recorded as one — takes them off the roster, and a session they have already
-                // been removed from is not something they can answer, cancel, or re-propose. It
-                // used to count anyway, which left the one player who could not act on it blocked
-                // by it: /pvpocket duel said "you already have a pending invite" and every action
-                // inside said "nothing is pending". The session still resolves on its own for the
-                // people who are left; it just no longer holds the leaver hostage.
+                // Only a session this player is still in: a refusal takes them off the roster.
                 Participant p = session.participant(id);
                 if (p != null && !p.rejected) {
                     return session;
@@ -2759,14 +2372,8 @@ public final class SessionManager {
     /**
      * Everybody on the other side, comma-separated, or an empty string when there is nobody else.
      *
-     * <p>All of them, not the first one: a 2v2 panel that names one opponent reads as a 1v1 panel,
-     * and the reader has no way to tell whether the second name is missing because it does not exist
-     * or because the field only holds one. The client truncates with an ellipsis if the list is too
-     * long for the subtitle, which is a better failure than silently dropping a side.</p>
-     *
-     * <p>Empty rather than a word: the callers are a payload and two panel subtitles, and the word
-     * for "opponent" is language-specific. The client substitutes its own term when the field is
-     * blank, which is the only place the reader's language is known.</p>
+     * <p>Empty rather than a word: the word for "opponent" is language-specific, and the client
+     * substitutes its own term when the field is blank.
      */
     private static String otherName(DuelSession session, String uuid) {
         StringBuilder sb = new StringBuilder();
@@ -2801,31 +2408,23 @@ public final class SessionManager {
     /**
      * Opens the loadout editor, either for an open session or for the player's own saved loadout.
      *
-     * <p>Deliberately reachable from both sides and from either stage: a player who is proposing
-     * configures their loadout before sending, and a player who is reviewing configures it before
-     * accepting. It is the same screen either way, which is the point.</p>
+     * <p>Reachable from either stage: a proposer configures before sending, a reviewer before
+     * accepting.
      *
-     * <p>With no open session it opens the <em>personal</em> loadout instead of refusing. The request
-     * was explicitly "configure before sending the request", and refusing there would mean the only
-     * way to prepare is to challenge somebody first — which is backwards, and would also send a
-     * challenge carrying a loadout nobody picked. The personal variant is marked by an empty session
-     * id, which is what tells the submit path to write to {@link LoadoutBook} rather than a
-     * participant.</p>
+     * <p>With no open session it opens the personal loadout, marked by an empty session id, which
+     * tells the submit path to write to {@link LoadoutBook} rather than a participant.
      */
     public void onLoadoutRequest(ServerPlayer player) {
         DuelSession session = findOpenSession(player.getUUID());
         if (session == null) {
-            // d.allowSwapBetweenRounds. The series is running, so the editor is still the right
-            // screen — what changes is where the result goes (a pending slot, not the live loadout).
+            // d.allowSwapBetweenRounds: the result goes to a pending slot, not the live loadout.
             DuelSession series = seriesSessionOf(player.getUUID());
             if (series != null) {
                 if (series.rulebook().allowSwapBetweenRounds()) {
                     openSeriesEditor(player, series);
                     return;
                 }
-                // Falling through to the personal loadout is the old behaviour, but doing it in
-                // silence would leave a player believing they had just changed what they fight
-                // with. The rule is off; say so.
+                // The rule is off, so the personal loadout opens and the refusal is said aloud.
                 player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_locked")
                         .withStyle(ChatFormatting.GRAY), false);
             }
@@ -2842,9 +2441,7 @@ public final class SessionManager {
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
-        // The panel draws the match's one set, whoever opened it. It used to draw this player's own
-        // copy, which is how two players could look at the same "agreed" loadout and see different
-        // items — and how an edit made by the second player landed on a document the round ignored.
+        // The panel draws the match's one set, whoever opened it.
         String encoded = sharedLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                 session.id, encoded, role, otherName(session, player.getStringUUID())));
@@ -2853,17 +2450,11 @@ public final class SessionManager {
     /**
      * Stores a loadout submitted by a client, after re-validating it.
      *
-     * <p>The client runs the same validation to keep its save button honest, but a client is not a
-     * source of truth: this is the pass that actually decides whether a loadout becomes items. A
-     * rejected loadout leaves the previous one untouched rather than half-applying.</p>
+     * <p>The client runs the same validation, but this is the pass that decides whether a loadout
+     * becomes items. A rejected loadout leaves the previous one untouched.
      *
-     * <p><b>Either entry point writes both places.</b> An empty session id means "the personal
-     * loadout": it is saved to the book and, if the player happens to be in a session that has not
-     * started, mirrored onto their participant. A non-empty one is the panel opened from a duel, and
-     * that path writes the book as well — the two used to be separate, which made the difference
-     * between them invisible and made every 禁止丢弃 switch flipped during a negotiation come back at
-     * the next invite. There is one loadout per player; the session merely holds the copy that was
-     * agreed to.</p>
+     * <p>An empty session id means the personal loadout: it is saved to the book and mirrored onto
+     * the participant if the session has not started. A non-empty id writes the book as well.
      */
     public void onLoadoutSubmit(ServerPlayer player, String sessionId, String encoded) {
         if (sessionId == null || sessionId.isEmpty()) {
@@ -2872,10 +2463,7 @@ public final class SessionManager {
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage.isTerminal()) {
-            // Recorded, not just said in chat. "My edit did nothing" is the report this whole path
-            // keeps generating, and until now a refusal left no trace at all: the journal had a
-            // LOADOUT_SAVED for every save that worked and silence for every one that did not, so a
-            // refused save was indistinguishable from a client that never pressed the button.
+            // Recorded, not just said in chat, so a refused save leaves a trace.
             rejectSubmit(session, player, "session_gone", sessionId);
             fail(player, "pvpocket.msg.loadout.ended");
             return;
@@ -2886,8 +2474,7 @@ public final class SessionManager {
             return;
         }
         if (!session.stage.isPreFreeze()) {
-            // d.allowSwapBetweenRounds: the series is already running, so the loadout can still
-            // change but it cannot land on its own. See proposeLoadoutSwap.
+            // d.allowSwapBetweenRounds: the loadout can change but cannot land on its own.
             proposeLoadoutSwap(player, session, encoded);
             return;
         }
@@ -2904,15 +2491,9 @@ public final class SessionManager {
             return;
         }
         String before = combinedLoadoutDigest(session);
-        // One set per match: whoever presses 保存 writes the set everybody fights with. Writing only
-        // the submitter's participant is what made "some of the attributes only showed up on the
-        // initiator's side" possible — the other copies kept whatever they were seeded with, and the
-        // round then handed out two different kits inside one duel.
+        // One set per match: whoever saves writes the set everybody fights with.
         adoptSharedLoadout(session, loadout);
-        // The book is written too, so that "my loadout" means one thing wherever the panel was
-        // opened from. Saving only the participant made the editor's own subtitle ("与 X 的决斗")
-        // load-bearing in a way nothing on screen said: every switch flipped here came back the way
-        // it was at the next invite, because seedLoadout() re-reads this book.
+        // The book is written too, so the saved set means the same thing wherever the panel opened.
         loadouts.put(player.getUUID(), loadout);
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
@@ -2922,9 +2503,8 @@ public final class SessionManager {
                 "scope", "match");
         persist(session);
         noteLoadoutChanged(session, p, before);
-        // The stacks the players are already carrying were built from the previous loadout, so a
-        // 禁止丢弃 switch flipped just now has to be re-applied to them — see LoadoutLock.restamp.
-        // Everybody, because one save now describes all of their items.
+        // The stacks the players carry were built from the previous loadout, so the locks are
+        // re-applied to everybody.
         for (Participant target : session.participants) {
             if (target.rejected) {
                 continue;
@@ -2941,8 +2521,7 @@ public final class SessionManager {
                 .withStyle(ChatFormatting.GREEN), false);
         int players = liveCount(session);
         if (players > 1) {
-            // Only worth saying once there is somebody else: in a draft this is the proposer alone,
-            // and "every player in this match (1)" is a sentence about nothing.
+            // Only worth saying once there is somebody else: in a draft this is the proposer alone.
             player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.saved_match", players)
                     .withStyle(ChatFormatting.GOLD), false);
         }
@@ -2951,16 +2530,11 @@ public final class SessionManager {
     /**
      * A loadout change made after the series has started, held until everybody agrees to it.
      *
-     * <p>The loadout is part of what the two sides agreed to before the first round, so changing it
-     * afterwards is changing the terms. It is not forbidden — {@code d.allowSwapBetweenRounds}
-     * exists because a series where one side is hard-countered and has no answer is not a series —
-     * but it has to be re-agreed, which is the whole point of the rule's name.</p>
+     * <p>The loadout is part of what the sides agreed to before the first round, so a change is
+     * re-agreed. {@code d.allowSwapBetweenRounds} decides whether a change is offered at all.
      *
-     * <p>Stored as {@code pendingLoadout} rather than written over {@code loadout}: the change is
-     * not in effect until it is accepted, and the old loadout has to survive a refusal. Nothing has
-     * to be timed here either — the loadout is only written into an inventory at a round start, so
-     * "it lands at the next round boundary" is a consequence of where it is read, not a deadline
-     * anybody has to meet.</p>
+     * <p>Stored as {@code pendingLoadout} rather than written over {@code loadout}, so the old set
+     * survives a refusal. It lands in an inventory at the next round start.
      */
     private void proposeLoadoutSwap(ServerPlayer player, DuelSession session, String encoded) {
         String uuid = player.getStringUUID();
@@ -2986,8 +2560,7 @@ public final class SessionManager {
             return;
         }
         if (loadout.digest().equals(me.loadoutDigest)) {
-            // Nothing changed. Saying so beats bumping the revision and making the other side
-            // confirm a change that does not exist.
+            // Nothing changed, so the revision is not bumped.
             player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.swap_unchanged")
                     .withStyle(ChatFormatting.GRAY), false);
             return;
@@ -3017,7 +2590,7 @@ public final class SessionManager {
         }
     }
 
-    /** {@code /pvpocket loadout accept}: one player's yes to the change currently on the table. */
+    /** Command {@code /pvpocket loadout accept}: one player's yes to the change on the table. */
     public void acceptLoadoutSwap(ServerPlayer player) {
         DuelSession session = swapSessionOf(player);
         if (session == null) {
@@ -3038,7 +2611,7 @@ public final class SessionManager {
         commitLoadoutSwap(session, "LOADOUT_COMMITTED");
     }
 
-    /** {@code /pvpocket loadout decline}: the change is dropped and the old loadout stands. */
+    /** Command {@code /pvpocket loadout decline}: the change is dropped and the old set stands. */
     public void declineLoadoutSwap(ServerPlayer player) {
         DuelSession session = swapSessionOf(player);
         if (session == null) {
@@ -3046,9 +2619,8 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        // The table is reset rather than the revision rewound: every participant is marked as
-        // having agreed to a revision nobody proposed anything under, which is the same state as
-        // "no change pending" without having to remember what the previous revision was.
+        // The table is reset rather than the revision rewound: marking everyone as agreed to the
+        // current revision is the same state as "no change pending".
         clearLoadoutSwaps(session);
         journal(session).append("LOADOUT_SWAP_DECLINED", "player", me.name,
                 "revision", session.loadoutRevision);
@@ -3059,10 +2631,8 @@ public final class SessionManager {
     /**
      * The series this player is fighting, in the two stages where a loadout change means anything.
      *
-     * <p>{@code ROUND_READY} is the intermission and {@code ROUND_ACTIVE} the round itself. The
-     * proposal is accepted in either: the change only reaches an inventory at a round start, so
-     * there is nothing to be gained by refusing to take the note during a round, and a player who
-     * wants to think about it while fighting can.</p>
+     * <p>{@code ROUND_READY} is the intermission and {@code ROUND_ACTIVE} the round itself. A
+     * change is accepted in either, since it only reaches an inventory at a round start.
      */
     private DuelSession seriesSessionOf(UUID uuid) {
         String id = sessionByPlayer.get(uuid);
@@ -3080,8 +2650,7 @@ public final class SessionManager {
     /** Opens the loadout editor against a running series; see {@link #proposeLoadoutSwap}. */
     private void openSeriesEditor(ServerPlayer player, DuelSession session) {
         Participant p = session.participant(player.getStringUUID());
-        // The pending change if there is one, otherwise the match's set — not this player's copy,
-        // which is the same document only as long as adoptSharedLoadout has written it.
+        // The pending change if there is one, otherwise the match's set.
         String encoded = p.pendingLoadout != null
                 ? p.pendingLoadout
                 : sharedLoadout(session).encode();
@@ -3093,8 +2662,7 @@ public final class SessionManager {
     /**
      * The session a swap command may act on, or null.
      *
-     * <p>Deliberately not {@code findOpenSession}: that one only knows about drafts and
-     * negotiations, which is exactly the window a mid-series change is not in.</p>
+     * <p>Not {@code findOpenSession}, which only knows about drafts and negotiations.
      */
     private DuelSession swapSessionOf(ServerPlayer player) {        String id = sessionByPlayer.get(player.getUUID());
         DuelSession session = id == null ? null : sessions.get(id);
@@ -3143,10 +2711,7 @@ public final class SessionManager {
             }
         }
         if (pending != null) {
-            // The change is to the match's set, not to the proposer's copy. Only one participant can
-            // have a pending change (the one who opened the editor), and moving just that record
-            // would leave the other side holding the previous items — a duel with two kits, which
-            // is the thing this whole path exists to prevent.
+            // The change is to the match's set, not one copy, so both sides keep the same kit.
             adoptSharedLoadout(session, pending);
             for (Participant p : session.participants) {
                 if (p.rejected) {
@@ -3159,8 +2724,7 @@ public final class SessionManager {
         clearLoadoutSwaps(session);
         journal(session).append(reason, "revision", session.loadoutRevision, "round", session.round);
         persist(session);
-        // Says "from the next round", not "now": the inventory is re-granted at every round start,
-        // so a player reading "changed" while holding the old sword would go looking for a bug.
+        // Says "from the next round": the inventory is re-granted at every round start.
         broadcastParticipants(session, PvLang.t("pvpocket.msg.loadout.swap_done"));
     }
 
@@ -3181,7 +2745,7 @@ public final class SessionManager {
         }
     }
 
-    /** Saves a loadout to the player's book, and mirrors it onto any session that has not started. */
+    /** Saves a loadout to the player's book, and mirrors it onto any unstarted session. */
     private void submitPersonal(ServerPlayer player, String encoded) {
         Loadout loadout = Loadout.decode(encoded);
         List<Component> problems = loadout.validate();
@@ -3198,10 +2762,7 @@ public final class SessionManager {
             Participant p = session.participant(player.getStringUUID());
             if (p != null) {
                 String before = combinedLoadoutDigest(session);
-                // The same one-set-per-match write as onLoadoutSubmit: this entry point exists
-                // because the panel can be opened outside a duel, not because it means something
-                // different. A personal save during a negotiation that only touched this player's
-                // copy is how the two sides ended up entering with different items.
+                // The same one-set-per-match write as onLoadoutSubmit.
                 adoptSharedLoadout(session, loadout);
                 journal(session).append("LOADOUT_SAVED",
                         "player", p.name,
@@ -3223,16 +2784,10 @@ public final class SessionManager {
                 mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
         } else if (seriesSessionOf(player.getUUID()) != null) {
-            // A running series keeps the set it agreed to, so this save cannot reach the items in
-            // the player's hand. Saying so is not optional: the panel is the same one that edits a
-            // duel's loadout, and a player who flips 禁止丢弃 between rounds otherwise concludes the
-            // switch is broken — the sword stays locked for the rest of the match, and nothing on
-            // screen ever said why.
+            // A running series keeps its set, so this save cannot reach the held items.
             mirrored = PvLang.t("pvpocket.msg.loadout.series_locked");
         }
-        // Restamped against the loadout that will actually be granted, not the one just saved: a
-        // series that has already started keeps fighting with the loadout it agreed to, and marking
-        // the player's sword droppable against a document the round does not read would be a lie.
+        // Restamped against the loadout that will be granted, not the one just saved.
         LoadoutLock.restamp(player, loadoutFor(player));
         PvPocket.LOGGER.info("Personal loadout saved for {} ({} items, digest {})",
                 player.getName().getString(), loadout.size(), loadout.digest());
@@ -3244,18 +2799,14 @@ public final class SessionManager {
     /**
      * Clears a player's saved loadout, and mirrors the fallback onto any negotiation in progress.
      *
-     * <p>Lives here rather than in the command so the command cannot become a second way to edit a
-     * loadout without telling the session. A player who resets from the console while a negotiation
-     * is open would otherwise keep entering with the old items — exactly the state the consent
-     * digest exists to catch.</p>
+     * <p>Lives here so the command cannot become a second way to edit a loadout without telling the
+     * session.
      */
     public void resetPersonalLoadout(ServerPlayer player) {
         loadouts.clear(player.getUUID());
         DuelSession session = findOpenSession(player.getUUID());
         if (session == null || !session.stage.isPreFreeze()) {
-            // The cleared book no longer describes anything the player is holding, so the 禁止丢弃
-            // marks come off too — a reset that leaves the old lock in place is a reset that only
-            // half happened.
+            // The cleared book describes nothing held, so the locks come off too.
             LoadoutLock.restamp(player, loadoutFor(player));
             player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.reset_personal")
                     .withStyle(ChatFormatting.GREEN), false);
@@ -3267,8 +2818,7 @@ public final class SessionManager {
         }
         Loadout fallback = Loadout.defaultDuel();
         String before = combinedLoadoutDigest(session);
-        // Everyone, for the same reason a save writes everyone: the match has one set, and a reset
-        // that left the other players on the old one would be a match with two sets again.
+        // Everyone, for the same reason a save writes everyone: the match has one set.
         adoptSharedLoadout(session, fallback);
         journal(session).append("LOADOUT_RESET", "player", p.name, "digest", p.loadoutDigest);
         persist(session);
@@ -3290,9 +2840,8 @@ public final class SessionManager {
     /**
      * The loadout this player would enter with right now.
      *
-     * <p>Falls back to the player's saved loadout rather than returning null so that the diagnostic
-     * command and a first duel show the same thing — a null here would make "no loadout yet" look
-     * like "loadout support is broken".</p>
+     * <p>Falls back to the player's saved loadout rather than returning null, so the diagnostic
+     * command and a first duel show the same thing.
      */
     public Loadout loadoutFor(ServerPlayer player) {
         String uuid = player.getStringUUID();
@@ -3325,8 +2874,7 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        // Every opponent, not just one: "/pvpocket status" is the line people paste into chat when
-        // something is wrong, and in a 2v2 it has to say who the other three players are.
+        // Every opponent, not just one: "/pvpocket status" is what people paste into chat.
         String others = otherName(session, player.getStringUUID());
         player.displayClientMessage(PvLang.t("pvpocket.msg.status.line",
                         shortId(session.id),
@@ -3349,10 +2897,8 @@ public final class SessionManager {
     /**
      * Single entry point for every spectator intent that arrives from a client.
      *
-     * <p>One receiver for four actions because they are the same question asked four ways. The
-     * action byte is re-validated here rather than trusted: an unknown action is ignored instead of
-     * throwing, so a client built from a newer jar cannot disconnect itself by pressing a key this
-     * server has never heard of.</p>
+     * <p>The action byte is re-validated here rather than trusted: an unknown action is ignored
+     * instead of throwing.
      */
     public void onSpectateRequest(ServerPlayer player, SpectateRequestPayload request) {
         switch (request.action()) {
@@ -3409,10 +2955,7 @@ public final class SessionManager {
     // ------------------------------------------------------------------ internals
 
     private void freeze(DuelSession session) {
-        // One set for the whole match. If it is still the built-in preset then nobody has ever
-        // saved a loadout, and every panel draws a set either way — nothing on screen says "this
-        // is the preset". Saying it once, before the first round, is the difference between "we
-        // agreed to the same kit" and "somebody's items are mysteriously different".
+        // One set for the whole match. A preset set is announced once before the first round.
         Loadout shared = sharedLoadout(session);
         journal(session).append("LOADOUT_FROZEN",
                 "digest", shared.digest(), "items", shared.size(),
@@ -3460,8 +3003,7 @@ public final class SessionManager {
         var arenaWorld = ArenaManager.world(server);
         applyEnvironment(arenaWorld, rules);
         clearBoundaryExits(session);
-        // Elimination is per round: a 3v3 where one side lost two players last round starts this one
-        // with everybody standing again.
+        // Elimination is per round: every side starts each round with everybody standing.
         for (Participant p : session.participants) {
             p.eliminated = false;
         }
@@ -3472,12 +3014,8 @@ public final class SessionManager {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
             if (!player.isAlive()) {
-                // Reachable after a crash or a stop taken while somebody was on the death screen:
-                // their playerdata is saved with zero health and the next login does not always
-                // respawn them. Reviving is the correct answer rather than throwing — the whole
-                // point of resetRoundState is that every round starts from the same state, and
-                // voiding a series over a state the mod itself created would be a bug report, not a
-                // safety net. The health value is journalled so a real cause is still visible.
+                // Reachable after a crash or a stop taken on the death screen. Reviving keeps every
+                // round starting from the same state.
                 journal(session).append("ROUND_START_REVIVE", "player", p.name,
                         "health", player.getHealth(), "removed", player.isRemoved());
                 player.setHealth(player.getMaxHealth());
@@ -3489,18 +3027,13 @@ public final class SessionManager {
                     p.member, Math.max(1, session.teamMembers(p.teamIndex()).size()))) {
                 throw new IllegalStateException("arena world unavailable");
             }
-            // Authorised change: the round starts in survival, and the sandbox rule forbids players
-            // from switching modes while they are standing in the dimension this just put them in.
+            // Goes through Sandbox, so the mode rule does not refuse the round-start switch.
             Sandbox.changeGameMode(player, GameType.SURVIVAL);
-            // The snapshot restores attributes wholesale, so a modified base value here is rolled
-            // back by the same mechanism that restores inventory — no separate undo bookkeeping.
+            // The snapshot restores attributes wholesale, so no separate undo is needed.
             var health = player.getAttribute(Attributes.MAX_HEALTH);
             if (health != null) {
                 health.setBaseValue(maxHealth);
-                // Read back immediately: if anything else on the server is holding this attribute
-                // down (another mod, a leftover modifier), the player starts the round on a cap
-                // nobody asked for and the only evidence would be a health bar. One journal line
-                // turns that into a fact.
+                // Read back immediately, so a modifier from another mod shows up in the journal.
                 if (Math.abs(player.getMaxHealth() - maxHealth) > 0.01F) {
                     journal(session).append("ROUND_START_HEALTH_MISMATCH", "player", p.name,
                             "wanted", maxHealth, "actual", player.getMaxHealth());
@@ -3508,32 +3041,21 @@ public final class SessionManager {
             } else {
                 journal(session).append("ROUND_START_NO_HEALTH_ATTRIBUTE", "player", p.name);
             }
-            // Same mechanism, same reason. Applied per round rather than at freeze so a mid-series
-            // rule change (or a reloaded session) cannot leave the previous value in place.
+            // Per round rather than at freeze, so a reloaded session cannot keep the old value.
             var knockback = player.getAttribute(Attributes.KNOCKBACK_RESISTANCE);
             if (knockback != null) {
                 knockback.setBaseValue(session.rulebook().knockbackResistance());
             }
-            // Every round starts from the same state. Without this a player who ended round 1 on two
-            // hearts, on fire, and poisoned would begin round 2 that way — the loadout is re-granted
-            // but health and effects are not items.
+            // Every round starts from the same state: health and effects are not items.
             resetRoundState(player, maxHealth);
             CombatState.setMode(player.getUUID(), mode);
-            // The item-use gate travels the same path as the mode, for the same reason: the client
-            // has to refuse a placement before it predicts one, and only the server knows the rules.
+            // The item-use gate travels with the mode; only the server knows the rules.
             applyUseGate(session, player);
-            // Loadout is granted here, not at freeze(): the snapshot must contain the survival
-            // inventory, so anything written before it would be captured as if the player owned it.
-            // Re-granting each round is also what "每一小局结束物品恢复到最初状态" means: grant()
-            // clears the inventory before writing, so nothing from the previous round survives.
-            // One set for the whole match — read fresh per participant rather than hoisted out of
-            // the loop, because the legacy branch below may rewrite it and the rewrite must not
-            // leak into the next player's grant.
+            // Granted here, not at freeze(): the snapshot must hold the survival inventory.
+            // grant() clears the inventory first, so nothing from the previous round survives.
             Loadout loadout = sharedLoadout(session);
-            // 1.8 has no shields, and a shield that survives into the round does not merely sit
-            // unused: right-clicking raises it, which both blocks damage outright and takes the
-            // right-click away from the sword block this mode exists for. Dropped here rather than
-            // in the editor so the same saved loadout stays valid for a modern round.
+            // 1.8 has no shields, and a surviving shield takes the right-click from the sword
+            // block. Dropped here rather than in the editor.
             if (mode == CombatMode.LEGACY_1_8) {
                 int shields = loadout.shieldCount();
                 if (shields > 0) {
@@ -3544,21 +3066,14 @@ public final class SessionManager {
             }
             int granted = LoadoutBuilder.grant(player, loadout, p.teamIndex());
             p.loadoutApplied = true;
-            // The digest of the loadout that actually became items, not the recorded one. The two
-            // differ whenever this branch rewrites the set (a legacy round strips shields), and
-            // logging the recorded digest made the journal agree with LOADOUT_SAVED by
-            // construction — which is exactly the evidence a "my loadout change did nothing" report
-            // needs to be able to contradict.
+            // The digest of the loadout that became items, not the recorded one.
             journal(session).append("LOADOUT_APPLIED", "player", p.name,
                     "digest", loadout.digest(), "items", granted,
                     "locked", loadout.lockedCount(), "round", session.round);
-            // The client mirrors the rule set to predict movement and to hide the attack cooldown
-            // indicator, so it has to be told which mode this round runs before the first hit.
+            // The client mirrors the rule set, so it is told the mode before the first hit.
             PvPocketNetworking.sendState(player);
             if (prepare > 0) {
-                // The preparation window is a promise that nobody can land a hit yet, so it has to
-                // be enforced rather than announced: invulnerability is one line and covers both
-                // directions, where a movement lock would need a whole new stage.
+                // Enforced rather than announced: invulnerability covers both directions.
                 player.setInvulnerable(true);
             }
         }
@@ -3566,12 +3081,7 @@ public final class SessionManager {
             journal(session).append("ROUND_PREPARING", "round", session.round, "seconds", prepare);
             prepareDeadlines.put(session.id,
                     new Prepare(System.currentTimeMillis() + prepare * 1000L, prepare));
-            // The wall is real for the length of the preparation window. Invulnerability already
-            // stops anyone landing a hit, so the only thing a player can usefully do in these
-            // seconds is wander out and be somewhere strange when the round goes live — which is
-            // exactly what a solid ring prevents and a walk-through curtain does not. The ring stops
-            // them leaving; the screens raised in front of each side stop them meeting, which is the
-            // other half of "the fight has not started yet".
+            // The ring stops players wandering out before the round goes live.
             int wall = ArenaManager.buildPrepareWall(arenaWorld, region, session.teamCount);
             journal(session).append("PREPARE_WALL_BUILT", "blocks", wall,
                     "screens", region.screenCount(),
@@ -3593,15 +3103,12 @@ public final class SessionManager {
     /**
      * The round goes live: drop the preparation shield, start the clock, tell both sides.
      *
-     * <p>Split from {@link #startRound} because everything that measures "the round" — the opening
-     * boundary grace, the scoreboard, the round timer — must start when the fight can actually
-     * begin, not when the players were teleported in.</p>
+     * <p>Split from {@link #startRound} so everything that measures the round starts when the fight
+     * can begin, not when the players were teleported in.
      */
     private void activateRound(DuelSession session) {
         prepareDeadlines.remove(session.id);
-        // Torn down before anything else, and before the players are released from invulnerability:
-        // the wall's job ends the moment the round can be fought, and a round that starts with the
-        // arena still sealed is a round where nobody can chase anybody to the edge.
+        // Torn down before the players are released from invulnerability.
         ArenaRegion sealed = ArenaManager.region(session.id);
         int removed = ArenaManager.removePrepareWall(ArenaManager.world(server), sealed);
         if (removed > 0) {
@@ -3610,8 +3117,7 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             ServerPlayer player = online(p);
             if (player == null) {
-                // Somebody left during the preparation window. Cut rather than throw: they never
-                // fought, so there is nothing to judge and no round to award.
+                // Somebody left during the preparation window; they never fought, so cut it.
                 session.seriesEndReason = "CUT";
                 journal(session).append("SERIES_CUT", "reason", "participant_offline");
                 finishSeries(session, leaderTeam(session, absentTeam(session)));
@@ -3624,42 +3130,28 @@ public final class SessionManager {
         ArenaRegion region = ArenaManager.region(session.id);
         journal(session).append("ROUND_STARTED", "round", session.round,
                 "digest", session.rulesDigest,
-                // The boundary rule in force, spelled out. Without it "the config panel did nothing"
-                // is unfalsifiable after the fact: the digest is a hash, and a hash cannot be read
-                // back into "which of the two boundary rules was actually running".
+                // The boundary rule in force, spelled out; the digest cannot be read back.
                 "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
-                // Same reasoning for the health cap: it is the one rule whose effect is a number on
-                // the HUD rather than a behaviour, and "I set it to 40 and started on 20" needs an
-                // answer that does not depend on remembering which revision ran.
+                // The health cap, the one rule whose effect is a number on the HUD.
                 "maxHealth", rules.get("c.maxHealth"),
-                // And the round clock, for the same reason plus one of its own: the clock only runs
-                // when 超时 is also an accepted win condition, so "I set a 15 minute limit and the
-                // round ran for an hour" has two very different explanations and this line is what
-                // tells them apart.
+                // The round clock only runs when a timeout is also an accepted win condition.
                 "roundLimit", session.rulebook().roundLimitSeconds() == 0
                         || !session.rulebook().winsBy(Rulebook.WinCondition.TIMEOUT)
                         ? "off" : session.rulebook().roundLimitSeconds() + "s",
                 "region", region == null ? "-" : region.id,
                 "teams", session.teamCount,
                 "shape", shapeOf(session),
-                // Every pad the match actually used, not just the first two: in a 2v2 the third and
-                // fourth pad are where half the deaths happen, and a journal that cannot say where
-                // anybody was put is a journal that cannot answer "why did they spawn in the wall".
+                // Every pad the match used, so the journal can say where each player spawned.
                 "spawns", region == null ? "-" : spawnsOf(region));
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
-        // Re-pushed, not left as it was: the client is still holding the white preparation curtain,
-        // and the round it is now watching is governed by a rule, not by a wall. Leaving the old
-        // packet in place would show a solid white boundary over an open arena.
+        // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
             ServerPlayer player = online(p);
             if (player != null) {
-                // Three pieces rather than one sentence with optional halves: the "first to N" clause
-                // only exists for a series, and the surrender hint names a command that must stay
-                // untranslated, so it is appended as its own translatable with the command as a
-                // literal argument.
+                // Three pieces: the "first to N" clause only exists for a series.
                 MutableComponent line = PvLang.t("pvpocket.msg.round.started",
                         session.round, session.maxRounds,
                         modeLabel(mode), rules.summaryText());
@@ -3675,10 +3167,8 @@ public final class SessionManager {
     /**
      * Drives the preparation countdown, one chat line per whole second.
      *
-     * <p>Chat rather than the action bar: this is the one message a player has several seconds to
-     * read, and the action bar is overwritten by whatever else the client wants to show. The
-     * boundary countdown goes the other way round (centre of the screen) because there the number
-     * has to interrupt someone who is mid-fight.</p>
+     * <p>Chat rather than the action bar, since this is a message the player has several seconds to
+     * read. The boundary countdown uses a title instead, because it interrupts a fight.
      */
     private void tickPrepare() {
         if (prepareDeadlines.isEmpty()) {
@@ -3724,21 +3214,18 @@ public final class SessionManager {
     /**
      * Applies the round's sky: fixed time of day and weather.
      *
-     * <p>Both are per-<em>world</em> properties, not per-plot, so two matches running side by side
-     * cannot have different weather. Last one to start wins, which is the honest behaviour of a
-     * shared dimension; the rule hint says so rather than pretending otherwise.</p>
+     * <p>Both are per-world properties, so two matches side by side cannot have different weather.
+     * Last one to start wins, which is what the rule hint says.
      *
-     * <p>The daylight cycle is switched off when a fixed time is chosen, and switched back on for
-     * "自然". Leaving it off would silently freeze the dimension's clock for the next match.</p>
+     * <p>The daylight cycle is switched off for a fixed time and back on for the natural setting.
      */
     private void applyEnvironment(ServerLevel world, DuelRules rules) {
         if (world == null) {
             return;
         }
         int time = rules.get("e.timeOfDay");
-        // 0 = 自然; the rest are fixed ticks. 1000 is shortly after sunrise, 6000 noon, 12000 dusk,
-        // 18000 midnight — the vanilla anchors, chosen so the four options read as four times of day
-        // rather than four arbitrary numbers.
+        // 0 means natural; the rest are fixed ticks. 1000 is shortly after sunrise, 6000 noon,
+        // 12000 dusk and 18000 midnight.
         boolean frozen = time > 0;
         world.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(!frozen, server);
         if (frozen) {
@@ -3762,17 +3249,10 @@ public final class SessionManager {
     /**
      * Puts the arena dimension's clock and weather back once nothing is running in it.
      *
-     * <p>{@code e.timeOfDay} and {@code e.weather} are per-<em>world</em> properties, so a fixed
-     * time is applied by switching {@code DO_DAYLIGHT_CYCLE} off — and until this method existed
-     * nothing ever switched it back on. One match set to 正午 froze the arena dimension's clock for
-     * every match after it, and for the survival world's neighbours sharing that dimension, until
-     * somebody happened to start a match that asked for 自然. The rule was not wrong; the cleanup
-     * was missing.</p>
+     * <p>{@code e.timeOfDay} and {@code e.weather} are per-world properties, so a fixed time is
+     * applied by switching {@code DO_DAYLIGHT_CYCLE} off, and this is what switches it back on.
      *
-     * <p>Guarded on "nothing is running" rather than done unconditionally: two matches share one
-     * clock, and restoring it when the first of them ends would yank the time out from under the
-     * second — the same shared-world problem {@link #applyEnvironment} documents, just at the other
-     * end.</p>
+     * <p>Guarded on "nothing is running", since two matches share one clock.
      */
     private void restoreEnvironmentWhenIdle(ServerLevel world) {
         if (world == null) {
@@ -3793,16 +3273,11 @@ public final class SessionManager {
     /**
      * Takes one player out of the round.
      *
-     * <p>The round ends when the last member of a side is gone, not when the first player dies. That
-     * single rule covers both shapes: a 1v1 ends on the first death because the side had one member,
-     * and a 3v3 continues while two team-mates are still standing.</p>
+     * <p>The round ends when the last member of a side is gone, not when the first player dies. A
+     * 1v1 ends on the first death and a 3v3 continues while two team-mates stand.
      *
-     * <p>That is {@code a.winConditions} · 击杀, and it is asked rather than assumed. The bit is
-     * locked on in the panel because the only alternative — respawn the wiped side and keep playing
-     * — is a game mode, not a checkbox; but a bit that nothing reads is a bit whose lock protects
-     * nothing, and a crafted packet could clear it. If it ever arrives cleared, the round still ends
-     * (a round that cannot end is the worst failure mode there is) and the anomaly is journalled so
-     * the contradiction is visible instead of silent.</p>
+     * <p>Asks {@code a.winConditions} for the kill condition rather than assuming it. If the bit
+     * arrives cleared the round still ends, and the anomaly is journalled.
      */
     private void eliminate(DuelSession session, Participant p, String reason) {
         if (session.stage != SessionStage.ROUND_ACTIVE || p.eliminated) {
@@ -3837,8 +3312,7 @@ public final class SessionManager {
         }
         journal(session).append("ROUND_ENDED",
                 "round", session.round, "reason", reason, "winnerTeam", winnerTeam);
-        // Logged before the start time is dropped, and persisted with the session so a crash between
-        // this round and the end of the series still leaves the per-round detail behind.
+        // Logged before the start time is dropped, and persisted with the session.
         long startedAt = roundStartedAt.getOrDefault(session.id, System.currentTimeMillis());
         session.roundLog.add(new DuelSession.RoundLog(winnerTeam, reason,
                 Math.max(0L, System.currentTimeMillis() - startedAt)));
@@ -3849,9 +3323,7 @@ public final class SessionManager {
         session.pendingWinner = null;
         session.pendingReason = null;
         session.pendingWinnerTeam = -1;
-        // Cleared here rather than at the end: the "has been seen on the plot" memory belongs to the
-        // round that just ended, and leaving it in place would carry a settled player into the next
-        // round before they had been teleported into it.
+        // Cleared here: the "seen on the plot" memory belongs to the round that just ended.
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
@@ -3864,13 +3336,8 @@ public final class SessionManager {
         boolean decided = seriesDecided(session);
         if (!decided && session.participants.stream()
                 .anyMatch(p -> !p.rejected && online(p) == null)) {
-            // Somebody left. Starting a round they cannot join would only reach the intermission and
-            // fail there, so the series is cut now. Recorded as its own event so "why did this
-            // series end" has an answer in the journal.
-            //
-            // Cut always finishes, even when leaderTeam() returns -1: a tied series that is cut has
-            // no winner, and falling through to the intermission would have tried to start a round
-            // for a player who is not there.
+            // Somebody left, so the series is cut now rather than failing in the intermission.
+            // Cut always finishes, even with no leader: a cut tied series has no winner.
             session.seriesEndReason = "CUT";
             journal(session).append("SERIES_CUT", "reason", "participant_offline");
             finishSeries(session, leaderTeam(session, absentTeam(session)));
@@ -3881,9 +3348,8 @@ public final class SessionManager {
             return;
         }
         if (seriesWinner < 0) {
-            // The cap is reached and the lead is shared. Named rather than left blank: "no winner"
-            // and "drawn" are the same score and different outcomes, and only one of them is
-            // something a player can be told the rules produced.
+            // The cap is reached and the lead is shared. "No winner" and "drawn" are different
+            // outcomes with the same score.
             session.seriesEndReason = "DRAW";
             journal(session).append("SERIES_DRAWN", "rounds", session.round,
                     "score", scoreLine(session));
@@ -3896,10 +3362,8 @@ public final class SessionManager {
     /**
      * Counts one death, and one kill for whoever landed the last hit when that was an opponent.
      *
-     * <p>Kills are attributed at the moment the victim dies rather than from the damage stream: a
-     * player can be hit by four people and only one of them killed them, and the damage stream has
-     * no way to say which hit was the last. The victim's own side is excluded, which also covers the
-     * friendly-fire-allowed rule: a team kill is a death, never a kill.</p>
+     * <p>Kills are attributed at the moment the victim dies. The victim's own side is excluded, so
+     * a team kill is a death and never a kill.
      */
     private void recordDeath(DuelSession session, Participant me, ServerPlayer victim) {
         stats.addDeath(me.uuid);
@@ -3919,10 +3383,8 @@ public final class SessionManager {
     /**
      * Damage dealt to an opponent, called from the {@code applyDamage} hook.
      *
-     * <p>Static and defensive because the hook runs for every living entity on the server: a mob
-     * hitting a zombie, a player on fire outside a duel, a client-side prediction. Everything that is
-     * not "two players, same live session, different sides" is dropped here rather than at the call
-     * site, so the mixin stays one line and the rule stays in one place.</p>
+     * <p>Static and defensive because the hook runs for every living entity on the server. Anything
+     * that is not two players on different sides of one live session is dropped here.
      */
     public static void noteDamage(ServerPlayer victim, ServerPlayer attacker,
                                   float amount) {
@@ -3950,10 +3412,8 @@ public final class SessionManager {
     /**
      * Writes one {@link MatchRecord} per participant at the end of a series.
      *
-     * <p>Three exclusions, each for a different reason: a server stop is not a finished match, a
-     * series with no settled round is a failed start rather than a loss, and a declined invite is not
-     * a participant. Without the middle one, every aborted draft that reached the preparation window
-     * would count as a match somebody lost.</p>
+     * <p>Three exclusions: a server stop is not a finished match, a series with no settled round is
+     * a failed start, and a declined invite is not a participant.
      */
     private void recordSeries(DuelSession session, int winnerTeam) {
         if (server.isStopped() || session.roundLog.isEmpty()) {
@@ -3996,12 +3456,13 @@ public final class SessionManager {
                 stats.record(p.uuid, record);
             }
         }
-        // Flushed here as well as on shutdown: a match record is the one thing in this file a player
-        // expects to survive a crash, and it is written exactly once.
+        // Flushed here as well as on shutdown, since a match record is written exactly once.
         stats.flush();
     }
 
-    /** {@code won,reason,ms} per settled round, with {@code won} relative to {@code side}. */
+    /**
+     * One {@code won,reason,ms} entry per settled round, with {@code won} relative to {@code side}.
+     */
     private static String roundLine(DuelSession session, int side) {
         StringBuilder sb = new StringBuilder();
         for (DuelSession.RoundLog round : session.roundLog) {
@@ -4040,12 +3501,10 @@ public final class SessionManager {
     }
 
     /**
-     * The home screen's snapshot: counters, recent history, live matches, and what the reader may do.
+     * The home screen's snapshot: counters, history, live matches, and what the reader may do.
      *
-     * <p>Built on demand rather than pushed, because the screen is opened by the player and nothing
-     * else needs this data. The history is capped at {@link #HOME_HISTORY} rows: the detail a row
-     * carries is small, but a payload is sent over a reliable channel and there is no reason to send
-     * two hundred rows to fill a list that shows three at a time.</p>
+     * <p>Built on demand rather than pushed, since only this screen needs the data. History is
+     * capped at {@link #HOME_HISTORY} rows.
      */
     public void sendHomeState(ServerPlayer player) {
         String uuid = player.getStringUUID();
@@ -4114,13 +3573,10 @@ public final class SessionManager {
     /**
      * The arena section of the snapshot: one header line, then one line per map.
      *
-     * <p>Only built for operators. The layout of the dimension is not a secret, but the panel that
-     * reads this is drawn only for them, so sending it to everyone would be a field no screen on
-     * that client can reach.</p>
+     * <p>Only built for operators, since only their panel reads it.
      *
-     * <p>{@code guard} is the reader's own flag rather than a server-wide number: the switch in the
-     * panel is "do not throw <em>me</em> out", and a shared value would make the toggle look broken
-     * to the second operator.</p>
+     * <p>{@code guard} is the reader's own flag, not a server-wide number, so two operators each
+     * see their own switch.
      */
     private String arenaBlock(ServerPlayer player) {
         java.util.Map<String, Integer> leasedPerMap = new java.util.HashMap<>();
@@ -4148,10 +3604,8 @@ public final class SessionManager {
     /**
      * The home screen's primary action: open a draft, with an optional saved rule set or loadout.
      *
-     * <p>All three actions end in {@link #openRoster}, on purpose. It already answers the three
-     * interesting cases — busy, spectator, arena not ready — and it already knows how to hand back a
-     * draft that is still open. A second entry point would have to answer all three again and would
-     * drift the moment one of them changed.</p>
+     * <p>All three duel actions end in {@link #openRoster}, which already handles busy, spectator
+     * and arena-not-ready, and hands back a draft that is still open.
      */
     public void onHomeAction(ServerPlayer player, HomeActionPayload action) {
         switch (action.action()) {
@@ -4182,8 +3636,7 @@ public final class SessionManager {
             case HomeActionPayload.ACTION_GUARD -> {
                 if (requireOperator(player, "guard")) {
                     setGuardEnabled(player, "1".equals(action.arg()));
-                    // The switch has to show the state the server actually stored, not the one the
-                    // click asked for, so the answer is a fresh snapshot rather than a local flip.
+                    // The switch shows the stored state, so the answer is a fresh snapshot.
                     sendHomeState(player);
                 }
             }
@@ -4195,9 +3648,8 @@ public final class SessionManager {
     /**
      * The permission check behind the operator page, and the only one that matters.
      *
-     * <p>The panel not drawing these buttons is a convenience; this is the lock. The same level the
-     * commands require is the level the panel requires, so a client cannot reach a capability by
-     * talking to the payload directly that it could not reach by typing the command.</p>
+     * <p>The panel not drawing these buttons is a convenience. The same level the commands require
+     * is the level the panel requires.
      */
     private boolean requireOperator(ServerPlayer player, String what) {
         if (player.hasPermissions(3)) {
@@ -4211,9 +3663,8 @@ public final class SessionManager {
     /**
      * {@code /pvpocket arena copy} from the panel: one more plot for the named map.
      *
-     * <p>The map is looked up by id, and an unknown id is a log line rather than an exception — the
-     * ids come from the snapshot the server itself sent, so a mismatch means a stale panel, which
-     * the fresh snapshot sent afterwards fixes.</p>
+     * <p>An unknown id is a log line rather than an exception, since the ids come from the snapshot
+     * the server sent and a mismatch means a stale panel.
      */
     private void addArenaCopy(ServerPlayer player, String mapId) {
         com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
@@ -4236,10 +3687,8 @@ public final class SessionManager {
     /**
      * {@code /pvpocket arena remove} from the panel: one plot taken away from the named map.
      *
-     * <p>Both refusals are reported, because they mean different things and only one of them is
-     * temporary. A leased plot is a wait; a map with nothing left is already at zero, and the panel
-     * draws that button disabled — so reaching this at all means a stale panel, which the fresh
-     * snapshot sent afterwards corrects.</p>
+     * <p>Both refusals are reported: a leased plot is a wait, and a map with nothing left means a
+     * stale panel.
      */
     private void removeArenaCopy(ServerPlayer player, String mapId) {
         com.leipishu.pvpocket.arena.ArenaMap target = arenaMap(mapId);
@@ -4282,10 +3731,7 @@ public final class SessionManager {
     /**
      * {@code /pvpocket arena reset} from the panel.
      *
-     * <p>The command's version sends its result to the command source and to everybody else
-     * separately, because a console source is not a player. This one has a player and only a
-     * player, so it announces once to the whole list — the actor included, since a panel that
-     * rebuilds itself with no sentence about why reads as the click having done nothing.</p>
+     * <p>Announces once to the whole player list, the actor included.
      */
     private void resetArenaFromPanel(ServerPlayer player) {
         int ended = resetArena();
@@ -4304,10 +3750,8 @@ public final class SessionManager {
     /**
      * Overwrites the draft's rule set with a saved one.
      *
-     * <p>Applied after {@code openRoster} rather than by building the session here, because
-     * {@code openRoster} is the only path that also handles "you already have a draft". The rule set
-     * is validated by decoding it: a string that does not decode is dropped with a message, not
-     * applied as a pile of defaults that would look like a preset the player never saved.</p>
+     * <p>Applied after {@code openRoster}, the only path that also handles an existing draft. A
+     * string that does not decode is dropped with a message.
      */
     private void applyPresetRules(ServerPlayer player, String encoded) {
         DuelSession session = draftOf(player);
@@ -4317,8 +3761,7 @@ public final class SessionManager {
         try {
             DuelRules rules = DuelRules.decode(encoded);
             applyRulesToSession(session, rules);
-            // Bumped like any other edit, so the panel's dirty marker and the "you agreed to v1"
-            // bookkeeping both see this as a change rather than as the state they arrived with.
+            // Bumped like any other edit, so the panel sees this as a change.
             session.rulesRevision++;
             session.rulesAuthor = player.getStringUUID();
             persist(session);
@@ -4345,8 +3788,7 @@ public final class SessionManager {
         }
         try {
             Loadout loadout = Loadout.decode(encoded);
-            // Match-wide, like every other write: in a draft this is only the proposer, but the
-            // moment the roster goes out the set has to be the one the whole match fights with.
+            // Match-wide, like every other write: the whole match fights with one set.
             adoptSharedLoadout(session, loadout);
             me.acceptedLoadoutRevision = -1;
             session.loadoutRevision++;
@@ -4375,21 +3817,17 @@ public final class SessionManager {
     /**
      * Ends the series: restore everybody, put the terrain back, release the lease, archive.
      *
-     * <p>Separate from {@link #settle} because shutdown needs it without the round bookkeeping — the
-     * server is going down, so there is no next round to prepare for and the snapshots have to be
-     * applied while the players are still connected rather than left as a debt for the next boot.</p>
+     * <p>Separate from {@link #settle} because shutdown needs it without the round bookkeeping, and
+     * the snapshots have to be applied while the players are still connected.
      */
     private void finishSeries(DuelSession session, int winnerTeam) {
         ArenaRegion region = ArenaManager.region(session.id);
         var arenaWorld = ArenaManager.world(server);
 
-        // Defensive: the wall is normally torn down at activateRound, but a series can end during
-        // the preparation window (surrender, disconnect, server stop), and a leftover barrier ring
-        // would be an invisible cage around a plot nobody is in.
+        // Defensive: a series can end during the preparation window, and a leftover barrier ring
+        // would be an invisible cage.
         ArenaManager.removePrepareWall(arenaWorld, region);
-        // Ejected before the snapshots are restored, because restoring teleports the participants
-        // out and a spectator whose camera is attached to a player being teleported is a spectator
-        // watching the inside of a chunk loader.
+        // Ejected before the snapshots are restored, because restoring teleports the participants.
         spectators.ejectAll(session.id, "SERIES_END");
 
         int cleared = ArenaManager.clearDroppedItems(arenaWorld, region);
@@ -4402,8 +3840,7 @@ public final class SessionManager {
                 "maxRounds", session.maxRounds,
                 "winsNeeded", session.winsNeeded);
 
-        // Written while the region is still leased: the map id is read off the plot the players were
-        // actually standing in, and the lease is released a few lines below.
+        // Written while the region is still leased, since the map id is read off the plot.
         recordSeries(session, winnerTeam);
 
         transition(session, SessionStage.RESTORING);
@@ -4412,8 +3849,7 @@ public final class SessionManager {
             restoreParticipant(session, p);
         }
 
-        // Blocks are reverted after the restore, not before: restoring teleports the players out, so
-        // by the time the floor disappears there is nobody standing on it.
+        // Blocks are reverted after the restore, so nobody is standing on the floor when it goes.
         if (region != null) {
             int tracked = region.changeCount();
             int reverted = ArenaManager.revertRegion(arenaWorld, region);
@@ -4424,8 +3860,7 @@ public final class SessionManager {
         journal(session).append("ARENA_RELEASED", "region", session.arenaId);
         restoreEnvironmentWhenIdle(arenaWorld);
 
-        // Hidden before ARCHIVED so the client never draws a scoreboard for a session that no longer
-        // exists on the server — the payload is the only thing it has to go on.
+        // Hidden before ARCHIVED, so the client never draws a scoreboard for a gone session.
         broadcastHud(session, false);
         broadcastBounds(session, false);
         transition(session, SessionStage.ARCHIVED);
@@ -4436,11 +3871,8 @@ public final class SessionManager {
     /**
      * The winner of the series as a side index, or {@code -1} when there is none.
      *
-     * <p>{@code -1} covers two different situations and the caller has to tell them apart with
-     * {@link #seriesDecided}: a series that is still live, and a series that ran out of rounds with
-     * the lead shared. The old derivation — odd {@code bestOf}, first to {@code bestOf/2+1} — could
-     * not produce a draw by construction; two independent numbers can, and "3 rounds, win 2" ending
-     * 1:1:1 is exactly the case the old shape could not express.</p>
+     * <p>{@code -1} covers a live series and a series that ran out of rounds with the lead shared;
+     * the caller tells them apart with {@link #seriesDecided}.
      */
     private static int seriesWinnerTeam(DuelSession session) {
         int need = Math.max(1, session.winsNeeded);
@@ -4464,14 +3896,7 @@ public final class SessionManager {
      * The side that has nobody left online, or {@code -1} when every side still has a player.
      *
      * <p>A cut is a forfeit by whoever walked out, so that side cannot also be the side that wins.
-     * The surrender path already says this out loud — "a side that quits cannot hand the match to
-     * the side it was beating" — and passes its own side as {@code exclude}. The three cut paths
-     * passed no exclusion at all, which is how a 1v1 that stood at 0:1 ended with "Dev1 wins
-     * (opponent disconnected)" announced to the player who stayed: the score was right and the
-     * sentence was nonsense.</p>
-     *
-     * <p>{@code -1} when two sides are gone as well as when none is: with more than one side absent
-     * there is no forfeit to attribute, and the lead decides or nobody does.</p>
+     * {@code -1} when two or more sides are absent, since there is no forfeit to attribute.
      */
     private int absentTeam(DuelSession session) {
         int absent = -1;
@@ -4496,10 +3921,8 @@ public final class SessionManager {
     /**
      * The best-scoring side other than {@code exclude}, or {@code -1} when they are tied.
      *
-     * <p>{@code -1} on a tie matters: a cut series with 2:2 has no winner, and picking the first
-     * team — which the map order made look like a lead — announced "Dev1 获胜（2:2）". The
-     * {@code exclude} parameter exists for surrender: a side that quits cannot be its own winner,
-     * so the tie is judged among the sides that stayed.</p>
+     * <p>{@code exclude} exists for surrender: a side that quits cannot be its own winner, so the
+     * tie is judged among the sides that stayed.
      */
     private static int leaderTeam(DuelSession session, int exclude) {
         int best = -1;
@@ -4522,10 +3945,10 @@ public final class SessionManager {
     }
 
     /**
-     * "Dev1 + Dev2" — a side spelled out for chat lines that have no room for a roster.
+     * "Dev1 + Dev2": a side spelled out for chat lines that have no room for a roster.
      *
-     * <p>Player names, so no translation key: the only localisable part of this is the separator,
-     * and a separator that changed with the language would be worse than one that does not.</p>
+     * <p>Player names, so no translation key: only the separator is localisable, and a separator
+     * that changed with the language would be worse than one that does not.
      */
     private static String teamName(DuelSession session, int team) {
         StringBuilder sb = new StringBuilder();
@@ -4541,11 +3964,8 @@ public final class SessionManager {
     /**
      * Between rounds: revert the terrain but keep the lease, then wait out {@code a.intermission}.
      *
-     * <p>The snapshot is deliberately <em>not</em> re-applied here. It is the only copy of the
-     * survival inventory, and restoring it mid-series would hand the players their real items while
-     * the match is still running. "Items back to the initial state" is instead achieved by granting
-     * the loadout again at the start of the next round, which clears whatever the previous round
-     * left behind.</p>
+     * <p>The snapshot is not re-applied here, since it is the only copy of the survival inventory.
+     * Items return to the initial state by granting the loadout again at the next round start.
      */
     private void beginIntermission(DuelSession session, ArenaRegion region, ServerLevel world,
                                    int winnerTeam) {
@@ -4561,13 +3981,8 @@ public final class SessionManager {
         roundReadyAt.put(session.id, System.currentTimeMillis() + seconds * 1000L);
         countdownPushed.remove(session.id);
         transition(session, SessionStage.ROUND_READY);
-        // 间隔期没有人应该还能走动：全部切旁观、停在出生点上方等下一局。
-        //
-        // 为什么不是「站着别动」：地形正在还原，站着的人会踩在正在消失的方块上、掉进还原出来
-        // 的坑里；而且赢家还握着武器，下一局开始前的那几秒足够他再补一刀。旁观模式一次解决
-        // 三件事——不会受伤、不会被地形推挤、也不需要额外的移动锁。
-        //
-        // 死者在这里跳过：他的实体还没活过来，做不了传送。他 respawn 之后由 onRespawn 补上。
+        // Nobody walks during the intermission: spectator mode, parked above the spawn. Dead
+        // players are skipped and parked by onRespawn once they are alive.
         for (Participant p : session.participants) {
             ServerPlayer player = online(p);
             if (player == null || p.rejected || !player.isAlive()) {
@@ -4576,10 +3991,7 @@ public final class SessionManager {
             parkForIntermission(session, player, p, region);
         }
         broadcastHud(session, true);
-        // Two keys rather than one with an optional name: in a 1v1 "who won" is the same question as
-        // "who lost", but with three or four sides the score alone ("1:0:1") does not say which row
-        // is which, so the line has to name the side. A round that ends without a winner — a cut
-        // series, a stop — has no name to print and keeps the plain sentence.
+        // Two keys, since with three or four sides the score alone does not say which row is which.
         MutableComponent line = winnerTeam < 0
                 ? PvLang.t("pvpocket.msg.round.ended", session.round, scoreLine(session), seconds)
                 : PvLang.t("pvpocket.msg.round.ended_team", session.round,
@@ -4593,9 +4005,8 @@ public final class SessionManager {
     }
 
     private void announceSeriesResult(DuelSession session, int winnerTeam) {
-        // Both a surrender and a disconnect can end a series with the winner trailing on rounds.
-        // Saying so in the same sentence is the difference between "the rules worked" and "the score
-        // is broken".
+        // A surrender or a disconnect can end a series with the winner trailing on rounds, so the
+        // sentence says why.
         String becauseKey = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
             case "SURRENDER" -> "pvpocket.msg.series.because.surrender";
             case "CUT" -> "pvpocket.msg.series.because.cut";
@@ -4616,10 +4027,7 @@ public final class SessionManager {
                 player.displayClientMessage(line.copy()
                         .withStyle(winnerTeam >= 0 && p.teamIndex() == winnerTeam
                                 ? ChatFormatting.GREEN : ChatFormatting.GRAY), false);
-                // The card goes out next to the sentence, not instead of it: the sentence is what a
-                // player reads in the chat log a week later, the card is what they look at for the
-                // ten seconds after the last round. A declined invite is skipped — it was never a
-                // match for that player, and a victory card would be a lie in the other direction.
+                // The card goes out next to the sentence, which is what the player reads later.
                 if (!p.rejected) {
                     PvPocketNetworking.sendSeriesResult(player, resultCard(session, p, winnerTeam));
                 }
@@ -4630,15 +4038,9 @@ public final class SessionManager {
     /**
      * The result card for one reader, as the client needs it to draw and to export.
      *
-     * <p>Built per participant rather than once per series because {@code mySide} is the whole
-     * perspective: it decides which row of the score block is highlighted, which round marks count as
-     * wins, and whether the headline is a victory. The alternative — sending the sides and letting
-     * each client work out which one it is on — would need the reader's name or uuid in the payload
-     * anyway, and the server already knows the answer.</p>
-     *
-     * <p>Read off the session rather than off the {@link MatchRecord} written a few lines earlier:
-     * the record is the reader's own view with the reasons flattened, while this needs both sides'
-     * rosters and every round's absolute winner. Format documented on {@link SeriesResultPayload}.</p>
+     * <p>Built per participant, since {@code mySide} decides which row is highlighted, which round
+     * marks count as wins, and whether the headline is a victory. Read off the session rather than
+     * off the {@link MatchRecord}. Format documented on {@link SeriesResultPayload}.
      */
     private SeriesResultPayload resultCard(DuelSession session, Participant reader, int winnerTeam) {
         long now = System.currentTimeMillis();
@@ -4680,13 +4082,8 @@ public final class SessionManager {
     /**
      * Pushes the plot outline to every participant, or clears it.
      *
-     * <p>Called from {@code startRound} rather than {@code activateRound} on purpose: the whole
-     * point of the preparation window is to look around and see where you are, and an arena with no
-     * visible edge is the one thing you cannot see.</p>
-     *
-     * <p>Spectators get it too. They are in the same plot with the same wall, and a spectator whose
-     * client draws no boundary is a spectator who cannot tell whether the player they are watching
-     * is about to be judged out of bounds.</p>
+     * <p>Called from {@code startRound} rather than {@code activateRound}, so the outline is
+     * visible during the preparation window. Spectators get it too.
      */
     private void broadcastBounds(DuelSession session, boolean active) {
         broadcastBounds(session, active, DuelRules.decode(session.rules).get("e.boundary"));
@@ -4709,9 +4106,7 @@ public final class SessionManager {
             PvPocketNetworking.sendBounds(watcher, payload);
             PvPocketNetworking.sendScreens(watcher, screens);
         }
-        // One line per round boundary, mirroring the "Rules panel ->" line. If the curtain ever fails
-        // to appear, the first question is whether the client was told about the plot at all, and
-        // this answers it without a debugger.
+        // One line per round boundary, so a missing curtain can be traced to a missing packet.
         PvPocket.LOGGER.info("Arena bounds {} for session {} ({}, mode {}, screens {})",
                 active ? "pushed" : "cleared", session.id,
                 region == null ? "no plot" : (region.sizeX + "x" + region.sizeZ), mode,
@@ -4721,10 +4116,8 @@ public final class SessionManager {
     /**
      * The screens standing in front of the sides right now, or none.
      *
-     * <p>Derived from the stage rather than stored, so there is one answer to "is a screen up". The
-     * blocks and this payload are built from the same plane list at the same moment; a client that
-     * reconnected mid-countdown gets the payload from the stage alone, which is the case that a
-     * cached field would have got wrong.</p>
+     * <p>Derived from the stage rather than stored, so a client that reconnected mid-countdown gets
+     * the payload from the stage alone.
      */
     private static PrepareScreensPayload screensOf(DuelSession session) {
         ArenaRegion region = ArenaManager.region(session.id);
@@ -4746,14 +4139,11 @@ public final class SessionManager {
     /**
      * The outline packet for one plot.
      *
-     * <p>Uses the fight rectangle, not the plot box. The two differ only on maps that declare an
-     * inset, and on those the difference is the whole point: the colosseum's box is its outer wall,
-     * so a curtain on the box would be drawn behind ten rows of seating.</p>
+     * <p>Uses the fight rectangle, not the plot box: on a map with an inset the box is the outer
+     * wall, so a curtain on the box would be drawn behind the seating.
      */
     private static ArenaBoundsPayload boundsOf(ArenaRegion region, int mode) {
-        // Always the rule's own numbers. The preparation window used to override them with the
-        // barrier ring's real height and paint the curtain white; that is now the screens' job, and
-        // the boundary keeps behaving like a boundary for the whole match.
+        // Always the rule's own numbers; the preparation window draws its screens separately.
         return new ArenaBoundsPayload(true,
                 region.pitMinX(), region.pitMinZ(),
                 region.pitMaxX() + 1.0D, region.pitMaxZ() + 1.0D,
@@ -4776,14 +4166,10 @@ public final class SessionManager {
     /**
      * Flattens the session into the HUD payload.
      *
-     * <p>Two flat strings rather than one field per side, because a match has one to four sides and
-     * the payload is hand-written around {@code PacketCodec.tuple}'s six-component limit. The client
-     * splits them; nothing here needs to know how many sides exist.</p>
-     *
-     * <p>{@code scores} is {@code "2,1"} and {@code teams} is
-     * {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"}: {@code ,} between members of a side, {@code ;}
-     * between sides, {@code |} between a name and its uuid. None of those three characters can occur
-     * in a Minecraft username or in a uuid string, so no escaping is needed.</p>
+     * <p>Two flat strings rather than one field per side, since the payload is hand-written around
+     * {@code PacketCodec.tuple}'s six-component limit. {@code scores} is {@code "2,1"} and
+     * {@code teams} is {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"}, with {@code ,} between members of a
+     * side, {@code ;} between sides and {@code |} between a name and its uuid.
      */
     private MatchHudPayload buildHud(DuelSession session) {
         int teams = Math.max(1, session.teamCount);
@@ -4792,10 +4178,7 @@ public final class SessionManager {
         int written = 0;
         for (int team = 0; team < teams; team++) {
             List<Participant> members = session.activeMembers(team);
-            // A side with nobody left on it is not a side. It is skipped in both lists at once so
-            // the two stay index-aligned, and so the HUD never draws a row that is a wool colour,
-            // a zero and no heads — which is what a three-side match looks like after one side has
-            // been emptied by refusals.
+            // A side with nobody left is skipped in both lists at once, so they stay index-aligned.
             if (members.isEmpty()) {
                 continue;
             }
@@ -4819,10 +4202,10 @@ public final class SessionManager {
     }
 
     /**
-     * 间隔期还剩几整秒；不在间隔期返回 {@code 0}。
+     * Whole seconds left in the intermission, or {@code 0} outside one.
      *
-     * <p>向上取整：3 秒的间隔第一帧就该显示「3」而不是「2」，因为显示 0 的那一刻下一局已经
-     * 开始了。用剩余毫秒而不是「结束时刻」发出去，客户端就不用比较两边的时钟。</p>
+     * <p>Rounded up, so a three-second intermission shows 3 on its first frame. Sent as remaining
+     * milliseconds rather than an end time, so the client does not compare clocks.
      */
     private int intermissionSecondsLeft(DuelSession session) {
         Long until = roundReadyAt.get(session.id);
@@ -4836,8 +4219,7 @@ public final class SessionManager {
     /**
      * Re-sends the HUD to one player, or tells them to hide it.
      *
-     * <p>Needed on join: the payload is pushed only when the score changes, so a client that
-     * reconnected mid-match would otherwise stare at an empty arena until the next round.</p>
+     * <p>Needed on join: the payload is pushed only when the score changes.
      */
     private void pushHudTo(ServerPlayer player) {
         String id = sessionByPlayer.get(player.getUUID());
@@ -4853,9 +4235,7 @@ public final class SessionManager {
                         || session.stage == SessionStage.FROZEN
                         ? MatchHudPayload.hidden()
                         : buildHud(session));
-        // Same reasoning for the plot outline: it is pushed on round boundaries, so a client that
-        // reconnects mid-round would see an arena with no visible edge at all — the exact problem
-        // the outline exists to solve.
+        // The plot outline is pushed on round boundaries, so a reconnect mid-round needs it too.
         if (session.stage == SessionStage.ROUND_READY || session.stage == SessionStage.ROUND_ACTIVE) {
             ArenaRegion region = ArenaManager.region(session.id);
             if (region != null) {
@@ -4864,19 +4244,15 @@ public final class SessionManager {
         } else {
             PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
         }
-        // Screens are not gated on the stage here: screensOf already answers "none" for anything
-        // that is not the countdown, so the reconnect path cannot drift from the broadcast path.
+        // screensOf already answers "none" for anything that is not the countdown.
         PvPocketNetworking.sendScreens(player, screensOf(session));
     }
 
     /**
      * Which colour the curtain should be right now.
      *
-     * <p>Always the rule. The preparation window used to be its own mode — white and solid, because
-     * a real barrier ring stood at those coordinates — but that made the boundary look like a
-     * different object for five seconds and hid the colour that tells you which rule is in force.
-     * The solid white belongs to the screens in front of the sides, which are not the boundary and
-     * now travel in their own payload.</p>
+     * <p>Always the rule's own mode. The preparation screens are a separate payload, not a boundary
+     * mode.
      */
     private static int boundsMode(DuelSession session) {
         return DuelRules.decode(session.rules).get("e.boundary");
@@ -4885,9 +4261,7 @@ public final class SessionManager {
     /**
      * Gives a freshly joined spectator the same overlay the participants have.
      *
-     * <p>Not routed through {@link #pushHudTo}: that method looks the player up as a participant and
-     * would answer "no session" for a spectator. Spectating is a different relationship to a match,
-     * so it gets its own push rather than a special case inside the participant path.</p>
+     * <p>Not routed through {@link #pushHudTo}, which looks the player up as a participant.
      */
     void pushSpectatorView(ServerPlayer player, DuelSession session) {
         PvPocketNetworking.sendHud(player, buildHud(session));
@@ -4901,10 +4275,8 @@ public final class SessionManager {
     /**
      * Takes back everything {@link #pushSpectatorView} handed out.
      *
-     * <p>Both of those payloads are borrowed state: the score bar and the boundary curtain belong to
-     * a match the spectator is no longer part of. Nothing else will ever clear them — the match's own
-     * broadcasts only reach its participants and its current watchers — so a spectator who leaves
-     * mid-series would carry a live scoreboard over their survival world until the match ended.</p>
+     * <p>The score bar and the boundary curtain belong to a match the spectator has left, and no
+     * other broadcast reaches them.
      */
     void clearSpectatorView(ServerPlayer player) {
         PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
@@ -4915,9 +4287,8 @@ public final class SessionManager {
     /**
      * Puts a player back into the state a fresh round starts from.
      *
-     * <p>This is the "items return to their initial state" half of the per-round reset that is not
-     * covered by re-granting the loadout: health, hunger, effects and fire all survive a round and
-     * would otherwise carry a poisoned or half-dead player into the next one.</p>
+     * <p>Health, hunger, effects and fire survive a round and would otherwise carry a poisoned or
+     * half-dead player into the next one.
      */
     private static void resetRoundState(ServerPlayer player, int maxHealth) {
         player.removeAllEffects();
@@ -4957,32 +4328,23 @@ public final class SessionManager {
 
     private boolean restoreParticipant(DuelSession session, Participant p) {
         if (p.restored) {
-            // Idempotence is the whole point of the crash-safety design. Re-applying an old snapshot
-            // is never correct: it would roll the player back past everything they did since the
-            // first restore. Callers therefore do not need to know whether this already ran.
+            // Re-applying an old snapshot would roll the player back, so this is idempotent.
             return true;
         }
         UUID uuid = UUID.fromString(p.uuid);
-        // Combat state is server-side bookkeeping and must be dropped even if the player is offline,
-        // otherwise a later round would start with a stale legacy flag.
+        // Combat state must be dropped even if the player is offline.
         CombatState.clear(uuid);
         ServerPlayer player = online(p);
-        // Dead counts as absent, for the same reason a discarded entity does. A restore writes
-        // health, inventory and position onto the entity, and the respawn that follows replaces
-        // that entity wholesale — the write is lost, and because the participant is then marked
-        // restored it is never retried. Waiting for the respawn costs a tick; not waiting costs
-        // the player everything they were carrying.
+        // Dead counts as absent: the respawn replaces the entity, so the write would be lost.
         if (player == null || !player.isAlive()) {
             pendingRestore.put(uuid, session.id);
             journal(session).append("RESTORE_DEFERRED", "player", p.name,
                     "reason", player == null ? "OFFLINE" : "DEAD");
             return false;
         }
-        // Cleared above, so this is the unconditional push: an offline-then-online player would
-        // otherwise keep a stale legacy flag and a phantom block penalty on their client.
+        // The unconditional push: an offline-then-online player keeps a stale legacy flag.
         PvPocketNetworking.sendState(player);
-        // And the same for everyone else's screen. The block pose is drawn from a flag that lives
-        // on other clients, and CombatState.clear above only reaches the server's own copy.
+        // And the same for other clients, which draw the block pose from their own flag.
         PvPocketNetworking.broadcastBlocking(player, false);
         try {
             Path file = storage.snapshotDir(session.id).resolve(p.snapshotFile);
@@ -4990,29 +4352,15 @@ public final class SessionManager {
             snapshot.restore(player);
             boolean verified = snapshot.verify(player);
             p.restored = true;
-            // Persisted here rather than left to the caller's later transition(). The deferred
-            // restore path (the tick drainer) has no transition of its own, so without this the flag
-            // would live only in memory: the next restart would re-queue the same participant and
-            // apply the snapshot a second time, wiping everything the player earned after the first
-            // restore. Writing per participant also makes the restore loop itself crash-safe — a
-            // crash halfway through leaves a correct intermediate state that names exactly who is
-            // still owed a restore.
+            // Persisted here, since the deferred restore path has no transition of its own.
             persist(session);
-            // The snapshot is applied to the live entity, and nothing writes it to playerdata until
-            // the next autosave (up to five minutes) or a clean disconnect. A hard stop inside that
-            // window reloads the pre-match inventory on the next login — and because the following
-            // match snapshots whatever it finds, the loadout stops being a temporary state and
-            // becomes the baseline that every later restore faithfully restores. That is exactly the
-            // "the duel items are still on me" report: the restore had worked, and then the world was
-            // killed before it reached the disk. One explicit save closes the window.
+            // The snapshot reaches playerdata only at the next autosave or a clean disconnect.
             ((PlayerManagerInvoker) player.getServer().getPlayerList())
                     .pvpocket$savePlayerData(player);
             sessionByPlayer.remove(player.getUUID());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {
-                // Naming the field is the difference between a line somebody can act on and a line
-                // that only says "something differs". The digest is a hash; without this the next
-                // reader has to reconstruct both states by hand to learn that it was, say, Health.
+                // Naming the field turns "something differs" into a line somebody can act on.
                 String diff = snapshot.mismatch(player);
                 journal(session).append("ANOMALY", "player", p.name,
                         "detail", "state digest mismatch after restore",
@@ -5026,9 +4374,7 @@ public final class SessionManager {
         } catch (Exception e) {
             PvPocket.LOGGER.error("Restore failed for {} in session {}", p.name, session.id, e);
             journal(session).append("ANOMALY", "player", p.name, "detail", "restore failed: " + e);
-            // Not re-queued on purpose. The tick drainer removes the entry before attempting, so
-            // re-queueing here would retry a genuinely broken snapshot every tick forever. The
-            // participant stays marked unrestored on disk, so a restart will offer one more attempt.
+            // Not re-queued, or a broken snapshot would be retried every tick.
             return false;
         }
     }
@@ -5058,15 +4404,11 @@ public final class SessionManager {
     /**
      * Records a loadout that arrived and was not applied.
      *
-     * <p>The counterpart of {@code LOADOUT_SAVED}, and the one line that was missing. A player who
-     * edits their set and is then handed the default one has no way to tell "the panel never sent
-     * it" from "the server threw it away", and neither did the journal: every successful save wrote
-     * a line and every refused one wrote nothing, which reads exactly like a client that never
-     * pressed 保存. The reason is journalled rather than the sentence, so the file stays parseable
-     * when the language changes.</p>
+     * <p>The counterpart of {@code LOADOUT_SAVED}: every refused save writes a line with the reason
+     * rather than the sentence, so the file stays parseable when the language changes.
      *
-     * <p>{@code session} is null when the id named a session that no longer exists — there is no
-     * journal to write to then, so the reason goes to the log only.</p>
+     * <p>{@code session} is null when the id names a missing session, and the reason goes to the
+     * log only.
      */
     private void rejectSubmit(DuelSession session, ServerPlayer player, String reason, String detail) {
         String name = player.getName().getString();
@@ -5079,26 +4421,20 @@ public final class SessionManager {
     }
 
     ServerPlayer online(Participant p) {
-        // Deliberately "in the player list", not "standing": a dead player is still listed, and the
-        // callers that must not touch a corpse say so themselves ({@link #restoreParticipant},
-        // {@link #flushPendingRestores}, {@link #beginStart}). Folding that into this method would
-        // make every count of "who is present" — win conditions, forfeits, HUD pushes — disagree
-        // with the player list during the seconds a death lasts.
+        // "In the player list", not "standing": callers that must not touch a corpse say so
+        // themselves.
         return server.getPlayerList().getPlayer(UUID.fromString(p.uuid));
     }
 
     /**
      * Reports a refusal.
      *
-     * <p>Takes a translation key and its arguments, not a sentence: the server decides <em>what</em>
-     * went wrong, never how it is spelled. The client resolves the key in its own language when it
-     * draws the chat line.</p>
+     * <p>Takes a translation key and its arguments, not a sentence: the server decides what went
+     * wrong, and the client resolves the key in its own language.
      */
     private static void fail(ServerPlayer player, String key, Object... args) {
         if (player == null) {
-            // There is no addressee when the refusal is triggered by somebody leaving rather than
-            // by somebody clicking. Logged instead of thrown: the session is already in the right
-            // state, and losing the sentence is not worth losing the session over.
+            // No addressee when the refusal comes from somebody leaving rather than a click.
             PvPocket.LOGGER.info("Refusal with no player to tell: {} {}",
                     key, java.util.Arrays.toString(args));
             return;
@@ -5110,7 +4446,9 @@ public final class SessionManager {
         return id.length() > 8 ? id.substring(0, 8) : id;
     }
 
-    /** Rounds won, one number per side, in team order — {@code "2:1"}, or {@code "1:0:0"} for three. */
+    /**
+     * Rounds won, one per side, in team order: {@code "2:1"}, or {@code "1:0:0"} for three sides.
+     */
     private static String scoreLine(DuelSession session) {
         int teams = Math.max(1, session.teamCount);
         StringBuilder sb = new StringBuilder();

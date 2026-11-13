@@ -8,22 +8,19 @@ import net.minecraft.network.chat.Component;
  * One configurable rule.
  *
  * <p>Immutable and shared by both sides: the catalog is compiled into the jar, so the server sends
- * only values and the client always knows how to render them. A rule that exists on the server but
- * not on the client is preserved as an opaque value by {@link DuelRules} rather than dropped.</p>
+ * only values. A rule the client does not know is kept as an opaque value by {@link DuelRules}.
  *
- * <p><b>Text is not stored here.</b> Every human-readable string is a translation key derived from
- * {@link #id}: {@code pvpocket.rule.<id>.label}, {@code .hint}, {@code .c<N>} for the Nth choice and
- * {@code .unit} for the suffix a numeric value carries. The id is already the wire format and is
- * stable by construction, so deriving the key from it means a rule cannot be renamed in one place
- * and forgotten in the other — the panel would show a missing key immediately.</p>
+ * <p>Text is not stored here. Every string is a translation key derived from {@link #id}:
+ * {@code pvpocket.rule.<id>.label}, {@code .hint}, {@code .c<N>} for the Nth choice and
+ * {@code .unit} for the suffix a numeric value carries.
  */
 public final class RuleDefinition {
 
     public final String id;
     public final RuleGroup group;
-    /** {@code pvpocket.rule.<id>.label}. */
+    /** Label key, {@code pvpocket.rule.<id>.label}. */
     public final String labelKey;
-    /** {@code pvpocket.rule.<id>.hint}. */
+    /** Hint key, {@code pvpocket.rule.<id>.hint}. */
     public final String hintKey;
     public final RuleKind kind;
 
@@ -34,8 +31,8 @@ public final class RuleDefinition {
     public final String[] choiceKeys;
     public final int defaultValue;
     /**
-     * Format template for the value's suffix, e.g. {@code "%s 秒"}. Null when the value stands
-     * alone — a percentage and a bare count have nothing to append.
+     * Format template for the value's suffix, e.g. {@code "%s s"}. Null when the value stands
+     * alone, as a percentage and a bare count have nothing to append.
      */
     public final String unitKey;
     /** Renders an INT rule as a percentage of {@code max} (knockback resistance). */
@@ -95,11 +92,10 @@ public final class RuleDefinition {
     }
 
     /**
-     * A toggle whose name and tooltip belong to somebody else.
+     * A toggle whose label and hint keys belong to another rule.
      *
-     * <p>Used by the loadout editor for enchantments: the row's id is {@code lo.flag.infinity} so it
-     * cannot collide with a rule, but the words come from {@code pvpocket.flag.infinity} — the same
-     * key the diagnostic command prints. One enchantment, one name.</p>
+     * <p>The row id is {@code lo.flag.infinity} so it cannot collide with a rule, while the words
+     * come from {@code pvpocket.flag.infinity}, the same key the diagnostic command prints.
      */
     public static RuleDefinition toggleNamed(String id, RuleGroup g, String labelKey, String hintKey,
                                              boolean def) {
@@ -115,9 +111,8 @@ public final class RuleDefinition {
     /**
      * An INT rule displayed with one decimal place.
      *
-     * <p>Stored value is tenths; {@code min}, {@code max}, {@code step} and {@code def} are all in
-     * tenths too. Used only by the loadout editor, where "7.0 damage" is a different weapon from
-     * "7.5 damage" and rounding to whole points would make the field a lie.</p>
+     * <p>Stored value is tenths, and {@code min}, {@code max}, {@code step} and {@code def} are in
+     * tenths too. Used by the loadout editor, where 7.0 and 7.5 damage are different weapons.
      */
     public static RuleDefinition decimal(String id, RuleGroup g, int min, int max, int step, int def) {
         return new RuleDefinition(id, g, labelKey(id), hintKey(id), RuleKind.INT, min, max, step, null,
@@ -187,16 +182,9 @@ public final class RuleDefinition {
     /**
      * Clamps a raw value into the range this definition accepts.
      *
-     * <p>INT rules are additionally snapped onto the {@link #step} grid. Every path that writes a
-     * value from the panel already lands on that grid — {@link #step} adds whole steps, and the
-     * slider rounds onto it — so snapping here only ever touches values that arrived from
-     * somewhere else: a hand-edited packet, a preset written by an older build, a rule set typed
-     * into a journal. Without it a stored {@code e.sizeX=45} renders as "45" while the arrow goes
-     * 45 → 53 → 61, i.e. the panel can never come back to the value it is showing, and the row
-     * stays off-grid for the rest of the session.</p>
-     *
-     * <p>The grid is anchored at {@link #min}, not at zero, because that is what the slider and
-     * the stepper already do: {@code e.sizeX} runs 16, 24, … 224.</p>
+     * <p>INT rules are also snapped onto the {@link #step} grid, which is anchored at {@link #min}
+     * rather than at zero: {@code e.sizeX} runs 16, 24, ... 224. A value that arrived from outside
+     * the panel, such as a stored {@code e.sizeX=45}, is moved to 48.
      */
     public int clamp(int value) {
         switch (kind) {
@@ -205,9 +193,7 @@ public final class RuleDefinition {
             case INT: {
                 int v = Math.max(min, Math.min(max, value));
                 if (step > 1) {
-                    // Round to nearest, then step back inside the range: max is not required to sit
-                    // on the grid, and rounding up past it would hand out a value clamp exists to
-                    // reject.
+                    // Round to nearest, then step back: max need not sit on the grid.
                     int snapped = min + Math.round((v - min) / (float) step) * step;
                     if (snapped > max) {
                         snapped -= step;
@@ -247,9 +233,8 @@ public final class RuleDefinition {
     /**
      * Human-readable value, used by the panel and by every chat line that quotes a rule.
      *
-     * <p>Returns {@link Text} rather than a string because the server is one of the callers: it has
-     * no language, so a value it formatted itself would arrive on a client speaking something else
-     * with the wrong words already baked in.</p>
+     * <p>Returns a component rather than a string because the server has no language and would
+     * otherwise bake the wrong words into the value.
      */
     public MutableComponent formatText(int value) {
         switch (kind) {

@@ -1,16 +1,5 @@
-# Finds a dev client's java process by the username it runs as.
-#
-# Why this is a shared file: the scripts that touch a client window (shot-window, click-frac,
-# post-key, post-type, raise-client) all need the same lookup, and they got it wrong in the same
-# way, so the bug is in the lookup rather than in any one of them.
-#
-# The arguments are not necessarily on the command line. ModDevGradle writes them to
-# `clientRunProgramArgs.txt` and hands DevLaunch an @argfile, so CommandLine contains only the
-# file path and `--username NeoDev1` lives inside it. Matching CommandLine alone therefore never
-# finds a NeoForge client, and the error reads "no client process", which looks like the client
-# never started.
-#
-# ASCII only: this file has no BOM and Windows PowerShell 5.1 reads it with the ANSI codepage.
+# Finds a dev client's java process by --username. The args may sit in an @argfile, not on the
+# command line. ASCII only: Windows PowerShell 5.1 reads this file with the ANSI codepage.
 
 function Get-EffectiveCommandLine($proc) {
     $cl = $proc.CommandLine

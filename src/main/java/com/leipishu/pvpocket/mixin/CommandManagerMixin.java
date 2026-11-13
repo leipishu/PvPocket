@@ -14,25 +14,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Refuses every command typed by a player who is standing in the duel dimension.
+ * Refuses every command typed by a player standing in the duel dimension.
  *
- * <p><b>Hooked at {@code execute}, not at {@code executeWithPrefix}.</b> That is not the obvious
- * choice and it is the one that matters: a command typed into chat is parsed by
- * {@code ServerPlayNetworkHandler} itself and arrives as
- * {@code CommandManager.performCommand(ParseResults, String)}. Only the console and RCON go through
- * {@code executeWithPrefix}, which parses and then calls {@code execute}. Hooking the prefix
- * variant would have blocked the operator and left the players — the entire point — untouched.</p>
+ * <p>Hooks {@code performCommand} at HEAD rather than {@code executeWithPrefix}: a command typed
+ * into chat is parsed by {@code ServerPlayNetworkHandler} and arrives at {@code performCommand},
+ * while only the console and RCON go through {@code executeWithPrefix}. Chat, the prefix path and
+ * anything else holding parse results all converge here.
  *
- * <p>Hooking {@code execute} is also the most complete single point available: chat, the prefix
- * path, and anything else that already holds parse results all converge here, so there is no second
- * entry point to keep in sync.</p>
- *
- * <p>Cancelling is deliberate rather than reporting through {@code CommandSyntaxException}: the
- * vanilla error path would print "unknown command" or a usage line, which reads as a typo rather
- * than as a rule. The player gets one plain sentence instead.</p>
- *
- * <p>Only player sources are filtered — see {@link Sandbox} for why the console and RCON keep
- * working.</p>
+ * <p>The command is cancelled rather than failing through {@code CommandSyntaxException}, so the
+ * player gets one plain sentence instead of an "unknown command" line. Only player sources are
+ * filtered; the console and RCON keep working.
  */
 @Mixin(Commands.class)
 public abstract class CommandManagerMixin {
@@ -54,16 +45,9 @@ public abstract class CommandManagerMixin {
     /**
      * Opens a game-mode authorisation scope for the duration of a non-player command.
      *
-     * <p>Without this the operator is locked out of the one repair that matters: {@code /gamemode}
-     * from the console is executed by the server, reaches
-     * {@code ServerPlayerInteractionManager#changeGameMode}, and is refused by the sandbox rule —
-     * silently, because the command reports nothing when the change returns false. An operator would
-     * have to teleport the player out of the dimension first, and there is no reason to make them
-     * discover that.</p>
-     *
-     * <p>Player-issued commands never reach here with the scope open: they are either refused above,
-     * or they are {@code /pvpocket} commands, which do not change game modes through the command
-     * system at all.</p>
+     * <p>Without it, {@code /gamemode} from the console runs through
+     * {@code ServerPlayerInteractionManager#changeGameMode} and is refused by the sandbox rule.
+     * Player-issued commands never reach here with the scope open.
      */
     @Inject(method = "performCommand", at = @At("HEAD"))
     private void pvpocket$beginOperatorScope(ParseResults<CommandSourceStack> parse,

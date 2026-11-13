@@ -12,15 +12,16 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 /**
- * Fabric side of the 1.8 first-person sword block: skip the display transform, build the pose.
+ * Fabric side of the 1.8 first-person sword block: skips the display transform and builds the
+ * pose instead.
  *
- * <p>Fabric leaves {@code ItemRenderer.render} calling {@code ItemTransforms.getTransform(ctx)
- * .apply(leftHand, poseStack)}. NeoForge replaces exactly that line with
- * {@code ClientHooks.handleCameraTransforms(...)}, so the injection cannot be shared — the numbers
- * can, and do: see {@link ItemBlockPose} for the pose itself and why it is a quarter turn.</p>
+ * <p>Fabric leaves {@code ItemRenderer.render} calling
+ * {@code ItemTransforms.getTransform(ctx).apply(leftHand, poseStack)}. NeoForge replaces that
+ * line with {@code ClientHooks.handleCameraTransforms(...)}, so the injection cannot be shared.
+ * The numbers can: {@link ItemBlockPose} holds the pose itself.
  *
- * <p>This class and its NeoForge twin have the same name on purpose. Each build sees exactly one of
- * them (the loader's own srcDir), so {@code pvpocket.client.mixins.json} keeps a single entry.</p>
+ * <p>Shares its name with the NeoForge twin. Each build sees one of them, from the loader's own
+ * srcDir, so {@code pvpocket.client.mixins.json} keeps a single entry.
  */
 @Mixin(ItemRenderer.class)
 public abstract class ItemRendererMixin {

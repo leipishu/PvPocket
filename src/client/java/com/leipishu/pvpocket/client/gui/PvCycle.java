@@ -13,22 +13,12 @@ import java.util.function.IntPredicate;
 /**
  * Left/right selector for a fixed list of choices.
  *
- * <p>Chosen over a dropdown on purpose: a dropdown needs an overlay layer, an open/closed state and
- * click-outside handling, and in a panel that is itself already modal it reads as a nested dialog.
- * Arrows keep every option one click away and keep the panel flat.</p>
+ * <p>Both arrow zones are 22px wide, the smallest comfortable target at GUI scale 1. The middle is
+ * dead space, so a mis-click there does nothing instead of advancing the value.
  *
- * <p>Both arrow zones are 22px wide, which is the smallest target that is still comfortable at GUI
- * scale 1. The middle is dead space rather than a third action, so a mis-click does nothing instead
- * of silently advancing the value.</p>
- *
- * <p>An option can be made unselectable with {@link #skip}. The arrows step <em>over</em> it rather
- * than landing on it and refusing, because a control that stops responding on the way to a valid
- * choice reads as broken. Only the arena map picker uses this: a map another duel is standing on
- * cannot host a second one.</p>
- *
- * <p>When the current value is one of those, the control says so with colour and a marker rather
- * than with a suffix. "倒计时判负（使用中）" was 40% longer than the label it decorated, and the
- * middle of a 168px control is exactly where a long label gets truncated.</p>
+ * <p>{@link #skip} makes individual options unselectable and the arrows step over them. Only the
+ * arena map picker uses it, for a map another duel already occupies. Such a value is marked with
+ * colour and a 3px accent bar.
  */
 public class PvCycle extends PvValueControl {
 
@@ -42,9 +32,8 @@ public class PvCycle extends PvValueControl {
 
     public PvCycle(RuleDefinition def, int value) {
         this.def = def;
-        // Clamped like PvChips does. Without it an out-of-range value (an old session whose map
-        // index no longer exists, a hand-edited preset) renders as the clamped choice but steps
-        // from the raw one, so the first click jumps somewhere unrelated to what was on screen.
+        // Clamped: an out-of-range value (an old session, a hand-edited preset) would otherwise
+        // render as the clamped choice but step from the raw one.
         this.value = def.clamp(value);
         this.width = 168;
         this.height = 24;
@@ -80,8 +69,8 @@ public class PvCycle extends PvValueControl {
 
         boolean overLeft = hovered && enabled && mouseX < x + ARROW;
         boolean overRight = hovered && enabled && mouseX >= x + width - ARROW;
-        // The half under the pointer lifts, so the control answers "what will this click do" before
-        // the click happens. It is drawn inset by one pixel so it never covers the control's border.
+        // The half under the pointer lifts, so the control shows what a click will do. It is drawn
+        // inset by one pixel so it never covers the control's border.
         if (overLeft) {
             PvDraw.roundRect(ctx, x + 1, y + 1, ARROW, height - 2, PvTheme.RADIUS - 1,
                     PvTheme.alpha(PvTheme.CARD_ACTIVE, 0.9F));
@@ -100,18 +89,16 @@ public class PvCycle extends PvValueControl {
         String label = def.format(value);
         int maxLabel = width - ARROW * 2 - 8;
         int textColor = !enabled ? PvTheme.TEXT_MUTED : taken ? PvTheme.ACCENT : PvTheme.TEXT;
-        // The arrows take fixed room at both ends, so the label has to give way: shrunk first, then
-        // wrapped between them, and cut only when two lines at the floor are not enough. A 107px
-        // control with 22px arrows leaves 55px for the label, which is "Golden / carrot" rather
-        // than "Golden car…".
+        // The arrows take fixed room at both ends, so the label shrinks, wraps between them and is
+        // cut when two lines do not fit; 22px arrows leave 55px for the label.
         int cx = x + width / 2;
         int labelW = PvDraw.textWrapCenter(ctx, tr, label, cx, y, height, maxLabel,
                 MAX_LINES, textColor);
         overflowTip(label, PvDraw.willCut(tr, label, maxLabel, MAX_LINES));
 
         if (taken && enabled) {
-            // A 3px marker in the accent colour: the same channel the text uses, so a colour-blind
-            // player still sees a shape where the word "使用中" used to be.
+            // A 3px marker in the accent colour: the same channel as the text, so a colour-blind
+            // player still sees a shape next to the label.
             PvDraw.roundRect(ctx, cx - labelW / 2 - 9, y + height / 2 - 3, 3, 6, 1, PvTheme.ACCENT);
         }
 
@@ -148,8 +135,8 @@ public class PvCycle extends PvValueControl {
     public void step(int direction) {
         int next = def.step(value, direction);
         if (skip != null) {
-            // One full lap at most: if every choice is taken there is nowhere to go, and wrapping
-            // forever would be an infinite loop inside a click handler.
+            // One full lap at most: if every choice is taken there is nowhere to go, and an
+            // endless loop would hang the click handler.
             int span = def.max - def.min + 1;
             for (int i = 0; i < span && blocked(next); i++) {
                 next = def.step(next, direction);

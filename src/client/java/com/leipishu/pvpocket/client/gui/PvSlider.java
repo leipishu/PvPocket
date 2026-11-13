@@ -7,21 +7,14 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 
 /**
- * Numeric slider with live read-out.
+ * Numeric slider with a live read-out.
  *
- * <p>The track maps the rule's own range onto pixels, so the step size is honoured exactly: dragging
- * can only ever produce values the rule accepts, and there is no separate validation step that can
- * disagree with the visual position.</p>
+ * <p>The track maps the rule's own range onto pixels, so dragging can only produce values the rule
+ * accepts.
  *
- * <p>Two different behaviours share one knob. While dragging, the fill follows the cursor with no
- * smoothing at all — a knob that lags the pointer feels broken. While stepping with the arrow keys,
- * the fill eases into place, because the only feedback for a keyboard press is the motion itself.</p>
- *
- * <p>The knob itself never changes size. Hover and drag light a halo behind it instead, and only the
- * halo's alpha animates: the disc is drawn at one fixed radius, so there is no integer to round and
- * nothing to step between. Anything that animates a drawn <em>size</em> on this scale has to be a
- * whole number of pixels, which is two states over a 1.5px range and reads as a stutter no matter how
- * smooth the underlying tween is.</p>
+ * <p>While dragging the fill follows the cursor with no smoothing; while stepping with the arrow
+ * keys it eases into place. The knob never changes size: hover and drag animate the alpha of a halo
+ * behind it instead.
  */
 public class PvSlider extends PvValueControl {
 
@@ -30,18 +23,14 @@ public class PvSlider extends PvValueControl {
     private static final int KNOB = 10;
     private static final int TRACK_H = 4;
     /**
-     * Half the widest the knob ever draws: the dot itself plus its hover halo.
+     * Half the widest the knob ever draws: the dot plus its hover halo.
      *
-     * <p>The track is inset by this at both ends. Without it the knob sits at the very end of the
-     * track when the value is at its maximum, and its radius reaches past the track into the
-     * read-out column — "5 players" with a white circle on the 5. Reserving the radius is the only
-     * way to keep the read-out clear without moving the read-out itself, and the read-out cannot
-     * move: it is right-aligned to the row's control edge, which is the column every other control
-     * shares.</p>
+     * <p>The track is inset by this at both ends, so at maximum value the knob does not reach into
+     * the read-out column. The read-out cannot move: it is right-aligned to the row's control edge.
      */
     private static final int KNOB_MAX = KNOB / 2 + 3;
 
-    /** How opaque the halo gets at full hover. Alpha has 256 steps, so the fade needs no rounding. */
+    /** How opaque the halo gets at full hover. Alpha has 256 steps, so no rounding is needed. */
     private static final float HALO = 0.20F;
 
     private final RuleDefinition def;
@@ -49,7 +38,7 @@ public class PvSlider extends PvValueControl {
     private float display = -1F;
     /** Hover and drag share this one tween; see {@link #render}. */
     private float glow;
-    /** -1 until the first frame, then the widest read-out this rule can produce. */
+    /** Sentinel -1 until the first frame, then the widest read-out this rule can produce. */
     private int readoutW = -1;
 
     public PvSlider(RuleDefinition def, int value) {
@@ -67,10 +56,8 @@ public class PvSlider extends PvValueControl {
     /**
      * Width of the read-out, measured once from the extremes of the range.
      *
-     * <p>A fixed 44 was one character too narrow for "500 uses": the read-out was ellipsised, which
-     * reads as a broken number rather than as a short column. Measuring the endpoints and keeping the
-     * result fixed avoids the other failure — sizing to the current value would make the track jump
-     * sideways every time a digit is added while dragging.</p>
+     * <p>A fixed 44 is too narrow for "500 uses". Sizing to the current value would make the track
+     * jump sideways as digits are added while dragging.
      */
     private int readoutWidth(Font tr) {
         if (readoutW < 0) {
@@ -82,18 +69,13 @@ public class PvSlider extends PvValueControl {
     }
 
     /**
-     * Track width: what is left after the read-out column and the knob's radius at <em>both</em>
-     * ends.
+     * Track width: what is left after the read-out column and the knob radius at both ends.
      *
-     * <p>The right-hand reservation is the whole point. The track used to stop one gap short of the
-     * read-out, which is correct for the bar and wrong for the knob: the knob is centred on the
-     * end of the track, so at maximum value half of it hung over "5 players" and the number came
-     * out from under a white disc. Reserving the radius at the right end moves the end of the
-     * track left instead of moving the read-out, and the read-out cannot move — it is right-aligned
-     * to the row's control edge, the column every other control shares.</p>
+     * <p>The knob is centred on the end of the track, so without the right-hand reservation half of
+     * it hangs over the read-out at maximum value. Reserving the radius moves the end of the track
+     * left instead of moving the read-out, which is right-aligned to the row's control edge.
      *
-     * <p>The 2px of air plus the 4px gap are what is left of the old spacing once the radius is
-     * taken out; they are not a fudge factor, they keep the halo off the glyphs.</p>
+     * <p>The 2px of air plus the 4px gap keep the halo off the glyphs.
      */
     private int trackWidth() {
         return Math.max(1, width - readoutW - 4 - KNOB_MAX * 2);
@@ -110,9 +92,7 @@ public class PvSlider extends PvValueControl {
             return;
         }
         float d = dt(delta);
-        // Hover and drag drive the same cue, so they drive the same tween. The old code kept two
-        // states and let the drag one snap the knob a pixel wider on the frame the button went
-        // down, which is a pop, not a transition.
+        // Hover and drag drive the same cue, so they drive the same tween.
         glow = PvAnim.damp(glow, (hovered || dragging) && enabled ? 1F : 0F, d, 0.09F);
         tickFocus(d);
 
@@ -139,13 +119,8 @@ public class PvSlider extends PvValueControl {
             PvDraw.roundRect(ctx, trackX, trackY, filled, TRACK_H, TRACK_H / 2, fillColor);
         }
 
-        // The knob is a fixed-size disc with a halo behind it whose alpha is what animates.
-        //
-        // Sizing the disc itself from hoverT was the stutter: `Math.round(hoverT * 1.5F)` maps a
-        // continuous 0..1 tween onto two integer radii, so the hover arrived as one 1px jump at
-        // 33% and another at 67%, and un-hovering jumped back the same way. Alpha is quantised to
-        // 1/255, which is below the eye's threshold on a 20px-tall control, so the same tween read
-        // out as an alpha looks like what it is: a fade.
+        // The knob is a fixed-size disc with a halo behind it whose alpha animates. A radius driven
+        // by the tween would jump in 1px steps, while alpha quantises to 1/255.
         int kx = Mth.clamp(trackX + filled, trackX, trackX + trackW);
         int ky = y + height / 2;
         int knobColor = enabled ? PvTheme.mix(PvTheme.TEXT, 0xFFFFFFFF, glow) : PvTheme.TEXT_MUTED;

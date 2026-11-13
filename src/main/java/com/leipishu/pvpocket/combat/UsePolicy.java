@@ -12,19 +12,14 @@ import net.minecraft.world.item.MilkBucketItem;
 import net.minecraft.world.item.PotionItem;
 
 /**
- * "May this stack be used right now" — the one place that answers it.
+ * "May this stack be used right now", answered in one place.
  *
- * <p>The answer is a function of three things and nothing else: which item it is, the gate mask the
- * rule set produced, and the ban mask {@code f.blockFilter} produced. Both sides call this with
- * their own copy of those two masks — the server reads them from {@link CombatState} because it
- * wrote them, the client reads them from the same class because {@code CombatStatePayload} mirrored
- * them. That is deliberate: a veto the client does not know about is a predicted block that only
- * exists on one machine.</p>
+ * <p>The answer depends on the item, the gate mask the rule set produced and the ban mask
+ * {@code f.blockFilter} produced. Both sides call this with their own copy of those masks, because
+ * a veto the client does not know about is a predicted block that exists on one machine only.
  *
- * <p>Keeping the classification here rather than in the callers matters more than it looks. There
- * are two entry points (block placement and plain item use) and three places that need the same
- * answer (both sides of the placement hook, and the item-use hook); the interesting part is
- * "what counts as a bed", and it must be the same answer in all of them.</p>
+ * <p>Classification lives here rather than in the callers: two entry points (block placement and
+ * plain item use) and three call sites need the same answer to "what counts as a bed".
  */
 public final class UsePolicy {
 
@@ -35,7 +30,7 @@ public final class UsePolicy {
     public static final int ALLOW_CONSUMABLES = 1 << 1;
     public static final int ALLOW_ENDER_PEARL = 1 << 2;
 
-    /** Ban bits, in the order the {@code f.blockFilter} chips are declared in {@code RuleCatalog}. */
+    /** Ban bits, in the order the {@code f.blockFilter} chips are declared in the catalog. */
     public static final int BAN_BED = 1 << 0;
     public static final int BAN_ANCHOR = 1 << 1;
     public static final int BAN_TNT = 1 << 2;
@@ -45,15 +40,15 @@ public final class UsePolicy {
     /** Why a use was refused. The caller turns this into a message; the check itself is silent. */
     public enum Denial {
         NONE,
-        /** {@code f.allowPlace} is off. */
+        /** The {@code f.allowPlace} switch is off. */
         PLACE,
-        /** {@code f.blockFilter} bans this kind of block. */
+        /** The {@code f.blockFilter} mask bans this kind of block. */
         BANNED,
-        /** {@code d.allowConsumables} is off. */
+        /** The {@code d.allowConsumables} switch is off. */
         CONSUMABLE,
-        /** {@code g.enderPearl} is off. */
+        /** The {@code g.enderPearl} switch is off. */
         PEARL,
-        /** Legacy 1.8 has no shields at all — not a rule, a property of the rule set. */
+        /** Legacy 1.8 has no shields at all, which is a property of the rule set, not a rule. */
         SHIELD
     }
 
@@ -63,16 +58,16 @@ public final class UsePolicy {
     /**
      * The ban bit for a stack, or 0 when {@code f.blockFilter} has nothing to say about it.
      *
-     * <p>A milk bucket is not a fluid bucket: it is drunk, not poured, and folding it into the fluid
-     * ban would make "关闭流体桶" quietly also remove a consumable. Fish buckets are fluid buckets —
-     * what they place is a mob, but what they change is the arena.</p>
+     * <p>A milk bucket is not a fluid bucket: it is drunk, not poured, so folding it into the fluid
+     * ban would also remove a consumable. Fish buckets are fluid buckets, because what they change
+     * is the arena.
      */
     public static int banOf(ItemStack stack) {
         Item item = stack.getItem();
         if (item instanceof BedItem) {
             return BAN_BED;
         }
-        // No RespawnAnchorItem exists — the anchor is a plain BlockItem, so it is named by item.
+        // No RespawnAnchorItem exists: the anchor is a plain BlockItem, so it is named by item.
         if (stack.is(Items.RESPAWN_ANCHOR)) {
             return BAN_ANCHOR;
         }
@@ -97,8 +92,8 @@ public final class UsePolicy {
      * Does this stack put a block into the world when used on a block?
      *
      * <p>Buckets are not in here even though they place fluid: {@code BucketItem} does that from
-     * {@code use}, not {@code useOnBlock}, and "can I fill my bucket" has nothing to do with
-     * {@code f.allowPlace}. They are handled by {@link #useDenial} instead.</p>
+     * {@code use}, not {@code useOnBlock}, and whether a bucket can be filled has nothing to do
+     * with {@code f.allowPlace}. They are handled by {@link #useDenial} instead.</p>
      */
     public static boolean placesBlock(ItemStack stack) {
         return stack.getItem() instanceof BlockItem || stack.getItem() instanceof EndCrystalItem;
@@ -140,10 +135,9 @@ public final class UsePolicy {
     /**
      * The shield veto, which comes from the rule set rather than from a rule.
      *
-     * <p>Kept apart from {@link #useDenial} because it is not a knob: there is no switch that turns
-     * shields back on in 1.8, and folding it into the gate mask would have meant a bit no panel can
-     * set. Grant already strips shields from the loadout, so this is the second line — it covers the
-     * shield that reaches an inventory some other way.</p>
+     * <p>Kept apart from {@link #useDenial} because there is no switch that turns shields back on
+     * in 1.8, and a gate bit no panel can set would be dead. Grant already strips shields from the
+     * loadout; this covers a shield that reaches an inventory another way.
      */
     public static Denial shieldDenial(boolean legacy, ItemStack stack) {
         return legacy && stack.is(Items.SHIELD) ? Denial.SHIELD : Denial.NONE;

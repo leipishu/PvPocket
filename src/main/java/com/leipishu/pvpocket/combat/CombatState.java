@@ -8,12 +8,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Authoritative per-player combat state.
  *
- * <p>This is the single question the combat layer is allowed to ask: "which rule set applies to
- * this player right now". Nothing here knows about sessions, rounds or arenas — the session layer
- * writes into it when a round starts and clears it when the round ends.</p>
+ * <p>This is the single question the combat layer asks: which rule set applies to this player right
+ * now. Nothing here knows about sessions, rounds or arenas; the session layer writes into it when a
+ * round starts and clears it when the round ends.
  *
- * <p>Reads happen from the render thread (client) and the server thread, so the maps are
- * concurrent and hold no locks on the read path.</p>
+ * <p>Reads happen from the render thread and the server thread, so the maps are concurrent.
  */
 public final class CombatState {
 
@@ -25,10 +24,9 @@ public final class CombatState {
     /**
      * Client-only: does the round this client is watching allow explosions?
      *
-     * <p>Not per player, unlike everything else here, because an explosion has no owner — a creeper
-     * is nobody's. The client only ever renders its own surroundings, so one flag is the whole
-     * question it can ask. The server does not read this; it answers from the plot the explosion
-     * happened in, which is the only place the answer actually varies.</p>
+     * <p>Not per player, because an explosion has no owner. The client only renders its own
+     * surroundings, so one flag covers it. The server answers from the plot the explosion happened
+     * in instead.
      */
     private static volatile boolean clientExplosivesAllowed = true;
 
@@ -69,10 +67,9 @@ public final class CombatState {
     /**
      * The item-use gate and the block-filter ban mask for this round.
      *
-     * <p>Stored rather than derived because the client has to ask the same question and cannot see
-     * a {@code DuelSession}. The session layer writes both when a round starts and
-     * {@link #clear} drops them, which makes "not in a round" and "nothing restricted" the same
-     * state — the maps stay empty and every lookup falls back to {@link UsePolicy#ALL}.</p>
+     * <p>Stored rather than derived because the client asks the same question and cannot see a
+     * {@code DuelSession}. {@link #clear} drops both, so "not in a round" and "nothing restricted"
+     * are the same state and every lookup falls back to {@link UsePolicy#ALL}.
      */
     public static void setUseGate(UUID player, int gate, int bans) {
         if (gate == UsePolicy.ALL) {

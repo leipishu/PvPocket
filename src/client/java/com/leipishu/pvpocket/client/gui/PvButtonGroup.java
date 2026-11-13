@@ -7,17 +7,11 @@ import java.util.List;
 /**
  * Two or three widgets side by side, so a row can offer more than one action.
  *
- * <p>Exists because {@code SettingRow} places a single control against the row's right edge: the
- * operator page needs "copy" and "remove" on the same map row, and two separate rows per map would
- * have doubled a page whose whole job is to be scanned in one glance. A group is the smallest thing
- * that lets one row hold both — it reports the summed width to the row and lays its children out
- * inside it.</p>
+ * <p>{@code SettingRow} places a single control against its right edge. A group reports the summed
+ * width to the row and lays its children out inside it.
  *
- * <p>It draws nothing itself. Every child keeps its own hover, press and disabled state, which is
- * the point: a shared surface would make "copy is available but remove is not" impossible to show.
- * Placement happens in {@link #render} for the same reason every other container in this mod does
- * it — the pane assigns widths before it totals heights, so a child's final {@code y} does not exist
- * until the row it lives in has been given one.</p>
+ * <p>It draws nothing itself. Every child keeps its own hover, press and disabled state. Placement
+ * happens in {@link #render}, after the pane has assigned widths.
  */
 public class PvButtonGroup extends PvWidget {
 
@@ -27,8 +21,7 @@ public class PvButtonGroup extends PvWidget {
     private final PvWidget[] items;
 
     /**
-     * @param height the row height every child is given; buttons in a group are the same size by
-     *               definition, and letting them differ would make the cluster ragged
+     * @param height the row height given to every child; all buttons in a group share one size
      */
     public PvButtonGroup(int height, PvWidget... items) {
         this.items = items;
@@ -71,8 +64,7 @@ public class PvButtonGroup extends PvWidget {
      * Releases to every child, not just the one under the pointer.
      *
      * <p>A press is consumed where it starts and the action fires where it ends, so a drag off the
-     * button has to reach the button that is waiting for the release — otherwise the press state
-     * stays latched and the next click on that button acts on a half-finished gesture.</p>
+     * button must still reach the button waiting for the release.
      */
     @Override
     public boolean mouseReleased(double mx, double my, int button) {

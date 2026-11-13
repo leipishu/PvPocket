@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 """Render a top-down footprint of the duel dimension.
 
-Why this exists: the arena is one dimension carved into cells, and the failure mode when the layout
-is wrong is visual -- every map stamped into the same cell, piled on top of each other. The server
-log tells you where each map *claims* to be; only a picture tells you whether the maps are actually
-apart.
-
     python scripts/arena-map.py [world_dir] [out.png]
 
-`world_dir` defaults to runs/1.21.1-fabric/server/world. The script reads
-`dimensions/pvpocket/arena/region/*.mca`, decodes the paletted block states itself (anvil-parser2's
-per-block accessor is far too slow for a whole dimension), and writes a 1-pixel-per-block PNG plus
-an ASCII overview at 16 blocks per character.
+`world_dir` defaults to runs/1.21.1-fabric/server/world. Reads
+`dimensions/pvpocket/arena/region/*.mca`, decodes the paletted block states, and writes a
+1-pixel-per-block PNG plus an ASCII overview at 16 blocks per character.
 """
 
 from __future__ import annotations
@@ -76,8 +70,7 @@ def color_for(name):
 def decode_section(section):
     """(palette, 4096-entry index array in y*256 + z*16 + x order) for one section.
 
-    A palette of length 1 means the section is uniform and stores no data array at all -- the common
-    case here, since everything above a build is plain air.
+    A palette of length 1 means the section is uniform and stores no data array at all.
     """
     bs = section.get("block_states")
     if bs is None:
@@ -154,8 +147,8 @@ def build(world_dir):
 
     chunks = []
     for path in paths:
-        # r.<regionX>.<regionZ>.mca -- the region coordinates come from the file name, and the
-        # header is a 32x32 table of (sector offset, sector count) with (0, 0) meaning "absent".
+        # r.<regionX>.<regionZ>.mca: the coordinates come from the name, and a (0, 0) chunk
+        # location means the chunk is absent.
         stem = os.path.basename(path)[2:-4]
         region_x, region_z = (int(part) for part in stem.split("."))
         region = anvil.Region.from_file(path)

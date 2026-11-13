@@ -1,35 +1,20 @@
 #!/usr/bin/env python3
-"""按格子核对配装内容：这一版到底能给出哪些物品。
+"""Checks loadout content per cell: which items a version can actually offer.
 
-为什么需要这个：`ItemKind.available()` 问的是**运行时注册表**，那是对的设计——版本差异不该
-硬编码进枚举。代价是「1.21.1 到底有没有长矛」在离线状态下无处可查，而移植时最怕的正是这一格：
-面板上多出一行、点下去给不到东西。AGENTS.md 里那条「高版本加长矛、低版本去重锤与风弹」的
-要求，只有变成可执行的检查才算数。
+`ItemKind.available()` asks the runtime registry, which leaves "does 1.21.1 have a spear"
+unanswerable offline. The data comes from two places: `scripts/content-manifest.tsv` holds version
+thresholds, and `ItemKind` / `Material` / `LoadoutCatalog` hold the catalog. The script multiplies
+the two, so a wrong threshold or a missing catalog entry shows up here.
 
-数据分两处，各管一段：
+Four checks: layering, empty pages, language keys, and `--verify-jar` against a real game jar.
 
-  * `scripts/content-manifest.tsv` —— 版本门槛（哪个 id 从哪一版开始存在）。
-  * `ItemKind` / `Material` / `LoadoutCatalog` —— 目录本身（有哪些种类、材质、变体）。
-
-脚本不重复声明任何一边，只把两边乘起来，所以目录加一项、门槛写错，都会在这里显形。
-
-四类检查：
-
-  1. **分层**：版本门槛与目录的交叉结果必须符合意图——1.20.1 不得有重锤/风弹/长矛/铜制，
-     1.21 起必须有重锤与风弹，1.21.11 起必须有长矛。
-  2. **空页**：任何一格、任何一页都必须至少有一个可用种类。整页空着是最糟的失败方式——
-     玩家看到的是四个标签页里有一个什么都没有。
-  3. **语言键**：每个可用种类、材质、变体都要有 `pvpocket.item|material|option.*` 的键。
-  4. **jar 核对**（`--verify-jar`）：拿真实的游戏 jar 比一遍，把清单里 `declared` 的条目
-     变成可核实的结论。移植每一格时都该跑一次。
-
-用法：
-    python scripts/check-content.py 1.21.1-fabric          # 一格的清单
+Usage:
+    python scripts/check-content.py 1.21.1-fabric          # one cell
     python scripts/check-content.py 1.20.1-forge --verbose
-    python scripts/check-content.py --all                  # 12 格总表
-    python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>
+    python scripts/check-content.py --all                  # every cell
+    python scripts/check-content.py 1.21.1-fabric --verify-jar <client jar>
 
-退出码：0 通过；1 有问题；2 参数或环境错误。
+Exit code: 0 pass, 1 problems, 2 bad arguments or environment.
 """
 import argparse
 import json
@@ -39,30 +24,27 @@ import sys
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+# Sources live at the repository root: src/ is shared and a cell only decides how to compile it.
 SRC_ROOT = ROOT
 LOADOUT = os.path.join(SRC_ROOT, "src", "main", "java", "com", "leipishu", "pvpocket", "loadout")
 LANG_DIR = os.path.join(SRC_ROOT, "src", "main", "resources", "assets", "pvpocket", "lang")
 MANIFEST = os.path.join(ROOT, "scripts", "content-manifest.tsv")
 
-# 版本维按时间顺序。顺序本身是数据：门槛比较靠它，`--all` 的列序也靠它。
+# Versions in chronological order: threshold comparison and the --all column order rely on it.
 VERSIONS = ["1.20.1", "1.21.1", "1.21.11", "26.1", "26.2", "26.3"]
 
-# 加载器维。1.20.1 是 Forge（FG6 绑 Gradle 8），其余是 NeoForge——这个分工是方案里定死的，
-# 写成数据是为了让 `1.20.1-neoforge` 这种不存在的组合当场被拒，而不是等到构建时才发现。
+# Loader dimension. 1.20.1 is Forge (FG6 pins Gradle 8), everything else NeoForge. Keeping it as
+# data rejects an impossible cell such as 1.20.1-neoforge up front instead of at build time.
 LOADERS = {"1.20.1": ("fabric", "forge")}
 DEFAULT_LOADERS = ("fabric", "neoforge")
 
-# 目录里没有独立物品 id 的种类：它们由条目的 variant 指名，`available()` 恒真。
+# Kinds with no item id of their own: an entry's variant names them, so available() is always true.
 VARIANT_KINDS = {"FOOD", "BLOCK", "POTION"}
 
 
-# --------------------------------------------------------------------------------------------
-# 版本比较
-# --------------------------------------------------------------------------------------------
 
 def version_key(text):
-    """`1.21.11` -> (1, 21, 11)。缺的位按 0 补，所以 `1.21` 与 `1.21.0` 相等。"""
+    """`1.21.11` -> (1, 21, 11). Missing parts count as 0, so `1.21` equals `1.21.0`."""
     parts = []
     for piece in text.split("."):
         match = re.match(r"\d+", piece)
@@ -73,19 +55,16 @@ def version_key(text):
 
 
 def before(a, b):
-    """a 严格早于 b。"""
+    """True when a is strictly earlier than b."""
     ka, kb = version_key(a), version_key(b)
     width = max(len(ka), len(kb))
     return ka + (0,) * (width - len(ka)) < kb + (0,) * (width - len(kb))
 
 
-# --------------------------------------------------------------------------------------------
-# 从 Java 读目录
-# --------------------------------------------------------------------------------------------
 
 def read(path):
-    # utf-8-sig：Windows 上的编辑器与 PowerShell 重定向都会悄悄加 BOM，而带 BOM 的第一行
-    # 既不是注释也不是数据，会以一个莫名其妙的「少一列」报出来。
+    # utf-8-sig: editors and PowerShell redirection add a BOM, and a BOM makes the first line
+    # neither a comment nor data, which shows up as a bogus missing-column error.
     with open(path, encoding="utf-8-sig") as handle:
         return handle.read()
 
@@ -116,7 +95,7 @@ def parse_materials():
 
 
 def parse_variants():
-    """`food("minecraft:golden_apple")` / `block(...)` / `effect(...)` -> [(类别, id, 键前缀)]"""
+    """`food("minecraft:golden_apple")` / `block(...)` / `effect(...)` -> [(kind, id, key)]"""
     text = read(os.path.join(LOADOUT, "LoadoutCatalog.java"))
     out = []
     for category, prefix in (("food", "pvpocket.option.food."),
@@ -129,17 +108,13 @@ def parse_variants():
     return out
 
 
-# --------------------------------------------------------------------------------------------
-# 清单
-# --------------------------------------------------------------------------------------------
 
 def load_manifest():
-    """item id -> (起始版本, 依据)。没列出的 id 视为 1.20.1 就有。
+    """item id -> (first version, basis). Ids not listed are assumed to exist in 1.20.1.
 
-    起始版本写 `never` 表示**这个版本从来没有过**。这一列不能只记"新增"：原版就没有木制与
-    石制护甲，而 `Material` 是个与种类正交的枚举，所以 `wooden_helmet` 这种组合在
-    `ItemKind × Material` 的叉积里存在、在游戏里不存在。运行时由 `available()` 问注册表
-    挡掉，离线时只能靠这张表说清楚。
+    A first version of `never` means the version never had it: vanilla has no wooden or stone
+    armour, and `Material` is orthogonal to kind, so `wooden_helmet` exists in the product of
+    `ItemKind` and `Material` but not in the game.
     """
     if not os.path.isfile(MANIFEST):
         raise SystemExit("找不到 %s" % MANIFEST)
@@ -164,7 +139,7 @@ def load_manifest():
 
 
 def item_exists(item, version, manifest):
-    """这个 id 在 `version` 里存不存在。"""
+    """True when the id exists in `version`."""
     since = manifest.get(item, ("1.20.1", "verified"))[0]
     if since == "never":
         return False
@@ -172,7 +147,7 @@ def item_exists(item, version, manifest):
 
 
 def item_path(kind, material):
-    """与 `ItemKind.itemPath` 同一条规则：材质化的拼 `<material>_<kind>`，否则就是 kind 本身。"""
+    """Same rule as `ItemKind.itemPath`: materialised kinds join <material>_<kind>."""
     if kind["materialised"] and material is not None:
         return "%s_%s" % (material["prefix"], kind["id"])
     return kind["id"]
@@ -182,7 +157,7 @@ def offered_kinds(kinds, materials, version, manifest):
     out = []
     for kind in kinds:
         if kind["name"] in VARIANT_KINDS:
-            out.append(kind)          # 由 variant 指名，恒可用
+            out.append(kind)          # named by a variant, so always offered
             continue
         if not kind["materialised"]:
             if item_exists(kind["id"], version, manifest):
@@ -201,9 +176,6 @@ def offered_materials(kind, materials, version, manifest):
             if item_exists(item_path(kind, material), version, manifest)]
 
 
-# --------------------------------------------------------------------------------------------
-# 检查
-# --------------------------------------------------------------------------------------------
 
 class Report:
     def __init__(self):
@@ -214,11 +186,14 @@ class Report:
 
 
 def check_layers(report, kinds, materials, manifest):
-    """分层：门槛与目录的交叉结果必须符合意图。这些断言独立于清单，所以清单写错会被抓住。"""
+    """Layering: the product of thresholds and catalog has to match intent.
+
+    These assertions do not read the manifest, so a wrong manifest is caught here.
+    """
     for version in VERSIONS:
         available = {kind["name"] for kind in offered_kinds(kinds, materials, version, manifest)}
 
-        # 重锤与风弹是 1.21（Tricky Trials）才有的。低版本给了就是一行空头承诺。
+        # Mace and wind charge exist from 1.21 (Tricky Trials).
         for name, label in (("MACE", "重锤"), ("WIND_CHARGE", "风弹")):
             if name not in {kind["name"] for kind in kinds}:
                 continue
@@ -227,14 +202,14 @@ def check_layers(report, kinds, materials, manifest):
             if not before(version, "1.21") and name not in available:
                 report.bad("%s 应该提供%s（1.21 起有）" % (version, label))
 
-        # 长矛是 1.21.11（Mounts of Mayhem）才有的，也是这次移植最要紧的一项。
+        # Spear exists from 1.21.11 (Mounts of Mayhem).
         if "SPEAR" in {kind["name"] for kind in kinds}:
             if before(version, "1.21.11") and "SPEAR" in available:
                 report.bad("%s 不该提供长矛（1.21.11 才有）" % version)
             if not before(version, "1.21.11") and "SPEAR" not in available:
                 report.bad("%s 应该提供长矛（1.21.11 起有）" % version)
 
-        # 铜制是 1.21.9（The Copper Age）才有的。配装目录里它是材质，不是种类。
+        # Copper gear exists from 1.21.9 (The Copper Age); copper is a material, not a kind.
         has_copper = any(item_exists(item_path(kind, material), version, manifest)
                          for kind in kinds if kind["materialised"]
                          for material in materials if material["id"] == "copper")
@@ -245,7 +220,7 @@ def check_layers(report, kinds, materials, manifest):
 
 
 def check_pages(report, kinds, materials, manifest):
-    """任何一格、任何一页都不能空。"""
+    """No cell and no page may be empty."""
     pages = sorted({kind["page"] for kind in kinds})
     for version in VERSIONS:
         available = offered_kinds(kinds, materials, version, manifest)
@@ -255,7 +230,7 @@ def check_pages(report, kinds, materials, manifest):
 
 
 def check_lang(report, kinds, materials, variants):
-    """每个目录项都要有翻译键，否则面板上显示的是一串键名。"""
+    """Every catalog entry needs a translation key, or the panel shows the raw key."""
     with open(os.path.join(LANG_DIR, "zh_cn.json"), encoding="utf-8-sig") as handle:
         keys = set(json.load(handle))
 
@@ -273,11 +248,10 @@ def check_lang(report, kinds, materials, variants):
 
 
 def jar_item_ids(jar_path):
-    """从客户端 jar 的 en_us.json 取物品 id。
+    """Item ids from the client jar's en_us.json.
 
-    **两套键空间都要取。** 原版把方块类物品的键放在 `block.minecraft.*`（`tnt`、`oak_planks`、
-    `white_wool` 都是），`item.minecraft.*` 里没有它们——只读前者会得出「原版没有 TNT」这种
-    结论，而这正好是配装的方块页要用的东西。
+    Both key spaces are read: vanilla keeps block items under `block.minecraft.*` (tnt,
+    oak_planks, white_wool) and those are absent from `item.minecraft.*`.
     """
     with zipfile.ZipFile(jar_path) as archive:
         try:
@@ -290,7 +264,8 @@ def jar_item_ids(jar_path):
             if not key.startswith(prefix):
                 continue
             path = key[len(prefix):]
-            # 药水有 `splash_potion.effect.speed` 这种变体键，它描述的不是注册表里的一项。
+            # Potions have variant keys such as `splash_potion.effect.speed`, which are not
+            # registry entries.
             if "." not in path:
                 ids.add(path)
     if len(ids) < 500:
@@ -299,7 +274,7 @@ def jar_item_ids(jar_path):
 
 
 def check_jar(report, jar_path, version, kinds, materials, variants, manifest):
-    """清单与真实 jar 对账。这是把 `declared` 变成结论的唯一手段。"""
+    """Reconciles the manifest against a real jar."""
     ids = jar_item_ids(jar_path)
     relevant = []
     for kind in kinds:
@@ -322,10 +297,10 @@ def check_jar(report, jar_path, version, kinds, materials, variants, manifest):
         elif actual and not declared:
             since = manifest.get(item, ("1.20.1", ""))[0]
             report.bad("jar 里 %s 存在，但清单写的是 %s 起才有" % (item, since))
-    # 变体也核一遍：它们同样是玩家点得到的物品。
+    # Variants are checked too: players can pick them.
     for category, path, _ in variants:
         if category == "effect":
-            continue          # 效果不是物品
+            continue          # effects are not items
         declared = item_exists(path, version, manifest)
         actual = path in ids
         checked += 1
@@ -341,9 +316,6 @@ def check_jar(report, jar_path, version, kinds, materials, variants, manifest):
               % (len(pending), " ".join(pending[:8]) + (" …" if len(pending) > 8 else "")))
 
 
-# --------------------------------------------------------------------------------------------
-# 输出
-# --------------------------------------------------------------------------------------------
 
 def print_cell(version, loader, kinds, materials, variants, manifest, verbose):
     print("[content] %s-%s —— MC %s / %s" % (version, loader, version, loader))
@@ -390,7 +362,7 @@ def print_cell(version, loader, kinds, materials, variants, manifest, verbose):
 
 
 def print_matrix(kinds, materials, manifest):
-    """12 格总表：每行一个内容项，每列一个版本。"""
+    """One row per content kind, one column per version."""
     names = [kind["id"] for kind in kinds]
     width = max(len(name) for name in names) + 2
     header = " " * width + "".join("%-10s" % version for version in VERSIONS)
@@ -413,9 +385,6 @@ def print_matrix(kinds, materials, manifest):
         print(row)
 
 
-# --------------------------------------------------------------------------------------------
-# 入口
-# --------------------------------------------------------------------------------------------
 
 def parse_cell(text):
     if "-" not in text:

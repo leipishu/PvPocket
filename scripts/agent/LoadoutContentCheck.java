@@ -7,18 +7,16 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 配装目录的版本可用性自检。
+ * Checks that the loadout catalogue offers the right items for each target version.
  *
- * <p>这一段的由来：模组的物品目录跨版本不是常量。重锤与风弹是 1.21 才有的，长矛是 1.21.11 才有的，
- * 铜制武器还要更晚，而且铜可能只对部分种类成立（有铜矛不一定有铜剑）。把这张表写成常量，每移植一个
- * 版本就要靠人记得改，改漏的表现是"面板上有这一行，加上去却什么都没发"。</p>
+ * <p>The catalogue is not constant across versions: mace and wind charge arrive in 1.21, the
+ * spear in 1.21.11, copper weapons later, and copper may exist for only some kinds.
  *
- * <p>所以真实代码把判断交给物品注册表（{@link ItemKind#available()}），而把"问谁"抽成了
- * {@link ItemKind.ItemIds}。本类就是用三份手写的 id 集合冒充 1.20.1 / 1.21.1 / 1.21.11 的注册表，
- * 断言每一个版本应当看到什么。**不需要启动游戏**，因此可以挂 CI，也可以在还没有多版本构建的时候就跑。</p>
+ * <p>Real code asks the item registry through {@link ItemKind#available()}. This class answers
+ * with three hand-written id sets standing in for 1.20.1, 1.21.1 and 1.21.11.
  *
- * <p>它测的是机制，不是真实注册表的内容：真实内容由各版本的 dev 客户端导出的清单核对（见方案文档
- * §8）。两者分工明确——机制错了在这里红，数据错了在清单差异里红。</p>
+ * <p>No game starts, so it runs in CI and checks the mechanism, not the registry contents.
+ * Usage: {@code LoadoutContentCheck [--mcjar <path>]}; exits 0 when every assertion holds.
  */
 public final class LoadoutContentCheck {
 
@@ -35,9 +33,8 @@ public final class LoadoutContentCheck {
         checkEveryKindIsReachable(v1201, v1211, v12111);
         checkWireIds();
 
-        // 第二段：拿真实的游戏 jar 验一遍。上面那三份是"机制对不对"，这一段是"当前这版游戏里到底有
-        // 什么"。物品 id 从客户端 jar 的 en_us.json 里取——每个原版物品都有一条
-        // item.minecraft.<id>，所以不需要启动游戏也不需要 Bootstrap。
+        // Second part: the current game jar, whose en_us.json lists every vanilla item as
+        // item.minecraft.<id>. The three sets above cover the mechanism, this covers the data.
         if (args.length == 2 && "--mcjar".equals(args[0])) {
             checkAgainstJar(args[1]);
         }
@@ -51,10 +48,11 @@ public final class LoadoutContentCheck {
     }
 
     /**
-     * 用真实的游戏 jar 验一遍当前版本。
+     * Checks the current game jar.
      *
-     * <p>这一段的断言只写"不会随版本变化的事实"：任何版本都必须有剑、有食物、有方块；1.21.x 必须有
-     * 重锤与风弹。长矛不在这里断言，因为它随版本出现——那部分由上面的三份模拟清单负责。</p>
+     * <p>These assertions hold for every version: swords, food and blocks always exist, and
+     * 1.21.x has mace and wind charge. The spear is not asserted here because it appears by
+     * version; the simulated sets above cover it.
      */
     private static void checkAgainstJar(String jarPath) {
         Set<String> itemIds;
@@ -80,7 +78,7 @@ public final class LoadoutContentCheck {
             expect(!offered.isEmpty(), "页面 " + page + " 在这一版游戏里一个种类都没有");
         }
 
-        // 材质矩阵：每一个可用的材质化种类，至少要有一种材质；顺序必须是阶梯顺序。
+        // Material matrix: each available materialised kind has materials, in tier order.
         for (ItemKind kind : ItemKind.values()) {
             if (!kind.materialised || !kind.available(ids)) {
                 continue;
@@ -90,7 +88,7 @@ public final class LoadoutContentCheck {
             expect(isTierOrdered(materials), kind.id + " 的材质顺序不是阶梯顺序：" + materials);
         }
 
-        // 这几个是所有 1.21.x 都成立的事实；写成断言是为了让"哪天它们没了"当场变红。
+        // Facts that hold for every 1.21.x; asserted so that losing them fails here.
         expect(ItemKind.SWORD.available(ids), "这一版游戏里没有剑？");
         expect(ItemKind.MACE.available(ids), "1.21.x 应该有重锤");
         expect(ItemKind.WIND_CHARGE.available(ids), "1.21.x 应该有风弹");
@@ -99,11 +97,11 @@ public final class LoadoutContentCheck {
     }
 
     /**
-     * 从客户端 jar 的 {@code assets/minecraft/lang/en_us.json} 里取物品 id。
+     * Reads item ids from {@code assets/minecraft/lang/en_us.json} in the client jar.
      *
-     * <p>只保留 {@code item.minecraft.<rest>} 且 {@code <rest>} 里没有点号的键：药水有
-     * {@code item.minecraft.splash_potion.effect.speed} 这种键，它描述的是一个物品的变体，不是注册表
-     * 里的一项。这个过滤是唯一容易出错的地方，所以下面的断言会检查数量级。</p>
+     * <p>Only keys of the form {@code item.minecraft.<rest>} with no dot in {@code <rest>} are
+     * kept: potions add keys such as {@code item.minecraft.splash_potion.effect.speed}, which
+     * name a variant rather than a registry entry. The caller checks the resulting count.
      */
     private static Set<String> itemIdsFromJar(String jarPath) throws Exception {
         try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jarPath)) {
@@ -129,24 +127,24 @@ public final class LoadoutContentCheck {
         }
     }
 
-    // ------------------------------------------------------------------ 期望值
+    // ------------------------------------------------------------------ expected values
 
-    /** 三个目标版本各自"注册表里有什么"，只列配装目录会用到的那些。 */
+    /** What each target version's registry contains, limited to ids the loadout catalogue uses. */
     private enum Version {
-        /** 没有重锤、没有风弹、没有长矛、没有铜制武器。 */
+        /** No mace, no wind charge, no spear, no copper weapons. */
         V1201(false, false, false, Set.of()),
-        /** 有重锤与风弹，没有长矛，没有铜制武器。 */
+        /** Mace and wind charge, no spear, no copper weapons. */
         V1211(true, true, false, Set.of()),
         /**
-         * 全都有。铜**只对长矛**成立——这是刻意的：现实里"有铜矛不一定有铜剑"，用它来证明材质
-         * 过滤是按（种类 × 材质）算的，不是按材质全局算的。
+         * Everything, with copper only for the spear. That combination proves material filtering
+         * runs per kind and material rather than per material globally.
          */
         V12111(true, true, true, Set.of("copper_spear"));
 
         final boolean mace;
         final boolean windCharge;
         final boolean spear;
-        /** 额外存在的 id，用来表达"这个版本多出来的具体变体"。 */
+        /** Ids that exist only in this version, used for kind-and-material variants. */
         final Set<String> extra;
 
         Version(boolean mace, boolean windCharge, boolean spear, Set<String> extra) {
@@ -158,9 +156,10 @@ public final class LoadoutContentCheck {
     }
 
     /**
-     * 把一份版本规则展开成 id 集合。
+     * Expands one version rule into a set of ids.
      *
-     * <p>不是手打一长串：手打的那份会随 {@code ItemKind} 增删而失同步，而它恰恰是用来发现失同步的。</p>
+     * <p>Generated from {@link ItemKind} and {@link Material} rather than typed out, so an entry
+     * added to either enum without a matching rule fails here.
      */
     private static ItemKind.ItemIds ids(Version version) {
         Set<String> set = new LinkedHashSet<>();
@@ -190,7 +189,7 @@ public final class LoadoutContentCheck {
             }
             if (kind.materialised) {
                 for (Material material : Material.values()) {
-                    // 铜只出现在版本明确声明的变体里；其余材质每种都有。
+                    // Copper appears only where the version declares it; other materials always do.
                     if (material == Material.COPPER && !version.extra.contains(kind.itemPath(material))) {
                         continue;
                     }
@@ -204,7 +203,7 @@ public final class LoadoutContentCheck {
         return set::contains;
     }
 
-    // ------------------------------------------------------------------ 断言
+    // ------------------------------------------------------------------ assertions
 
     private static void checkKinds(ItemKind.ItemIds v1201, ItemKind.ItemIds v1211,
                                    ItemKind.ItemIds v12111) {
@@ -223,7 +222,7 @@ public final class LoadoutContentCheck {
         expect(!consumables1201.contains(ItemKind.WIND_CHARGE), "1.20.1 不应该提供风弹");
         expect(consumables1211.contains(ItemKind.WIND_CHARGE), "1.21.1 应该提供风弹");
 
-        // 页内顺序必须与声明顺序一致，否则面板每次构建的排布会随注册表顺序漂移。
+        // Page order must follow declaration order, or the panel layout drifts with registry order.
         expect(ordered(weapons12111), "weapon 页的顺序不是声明顺序：" + weapons12111);
     }
 
@@ -244,14 +243,13 @@ public final class LoadoutContentCheck {
         expect(spears12111.size() == Material.values().length,
                 "1.21.11 的长矛应该七种材质齐全，实际 " + spears12111);
 
-        // 顺序必须是阶梯顺序（木 → 石 → 铜 → 铁 → 金 → 钻石 → 下界合金），否则循环控件的方向是乱的。
+        // Order must be tier order: wood, stone, copper, iron, gold, diamond, netherite.
         expect(isTierOrdered(spears12111), "长矛材质顺序不是阶梯顺序：" + spears12111);
     }
 
     private static void checkVariantKinds(ItemKind.ItemIds v1201, ItemKind.ItemIds v1211,
                                           ItemKind.ItemIds v12111) {
-        // 回归：这三个种类没有自己的物品 id，早期版本用"注册表里有没有 food"来判断可用性，
-        // 结果整个消耗品页在每一个版本上都是空的。
+        // These kinds own no item id; availability comes from variants, not the registry.
         for (ItemKind.ItemIds ids : List.of(v1201, v1211, v12111)) {
             expect(ItemKind.FOOD.available(ids), "食物应该永远可用（它由 variant 决定物品）");
             expect(ItemKind.POTION.available(ids), "药水应该永远可用");
@@ -272,7 +270,7 @@ public final class LoadoutContentCheck {
     }
 
     private static void checkWireIds() {
-        // 线格式用的是 kind.id / material.id，不是 ordinal。改名等于让所有旧预设失效，这里钉住。
+        // The wire format uses kind.id and material.id, not ordinal; renaming breaks saved presets.
         for (ItemKind kind : ItemKind.values()) {
             expect(ItemKind.byId(kind.id) == kind, "ItemKind.byId 没有往返：" + kind.id);
         }
@@ -281,13 +279,13 @@ public final class LoadoutContentCheck {
         }
         expect("spear".equals(ItemKind.SPEAR.id), "长矛的线 id 必须稳定为 spear");
         expect("copper".equals(Material.COPPER.id), "铜的线 id 必须稳定为 copper");
-        // 材质化的种类拼 id，非材质化的直接用种类 id。
+        // Materialised kinds concatenate the material; others use the kind id alone.
         expect("wooden_sword".equals(ItemKind.SWORD.itemPath(Material.WOOD)), "木剑 id 拼错");
         expect("copper_spear".equals(ItemKind.SPEAR.itemPath(Material.COPPER)), "铜矛 id 拼错");
         expect("mace".equals(ItemKind.MACE.itemPath(Material.IRON)), "非材质化种类不该带材质前缀");
     }
 
-    // ------------------------------------------------------------------ 工具
+    // ------------------------------------------------------------------ helpers
 
     private static boolean ordered(List<ItemKind> kinds) {
         List<ItemKind> expected = new ArrayList<>();
@@ -316,7 +314,7 @@ public final class LoadoutContentCheck {
         }
     }
 
-    /** 无条件失败。用于"后面的断言全都做不了"的情形（例如 jar 读不出来）。 */
+    /** Records a failure unconditionally, for cases where later assertions cannot run. */
     private static void fail(String message) {
         failures++;
         System.out.println("  ! " + message);

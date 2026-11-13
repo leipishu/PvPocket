@@ -14,33 +14,20 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * mixin 注入点的静态核对：把注解里的字符串拿到真实类上解析一遍。
+ * Resolves every string in a mixin annotation against the real class on the classpath.
  *
- * <p>为什么需要它：mixin 的 {@code @Inject(method = "...")}、{@code @At(target = "...")}、
- * {@code @Accessor("...")} 全都是<b>字符串</b>。编译器一个字都不检查，注解处理器也不检查
- * （它只校验 {@code @Shadow} 这类有 Java 声明的成员）。字符串写错的表现是：编译通过、jar 打得出来、
- * 启动时要么 {@code @Mixin target not found}，要么更糟——注入点匹配不到，mixin 静默跳过，游戏照跑，
- * 只是那个功能没了。</p>
+ * <p>{@code @Inject(method = "...")}, {@code @At(target = "...")} and {@code @Accessor("...")}
+ * hold plain strings that javac and the annotation processor do not validate. A typo compiles
+ * and packages fine, then fails at startup or silently skips the injection.
  *
- * <p>这正是改名（Yarn → Mojmap）最危险的地方：{@code World} 改成 {@code Level} 之后，所有
- * {@code Lnet/minecraft/world/World;} 的描述符都不再指向任何东西，而编译器不会说一个字。</p>
+ * <p>No game starts and no class initialises, so it runs in CI. It checks whether a reference
+ * resolves, not whether the injection point is semantically right.
  *
- * <p>做法是把每一处字符串拆成「类 + 成员」，用反射到类路径上的真实 jar 里找：
- * <ul>
- *   <li>{@code @Mixin(X.class)} → X 存在吗</li>
- *   <li>{@code method = "name"} → 目标类（含父类）有叫这个名字的方法吗</li>
- *   <li>{@code method = "name(desc)ret"} → 签名也对得上吗</li>
- *   <li>{@code @At(target = "Lpkg/Cls;m(desc)ret")} → 那个类和那个方法存在吗</li>
- *   <li>{@code @Accessor("x")} / {@code @Invoker("y")} → 字段 / 方法存在吗</li>
- * </ul>
- *
- * <p>不启动游戏，也不初始化任何类（{@code Class.forName(..., false, ...)}），所以可以挂 CI，
- * 也可以在没有客户端的机器上跑。**它检查的是"引用能不能解析"，不是"注入点语义对不对"**——后者只有
- * 真开一局才知道。</p>
+ * <p>Usage: {@code MixinTargetCheck [--src <dir> ...]}; exits 0 when all resolve, 1 otherwise.
  */
 public final class MixinTargetCheck {
 
-    /** 带 {@code method = } 的注解。 */
+    /** Annotations that take a {@code method = } argument. */
     private static final Set<String> METHOD_ANNOTATIONS = Set.of(
             "Inject", "Redirect", "ModifyVariable", "ModifyArg", "ModifyArgs", "ModifyConstant",
             "ModifyExpressionValue", "WrapOperation", "WrapWithCondition", "Overwrite");
@@ -93,7 +80,7 @@ public final class MixinTargetCheck {
         }
     }
 
-    // ------------------------------------------------------------------ 单个文件
+    // ------------------------------------------------------------------ one file
 
     private static void checkFile(Path file, String raw) {
         String where = file.getFileName().toString();
@@ -124,7 +111,7 @@ public final class MixinTargetCheck {
         }
     }
 
-    /** 逐个 {@code method = "..."} 到目标类上找。 */
+    /** Looks up every {@code method = "..."} value on the target class. */
     private static void checkMethodTargets(String where, String source, Class<?> targetClass) {
         for (Annotation annotation : allAnnotations(source)) {
             if (!METHOD_ANNOTATIONS.contains(annotation.name)) {
@@ -141,12 +128,11 @@ public final class MixinTargetCheck {
         }
     }
 
-    /** {@code @At(target = "Lpkg/Cls;m(desc)ret")} 里的类和成员。 */
+    /** Resolves the class and member in {@code @At(target = "Lpkg/Cls;m(desc)ret")}. */
     private static void checkAtTargets(String where, String source) {
         for (Annotation at : annotations(source, "At")) {
-            // 用 join 而不是 firstString：长描述符几乎总是被 `+` 拼成两个字面量
-            // （`"Lnet/...GameMode;" + "hasLimitedAttackSpeed()Z"`），只取第一个字面量得到的是
-            // "类名 + 空成员"，于是这里静默 continue，检查报"全部通过"，而注入点在游戏里 0 匹配。
+            // join, not firstString: long descriptors are concatenated literals, and the first
+            // one alone yields a class with an empty member, which would pass unnoticed.
             String target = join(assignment(at.args, "target"));
             if (target == null || target.isEmpty()) {
                 continue;
@@ -168,7 +154,7 @@ public final class MixinTargetCheck {
                 continue;
             }
             if (member.indexOf(':') >= 0) {
-                // 字段：Lpkg/Cls;name:Ltype;
+                // Field form: Lpkg/Cls;name:Ltype
                 String fieldName = member.substring(0, member.indexOf(':'));
                 if (findField(owner, fieldName) == null) {
                     fail(where + "：@At target 里的字段 " + fieldName + " 在 " + className + " 上找不到");
@@ -183,13 +169,10 @@ public final class MixinTargetCheck {
     }
 
     /**
-     * {@code @Shadow} 声明的字段/方法：目标类上真的有这个成员吗。
+     * Checks that a {@code @Shadow} field or method exists on the target class.
      *
-     * <p>这一条是改名留下的坑，而且是最阴的一种：`@Shadow private Level world;` 里的字段名
-     * 不会因为类型从 {@code World} 改成 {@code Level} 就跟着改成 {@code level}。mixin 绑不上
-     * 字段时只在编译期打一行警告（{@code Cannot find target for @Shadow field}），游戏里那个
-     * 字段恒为 null——`ExplosionMixin` 的 `f.allowExplosives` 就这么静默失效了一整轮，
-     * 而界面审计不会引爆 TNT，所以什么都没报。</p>
+     * <p>A shadowed field that does not bind only logs a compiler warning, and the field stays
+     * null at runtime. The declared field type is compared with the target's simple name.
      */
     private static void checkShadowMembers(String where, String source, Class<?> targetClass) {
         int index = 0;
@@ -202,7 +185,7 @@ public final class MixinTargetCheck {
             int paren = decl.indexOf('(');
             int semi = decl.indexOf(';');
             if (paren >= 0 && (semi < 0 || paren < semi)) {
-                // 方法：只核对名字存在。参数类型的比对交给 @Inject 那一侧，它带描述符。
+                // Method: name only; parameter types are checked by the @Inject path.
                 String name = decl.substring(0, paren).trim();
                 int space = name.lastIndexOf(' ');
                 if (space >= 0) {
@@ -214,7 +197,7 @@ public final class MixinTargetCheck {
                 }
                 continue;
             }
-            // 字段。分号可能在剥修饰符时已经被去掉，所以不能拿 `semi < 0` 当"不是字段"。
+            // Field. Stripping modifiers may remove the semicolon, so semi < 0 is not decisive.
             String body = semi >= 0 ? decl.substring(0, semi).trim() : decl.trim();
             int space = body.lastIndexOf(' ');
             if (space < 0) {
@@ -229,7 +212,7 @@ public final class MixinTargetCheck {
                         + " 上不存在（改名时漏了？）");
                 continue;
             }
-            // 类型也比一遍：字段名撞对了、类型没跟上，同样是 null 或 ClassCastException。
+            // Compare the type too: a matching name with a stale type still fails at runtime.
             String wanted = declaredType.substring(declaredType.lastIndexOf('.') + 1).trim();
             String actual = field.getType().getSimpleName();
             if (!wanted.equals(actual)) {
@@ -240,10 +223,11 @@ public final class MixinTargetCheck {
     }
 
     /**
-     * 从注解之后取一段声明文本（到 {@code ;} 或 <code>{</code> 为止），并剥掉其间的注解与修饰符。
+     * Returns the declaration text after an annotation, up to {@code ;} or <code>{</code>, with
+     * annotations and modifiers stripped.
      *
-     * <p>{@code @Shadow} 与真正的声明之间常常还有 {@code @Final}、{@code @Mutable}，所以不能
-     * 只看下一个 token。</p>
+     * <p>{@code @Shadow} is often followed by {@code @Final} or {@code @Mutable}, so the next
+     * token alone is not the declaration.
      */
     private static String declarationAfter(String source, int from) {
         int end = -1;
@@ -253,13 +237,13 @@ public final class MixinTargetCheck {
                 end = i;
                 break;
             }
-            // 注解里可能出现括号与逗号，但不该出现分号；遇到 ')' 之后继续即可。
+            // Annotations may contain parentheses and commas; a semicolon ends the scan.
         }
         if (end < 0) {
             return null;
         }
         String decl = source.substring(from, end).trim();
-        // 剥掉开头的注解（可能带参数）与修饰符。
+        // Strip leading annotations (possibly with arguments) and modifiers.
         while (true) {
             String before = decl;
             decl = decl.replaceFirst("^@[\\w.]+\\s*(\\([^)]*\\))?\\s*", "");
@@ -272,7 +256,7 @@ public final class MixinTargetCheck {
         return decl.isEmpty() ? null : decl;
     }
 
-    /** {@code @Accessor("x")} / {@code @Invoker("y")}：直接写在注解值里的成员名。 */
+    /** Resolves the member names given to {@code @Accessor("x")} and {@code @Invoker("y")}. */
     private static void checkMemberAccessors(String where, String source, Class<?> targetClass) {
         for (Annotation accessor : annotations(source, "Accessor")) {
             String name = firstString(accessor.args);
@@ -297,19 +281,16 @@ public final class MixinTargetCheck {
         }
     }
 
-    // ------------------------------------------------------------------ 反射解析
+    // ------------------------------------------------------------------ reflection
 
     /**
-     * 一个方法描述符（{@code name} 或 {@code name(desc)ret}）在类或其父类链上是否说得通。
+     * Checks a method descriptor ({@code name} or {@code name(desc)ret}) against a class and its
+     * hierarchy.
      *
-     * <p>返回 {@code null} 表示通过，否则是"为什么不行"。只给名字时只要有同名方法就算过——注入点用
-     * 不用得上由 mixin 自己判断，这里只回答"这个名字还在不在"。给了完整描述符时连参数类型一起比，
-     * 因为改名最容易漏的正是描述符里的类名：{@code (Lnet/minecraft/util/math/BlockPos;...)} 里的
-     * BlockPos 挪了包，方法名却一个字没变。</p>
-     *
-     * <p><b>描述符里的类名解析不出来必须算失败，不能降级成"只看名字"</b>——降级等于把这一整类错误
-     * 静默放过去，而那正是本检查存在的理由。只有描述符本身被截断（没写完的括号）才退到只看名字，
-     * 那种写法在源码里确实存在，语义上也没法再查。</p>
+     * <p>Returns {@code null} on success, otherwise the reason. A bare name passes when any
+     * method of that name exists. A full descriptor also compares parameter types, where renames
+     * tend to break. An unresolvable class in the descriptor is a failure, not a fallback to a
+     * name-only check; only a truncated descriptor falls back.
      */
     private static String problem(Class<?> owner, String spec) {
         int paren = spec.indexOf('(');
@@ -358,9 +339,9 @@ public final class MixinTargetCheck {
             try {
                 return type.getDeclaredField(name);
             } catch (NoSuchFieldException ignored) {
-                // 继续往上找
+                // Try the superclass.
             } catch (Throwable ignored) {
-                // 成员类型缺失时反射会抛 NoClassDefFoundError；当作"这个类查不了"，交给父类继续
+                // A missing member type makes reflection throw; treat the class as unreadable.
             }
         }
         return null;
@@ -379,12 +360,12 @@ public final class MixinTargetCheck {
         try {
             return type.getDeclaredMethods();
         } catch (Throwable t) {
-            // 参数或返回值类型不在类路径上时整个类的声明都读不出来，跳过它而不是崩掉。
+            // An absent parameter type hides every declaration; skip the class, do not crash.
             return new Method[0];
         }
     }
 
-    /** 类自身 + 父类链 + 所有接口（mixin 也能注入接口的默认方法）。 */
+    /** The class, its superclass chain and every interface; mixins can target default methods. */
     private static List<Class<?>> hierarchy(Class<?> owner) {
         List<Class<?>> out = new ArrayList<>();
         Set<Class<?>> seen = new LinkedHashSet<>();
@@ -408,7 +389,11 @@ public final class MixinTargetCheck {
         }
     }
 
-    /** {@code (ZLjava/lang/String;I)V} → 参数类型数组；读不出来抛 {@link IllegalArgumentException}。 */
+    /**
+     * Parses a descriptor such as {@code (ZLjava/lang/String;)V} into the parameter type array.
+     *
+     * @throws IllegalArgumentException when the descriptor cannot be read
+     */
     private static Class<?>[] parseParameters(String descriptor) {
         int close = descriptor.indexOf(')');
         if (close < 0) {
@@ -489,9 +474,9 @@ public final class MixinTargetCheck {
         }
     }
 
-    // ------------------------------------------------------------------ 源码扫描
+    // ------------------------------------------------------------------ source scanning
 
-    /** 一条注解：名字 + 括号里的原文。 */
+    /** One annotation: its name and the raw text between its parentheses. */
     private record Annotation(String name, String args) {
     }
 
@@ -531,11 +516,10 @@ public final class MixinTargetCheck {
     }
 
     /**
-     * 取 {@code key = <expr>} 里 {@code expr} 的原文。
+     * Returns the raw text of the expression assigned to {@code key} in {@code key = <expr>}.
      *
-     * <p>表达式可能跨行、可能带 {@code @At(...)} 这类嵌套括号，所以按深度切而不是按逗号切。遇到
-     * 括号深度为 0 的 {@code ,} 或 {@code )} 就算结束——注意传进来的 {@code args} 已经去掉了最外层
-     * 括号，所以只可能遇到 {@code ,}。</p>
+     * <p>The expression may span lines or nest parentheses, so it is split by depth rather than
+     * by comma. The passed {@code args} already excludes the outer parentheses.
      */
     private static String assignment(String args, String key) {
         int depth = 0;
@@ -577,7 +561,11 @@ public final class MixinTargetCheck {
         return null;
     }
 
-    /** 把一段表达式里的字符串字面量取出来。数组形式（{@code {"a","b"}}）会拆成多个。 */
+    /**
+     * Collects the string literals of an expression.
+     *
+     * <p>An array form such as {@code {"a","b"}} yields one entry per element.
+     */
     private static List<String> stringList(String expression) {
         List<String> out = new ArrayList<>();
         if (expression == null) {
@@ -606,10 +594,10 @@ public final class MixinTargetCheck {
     }
 
     /**
-     * 把 {@code "a" + "b"} 拼成一个字符串。
+     * Concatenates {@code "a" + "b"} into one string.
      *
-     * <p>跨行的长描述符就是这么写的（{@code "renderItem(Lnet/...ItemStack;" + "Lnet/...BakedModel;)V"}），
-     * 只取第一个字面量会得到半截描述符，于是每一处都报"找不到"。</p>
+     * <p>Long descriptors are written that way across lines, and the first literal alone yields
+     * half a descriptor that matches nothing.
      */
     private static String join(String expression) {
         StringBuilder out = new StringBuilder();
@@ -654,7 +642,11 @@ public final class MixinTargetCheck {
         return out;
     }
 
-    /** {@code @Mixin(World.class)} → 全限定名；{@code targets = "a.b.C"} 直接用。 */
+    /**
+     * Resolves {@code @Mixin(World.class)} to a fully qualified name.
+     *
+     * <p>A {@code targets = "a.b.C"} value is used as written.
+     */
     private static String mixinTarget(String args, Map<String, String> imports) {
         String targets = assignment(args, "targets");
         if (targets != null) {
@@ -688,7 +680,11 @@ public final class MixinTargetCheck {
         return out;
     }
 
-    /** 把注释换成空格（保留换行与字符串），否则 javadoc 里的 {@code @Inject} 会被当成真的。 */
+    /**
+     * Replaces comments with spaces, keeping newlines and string literals.
+     *
+     * <p>Otherwise an {@code @Inject} mentioned in a Javadoc would be scanned as a real one.
+     */
     private static String stripComments(String source) {
         StringBuilder out = new StringBuilder(source.length());
         int i = 0;
@@ -726,7 +722,7 @@ public final class MixinTargetCheck {
         return out.toString();
     }
 
-    /** 返回字符串/字符字面量的收尾引号下标。 */
+    /** Returns the index of the closing quote of a string or char literal. */
     private static int skipLiteral(String text, int at) {
         char quote = text.charAt(at);
         int i = at + 1;

@@ -1,29 +1,23 @@
 #!/usr/bin/env python3
-"""生成 Yarn → Mojmap（Mojang 官方映射）的对照表。
+"""Generates a Yarn to Mojmap (official Mojang names) mapping table.
 
-为什么要这张表：模组原本按 Yarn 命名写，而 26.1 起 Minecraft 不再混淆，官方名（Mojmap）成了
-唯一不会过期的一套。要一次性把 148 个文件从 Yarn 改到 Mojmap，靠人肉逐个查是不现实的，靠编译器
-报错又只能看到"找不到 World"而看不到"应该叫 Level"。
+Both mapping sets contain obfuscated names, so joining on those gives the correspondence:
 
-做法是把两份映射按**混淆名**接起来：
+    Yarn  mappings.tiny   official(obf) -> intermediary -> named(Yarn)
+    Mojang client.txt     official(named) -> obf
 
-    Yarn  mappings.tiny   official(混淆) → intermediary → named(Yarn)
-    Mojang client.txt     official(官方) → 混淆
+client.txt and server.txt each cover half the classes, so both are needed. The output is a TSV
+of names that actually changed, consumed by apply-mojmap.py:
 
-两边都有混淆名，于是 Yarn 名和官方名就有了对应关系。client.txt 与 server.txt 各覆盖一半，
-合并成并集（模组两端都要用）。
+    class   <Yarn fqn>  <Mojmap fqn>
+    method  <Yarn class>  <Yarn name>  <Yarn descriptor>  <Mojmap name>
+    field   <Yarn class>  <Yarn name>  <Mojmap name>
 
-输出一份 TSV（只列名字确实变了的），供 apply-mojmap.py 使用：
-
-    class   <Yarn 全限定名>  <Mojmap 全限定名>
-    method  <Yarn 类>  <Yarn 名>  <Yarn 描述符>  <Mojmap 名>
-    field   <Yarn 类>  <Yarn 名>  <Mojmap 名>
-
-用法：
+Usage:
     scripts/mojmap-table.py --mc 1.21.1 --yarn 1.21.1+build.3
-    scripts/mojmap-table.py --mc 26.3            # 26.x 起官方名就是运行时名，无需对照表
+    scripts/mojmap-table.py --mc 26.3            # 26.x needs no table: names are runtime names
 
-缓存：官方映射下载到 <repo>/build/mojmap-cache/，重复运行不再下载。
+Official mappings are cached in <repo>/build/mojmap-cache/, so a rerun does not download.
 """
 
 import argparse
@@ -64,13 +58,13 @@ def version_json(mc):
     raise SystemExit("版本清单里没有 %s" % mc)
 
 
-# --------------------------------------------------------------------------- Mojang 官方映射
+# --------------------------------------------------------------------- Mojang official mappings
 
 PRIMITIVES = {"void", "boolean", "byte", "char", "short", "int", "long", "float", "double"}
 
 
 def parse_mojang(paths):
-    """返回 (官方类名→混淆名, 混淆类名→[(成员种类, 混淆名, 混淆描述符, 官方名)])。"""
+    """Returns (official class -> obf name, obf class -> [(member kind, obf name, payload, name)])."""
     official_to_obf = {}
     members = {}
 
@@ -96,7 +90,7 @@ def parse_mojang(paths):
                 left, _, obf_name = stripped.partition(" -> ")
                 left = left.strip()
                 obf_name = obf_name.strip()
-                # 方法行有行号前缀：12:13:void foo(int) -> a
+                # method lines carry a line-number prefix: 12:13:void foo(int) -> a
                 if left[:1].isdigit():
                     left = left.split(":", 1)[1]
                     left = left.split(":", 1)[1] if left[:1].isdigit() else left
@@ -106,7 +100,7 @@ def parse_mojang(paths):
                     params = params.rstrip(")")
                     members[obf_class].append(("method", obf_name, (ret, name, params), None))
                 else:
-                    # 字段：type name -> a
+                    # field: type name -> a
                     parts = left.split()
                     if len(parts) == 2:
                         members[obf_class].append(("field", obf_name, parts[0], parts[1]))
@@ -114,7 +108,7 @@ def parse_mojang(paths):
 
 
 def obf_descriptor(type_text, official_to_obf):
-    """把官方源码里的类型写法翻成混淆描述符。数组与基本类型原样。"""
+    """Turns an official source type into an obfuscated descriptor. Arrays and primitives as is."""
     dims = 0
     text = type_text.strip()
     while text.endswith("[]"):
@@ -124,16 +118,15 @@ def obf_descriptor(type_text, official_to_obf):
         code = {"void": "V", "boolean": "Z", "byte": "B", "char": "C", "short": "S",
                 "int": "I", "long": "J", "float": "F", "double": "D"}[text]
     else:
-        # 不在官方映射里的类型是**库类**（org.joml、com.mojang.authlib、java.* 之类）：Mojang 不混淆
-        # 它们，所以混淆名就等于官方名。早期版本在这里返回 None，于是凡是参数里带 Vec3/Quaternionf
-        # 的方法全被丢掉——13k 个方法映射不出来，症状是"改完名还有一半方法名是旧的"。
+        # A type missing from the official mapping is a library class (org.joml, java.*): Mojang
+        # does not obfuscate those, so the obf name equals the official one.
         obf = official_to_obf.get(text, text.replace(".", "/"))
         code = "L%s;" % obf
     return "[" * dims + code
 
 
 def mojang_member_index(official_to_obf, members):
-    """(混淆类, 混淆名, 混淆描述符) → 官方方法名；以及 (混淆类, 混淆名) → 官方字段名。"""
+    """(obf class, obf name, obf descriptor) -> official method name, and (class, name) -> field."""
     methods = {}
     fields = {}
     for obf_class, entries in members.items():
@@ -162,7 +155,7 @@ def mojang_member_index(official_to_obf, members):
 
 
 def split_types(params):
-    """按逗号切参数，注意泛型里的逗号与内部类。官方映射里的参数已经是擦除后的源码类型。"""
+    """Splits parameters on commas, ignoring commas inside generics."""
     out = []
     depth = 0
     current = []
@@ -181,7 +174,7 @@ def split_types(params):
     return out
 
 
-# --------------------------------------------------------------------------- Yarn 映射
+# --------------------------------------------------------------------------- Yarn mappings
 
 def yarn_tiny(mc, yarn):
     pattern = os.path.join(
@@ -189,7 +182,7 @@ def yarn_tiny(mc, yarn):
         "net.fabricmc.yarn.%s.*" % yarn.replace("+", "."), "mappings.tiny")
     found = sorted(glob.glob(pattern))
     if not found:
-        # 目录名的点号替换规则在不同版本上不完全一致，退一步模糊找
+        # the dot substitution in the directory name differs between versions; glob instead
         found = sorted(glob.glob(os.path.join(
             os.path.expanduser("~"), ".gradle", "caches", "fabric-loom", mc,
             "net.fabricmc.yarn.*", "mappings.tiny")))
@@ -199,7 +192,7 @@ def yarn_tiny(mc, yarn):
 
 
 def parse_tiny(path):
-    """yarn tiny v2 → 类、方法、字段三组 (official, intermediary, named)。"""
+    """yarn tiny v2 -> three lists of (official, intermediary, named)."""
     classes = []
     methods = []
     fields = []
@@ -211,10 +204,8 @@ def parse_tiny(path):
         for line in handle:
             if not line.strip():
                 continue
-            # tiny v2 用缩进表达层级，而且**注释也用 c 开头**：`\tc\tAn object that exists...` 是给
-            # 上一个元素写的 javadoc，不是类。只看第一个字段会把注释当成类，`current` 于是变成一段
-            # 散文，那个类后面的方法/字段全部挂到不存在的类上——Entity 就是这样丢掉的（458 个方法
-            # 一个都没进表）。所以必须先量缩进，只认第 0 层的 c 和第 1 层的 m/f。
+            # tiny v2 uses indentation for nesting, and its comments also start with c. Only a
+            # level 0 c and a level 1 m/f count, so the indentation has to be measured first.
             depth = len(line) - len(line.lstrip("\t"))
             parts = line.rstrip("\n").split("\t")[depth:]
             if not parts or not parts[0]:
@@ -235,10 +226,10 @@ def parse_tiny(path):
     return classes, methods, fields
 
 
-# --------------------------------------------------------------------------- 类层次
+# ---------------------------------------------------------------------- class hierarchy
 
 def class_names(data):
-    """从 class 文件里取出 (类名, 父类名)，都是 `a/b/C` 形式。"""
+    """(class name, super name) from a class file, both in `a/b/C` form."""
     if data[:4] != b"\xca\xfe\xba\xbe":
         return None, None
     count = int.from_bytes(data[8:10], "big")
@@ -260,7 +251,7 @@ def class_names(data):
             pos += 3
         elif tag in (3, 4, 9, 10, 11, 12, 17, 18):
             pos += 4
-        elif tag in (5, 6):               # Long / Double 占两个槽位
+        elif tag in (5, 6):               # Long / Double take two slots
             pos += 8
             index += 1
         else:
@@ -268,8 +259,8 @@ def class_names(data):
         index += 1
     this_index = int.from_bytes(data[pos + 2:pos + 4], "big")
     super_index = int.from_bytes(data[pos + 4:pos + 6], "big")
-    # 接口也要读：`getTopY` 声明在 HeightLimitView（接口）上，World 只是实现它。只看父类，
-    # World 就永远拿不到这条改名，而源码里到处是 world.getTopY(...)。
+    # Interfaces are read too: `getTopY` is declared on HeightLimitView and World only
+    # implements it, so the superclass alone would lose that rename.
     count_interfaces = int.from_bytes(data[pos + 6:pos + 8], "big")
     interfaces = []
     for i in range(count_interfaces):
@@ -286,7 +277,7 @@ def class_names(data):
 
 
 def read_hierarchy(jar):
-    """Mojmap 名 → 父类 Mojmap 名。用 class 文件自己说话，不问映射表（映射表没有层次）。"""
+    """Mojmap name -> parent Mojmap names, read from the class files (the tables have no tree)."""
     import zipfile
     out = {}
     with zipfile.ZipFile(jar) as archive:
@@ -295,19 +286,18 @@ def read_hierarchy(jar):
                 continue
             name, parent, interfaces = class_names(archive.read(entry))
             if name:
-                # 统一成点号：表里全是点号，class 文件里全是斜杠，混着查一定查不到。
+                # Everything in the tables uses dots; class files use slashes.
                 parents = [parent] if parent else []
                 out[name.replace("/", ".")] = [p.replace("/", ".") for p in parents + interfaces]
     return out
 
 
 def find_jar(mc):
-    """loom 缓存里**当前映射**重映射过的 Minecraft 包。
+    """The Minecraft jars in the loom cache, remapped with the current mappings.
 
-    同一个工程里可能同时留着 Yarn 版和 Mojmap 版（切映射时旧的不删），所以按修改时间取最新的一份，
-    不能按名字猜。
+    A project can hold both a Yarn and a Mojmap copy, so the newest by mtime wins.
     """
-    # loom 的缓存挂在**根工程**的 .gradle 下（Loom 有意跨 cell 共享它），不是各 cell 自己一份。
+    # loom keeps its cache under the root project's .gradle, shared across cells.
     base = os.path.join(ROOT, ".gradle", "loom-cache", "minecraftMaven",
                         "net", "minecraft")
     found = []
@@ -320,12 +310,11 @@ def find_jar(mc):
 
 
 def expand_inherited(methods, fields, yarn_to_mojang, hierarchy, warn):
-    """把每个类的父类链上的成员改名也挂到它自己名下。
+    """Attaches member renames from the parent chain to the class itself.
 
-    Yarn 的方法名是**按声明类**记的：`sendFeedback` 声明在 `ServerCommandSource` 上，
-    `ServerPlayerEntity` 自己没有这一条。源码里写的是 `player.sendFeedback(...)`，而文件只 import
-    了 `ServerPlayerEntity`——按名字查表就查不到，改完名编译报"找不到 sendFeedback"。
-    这就是"成员名改了但还有一半没改"的全部原因，所以层次必须展开。
+    Yarn records a method name on its declaring class: `sendFeedback` lives on
+    `ServerCommandSource`, not on `ServerPlayerEntity`, while the source writes
+    `player.sendFeedback(...)` and imports only the latter.
     """
     to_yarn = {mojang: yarn for yarn, mojang in yarn_to_mojang.items()}
     by_owner = {}
@@ -349,9 +338,8 @@ def expand_inherited(methods, fields, yarn_to_mojang, hierarchy, warn):
             seen.add(current)
             chain.append(current)
             pending.extend(hierarchy.get(current, []))
-        # 就近优先：链是按 BFS 排的，第一次见到的就是最具体的声明，之后祖先再说什么都不算。
-        # 早期版本要求"所有祖先一致"，结果 1300 多处被判定为冲突而丢弃——`formatted` 就是被
-        # ScoreboardEntry 的 formatValue 顶掉的，而源码里九成九用的是 Text.withStyle。
+        # Nearest wins: the chain is BFS order, so the first match is the most specific. Requiring
+        # every ancestor to agree would drop hundreds of real renames.
         merged = {}
         for mojang_ancestor in chain:
             dotted = mojang_ancestor.replace("/", ".")
@@ -364,24 +352,20 @@ def expand_inherited(methods, fields, yarn_to_mojang, hierarchy, warn):
             key = (yarn_class, old)
             if key not in out_methods:
                 out_methods[key] = new
-        # 字段**不做**层次展开。方法有描述符可以把"同名不同签"区分开，字段只有名字：祖先链上任何
-        # 一个叫 AIR 的字段都会覆盖到 Blocks.AIR 上，改出来的东西看着像模像样但根本不存在。
-        # 静态字段本来也是写全限定名的（Blocks.AIR），直接声明那一条就够；实例字段漏掉的由编译器报。
+        # Fields are not expanded: a field has only a name, so any ancestor field called AIR
+        # would overwrite Blocks.AIR. Static fields are written fully qualified anyway.
         pass
     warn("层次展开：就近优先，%d 处祖先歧义按最近的一条算" % conflicts)
     return out_methods, out_fields
 
 
-# --------------------------------------------------------------------------- 主流程
+# --------------------------------------------------------------------------- main flow
 
 def catalog_version(mc, key):
-    """从 gradle/catalogs/<mc>.toml 的 [versions] 里取一个值，取不到返回 None。
+    """One value from [versions] in gradle/catalogs/<mc>.toml, or None.
 
-    版本号在 cell 结构里分了两层：跨 MC 版本共享的进 gradle/libs.versions.toml，每版本一份的进
-    gradle/catalogs/<mc>.toml。这个脚本要的是后者（Yarn 版本号带 MC 前缀）。
-
-    tomllib 是 3.11 才有的，所以留一条逐行回退：这些 TOML 的 [versions] 全是 `key = "value"`，
-    回退路径够用，而它保证脚本在更老的 Python 上不会因为一个版本号直接崩。
+    tomllib exists from Python 3.11, so there is a line-by-line fallback: these files only hold
+    `key = "value"` pairs, which is enough to keep older interpreters working.
     """
     path = os.path.join(ROOT, "gradle", "catalogs", mc + ".toml")
     if not os.path.isfile(path):
@@ -425,10 +409,8 @@ def main():
         if entry:
             paths.append(download(entry["url"], os.path.join(CACHE, "%s-%s" % (args.mc, key + ".txt"))))
 
-    # 客户端与服务端**各有一份**混淆命名空间：同一个官方类在 client.txt 和 server.txt 里叫不同的
-    # 混淆名，而合并 jar 里客户端类用前者、服务端专属类用后者。两份必须各自成表再取并集；先合成一个
-    # official→obf 字典再取反，等于只留了后解析的那一份——37% 的类因此查不到官方名，方法只映射出
-    # 三成。这个坑踩过一次，症状是"改完名还有一半方法名是旧的"。
+    # client.txt and server.txt give the same official class different obfuscated names, so each
+    # file is indexed on its own; one shared dict would keep only the file parsed last.
     method_index = {}
     field_index = {}
     obf_to_official = {}
@@ -464,7 +446,7 @@ def main():
     classes, methods, fields = parse_tiny(tiny)
     print("  Yarn 映射：%d 个类、%d 个方法、%d 个字段" % (len(classes), len(methods), len(fields)))
 
-    # ---- 先接合成「Yarn 类 → Yarn 名 → 官方名」两张表，再谈层次
+    # ---- join Yarn name -> official name before the hierarchy pass
     obf_to_yarn = {obf: named.replace("/", ".") for obf, _intermediary, named in classes}
     yarn_methods = {}
     for obf_class, desc, obf_name, _intermediary, named in methods:
@@ -486,8 +468,8 @@ def main():
 
     print("  接合：%d 个方法、%d 个字段改了名" % (len(yarn_methods), len(yarn_fields)))
 
-    # 层次展开：把父类链上的成员改名也挂到子类名下，否则 `player.sendFeedback(...)` 这种
-    # 调用（文件里只 import 了 ServerPlayerEntity）永远查不到。
+    # Hierarchy expansion: member renames from the parent chain are attached to the subclass
+    # too, otherwise `player.sendFeedback(...)` never resolves.
     if not args.no_hierarchy:
         jars = find_jar(args.mc)
         if not jars:
@@ -521,8 +503,8 @@ def main():
             out.write("class\t%s\t%s\n" % (yarn_name, official))
             renamed_classes += 1
 
-        # 方法/字段按「Yarn 类 → Yarn 名 → 官方名」输出，不带描述符：同一个类里同名重载在两边
-        # 都是同一个名字，带描述符只会让应用阶段没法按名字查。描述符只在上面做接合时用。
+        # Methods and fields are written as Yarn class -> Yarn name -> official name, without a
+        # descriptor: the apply step looks them up by name.
         for (yarn_class, named), target in sorted(yarn_methods.items()):
             out.write("method\t%s\t%s\t%s\n" % (yarn_class, named, target))
         for (yarn_class, named), target in sorted(yarn_fields.items()):

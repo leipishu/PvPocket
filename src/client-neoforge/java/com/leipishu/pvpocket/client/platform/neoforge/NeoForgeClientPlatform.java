@@ -29,10 +29,11 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * NeoForge 侧的 {@link PvClientPlatform}。
+ * NeoForge implementation of {@link PvClientPlatform}.
  *
- * <p>与 {@code FabricClientPlatform} 同形，四处差异都在下面标了。最大的两处是**按键注册的时机**
- * 与**世界渲染的阶段名**——两者都是「语义相同但 API 形状不同」，属于平台该吸收的东西。</p>
+ * <p>Same shape as {@code FabricClientPlatform}. Key mapping registration timing and world
+ * render stage names are the two largest differences; both carry the same meaning under a
+ * different API shape, which this class absorbs.
  */
 public final class NeoForgeClientPlatform implements PvClientPlatform {
 
@@ -40,11 +41,11 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
     private final IEventBus modBus;
 
     /**
-     * 还没到注册时机的按键。
+     * Key mappings that arrive before {@link RegisterKeyMappingsEvent} fires.
      *
-     * <p>{@link RegisterKeyMappingsEvent} 在 mod 总线上、初始化期触发一次，而
-     * {@code HomeClient.register()} 可能在它之前也可能在它之后跑到。攒起来两边都安全：事件来时
-     * 把已有的注册掉，之后再来新的就直接注册。</p>
+     * <p>The event fires once during mod initialization, while {@code HomeClient.register()} may
+     * run before or after it. Buffering is safe either way: the event registers what is present,
+     * and later arrivals are registered directly.
      */
     private final List<KeyMapping> pendingKeys = new ArrayList<>();
     private boolean keysReady;
@@ -64,8 +65,8 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         gameBus.addListener(RenderGuiEvent.Post.class,
                 event -> hudLayers.forEach(layer -> layer.render(
                         event.getGuiGraphics(), event.getPartialTick())));
-        // 两个阶段分开订阅，因为它们对应的是两个不同的钩子：半透明之后 vs 最后一刻。
-        // Fabric 那边是 WorldRenderEvents.AFTER_TRANSLUCENT 与 LAST，名字不同、位置相同。
+        // The two stages are subscribed separately: after translucent blocks and after the level.
+        // Fabric names them AFTER_TRANSLUCENT and LAST, at the same positions.
         gameBus.addListener(RenderLevelStageEvent.class, event -> {
             List<WorldLayer> layers;
             if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
@@ -93,13 +94,13 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         return "neoforge";
     }
 
-    // ------------------------------------------------------------------ 网络
+    // ------------------------------------------------------------------ networking
 
     @Override
     public <T extends CustomPacketPayload> void onServerPacket(
             CustomPacketPayload.Type<T> type, Consumer<T> handler) {
-        // 处理器写进服务端那份表，因为 playToClient 是在 RegisterPayloadHandlersEvent 里
-        // 一次性交出去的——两个接口在 NeoForge 上共享同一次注册。
+        // The handler goes into the server-side table because playToClient hands every payload
+        // over in one pass inside RegisterPayloadHandlersEvent, shared by both interfaces.
         server.onClientReceive(type, handler);
     }
 
@@ -114,7 +115,7 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         PacketDistributor.sendToServer(payload);
     }
 
-    // ------------------------------------------------------------------ 生命周期
+    // ------------------------------------------------------------------ lifecycle
 
     @Override
     public void onClientTick(Runnable action) {
@@ -131,12 +132,12 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         screenActions.add(listener);
     }
 
-    // ------------------------------------------------------------------ 输入
+    // ------------------------------------------------------------------ input
 
     @Override
     public void registerKeyMapping(KeyMapping mapping) {
         if (keysReady) {
-            // 事件已经过去，只能直接往原版的按键表里塞——这是 NeoForge 提供的入口，不是绕过。
+            // The event has already fired, so append to the vanilla key table via NeoForge.
             Minecraft.getInstance().options.keyMappings =
                     append(Minecraft.getInstance().options.keyMappings, mapping);
             return;
@@ -159,7 +160,7 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         return out;
     }
 
-    // ------------------------------------------------------------------ 渲染
+    // ------------------------------------------------------------------ rendering
 
     @Override
     public void onHudRender(HudLayer layer) {
@@ -176,7 +177,7 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         lastLayers.add(layer);
     }
 
-    // ------------------------------------------------------------------ 环境
+    // ------------------------------------------------------------------ environment
 
     @Override
     public Path configDir() {
@@ -191,11 +192,11 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
     }
 
     /**
-     * NeoForge 的渲染事件 → 平台的中立 record。
+     * Converts a NeoForge render event into the platform-neutral {@link WorldFrame}.
      *
-     * <p>事件本身不带 {@code MultiBufferSource} 与 {@code LightTexture}，所以这两项从
-     * {@link Minecraft} 上取——它们本来就是全局单例，Fabric 那边只是碰巧由上下文递了过来。
-     * 这也说明 {@code WorldFrame} 那六个字段是交集而不是 Fabric 的形状。</p>
+     * <p>The event carries neither {@code MultiBufferSource} nor {@code LightTexture}, so both
+     * come from {@link Minecraft}, where they are global singletons. That makes the six
+     * {@code WorldFrame} fields an intersection rather than the Fabric shape.
      */
     private static WorldFrame frame(RenderLevelStageEvent event) {
         Minecraft client = Minecraft.getInstance();

@@ -14,44 +14,31 @@ import net.minecraft.client.gui.GuiGraphics;
 /**
  * One rule: label on the left, control on the right.
  *
- * <p>Multi-select rules get a taller row with the chips on their own line. Squeezing five chips into
- * a 150px column would either shrink the labels below legibility or force a nested scroll, and both
- * are worse than spending 18 extra vertical pixels.</p>
+ * <p>Multi-select rules get a taller row with the chips on their own line.
  *
- * <p>The row tracks its own "differs from the received version" state against the baseline value it
- * was built with, and shows it as a 2px accent bar. That is the whole reason a reviewer can tell at
- * a glance what the proposer changed without reading all thirty-six rows.</p>
+ * <p>The row compares its control's value with the baseline it was built with and shows the
+ * difference as a 2px accent bar.
  */
 public class RuleRow extends PvWidget {
 
     /**
-     * Below this row width, label and control stop sharing a line.
+     * Row width below which label and control stop sharing a line.
      *
-     * <p>The narrow layout used to be reserved for multi-select rules, whose chips genuinely need a
-     * full-width line. A 170px column is the same situation for every kind: a 104px stepper plus a
-     * 10px label inset plus the label itself does not fit, and right-aligning the control anyway put
-     * its left edge outside the row — the control drew over the column beside it. Stacking costs 16px
-     * of height and cannot overflow, which is the right trade in a scrollable list.</p>
+     * <p>A 104px stepper plus a 10px label inset plus the label itself does not fit in a 170px
+     * column. Stacking costs 16px of height and cannot overflow.
      */
     private static final int NARROW_W = 190;
 
     /**
      * Top edge of the control inside a stacked row, and the air under it.
      *
-     * <p>The stacked layout used to place the control by subtracting from the row's bottom edge
-     * ({@code y + height - control.height - 6}), which only agrees with the label if every control
-     * is the same height. Chips are 22 and a stepper is 20, so the chip row started at {@code y+12}
-     * while the label ran to {@code y+14} — the chips were drawn over the last two pixels of
-     * "Environmental hazards". Two pixels is enough to cut the bottom off every glyph in the word,
-     * and it only showed on the multi-select rows, which are the ones tall enough to hide it.</p>
-     *
-     * <p>So the label owns the top of the row by construction: 5px of air, 8px of glyph, 1px of gap,
-     * then the control, then 4px of air. The row height is derived from the control rather than
-     * fixed, so a taller control makes a taller row instead of eating the label.</p>
+     * <p>The label owns the top of the row: 5px of air, 8px of glyph, 1px of gap, then the
+     * control, then 4px of air. The row height is derived from the control, so a taller control
+     * makes a taller row.
      */
     private static final int STACK_CONTROL_TOP = 14;
     private static final int STACK_PAD = 4;
-    /** y of the label's glyphs inside a stacked row. */
+    /** Y offset of the label's glyphs inside a stacked row. */
     private static final int STACK_LABEL_TOP = 5;
 
     private final RuleDefinition def;
@@ -74,16 +61,15 @@ public class RuleRow extends PvWidget {
         return def.kind == RuleKind.MULTI || narrow;
     }
 
-    /** Label band plus the control's own height plus the air under it; see {@link #STACK_CONTROL_TOP}. */
+    /** Label band, the control's height and the air under it; see {@link #STACK_CONTROL_TOP}. */
     private int stackedHeight() {
         return STACK_CONTROL_TOP + (control == null ? 0 : control.height) + STACK_PAD;
     }
 
     /**
-     * Picks the layout from the width the container just gave us, and reports the height it costs.
+     * Picks the layout from the width the container gave, and reports the height it costs.
      *
-     * <p>The container asks before it totals the heights, so this is the only place the row can
-     * change its own height in response to the column being narrow.</p>
+     * <p>The container asks before it totals the heights.
      */
     @Override
     public void onWidth(int width) {
@@ -104,8 +90,7 @@ public class RuleRow extends PvWidget {
         }
         control.enabled = editable;
         // Never wider than the row: a control that keeps its designed width in a narrow column
-        // starts to the left of the row's own x, which is how a stepper ended up painted over the
-        // list beside it.
+        // starts left of the row's x and paints over the list beside it.
         control.width = Math.min(control.width, Math.max(24, width - 16));
         if (stacked()) {
             control.x = x + 8;
@@ -168,7 +153,7 @@ public class RuleRow extends PvWidget {
         }
     }
 
-    /** Read-only value chip for {@link RuleKind#FIXED} rules. Looks like a control, cannot be one. */
+    /** Read-only value chip for {@link RuleKind#FIXED} rules. It looks like a control. */
     private void renderLockedValue(GuiGraphics ctx, Font tr, int labelY) {
         String value = def.format(0);
         int w = tr.width(value) + 16;
@@ -179,11 +164,7 @@ public class RuleRow extends PvWidget {
     }
 
     /**
-     * The row is the tab stop, the control is what the keys act on.
-     *
-     * <p>Focus is forwarded to the control before it renders so the control draws its own ring —
-     * without this, Tab moved through thirty-six rows and lit up none of them, which made the whole
-     * keyboard path unusable even though it was wired.</p>
+     * Copies the row's focus onto the control, so the control draws its own focus ring.
      */
     private void syncControlFocus() {
         if (control != null) {
@@ -225,10 +206,7 @@ public class RuleRow extends PvWidget {
     }
 
     /**
-     * Asks the control first.
-     *
-     * <p>A control can have something more specific to say than the rule's own hint — the map picker
-     * says why a map is unavailable — and the row is the only thing the screen asks.</p>
+     * Returns the control's own tooltip when it has one, and the rule's hint otherwise.
      */
     @Override
     public String tooltipAt(int mouseX, int mouseY) {
@@ -245,10 +223,7 @@ public class RuleRow extends PvWidget {
     }
 
     /**
-     * The control is drawn inline rather than added to the screen's root list, so nothing else would
-     * ever measure it — which is how a chips row sat two pixels over its own label with every check
-     * reporting clean. Exposing it here puts it in front of {@link com.leipishu.pvpocket.client.gui.PvAudit}
-     * like any other box.
+     * Returns the inline control, so the layout audit can measure it.
      */
     @Override
     public java.util.List<PvWidget> childrenForAudit() {

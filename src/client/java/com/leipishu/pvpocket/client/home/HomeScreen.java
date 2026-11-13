@@ -35,21 +35,15 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * The mod's home screen: the one panel the player opens by themselves.
+ * The mod's home screen: the panel the player opens on their own.
  *
- * <p>Everything else in this mod is opened <em>for</em> the player — an invite arrives, a match list is
- * pushed, a loadout editor is requested by the server. This screen is the other direction: it is the
- * client asking, which is why it is the first screen here that owns a request payload.</p>
+ * <p>Every other screen is opened for the player by an invite, a pushed match list or a server
+ * request; this one starts with a client request.
  *
- * <p>The shell is the same chrome-plus-well arrangement as the rule panel — one {@code SIDEBAR}
- * surface across the top and down the left, one {@code PANEL} well laid over it — so the home screen
- * does not read as a different product. What is new is the avatar row above the tabs: five tabs plus a
- * 34px identity block is the one arrangement that fits the sidebar budget at both canvas sizes without
- * falling back to the compact layout.</p>
+ * <p>The shell is a chrome sidebar plus a content well, as on the rule panel. An avatar row sits
+ * above the tab strip, where five tabs and a 34px identity block fit the sidebar budget.
  *
- * <p>Data arrives asynchronously. The screen paints local state immediately (presets, preferences,
- * the player's own head) and fills the server-owned numbers when the snapshot lands, because a hotkey
- * that shows an empty panel for a round trip reads as a hotkey that did not work.</p>
+ * <p>Local state paints immediately; server-owned numbers fill in with the snapshot.
  */
 public class HomeScreen extends PvScreen {
 
@@ -58,16 +52,13 @@ public class HomeScreen extends PvScreen {
     public static final int PAGE_HISTORY = 2;
     public static final int PAGE_PRESETS = 3;
     /**
-     * The operator page: arena layout, copies, rebuild, and the stray-player guard.
+     * The operator page: arena layout, copies, rebuild and the stray-player guard.
      *
-     * <p>Second from the bottom, above settings. It is drawn when the snapshot carries
-     * {@link HomeStatePayload#FLAG_OPERATOR}, which the server sets at operator level 3 — the same
-     * level the commands behind these buttons require. A page a player can see but not act on would
-     * be a page that teaches them the buttons are broken.</p>
+     * <p>Drawn only when the snapshot carries {@link HomeStatePayload#FLAG_OPERATOR}, which the
+     * server sets at operator level 3, the level the commands behind these buttons require.
      *
-     * <p><b>These numbers are page ids, not tab indices.</b> This one is the only page that comes
-     * and goes, so the tab strip is a filtered list of ids — see {@link #visiblePages()}. Equating
-     * the two worked only while every page was always present.</p>
+     * <p>These constants are page ids, not tab indices. This is the only page that comes and goes,
+     * so the tab strip is a filtered list of ids; see {@link #visiblePages()}.
      */
     public static final int PAGE_ADMIN = 4;
     public static final int PAGE_SETTINGS = 5;
@@ -93,9 +84,8 @@ public class HomeScreen extends PvScreen {
     /**
      * Which history page is on screen, zero-based.
      *
-     * <p>A field rather than something derived from the scroll offset: the list is paginated
-     * precisely so that the pane does <em>not</em> scroll, and the page has to survive a window
-     * resize — {@code init()} runs again on resize and rebuilds the page from scratch.</p>
+     * <p>A field rather than a value derived from the scroll offset: the list is paginated so the
+     * pane does not scroll, and the page has to survive a resize, which runs {@code init()} again.
      */
     private int historyPage;
     private PvTabs tabs;
@@ -103,10 +93,9 @@ public class HomeScreen extends PvScreen {
     /**
      * The page ids the current tab strip was built from.
      *
-     * <p>Kept so a snapshot that arrives while the screen is open can tell "the numbers changed" from
-     * "the shape of the panel changed". The operator page is the only page that comes and goes, and
-     * it comes with the first snapshot — which lands after {@code init()} has already built a strip
-     * without it.</p>
+     * <p>Lets a snapshot arriving while the screen is open tell a number change from a panel shape
+     * change. The operator page is the only conditional page, and its first snapshot lands after
+     * {@code init()} has built a strip without it.
      */
     private List<Integer> shownPages = List.of();
     /** Widgets belonging to the current page, removed on every rebuild. */
@@ -126,14 +115,10 @@ public class HomeScreen extends PvScreen {
 
     @Override
     protected void init() {
-        // init() also runs on resize, so the open tab has to be carried over: losing the page because
-        // the window changed size is the kind of bug that only shows up on a second monitor.
+        // init() also runs on resize, so the open tab is carried over.
         List<Integer> pages = visiblePages();
-        // Carried over as a tab *position*, not as a page id. The two are equal only while the page
-        // set is unchanged, and the operator page can disappear between two inits — a demotion, or a
-        // reconnect to a server where the player is not an operator. Holding the position keeps the
-        // player on 设置 when the operator page above it goes away; holding the id would send them
-        // back to 概览 for no reason they could see.
+        // Carried over as a tab position, not a page id: the operator page can disappear between
+        // two inits, and holding the position keeps the player on the same tab when it does.
         int keep = tabs == null ? pages.indexOf(page) : tabs.selected();
         if (keep < 0) {
             keep = 0;
@@ -168,13 +153,8 @@ public class HomeScreen extends PvScreen {
     /**
      * Builds the tab strip for {@code pages}, replacing the current one.
      *
-     * <p>A method rather than inline code in {@link #init()} because the strip has to be rebuilt when
-     * the page set changes while the screen is already open. {@link PvTabs} fixes its labels at
-     * construction, so a strip built before the first snapshot cannot gain a tab afterwards — and the
-     * damage was not limited to a missing tab: the strip kept five entries while
-     * {@link #visiblePages()} had six, so every tab below the missing one selected the page above it.
-     * Clicking 设置 opened the operator page. That is the "管理 only shows up the second time" report,
-     * and it was also why the first session after logging in behaved oddly.
+     * <p>{@link PvTabs} fixes its labels at construction, so the strip is rebuilt when the page set
+     * changes while the screen is open.
      *
      * <p>Safe to call from {@code drawContent}: {@link PvScreen#render} draws the content before it
      * walks {@code roots}, so the rebuilt strip is the one painted this frame.
@@ -183,8 +163,8 @@ public class HomeScreen extends PvScreen {
         if (tabs != null) {
             roots.remove(tabs);
         }
-        // Recomputed here, not by the caller: the sidebar is sized from the labels, and the operator
-        // label can be the widest one in a given language.
+        // Recomputed here: the sidebar is sized from the labels, and the operator label can be the
+        // widest one in a given language.
         chromeW = sidebarWidth(pages);
         tabs = new PvTabs(labelsFor(pages), pages.indexOf(page));
         tabs.x = panelX;
@@ -195,9 +175,7 @@ public class HomeScreen extends PvScreen {
             page = visiblePages().get(tabs.selected());
             buildPage();
         });
-        // Inserted rather than appended, so the root order stays tab strip → content well → close
-        // button. The three do not overlap, but a rebuild that silently reorders the roots is a
-        // rebuild that makes the next layout bug harder to see.
+        // Inserted at index 0 so the root order stays tab strip, content well, close button.
         roots.add(0, tabs);
         shownPages = pages;
     }
@@ -206,8 +184,8 @@ public class HomeScreen extends PvScreen {
      * Brings the strip and the page in line with a snapshot that arrived after the screen opened.
      *
      * <p>Most snapshots only change numbers, and rebuilding the page is enough. The first one also
-     * decides whether the operator page exists at all, which changes the <em>shape</em> of the panel
-     * — that is the case the strip has to be rebuilt for.</p>
+     * decides whether the operator page exists, which changes the shape of the panel and requires a
+     * new strip.
      */
     private void syncPages() {
         List<Integer> pages = visiblePages();
@@ -221,12 +199,9 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * The pages this client may open, in strip order.
+     * Returns the pages this client may open, in strip order.
      *
-     * <p>A list rather than a constant, because the operator page is conditional: the strip is built
-     * from this, and {@code page} is looked up through it, so an absent page costs nothing anywhere
-     * else. Keeping {@code page} as a tab index instead would have made every index above the
-     * operator page shift by one depending on who is looking.</p>
+     * <p>The operator page is conditional, so the strip and every page lookup go through this list.
      */
     private List<Integer> visiblePages() {
         List<Integer> pages = new ArrayList<>(PAGE_COUNT);
@@ -261,11 +236,10 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * Width of the sidebar: the widest tab label plus its insets, and enough for the avatar row.
+     * Returns the sidebar width: the widest tab label plus its insets, and the avatar row.
      *
-     * <p>Same derivation as the rule panel — a fixed width is either wasteful in Chinese or truncating
-     * in English — with one addition: the avatar row needs {@code 22 + 6 + name} on one line, and the
-     * name may be truncated, so the row only sets a floor rather than a hard requirement.</p>
+     * <p>The avatar row needs {@code 22 + 6 + name} on one line, and the name may be truncated, so
+     * the row sets a floor rather than a hard requirement.
      */
     private int sidebarWidth(List<Integer> pages) {
         Font tr = font();
@@ -296,13 +270,10 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * Height of the history list: the well minus the footer band, when there is a footer.
+     * Returns the height of the history list: the well minus the footer band, when one is drawn.
      *
-     * <p>Empty history draws a centred message instead of a list, and a message with a pager under
-     * it would offer to turn a page of nothing. So the band is reserved only when there is something
-     * to paginate — decided from whether the list is empty, never from whether it currently spans
-     * more than one page, because that would make the pane height depend on the page size and the
-     * page size depend on the pane height.</p>
+     * <p>The band is reserved only when the history is non-empty, never based on the current page
+     * count, which would make the pane height depend on the page size and the reverse.
      */
     private int historyListH() {
         return contentH() - (HomeState.history().isEmpty() ? 0 : FOOTER_H);
@@ -318,8 +289,8 @@ public class HomeScreen extends PvScreen {
         if (pane == null) {
             return;
         }
-        // Recorded first, and on every path: a page that returns early (the overview and the stats
-        // page do not scroll) would otherwise leave the marker stale and be rebuilt every frame.
+        // Recorded on every path: a page that returns early would otherwise leave the marker stale
+        // and be rebuilt every frame.
         seenVersion = HomeState.version();
         for (PvWidget widget : pageWidgets) {
             roots.remove(widget);
@@ -358,11 +329,10 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * Overview: greeting, one primary action, and whatever is being fought right now.
+     * Builds the overview page: greeting, one primary action, and the live matches.
      *
-     * <p>No "recent match" card. It was in the first draft and it duplicated the history page one
-     * click away; the space it wanted is what lets two live matches fit, and a live match is the only
-     * thing here the player cannot get anywhere else without a command.</p>
+     * <p>The space fits two live matches. A live match is the only thing here that needs no command
+     * to reach.
      */
     private void buildOverview() {
         int x = contentX();
@@ -406,8 +376,8 @@ public class HomeScreen extends PvScreen {
         }
         add(primary);
 
-        // The way into each live match is created here, with the rest of the page. Building it while
-        // drawing would add another copy every frame; the audit found three of them stacked.
+        // Each live-match button is created here with the rest of the page. Building it while
+        // drawing would add a copy every frame.
         List<MatchListScreen.Entry> matches = HomeState.matches();
         int rows = liveRows();
         for (int i = 0; i < rows && i < matches.size(); i++) {
@@ -421,28 +391,26 @@ public class HomeScreen extends PvScreen {
     /**
      * Least width a map name keeps before the row drops what qualifies it.
      *
-     * <p>48px is "Colosseum" at the legibility floor, i.e. the narrowest frame that still names a
-     * map in either language. The stage chip, the round number and the round strip are all measured
-     * against it rather than the other way round: a row that says "Round 3/7" and cannot say where
-     * has said nothing.</p>
+     * <p>48px is "Colosseum" at the legibility floor. The stage chip, the round number and the
+     * strip are all measured against it.
      */
     private static final int MIN_MAP_ROOM = 48;
 
-    /** Where the live-match rows start: lower when the content well is tall enough for a heading. */
+    /** Where the live-match rows start: lower when the well is tall enough for a heading. */
     private int liveTop() {
         return contentH() < 130 ? contentY() + 70 : contentY() + 94;
     }
 
-    /** How many live rows fit. Two is the cap: the third would push the page past its own bottom. */
+    /** Returns how many live rows fit, capped at 2. A third would pass the page bottom. */
     private int liveRows() {
         return Math.max(0, Math.min(2, (contentY() + contentH() - liveTop()) / (LIVE_ROW_H + 4)));
     }
 
     /**
-     * The button on one live-match row.
+     * Returns the button for one live-match row.
      *
-     * <p>A real widget rather than a hit rectangle drawn into the row, so hover, focus and keyboard
-     * activation behave as they do everywhere else — the same choice the match list makes.</p>
+     * <p>A real widget rather than a hit rectangle, so hover, focus and keyboard activation behave
+     * as they do elsewhere.
      */
     private PvButton liveButton(MatchListScreen.Entry entry, int x, int y, int w, int h) {
         int btnW = 52;
@@ -466,21 +434,17 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * The current page of the history list, plus the two arrows that move between pages.
+     * Builds the current page of the history list, plus the two pager arrows.
      *
-     * <p>The page size is exactly what the setting says, not "whatever fits": a page that silently
-     * showed seven rows when ten were asked for would make the setting look broken, and the pane
-     * scrolls a page taller than the viewport the same way any long list does. What the setting
-     * controls is how many records one page holds, and that has to stay true or the number in the
-     * settings page means nothing.</p>
+     * <p>The page size is the value from the settings, not whatever fits: a page that showed fewer
+     * rows would make the setting look broken. A page taller than the viewport scrolls.
      */
     private void buildHistory() {
         List<HomeState.History> records = HomeState.history();
         int size = ClientPrefs.historyPageSize();
         int pages = pagesOf(records.size(), size);
-        // Clamped here rather than at every caller: a new match, a smaller page size and a window
-        // resize can each leave the stored page past the end, and a blank page with live arrows is
-        // the worst of the three ways to find out.
+        // Clamped here: a new match, a smaller page size or a resize can each leave the stored page
+        // past the end.
         historyPage = Math.max(0, Math.min(historyPage, pages - 1));
 
         int from = historyPage * size;
@@ -492,8 +456,8 @@ public class HomeScreen extends PvScreen {
         if (pages <= 1) {
             return;
         }
-        // Two root widgets rather than a hit rectangle drawn into the footer: they are what the
-        // audit measures, what Tab reaches, and what the shared hover/press animation drives.
+        // Two root widgets: they are what the audit measures, what Tab reaches, and what the shared
+        // hover animation drives.
         PvIconButton next = new PvIconButton(PvIconButton.Glyph.CHEVRON, PAGER_BTN,
                 () -> turnPage(1));
         next.direction = 1;
@@ -519,9 +483,8 @@ public class HomeScreen extends PvScreen {
 
     private void turnPage(int delta) {
         historyPage += delta;
-        // A rebuild, not a scroll: the rows of the new page do not exist until the pane is filled,
-        // and rebuild() already resets the pane's scroll offset, which is what "turn to page 2"
-        // means for a list whose first row has to be at the top.
+        // A rebuild rather than a scroll: the new page's rows do not exist until the pane is
+        // filled, and a rebuild resets the scroll offset.
         buildPage();
     }
 
@@ -562,8 +525,7 @@ public class HomeScreen extends PvScreen {
         PvToggle light = new PvToggle(PvTheme.current() == PvTheme.Theme.LIGHT);
         light.onChange(value -> ClientPrefs.setTheme(value == 1
                 ? PvTheme.Theme.LIGHT : PvTheme.Theme.DARK));
-        // Tagged, not hidden: the light palette is complete enough to use and young enough to change.
-        // A badge says that without a second line of prose nobody reads.
+        // The light palette is usable but still changing, so it carries a badge.
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.light"), light, null,
                 new PvBadge(PvLang.str("pvpocket.gui.home.beta"))));
 
@@ -571,18 +533,15 @@ public class HomeScreen extends PvScreen {
         motion.onChange(value -> ClientPrefs.setMotion(value == 1));
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.motion"), motion, null));
 
-        // The one appearance setting whose effect is not on this page: the scoreboard is drawn by the
-        // HUD, over the fight. It lives here rather than in a separate display screen because four
-        // steps do not deserve a screen, and a stepper is the whole UI.
+        // The scoreboard is drawn by the HUD over the fight, so its scale has no visible effect
+        // here. Four steps do not need a screen of their own.
         PvStepper hudScale = new PvStepper(ClientPrefs.HUD_SCALE_MIN, ClientPrefs.HUD_SCALE_MAX, 1,
                 step -> ClientPrefs.hudScalePercent(step) + "%", ClientPrefs.hudScale());
         hudScale.onChange(ClientPrefs::setHudScale);
         hudScale.tooltip = PvLang.str("pvpocket.gui.home.settings.hud_scale_hint");
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.hud_scale"), hudScale, null));
 
-        // Its own section rather than a third line under "appearance": how many records a page holds
-        // is about the data, and burying it under a heading about colours is how a setting ends up
-        // existing without anyone finding it.
+        // Its own section: how many records a page holds is about the data, not about colours.
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.match")));
         PvToggle resultCard = new PvToggle(ClientPrefs.resultScreen());
         resultCard.onChange(value -> ClientPrefs.setResultScreen(value == 1));
@@ -595,9 +554,8 @@ public class HomeScreen extends PvScreen {
                 ClientPrefs.historyPageSize());
         perPage.onChange(value -> {
             ClientPrefs.setHistoryPageSize(value);
-            // Back to the first page: the rows the old page started at no longer line up with the
-            // new page boundaries, and landing halfway through a list after changing its page size
-            // reads as the list having lost its place.
+            // Back to the first page: the row boundaries move with the page size, so the stored
+            // page would land partway through the list.
             historyPage = 0;
         });
         perPage.tooltip = PvLang.str("pvpocket.gui.home.settings.history_page_hint");
@@ -623,24 +581,16 @@ public class HomeScreen extends PvScreen {
     }
 
     private static String version() {
-        // 版本号只能由加载器回答（各自的元数据格式不同），所以这是平台接口上少数几个不转发
-        // 事件、而是直接取值的方法之一。
+        // The version string comes from the loader, since each one has its own metadata format.
         return PvClientPlatform.get().modVersion();
     }
 
     /**
-     * The operator page: what the dimension looks like, and the three things only an operator can do
-     * to it.
+     * Builds the operator page: arena layout, copies, rebuild and the stray-player guard.
      *
-     * <p>This is the panel that makes the two arena commands discoverable. The commands still exist
-     * — a console or an RCON pipe has no client to draw a page — but "how many colosseums can we run
-     * tonight" is a question an operator answers while looking at the numbers, and a chat command
-     * answers it with a wall of text.</p>
-     *
-     * <p>Every row is rebuilt from the snapshot, so nothing here holds its own copy of the state: a
-     * copy lands, the server answers with a fresh snapshot, and the numbers move. That is also why
-     * the guard switch asks the server instead of flipping locally — the file it persists to can be
-     * edited by hand, and a toggle that disagrees with the file is worse than no toggle.</p>
+     * <p>Every row is rebuilt from the snapshot, so nothing here holds its own state: an action
+     * lands, the server answers with a fresh snapshot, and the numbers move. The guard switch asks
+     * the server for the same reason.
      */
     private void buildAdmin() {
         HomeState.Arena arena = HomeState.arena();
@@ -651,19 +601,18 @@ public class HomeScreen extends PvScreen {
                 null, PvLang.str("pvpocket.gui.home.admin.summary_value",
                         arena.stamped(), arena.slots(), arena.leased())));
 
-        // 44 is the width both labels need in both languages: 删除 is 16px and "Remove" is 35px, and a
-        // button shrinks its label only past 40. The pair is deliberately the same width — two
-        // buttons of different widths in one row read as two unrelated controls.
+        // 44 fits both labels: "Remove" is 35px, the widest translated one is 16px, and a button
+        // shrinks its label only past 40. Both share the width so they read as one control.
         String copyLabel = PvLang.str("pvpocket.gui.home.admin.copy");
         String removeLabel = PvLang.str("pvpocket.gui.home.admin.remove");
 
         for (HomeState.MapRow row : arena.maps()) {
-            // Remove first, copy last: the add direction sits against the row's edge where it has
-            // always been, and the destructive half of the pair is the one you have to reach past.
+            // Remove comes first and copy last: the destructive half of the pair is the one reached
+            // past.
             PvButton remove = new PvButton(removeLabel,
                     PvButton.Style.DANGER, () -> removeMap(row.id())).size(44, 18);
-            // Both refusals are the server's own: nothing left to take, or every cell leased. The
-            // button says so before the click rather than answering with a chat line afterwards.
+            // Both refusals belong to the server: nothing left to take, or every cell leased. The
+            // tooltip says so before the click.
             remove.enabled = online && row.copies() > 0 && row.leased() < row.copies();
             if (!online) {
                 remove.tooltip = PvLang.str("pvpocket.gui.home.tooltip.offline");
@@ -675,9 +624,8 @@ public class HomeScreen extends PvScreen {
 
             PvButton add = new PvButton(copyLabel,
                     PvButton.Style.NORMAL, () -> copyMap(row.id())).size(44, 18);
-            // Two different reasons to be unavailable, two different sentences. "The grid is full"
-            // is a decision the operator can act on (drop a copy, or move to a bigger dimension);
-            // "offline" is not.
+            // Two reasons to be unavailable, two messages: a full grid can be acted on, being
+            // offline cannot.
             add.enabled = online && !arena.gridFull();
             if (!online) {
                 add.tooltip = PvLang.str("pvpocket.gui.home.tooltip.offline");
@@ -691,8 +639,8 @@ public class HomeScreen extends PvScreen {
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.admin.maintenance")));
         PvButton reset = new PvButton(PvLang.str("pvpocket.gui.home.admin.reset"),
                 PvButton.Style.DANGER, this::askReset).size(56, 18);
-        // A rebuild already running is the one state where the button must not work: the server
-        // refuses a second one, and a button that answers with a refusal reads as broken.
+        // A rebuild in progress is the one state where the button stays off, since the server
+        // refuses a second one.
         reset.enabled = online && !arena.building();
         if (arena.building()) {
             reset.tooltip = PvLang.str("pvpocket.gui.home.admin.building");
@@ -714,15 +662,8 @@ public class HomeScreen extends PvScreen {
 
     @Override
     protected void drawContent(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
-        // A snapshot that lands after the panel opened has to be *laid out*, not merely painted: the
-        // live rows and their buttons only exist once the data does. Rebuilding here is safe because
-        // it runs before the root widgets are rendered this frame — the page is stale for zero
-        // frames, and the alternative (painting an empty page until the player changes tabs) reads
-        // as a request that never arrived.
-        //
-        // syncPages rather than buildPage: the first snapshot also decides whether the operator page
-        // exists, which changes the tab strip itself. Rebuilding only the page left the strip one
-        // entry short, and every tab below the gap then opened the page above it.
+        // A snapshot landing after the panel opened must be laid out, not only painted: the live
+        // rows exist only once the data does. syncPages also rebuilds the strip when needed.
         if (seenVersion != HomeState.version()) {
             syncPages();
         }
@@ -751,8 +692,8 @@ public class HomeScreen extends PvScreen {
     private void drawHeader(GuiGraphics ctx, Font tr) {
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.title"), panelX + 16, panelY + 11,
                 PvTheme.TEXT);
-        // The clock lives in the header rather than on the overview page: it is ambient information,
-        // and on a 166px-tall content well a line of its own costs a sixth of the page.
+        // The clock sits in the header as ambient information; a line of its own would cost a sixth
+        // of the 166px content well.
         String when = HomeText.date() + " · " + HomeText.clock();
         int right = panelX + panelW - 8 - CLOSE - 10;
         PvDraw.textRight(ctx, tr, PvDraw.fit(tr, when, right - panelX - 140), right,
@@ -794,8 +735,8 @@ public class HomeScreen extends PvScreen {
         int w = contentW();
         int h = contentH();
 
-        // The greeting carries the player's name, so its length is not ours; the quote is a whole
-        // sentence. Both shrink before they are cut, which is what keeps a name readable.
+        // The greeting carries the player name, so its length is unknown, and the quote is a whole
+        // sentence. Both shrink before they are cut.
         PvDraw.textFitLeft(ctx, tr, greeting(), x, y, w, PvTheme.TEXT);
         PvDraw.textFitLeft(ctx, tr, PvLang.str("pvpocket.gui.home.quote." + QUOTE), x, y + 14, w,
                 PvTheme.TEXT_DIM);
@@ -830,11 +771,9 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * One live match: map, mode, round and score, with a way in on the right.
+     * Draws one live match row: map, mode, round and score, with a way in on the right.
      *
-     * <p>Only the row itself is drawn here. Its button is a widget created during layout by
-     * {@link #liveButton}, which is what keeps a click from being handled by a widget that was
-     * rebuilt sixty times a second.</p>
+     * <p>The button itself is a widget created during layout by {@link #liveButton}.
      */
     private void drawMatchRow(GuiGraphics ctx, Font tr, MatchListScreen.Entry entry,
                               int x, int y, int w, int h, int mouseX, int mouseY) {
@@ -851,14 +790,12 @@ public class HomeScreen extends PvScreen {
         int room = btnX - 8 - textX;
 
         String score = entry.score();
-        // The stage chip is measured first and gives way first: it qualifies the map, while the map
-        // names the row. On a 130px card the chip left the name 26px, which is "Colum…"; below the
-        // threshold the chip is dropped and the name gets the whole line instead.
+        // The stage chip gives way before the map name: it qualifies the map, the name identifies
+        // the row. It leaves the name 26px on a 130px card, so below that the chip is dropped.
         String stage = entry.stageLabel();
         int chipW = tr.width(stage) + 10;
         boolean chip = room - 6 - chipW >= MIN_MAP_ROOM;
-        // The run reports what it covered, so the chip is anchored to the drawn width and a long map
-        // name can no longer run underneath it.
+        // The run reports the width it covered, so the chip is anchored to the drawn map width.
         int mapW = PvDraw.textFitLeft(ctx, tr, entry.mapLabel(), textX, line1,
                 chip ? room - 6 - chipW : room, PvTheme.TEXT);
         int chipX = textX + mapW + 6;
@@ -904,8 +841,8 @@ public class HomeScreen extends PvScreen {
             }
             drawWinStrip(ctx, x, y + 3 * (cardH + 4) + 6, w);
         } else {
-            // One column of label/value lines: two columns at this width leave 70px per card, which
-            // is narrower than "1,820" plus its label.
+            // One column of label and value lines: two columns at this width leave 70px per card,
+            // narrower than "1,820" plus its label.
             for (int i = 0; i < cards.length; i++) {
                 int cy = y + i * 17;
                 int valueW = PvDraw.fittedWidth(tr, cards[i][1], w / 2);
@@ -929,11 +866,9 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * The last ten results as squares.
+     * Draws the last ten results as squares.
      *
-     * <p>The only chart that survives a 166px content well: a line or bar chart needs axes to be
-     * readable, and axes need room this panel does not have. Ten squares say "form" at a glance, which
-     * is the question the page is asked.</p>
+     * <p>A line or bar chart needs axes to be readable, and axes need room this 166px panel lacks.
      */
     private void drawWinStrip(GuiGraphics ctx, int x, int y, int w) {
         List<HomeState.History> records = HomeState.history();
@@ -958,15 +893,12 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * The band under the history list: which records are on screen, and where the pager is.
+     * Draws the band under the history list: which records are on screen, and the pager position.
      *
-     * <p>Only text is drawn here. The arrows are root widgets created by {@link #buildHistory} —
-     * a widget rebuilt every frame cannot hold a hover animation, cannot take a click without
-     * racing the next rebuild, and is invisible to the layout audit.</p>
+     * <p>Only text is drawn here; the arrows are root widgets created by {@link #buildHistory}.
      *
-     * <p>The range is measured against what the arrows and the page counter leave, rather than
-     * being right-aligned against the panel edge: on the smallest canvas the well is 200px wide, and
-     * "1–10 of 27" plus "2 / 3" plus two arrows is already most of it.</p>
+     * <p>The range is measured against what the arrows and the counter leave. On the smallest
+     * canvas the well is 200px wide.
      */
     private void drawHistoryFooter(GuiGraphics ctx, Font tr, int total) {
         int x = contentX();
@@ -1045,23 +977,20 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * One plot taken away from a map, wiped and given back to the grid.
+     * Removes one plot from a map, wipes it and returns it to the grid.
      *
-     * <p>No confirmation, unlike the rebuild above. It ends no duels — the server refuses a leased
-     * cell and the button is already disabled when every cell is in use — and it is undone by the
-     * button beside it. The destructive-looking red styling is the whole warning; a dialog here
-     * would train the operator to dismiss the one dialog that does matter.</p>
+     * <p>No confirmation: it ends no duels, since the server refuses a leased cell and the
+     * button is already disabled, and the copy button beside it undoes it.
      */
     private void removeMap(String mapId) {
         HomeClient.send(com.leipishu.pvpocket.network.HomeActionPayload.arenaRemove(mapId));
     }
 
     /**
-     * The rebuild question, asked before anything is sent.
+     * Asks the rebuild question before anything is sent.
      *
-     * <p>The body is built from the snapshot so the operator sees how much this is about to end: "0
-     * duels" is a very different decision from "3 duels". A confirmation that does not say what it
-     * is interrupting is a confirmation that gets clicked through.</p>
+     * <p>The body is built from the snapshot so the operator sees how much the rebuild ends: "0
+     * duels" is a different decision from "3 duels".
      */
     private void askReset() {
         HomeState.Arena arena = HomeState.arena();
@@ -1082,12 +1011,10 @@ public class HomeScreen extends PvScreen {
     }
 
     /**
-     * Closing the preset dialog also rebuilds the list behind it.
+     * Closes the preset dialog and rebuilds the list behind it.
      *
-     * <p>The dialog can delete a preset and can import one, and both leave the rows underneath
-     * stale — a deleted preset that is still listed is the more embarrassing of the two, because it
-     * is still clickable. Rebuilding on every close, including a plain cancel, costs one page
-     * construction and removes the whole class of "the dialog changed the store" bugs.</p>
+     * <p>The dialog can delete or import a preset, and both leave the rows underneath stale.
+     * Rebuilding on every close, a plain cancel included, costs one page construction.
      */
     private void closePresetDialog() {
         dismissOverlay();
@@ -1096,8 +1023,8 @@ public class HomeScreen extends PvScreen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // A key capture gets every key, including Escape, before the screen's own bindings: Esc is
-        // what a player presses to back out of "press a key", and it must not close the panel.
+        // A key capture gets every key, Escape included, before the screen bindings: Esc backs out
+        // "press a key" and must not close the panel.
         if (KeyBindRow.isCapturing()) {
             return KeyBindRow.capture(keyCode, scanCode);
         }
@@ -1113,17 +1040,12 @@ public class HomeScreen extends PvScreen {
     // ------------------------------------------------------------------ audit
 
     /**
-     * One layout per tab, plus the two dialogs the screen can open.
+     * Returns one layout per tab, plus the two dialogs the screen can open.
      *
-     * <p>The history dialog is its own arrangement of its own widgets and is not a tab, so walking
-     * only the tabs would leave the most crowded layout on this screen — a card with two columns of
-     * rounds, a verdict chip and two buttons — measured by nobody. It is also where the "第 10 局"
-     * label used to run into the result beside it, which is precisely the kind of thing an audit is
-     * for.</p>
+     * <p>The history dialog is not a tab, and walking only the tabs would leave the most crowded
+     * layout on this screen unmeasured.
      *
-     * <p>The confirmation dialog is walked for the same reason, and on the operator page because
-     * that is the only page that can open it: a dialog audited on top of the wrong page would be
-     * measured against a layout it is never drawn over.</p>
+     * <p>The confirmation dialog is walked over the operator page, the only page that opens it.
      */
     @Override
     public int auditVariantCount() {
@@ -1137,9 +1059,8 @@ public class HomeScreen extends PvScreen {
         }
         List<Integer> pages = visiblePages();
         int tabsCount = pages.size();
-        // The two dialog variants are drawn over the page they belong to: the history detail over
-        // the history page, the rebuild confirmation over the operator page. Anywhere else and the
-        // dialog would be measured against a layout it is never actually drawn over.
+        // The two dialog variants are drawn over the page that opens them: the history detail over
+        // the history page, the confirmation over the operator page.
         int target = index < tabsCount ? pages.get(index)
                 : index == tabsCount ? PAGE_HISTORY : PAGE_ADMIN;
         int tab = pages.indexOf(target);

@@ -19,16 +19,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The dialog behind a preset row's "more": share, delete, and the result of a share.
+ * The dialog behind a preset row's "more" button: share, import and delete.
  *
- * <p>One class with three faces rather than three dialogs, because they are one flow: the menu is
- * where a share starts and where its code is shown. A second dialog would have to be opened from the
- * first and closed back into it, which is two chances to leave a listener registered on a screen the
- * player has already left.</p>
+ * <p>One class with three faces (menu, share, import). A share starts in the menu and its code is
+ * shown there, so the flow stays in one dialog.
  *
- * <p>{@link PresetShare} keeps exactly one listener by design, so this registers on open and clears
- * on {@link #dismissed()} — including when the dialog is closed with Escape, which never runs a close
- * button's code.</p>
+ * <p>{@link PresetShare} holds one listener: this registers on construction and clears it in
+ * {@link #dismissed()}, which also runs when the dialog is closed with Escape.
  */
 public class PresetActionOverlay extends PvWidget {
 
@@ -181,17 +178,17 @@ public class PresetActionOverlay extends PvWidget {
     }
 
     /**
-     * One answer serves both directions, so the two cases are told apart by status rather than by
-     * remembering which request was last sent — a player who publishes and then imports before the
-     * first answer arrives would otherwise have that answer read as the wrong kind.
+     * Handles both directions of a share, told apart by the payload status.
+     *
+     * <p>The status names the request, so a publish and an import in flight at once cannot be
+     * confused.
      */
     private void onShareResult(PresetShareResultPayload payload) {
         switch (payload.status()) {
             case PresetShareResultPayload.STATUS_PUBLISHED -> {
                 status = payload.code();
                 statusBad = false;
-                // On the clipboard as well as on screen: a code that can only be read is a code the
-                // player has to retype, and every share code exists to be pasted somewhere.
+                // The code also goes on the clipboard so it can be pasted.
                 Minecraft.getInstance().keyboardHandler.setClipboard(payload.code());
             }
             case PresetShareResultPayload.STATUS_FETCHED -> receive(payload);

@@ -37,29 +37,20 @@ import java.util.List;
 /**
  * The loadout editor: what each side brings into the round.
  *
- * <p>Two regions, not three:</p>
- * <ol>
- *   <li><b>Left</b> — which page: weapons, equipment, consumables, blocks.</li>
- *   <li><b>Right</b> — one list holding what is already on this page and what can be added. Every
- *       line carries the real item icon, because "金苹果" and "附魔金苹果" are the same four characters
- *       to a reader and two very different items to a player.</li>
- * </ol>
+ * <p>Two regions: the left column picks the page and the list on the right holds what is already
+ * on this page plus what can be added. Every line carries the real item icon, since two names can
+ * read alike while the items differ.
  *
- * <p>The item's own settings live in a {@link LoadoutEditor} dialog, opened by 编辑 on an added entry
- * or by picking something from the "can be added" list. They used to be a third column, and at the
- * 426x240 logical canvas that column was 66px wide — narrower than the 104px stepper it had to hold,
- * so the controls drew outside it. A dialog is the same content with room to breathe, and it costs
- * the list the column that was previously empty whenever nothing was selected.</p>
+ * <p>An item's settings live in a {@link LoadoutEditor} dialog, opened by editing an added entry.
  *
- * <p>The editor never blocks the negotiation: Esc and 返回 go back to the rule panel with the
- * negotiation intact, and only 保存 writes anything. That is deliberate — a player comparing two
- * sword damages should not be able to cancel their own duel by pressing the wrong key.</p>
+ * <p>Esc and the back button return to the rule panel with the negotiation intact; only save
+ * writes anything.
  */
 public class LoadoutScreen extends PvScreen {
 
     private static final int MAX_W = 680;
     private static final int MAX_H = 392;
-    /** One row of text and 16px chips: see {@code RuleScreen} for why the header is not 42px. */
+    /** Height of the header band: one row of text and 16px chips. */
     private static final int HEADER_H = 30;
     private static final int STATUS_H = 18;
     private static final int ACTION_H = 18;
@@ -81,11 +72,10 @@ public class LoadoutScreen extends PvScreen {
     /** Index into {@link Loadout#entries}, not into the visible page. -1 means nothing selected. */
     private int selected = -1;
     /**
-     * Per entry: does this line differ from the loadout the panel was opened with?
+     * Per entry: whether this line differs from the loadout the panel was opened with.
      *
-     * <p>Rebuilt by {@link #rebuildList} rather than compared at draw time, because the same answer
-     * is asked three times — the row's accent bar, the page tab's dot, and the tab strip's own
-     * predicate — and the comparison is a string encode of every entry.</p>
+     * <p>Rebuilt by {@link #rebuildList} rather than compared at draw time, since three callers ask
+     * the same question and each comparison encodes every entry.
      */
     private boolean[] entryDirty = new boolean[0];
 
@@ -112,11 +102,10 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * An empty session id means the personal loadout, not a broken payload.
+     * Returns whether this is the personal loadout rather than one bound to a session.
      *
-     * <p>The same screen serves two situations — configuring before challenging anyone, and
-     * configuring inside an open negotiation — and the only difference is where 保存 writes. Branching
-     * on the id keeps one screen instead of two nearly identical ones.</p>
+     * <p>An empty session id means the personal loadout. The two cases differ only in where save
+     * writes.
      */
     private boolean isPersonal() {
         return payload.sessionId() == null || payload.sessionId().isEmpty();
@@ -137,9 +126,7 @@ public class LoadoutScreen extends PvScreen {
         tabs.x = panelX;
         tabs.y = panelY + HEADER_H;
         tabs.width = chromeW;
-        // The dot answers "which page did I change" without making the player walk all four pages.
-        // Without it the only sign of an unsaved edit was a sentence at the foot of the panel, and
-        // the page holding the change looked exactly like the three that did not.
+        // The dot answers "which page changed" without walking all four pages.
         tabs.dirtyTest(this::pageDirty);
         tabs.onChange(() -> {
             page = PAGES.get(tabs.selected());
@@ -148,8 +135,8 @@ public class LoadoutScreen extends PvScreen {
         });
         roots.add(tabs);
 
-        // One column now. It takes everything the sidebar does not, which on a 426x240 canvas is
-        // about 300px — enough for a full item name, its summary and both action words.
+        // One column, taking everything the sidebar does not: about 300px on a 426x240 canvas,
+        // enough for a full item name, its summary and both action words.
         listPane = new PvScrollPane();
         listPane.x = paneX;
         listPane.y = panelY + HEADER_H;
@@ -165,11 +152,9 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * Width of the page column: the longest page label plus its insets, clamped.
+     * Returns the page column width: the longest page label plus its insets, clamped.
      *
-     * <p>"Consumables" is 64px in the default font, so a fixed 0.19 share of a 406px panel cut it
-     * off mid-word. Deriving the column from the label costs the list the few pixels the word needs
-     * and nothing more, and the cap keeps the column from growing on a wide window.</p>
+     * <p>"Consumables" is 64px in the default font, so a fixed share would cut it off mid-word.
      */
     private int sidebarWidth() {
         Font tr = font();
@@ -197,8 +182,8 @@ public class LoadoutScreen extends PvScreen {
             }
             any = true;
             final int index = i;
-            // 编辑 and 删除 are always visible, and the row itself opens the editor as well: the words
-            // are the discoverable path, the row is the shortcut for the player who already knows.
+            // Edit and delete are always visible, and the row itself opens the editor: the words
+            // are the discoverable path, the row is the shortcut for a player who knows.
             LoadoutRow row = new LoadoutRow(LoadoutRow.Type.ENTRY, entryLabel(entry), entryDetail(entry),
                     iconOf(entry), selected == i,
                     () -> edit(index), () -> edit(index), () -> remove(index));
@@ -212,11 +197,10 @@ public class LoadoutScreen extends PvScreen {
 
         listPane.add(sectionHeader(PvLang.str("pvpocket.gui.loadout.section.available")));
         // Only what this build can actually grant. The list is a whitelist over the item registry,
-        // so a kind whose item does not exist in the running game (a spear on 1.21.1, a mace on
-        // 1.20.1) is simply absent rather than a row that adds nothing.
+        // so a kind whose item is absent from the running game is simply not listed.
         for (ItemKind kind : ItemKind.availableOf(page)) {
-            // Adding opens the dialog immediately: a new entry that appears in the list with default
-            // numbers and no dialog is a row the player has to be told to go and click again.
+            // Adding opens the dialog immediately, so a new entry never sits in the list with
+            // default numbers.
             listPane.add(new LoadoutRow(LoadoutRow.Type.KIND, kind.label(), null, iconOf(kind),
                     false, () -> add(kind), null));
         }
@@ -239,7 +223,7 @@ public class LoadoutScreen extends PvScreen {
         loadout.entries.add(entry);
         int index = loadout.entries.size() - 1;
         // The entry exists before the dialog opens so the dialog edits a real object; cancelling
-        // takes it back out, which is what makes "add then cancel" a no-op.
+        // takes it back out, which makes "add then cancel" a no-op.
         openEditor(index, true);
     }
 
@@ -260,10 +244,8 @@ public class LoadoutScreen extends PvScreen {
         editor.listener(new LoadoutEditor.Listener() {
             @Override
             public void onConfirm(LoadoutEntry draft) {
-                // Compared before the copy, so "I changed it and changed it back" reports itself as
-                // no change instead of claiming an update. The row's accent bar and this sentence
-                // have to agree: a bar that says "differs" over a line that says "updated" is the
-                // pair of half-truths that made the editor look unreliable.
+                // Compared before the copy, so an edit that was reverted reports no change. The
+                // row's accent bar and this sentence have to agree.
                 boolean changed = !entry.encode().equals(draft.encode());
                 entry.copyFrom(draft);
                 selected = index;
@@ -280,7 +262,7 @@ public class LoadoutScreen extends PvScreen {
             @Override
             public void onCancel() {
                 if (isNew) {
-                    // Roll the placeholder row back out; "cancel" on an add means nothing was added.
+                    // Roll the placeholder row back out: cancel on an add means nothing was added.
                     loadout.entries.remove(index);
                 }
                 setOverlay(null);
@@ -307,11 +289,7 @@ public class LoadoutScreen extends PvScreen {
     // ------------------------------------------------------------------ chrome
 
     /**
-     * 保存, stacked at the foot of the sidebar.
-     *
-     * <p>It was the rightmost button of a footer row. In a column it becomes the bottom-most item,
-     * which is where a form's confirm belongs, and the content well gets back the 34px the footer
-     * band used to take.</p>
+     * Builds the save button, stacked at the foot of the sidebar.
      */
     private void buildActions() {
         if (saveButton != null) {
@@ -330,11 +308,10 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * Title row and status line.
+     * Builds the title row chip and the status line chips.
      *
-     * <p>预设 opens a dialog and lives in the header with the digest it saves. 重置 and 返回 are the
-     * two ways out of an edit — one reverts the list, one leaves the screen — so they sit at the end
-     * of the status line, next to the note that says whether there is anything to revert.</p>
+     * <p>The preset chip lives in the header with the digest it saves. Reset and back are the two
+     * ways out of an edit, so they sit at the end of the status line.
      */
     private void buildChips() {
         if (presetButton != null) {
@@ -389,8 +366,8 @@ public class LoadoutScreen extends PvScreen {
 
         String digest = loadout.digest();
         int digestW = tr.width(digest) + 12;
-        // The digest is what the other side has to agree to, so it stays; the preset link is what
-        // gives up its space when the title is long, by being pushed left of the digest.
+        // The digest is what the other side has to agree to, so it keeps its room; the preset link
+        // gives up its space when the title is long.
         int digestX = presetButton.x - 6 - digestW;
         int chipY = panelY + (HEADER_H - 14) / 2;
         PvDraw.roundRect(ctx, digestX, chipY, digestW, 14, 3, PvTheme.ACCENT_SOFT);
@@ -404,11 +381,7 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * The status line: what the last action did, or the first problem with the loadout.
-     *
-     * <p>It used to share a 34px footer band with three buttons, which left the message about 144px
-     * wide — narrower than a validation sentence. With the buttons moved out, the line has the width
-     * of the well minus two chips, and a problem can be stated rather than truncated.</p>
+     * Draws the status line: what the last action did, or the first problem with the loadout.
      */
     private void drawStatus(GuiGraphics ctx, Font tr) {
         int top = panelY + panelH - STATUS_H;
@@ -420,8 +393,8 @@ public class LoadoutScreen extends PvScreen {
         String text;
         int color;
         if (!problems.isEmpty()) {
-            // Only the first problem fits, but silently hiding the rest would make the player fix one
-            // row, press save, and be told about the next one — so the count is part of the message.
+            // Only the first problem fits, so the count is part of the message; hiding the rest
+            // would make the player fix one row, save, and be told about the next one.
             text = problems.size() == 1
                     ? problems.get(0).getString()
                     : PvLang.str("pvpocket.gui.loadout.footer.more_problems",
@@ -447,8 +420,12 @@ public class LoadoutScreen extends PvScreen {
         };
     }
 
-    /** {@code Identifier.tryParse} returns null on a malformed id, and {@code Registries.ITEM.get}
-     * would then throw; an unresolvable variant has to render as "no icon", not as a crash. */
+    /**
+     * Resolves an item id, returning null when it is malformed or unknown.
+     *
+     * <p>{@code Identifier.tryParse} returns null on a malformed id and {@code Registries.ITEM.get}
+     * would then throw, so an unresolvable variant renders as no icon rather than crashing.
+     */
     private static Item itemById(String id) {
         ResourceLocation identifier = ResourceLocation.tryParse(id);
         return identifier == null ? null : BuiltInRegistries.ITEM.get(identifier);
@@ -460,23 +437,19 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * The icon for a kind that is not in the loadout yet, i.e. for the "available" list.
+     * Returns the icon for a kind that is not in the loadout yet, for the "available" list.
      *
-     * <p>A materialised kind shows its cheapest existing tier. A non-materialised one — {@code bow},
-     * {@code crossbow}, {@code trident}, {@code mace}, {@code fishing_rod}, {@code shield},
-     * {@code elytra}, {@code shears}, the consumables — has no tiers at all: its id <em>is</em> the
-     * item id, so {@code materials()} is empty by design. Passing {@code null} to
-     * {@link ItemKind#resolve} then yields the bare id, which is exactly what
-     * {@link #itemOf} does for a real entry. Reading an empty material list as "no item" was the bug
-     * that left every non-materialised row blank in the list.</p>
+     * <p>A materialised kind shows its cheapest existing tier. A non-materialised one has no tiers:
+     * its id is the item id, so {@code materials()} is empty and {@code null} is passed to
+     * {@link ItemKind#resolve}.
      */
     private static ItemStack iconOf(ItemKind kind) {
         Item item = switch (kind) {
             case POTION -> Items.SPLASH_POTION;
             case FOOD -> Items.GOLDEN_CARROT;
             case BLOCK -> Items.WHITE_WOOL;
-            // The cheapest tier that exists for this kind, not a fixed one: a kind whose iron
-            // variant is missing would otherwise show no icon at all in the "available" list.
+            // The cheapest tier that exists for this kind, not a fixed one, so a kind without its
+            // iron variant still shows an icon in the "available" list.
             default -> {
                 List<Material> materials = kind.materials();
                 yield kind.resolve(materials.isEmpty() ? null : materials.get(0));
@@ -493,8 +466,8 @@ public class LoadoutScreen extends PvScreen {
         if (!entry.variant.isEmpty()) {
             sb.append(' ').append(LoadoutCatalog.labelOf(entry.variant));
         }
-        // The style is part of what the row *is*, not a detail: two tridents with different styles
-        // are different weapons, and the list would otherwise show two identical lines.
+        // The style is part of what the row is: two tridents with different styles are different
+        // weapons, and the list would otherwise show two identical lines.
         if (entry.kind == ItemKind.TRIDENT && entry.tridentStyle != TridentStyle.NONE) {
             sb.append(' ').append(entry.tridentStyle.label());
         }
@@ -521,11 +494,8 @@ public class LoadoutScreen extends PvScreen {
     /**
      * Recomputes which lines differ from the saved loadout.
      *
-     * <p>A bag difference, not an index-by-index compare: adding and removing entries shifts every
-     * index after the change, and comparing position by position would paint the whole list as
-     * edited after one deletion. Comparing the encodings answers the question the bar actually asks —
-     * "is there a line in this list that is not in the saved one" — and a value that was changed and
-     * then changed back produces the same string, so the bar goes away again.</p>
+     * <p>A bag difference, not an index-by-index compare: adding or removing an entry shifts every
+     * later index, so a positional compare would mark the whole list edited after one deletion.
      */
     private void refreshDirty() {
         int size = loadout.entries.size();
@@ -560,12 +530,10 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * The preset dialog, opened over this screen.
+     * Opens the preset dialog over this screen.
      *
-     * <p>The snapshot is the live loadout, unsaved changes included — a player who has just moved
-     * three swords around and then decides to keep the arrangement expects to keep the arrangement,
-     * not the last thing they pressed 保存 on. Loading a preset does not submit anything either: it
-     * replaces what is in the editor, and 保存 still decides whether the duel sees it.</p>
+     * <p>The snapshot is the live loadout, unsaved changes included. Loading a preset replaces what
+     * is in the editor without submitting it; save still decides whether the duel sees it.
      */
     private void openPresets() {
         setOverlay(new PresetOverlay(PresetKind.LOADOUT,
@@ -605,9 +573,8 @@ public class LoadoutScreen extends PvScreen {
         }
         loadout.autoAssignSlots();
         if (!PvClientPlatform.get().canSend(LoadoutSubmitPayload.ID)) {
-            // Staying on the panel is the whole point: this used to fall through to back() and look
-            // exactly like a save. The player walked away believing the change had landed, and the
-            // next round handed out the previous loadout — which reads as "the switch does nothing".
+            // Stay on the panel: leaving would look like a save, and the next round would hand out
+            // the previous loadout.
             note = PvLang.str("pvpocket.gui.loadout.note.no_channel");
             PvPocket.LOGGER.warn("Loadout submit: channel {} is not open on this client",
                     LoadoutSubmitPayload.ID.id());
@@ -620,12 +587,7 @@ public class LoadoutScreen extends PvScreen {
     }
 
     /**
-     * Leaves the panel, asking first when there is something to lose.
-     *
-     * <p>Esc and 返回 both used to leave unconditionally, and the only warning was a status line that
-     * said 未保存 — which is a description, not a question. A player who edited three rows and pressed
-     * Esc had no way to know whether the edit had been saved, and the panel then reopened showing the
-     * old values. Asking is cheap; losing the work is not.</p>
+     * Leaves the panel, asking first when there are unsaved changes.
      */
     private void requestBack() {
         if (!isDirty()) {
@@ -635,7 +597,7 @@ public class LoadoutScreen extends PvScreen {
         setOverlay(discardConfirm());
     }
 
-    /** The "you have unsaved changes" question, over this panel. */
+    /** The unsaved-changes question, drawn over this panel. */
     private PvConfirm discardConfirm() {
         return new PvConfirm(
                 PvLang.str("pvpocket.gui.loadout.discard.title"),
@@ -654,12 +616,12 @@ public class LoadoutScreen extends PvScreen {
                 });
     }
 
-    /** Returns to the rule panel. Never cancels the negotiation — that is the 取消 button's job. */
+    /** Returns to the rule panel. It never cancels the negotiation. */
     private void back() {
         Minecraft.getInstance().setScreen(parent);
     }
 
-    /** Esc and 返回 both go through {@link #requestBack}; only a clean panel leaves immediately. */
+    /** Routes Esc through {@link #requestBack}, so only a clean panel leaves immediately. */
     @Override
     public void onClose() {
         requestBack();

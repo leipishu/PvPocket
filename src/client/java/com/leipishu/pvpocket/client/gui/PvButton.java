@@ -7,15 +7,13 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.sounds.SoundEvents;
 
 /**
- * Flat button with four explicit states: normal, hovered, pressed, disabled.
+ * Flat button with four explicit states: normal, hovered, pressed and disabled.
  *
  * <p>Disabled is a contrast reduction rather than a hide, so a locked option still tells the player
- * that the option exists — the panel is a contract, and a button that vanishes is a contract that
- * appears to change.</p>
+ * that the option exists.
  *
- * <p>Press is expressed as a one-pixel inset plus a darker fill, not as a colour swap. On a palette
- * this dark a colour swap between #F5A524 and #D98A12 is nearly invisible; the inset is what the
- * eye actually reads as "the click landed".</p>
+ * <p>Press is a one-pixel inset plus a darker fill rather than a colour swap, which is hard to see
+ * on this palette.
  */
 public class PvButton extends PvWidget {
 
@@ -26,7 +24,7 @@ public class PvButton extends PvWidget {
         NORMAL,
         /** Outlined in danger red. Used for reject and cancel; never for a primary action. */
         DANGER,
-        /** No surface until hovered. For low-stakes links such as 还原 and 返回. */
+        /** No surface until hovered. For low-stakes links such as restore and back. */
         GHOST
     }
 
@@ -36,9 +34,11 @@ public class PvButton extends PvWidget {
     private boolean pressed;
 
     /**
-     * Height of a title-row action, matching the 14px chips it sits beside rather than the 20px
-     * footer buttons. The title row is 21px of usable height before the divider, so a full-size
-     * button there would either cross the rule or push it down on every panel.
+     * Height of a title-row action, matching the 14px chips beside it rather than the 20px footer
+     * buttons.
+     *
+     * <p>The title row has 21px of usable height before the divider, so a full-size button there
+     * would cross the rule or push it down.
      */
     public static final int CHIP_H = 16;
 
@@ -51,11 +51,10 @@ public class PvButton extends PvWidget {
     }
 
     /**
-     * A compact action for a title row: text until hovered, sized to its word.
+     * Returns a compact action for a title row: text until hovered, sized to its word.
      *
-     * <p>Used for panel-level verbs that open something rather than commit something — the preset
-     * dialog on both the rule panel and the loadout editor. It is a link, not a button, so it is
-     * deliberately quieter than the chips it sits next to.</p>
+     * <p>For panel-level verbs that open a dialog, such as the preset dialog. The result is quieter
+     * than the chips it sits beside.
      */
     public static PvButton chip(String label, Runnable action) {
         PvButton button = new PvButton(label, Style.GHOST, action);
@@ -76,12 +75,10 @@ public class PvButton extends PvWidget {
     }
 
     /**
-     * Re-labels in place, without touching the size.
+     * Re-labels in place without touching the size.
      *
-     * <p>For the two-step confirmation: the same button asks first and acts second, and rebuilding
-     * the page between the two presses would move the widget out from under the pointer mid-click.
-     * The width is left alone on purpose — a caller that wants both labels to fit sizes for the
-     * longer one when it is built.</p>
+     * <p>For the two-step confirmation, where the same button asks first and acts second. Size the
+     * button for the longer of the two labels when it is built.
      */
     public PvButton label(String text) {
         this.label = text;
@@ -121,8 +118,8 @@ public class PvButton extends PvWidget {
                 }
             }
             case DANGER -> {
-                // Tinted fill, no outline. Same reasoning as the chips: a 1px red outline around a
-                // soft red fill is two dark red bars on a 24px button, not an edge.
+                // Tinted fill, no outline: a 1px red outline around a soft red fill reads as two
+                // dark red bars on a 24px button rather than an edge.
                 fill = PvTheme.alpha(PvTheme.DANGER, 0.10F + 0.22F * hoverT + 0.10F * pressT);
                 border = 0;
                 textColor = PvTheme.mix(PvTheme.DANGER, PvTheme.DANGER_HOVER, hoverT);
@@ -159,16 +156,11 @@ public class PvButton extends PvWidget {
             PvDraw.roundPanel(ctx, bx, by, bw, bh, PvTheme.RADIUS, border, fill);
         }
         drawFocusRing(ctx, PvTheme.RADIUS);
-        // Measured, then shrunk, then wrapped, then cut — in that order. A button is the one widget
-        // whose size callers set by hand, and in two of the three cases (a fixed 44px default, a row
-        // of equal buttons) the label can be wider than the box. Shrinking is what keeps the word:
-        // the same row of buttons used to read "Copy res… / Acc… / Rej…" in English, where the
-        // Chinese labels had fitted at full size. A 20px button then spends a second line rather
-        // than an ellipsis — "Accept & / start" at 55px — and only a label that needs more than two
-        // lines at the floor is truncated. A 16px title-row chip has no second line to spend.
+        // Shrink, then wrap, then cut: a hand-sized button can be narrower than its label, a 20px
+        // button spends a second line, and a 16px chip has no second line to spend.
         PvDraw.textWrapCenter(ctx, tr, label, bx + bw / 2, by, bh, bw - 4,
                 height >= PvTheme.BTN_H ? 2 : 1, textColor);
-        // If even that was not enough, the rest of the word is one hover away.
+        // If that still cuts the label, the full text is available as a hover tooltip.
         overflowTip(label, PvDraw.willCut(tr, label, bw - 4, height >= PvTheme.BTN_H ? 2 : 1));
     }
 

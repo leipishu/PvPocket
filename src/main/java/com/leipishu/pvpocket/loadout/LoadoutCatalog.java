@@ -10,21 +10,18 @@ import java.util.Map;
 /**
  * The value lists and hard limits the loadout editor draws from.
  *
- * <p>Everything here is a whitelist rather than a free-text field. The loadout arrives from a client
- * and ends up as real items in a survival player's inventory, so "type any id you like" is an
- * invitation to hand out command blocks. The lists are deliberately generous where it does not
- * matter (food, blocks) and deliberately short where it does (potion effects that would break a
- * duel, such as levitation or bad omen, are simply absent).</p>
+ * <p>Every list is a whitelist rather than a free-text field, because the loadout arrives from a
+ * client and ends up as real items in a survival player's inventory. Effects that would break a
+ * duel, such as levitation or bad omen, are absent.
  *
- * <p>Display names are {@code pvpocket.option.<list>.<registry path>} — {@code food}, {@code effect}
- * or {@code block} plus the part of the id after {@code minecraft:}. Deriving the key from the id
- * rather than storing a label keeps the list and the language file in step by construction: adding
- * an item without its translation shows a missing key in the editor instead of silently reusing the
- * previous entry's word.</p>
+ * <p>Display names are {@code pvpocket.option.<list>.<registry path>}, where list is {@code food},
+ * {@code effect} or {@code block} and the path is the part of the id after {@code minecraft:}.
  */
 public final class LoadoutCatalog {
 
-    /** Upper bound on rows in one loadout. A full inventory is 36 slots; more than that cannot be worn. */
+    /**
+     * Upper bound on rows in one loadout. A full inventory is 36 slots; more cannot be worn.
+     */
     public static final int MAX_ENTRIES = 36;
 
     public static final int DAMAGE_MIN_TENTHS = 10;
@@ -41,9 +38,8 @@ public final class LoadoutCatalog {
     /**
      * Firework rocket flight duration, the same 1-3 the crafting table produces.
      *
-     * <p>The component itself is an unsigned byte, so 0 and 4-255 are representable but meaningless:
-     * duration 0 is a rocket that dies before it finishes pushing, and anything above 3 is a
-     * lifetime nobody can craft. Offering the range the game actually has keeps the slider honest.</p>
+     * <p>The component is an unsigned byte, so 0 and 4-255 are representable but meaningless.
+     * Offering the range the game has keeps the slider honest.
      */
     public static final int FIREWORK_FLIGHT_MIN = 1;
     public static final int FIREWORK_FLIGHT_MAX = 3;
@@ -77,15 +73,12 @@ public final class LoadoutCatalog {
     /**
      * Splash potion effects.
      *
-     * <p>{@code durationMatters} is false for the instant effects: a splash potion of healing ignores
-     * its duration entirely, so showing a duration slider for it would be a control that does nothing.
-     * The editor greys the row out instead.</p>
+     * <p>{@code durationMatters} is false for the instant effects, whose duration is ignored; the
+     * editor greys the row out instead.
      *
-     * <p>Two keys per effect. {@link #labelKey()} is the bare name, used wherever the effect is
-     * already in context (the loadout row, the diagnostic command). {@link #pickKey()} is the name as
-     * it appears in the editor's cycle control, where the reader is choosing blind and needs to know
-     * whether they are picking a buff or a debuff. Both are single keys rather than a composed
-     * prefix, because a choice in a rule definition is one key and nothing else.</p>
+     * <p>Two keys per effect. {@link #labelKey()} is the bare name, used where the effect is
+     * already in context. {@link #pickKey()} is the name in the editor's cycle control, where the
+     * reader needs to know whether the choice is a buff or a debuff.
      */
     public record EffectOption(String id, String labelKey, boolean buff, boolean durationMatters) {
 
@@ -160,7 +153,7 @@ public final class LoadoutCatalog {
         return new Option(id, "pvpocket.option.block." + pathOf(id));
     }
 
-    /** {@code minecraft:golden_carrot} -> {@code golden_carrot}; the namespace is always vanilla. */
+    /** Strips the namespace: {@code minecraft:golden_carrot} -> {@code golden_carrot}. */
     private static String pathOf(String id) {
         int colon = id.indexOf(':');
         return colon < 0 ? id : id.substring(colon + 1);
@@ -223,9 +216,8 @@ public final class LoadoutCatalog {
     /**
      * The name of a whitelisted variant, for the self-drawn GUI.
      *
-     * <p>An unrecognised id renders as the id itself rather than as a blank: a loadout can carry a
-     * variant this build no longer ships, and "minecraft:foo" tells the player what is wrong where an
-     * empty cell would look like a rendering bug.</p>
+     * <p>An unrecognised id renders as the id itself rather than as a blank, so a variant this
+     * build does not ship is visible as {@code minecraft:foo}.
      */
     public static String labelOf(String id) {
         String key = labelKeyOf(id);

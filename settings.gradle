@@ -11,15 +11,8 @@ pluginManagement {
 
 rootProject.name = 'pvpocket'
 
-// 版本目录：**一个 Minecraft 版本一个文件**，`gradle/catalogs/<mc>.toml` → catalog 名 `v<mc>`，
-// 点换成下划线（1.21.1 → `v1_21_1`，26.1 → `v26_1`）。
-//
-// 为什么不全部塞进默认的 gradle/libs.versions.toml：那里的键是全局唯一的，两个 MC 版本同时存在
-// 就必然有一个叫 `minecraft_version_2` 之类的东西，而 cell 的 build.gradle 里到底取了哪个键，
-// 从名字上看不出来。分成多个 catalog 之后，**每个文件内部的键名完全一样**（minecraft / fabricApi
-// / neoforge），区分靠 catalog 名——复制一个版本的文件不需要改任何键名。
-//
-// 共享的加载器工具链版本（fabric-loader / Loom / ModDevGradle）在默认的 `libs` 里。
+// One catalog file per Minecraft version: gradle/catalogs/<mc>.toml becomes catalog `v<mc>` with
+// dots turned into underscores (1.21.1 -> v1_21_1). Key names inside each file stay identical.
 def catalogsDir = file('gradle/catalogs')
 catalogsDir.listFiles()
         ?.findAll { it.name.endsWith('.toml') }
@@ -28,19 +21,13 @@ catalogsDir.listFiles()
             def mc = catalogFile.name.substring(0, catalogFile.name.length() - '.toml'.length())
             def catalogName = 'v' + mc.replaceAll('[^0-9A-Za-z]', '_')
             dependencyResolutionManagement.versionCatalogs.create(catalogName) {
-                // 必须包成 files(...)：from() 的参数走的是「依赖符号」转换，裸 File 不在支持列表里。
+                // from() expects a dependency notation, so the file needs the files(...) wrapper.
                 from(files(catalogFile))
             }
         }
 
-// 一个 **cell** = 一个 Minecraft 版本 × 一个加载器，一个 cell 就是一个子项目。
-//
-// cell 名 = 目录名 = 任务前缀：`./gradlew :1.21.1-fabric:runClient`。
-// 用 `project(':1.21.1-fabric').projectDir = file('versions/1.21.1-fabric')` 把工程路径压平成
-// 一级，是为了让任务名短一点——`include 'versions:1.21.1-fabric'` 会得到 `:versions:…:runClient`。
-//
-// **为什么加载器这一维必须落在 project 边界上**：Loom 与 ModDevGradle 都要接管 minecraft 依赖、
-// run 任务与 remap，一个 project 只能应用其中一个。塞进同一个 project 就是让两个插件互相覆盖。
+// A cell is one Minecraft version plus one loader, and one cell is one subproject. The project
+// path is flattened to a single segment so task names stay short: :1.21.1-fabric:runClient
 def cells = [
         '1.21.1-fabric',
         '1.21.1-neoforge',
@@ -50,13 +37,3 @@ cells.each { cell ->
     include ":$cell"
     project(":$cell").projectDir = file("versions/$cell")
 }
-
-// 还没建的格子，矩阵与建法见 versions/README.md。加一格 = 建目录 + 把名字加进上面的 cells。
-//
-//   '1.21.11-fabric'   '1.21.11-neoforge'
-//   '26.1-fabric'      '26.1-neoforge'
-//   '26.2-fabric'      '26.2-neoforge'
-//   '26.3-fabric'      '26.3-neoforge'
-//
-// 1.20.1 不在这里：FG6 绑 Gradle 8.x，现代 Loom / NeoGradle 要 Gradle 9，两者不能在同一个
-// Gradle 进程里共存。它有自己的根，见 legacy/1.20.1/。

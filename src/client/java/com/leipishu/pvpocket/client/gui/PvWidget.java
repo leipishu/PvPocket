@@ -5,18 +5,12 @@ import net.minecraft.client.gui.GuiGraphics;
 /**
  * Base class for every custom widget.
  *
- * <p>Deliberately not a {@code ClickableWidget}: that class brings the vanilla skin, the vanilla
- * narration hooks and the vanilla hover tooltip style, and the whole point of this layer is to own
- * all three. What it does keep is the shape of the input contract, so a widget can be handed events
- * without the screen needing to know what kind it is.</p>
+ * <p>Not a {@code ClickableWidget}: this layer owns its own skin, narration hooks and tooltip
+ * style, but keeps the shape of the input contract.
  *
  * <p>Coordinates are absolute screen coordinates in GUI space. The scroll pane repositions its
- * children every frame instead of translating the matrix, which keeps hit-testing in the same space
- * as rendering and removes a whole class of off-by-scroll bugs.</p>
- *
- * <p>Interaction state is carried twice: {@link #hovered} is the instantaneous truth used for hit
- * testing, and {@link #hoverT} is its animated shadow, used for drawing. Keeping both is what lets
- * a click land on the frame the mouse arrives while the fill is still 40% of the way in.</p>
+ * children every frame instead of translating the matrix, so hit-testing and rendering share a
+ * space. {@link #hovered} is the instantaneous hit-test state, {@link #hoverT} its animated shadow.
  */
 public abstract class PvWidget {
 
@@ -41,10 +35,8 @@ public abstract class PvWidget {
     /**
      * The full text of a label this widget had to cut, or null.
      *
-     * <p>The last resort for text that is genuinely too long for its frame: shrinking stops at the
-     * legibility floor and wrapping stops at the height the row has, so the remainder has to live
-     * somewhere the player can ask for it. Hovering is that place — the ellipsis says "there is
-     * more", and the tooltip says what.</p>
+     * <p>The last resort for text too long for its frame: shrinking stops at the legibility floor
+     * and wrapping at the row height, so the remainder is shown as a tooltip.
      */
     private String overflow;
 
@@ -70,10 +62,8 @@ public abstract class PvWidget {
     /**
      * Called by a container after it assigns {@link #width}, before it totals up the heights.
      *
-     * <p>Some rows need to know how much room they have before they can say how tall they are: a
-     * rule row keeps label and control on one line when both fit and stacks them when they do not.
-     * Without this hook the container has to total the heights first, which is exactly the number
-     * that depends on the width it has not assigned yet.</p>
+     * <p>Some rows need their width before they can report a height: a rule row keeps label and
+     * control on one line when both fit and stacks them when they do not.
      */
     public void onWidth(int width) {
     }
@@ -135,9 +125,8 @@ public abstract class PvWidget {
     /**
      * One typed character. Only text fields care; everything else declines.
      *
-     * <p>Separate from {@link #keyPressed} because vanilla delivers them on separate paths and the
-     * distinction matters: Backspace is a key, "a" is a character, and a keyboard layout that puts
-     * "a" somewhere else still produces "a".</p>
+     * <p>Separate from {@link #keyPressed} because vanilla delivers them on separate paths:
+     * Backspace is a key and "a" is a character.
      */
     public boolean charTyped(char chr, int modifiers) {
         return false;
@@ -146,11 +135,10 @@ public abstract class PvWidget {
     /**
      * The tooltip that should be shown for this position, or null.
      *
-     * <p>Asked of the tree rather than tracked as "the hovered widget" so that containers can
-     * forward the question to their children and the screen only ever needs to walk its roots.</p>
+     * <p>Asked of the tree rather than tracked as "the hovered widget", so containers forward the
+     * question to their children.
      *
-     * <p>A cut label outranks a standing hint: the hint is a nicety that is still there when the
-     * pointer moves, while the end of a truncated word is only readable through the tooltip.</p>
+     * <p>A cut label outranks a standing hint.
      */
     public String tooltipAt(int mouseX, int mouseY) {
         if (!visible || !contains(mouseX, mouseY)) {
@@ -166,10 +154,8 @@ public abstract class PvWidget {
     /**
      * Called when the screen takes this widget off the modal layer, whichever way it left.
      *
-     * <p>Esc is handled by {@link PvScreen} itself, so a dialog that only cleaned up inside its own
-     * close button would leak whatever it registered on the way in — a stale listener reacting to the
-     * next dialog's packet is exactly the failure that hides until somebody opens the panel twice.
-     * Widgets that register nothing can leave this empty.</p>
+     * <p>Esc is handled by {@link PvScreen} itself, so a dialog that only cleaned up in its close
+     * button would leak whatever it registered. Widgets that register nothing can leave this empty.
      */
     public void dismissed() {
     }
@@ -181,10 +167,8 @@ public abstract class PvWidget {
     /**
      * Children for the layout audit to descend into.
      *
-     * <p>Containers override this; a leaf returns nothing. It exists so {@link PvAudit} can see the
-     * whole tree without knowing which classes are containers — the alternative was a chain of
-     * {@code instanceof} checks in the audit, which silently stops covering a new container the day
-     * one is added.</p>
+     * <p>Containers override this; a leaf returns nothing. It lets {@link PvAudit} see the whole
+     * tree without knowing which classes are containers.
      */
     public java.util.List<PvWidget> childrenForAudit() {
         return java.util.List.of();

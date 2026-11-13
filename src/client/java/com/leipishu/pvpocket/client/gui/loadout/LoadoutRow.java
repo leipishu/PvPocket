@@ -14,17 +14,12 @@ import net.minecraft.world.item.ItemStack;
  * One line of the loadout list.
  *
  * <p>Three kinds of line share one widget because they share one list: a section header, an entry
- * that is already in the loadout (with 编辑 and 删除 at its right end), and a kind that can be added.
- * Splitting them into three widgets would have meant three hit-test paths inside one scroll pane for
- * no gain.</p>
+ * already in the loadout with edit and delete at its right end, and a kind that can be added.
  *
- * <p>The two actions on an added entry are <b>words, not glyphs</b>. A cross is unambiguous; a pencil
- * at 12px is not, and the row already uses a cross for "remove" and a plus for "add" — a third
- * abstract mark would be a guess. Words also survive translation: "编辑" and "Delete" are different
- * lengths, and the row measures them instead of assuming.</p>
+ * <p>The two actions on an entry are words, not glyphs: a pencil at 12px is ambiguous next to the
+ * cross used for remove, and words keep their meaning in any language.
  *
- * <p>The icon is the real item rendered by {@code DrawContext.drawItem}, not a glyph or a label. That
- * is the only way a player can tell a golden apple from an enchanted golden apple at a glance.</p>
+ * <p>The icon is the real item stack, not a glyph or a label.
  */
 public class LoadoutRow extends PvWidget {
 
@@ -74,10 +69,8 @@ public class LoadoutRow extends PvWidget {
     /**
      * Marks this line as differing from the saved loadout.
      *
-     * <p>Separate from {@code selected} on purpose, and drawn differently. The row used to spend its
-     * accent bar on "this is the row you last edited", which is why a change made and then taken back
-     * still showed a bar: the bar was never about the change. Selection is the card behind the row;
-     * the bar means "this line differs from what is saved", the same thing it means on a rule row.</p>
+     * <p>Separate from {@code selected} and drawn differently: selection is the card behind the
+     * row, while the accent bar means the line differs from what is saved.
      */
     public LoadoutRow dirty(boolean dirty) {
         this.dirty = dirty;
@@ -139,8 +132,8 @@ public class LoadoutRow extends PvWidget {
         Font tr = Minecraft.getInstance().font;
 
         if (type == Type.HEADER) {
-            // The rule to the right of a section header is anchored to the drawn width, so a header
-            // that had to shrink does not leave the line starting under its last letter.
+            // The rule is anchored to the drawn width, so a header that had to shrink does not
+            // leave the line starting under its last letter.
             int headerW = PvDraw.textFitLeft(ctx, tr, label, x + 2, y + 5, width - 12,
                     PvTheme.TEXT_MUTED);
             PvDraw.hLine(ctx, x + headerW + 10, y + 9,
@@ -167,10 +160,8 @@ public class LoadoutRow extends PvWidget {
 
         int textY = y + (height - 8) / 2 + 1;
 
-        // Actions are measured first, from the right, because everything else has to fit to their
-        // left. The words are always drawn — a hover-only affordance is invisible to a player who
-        // does not happen to run the mouse over the row, and the whole point of this layout is that
-        // "I can edit this" is discoverable.
+        // Actions are measured first, from the right, because everything else fits to their left.
+        // The words are always drawn: a hover-only affordance would hide the edit path.
         int actionsLeft = x + width - 6;
         if (onRemove != null) {
             int rx = removeX(tr);
@@ -198,9 +189,8 @@ public class LoadoutRow extends PvWidget {
 
         int labelLeft = x + 28;
         if (detail != null && !detail.isEmpty()) {
-            // The detail is a generated tally ("x2 · Sharpness II") and the label is a material
-            // name; both can outgrow a 180px row, so the detail takes at most half of what is left
-            // and the label takes the rest.
+            // The detail is a generated tally and the label is a material name; both can outgrow a
+            // 180px row, so the detail takes at most half of what is left.
             int detailRoom = Math.max(24, (actionsLeft - labelLeft) / 2);
             int detailW = PvDraw.fittedWidth(tr, detail, detailRoom);
             PvDraw.textFitRight(ctx, tr, detail, actionsLeft, textY, detailRoom,
@@ -208,10 +198,8 @@ public class LoadoutRow extends PvWidget {
             actionsLeft -= detailW + 6;
         }
         int labelMax = actionsLeft - labelLeft;
-        // Two lines rather than one. The label is "kind + variant" — "Food Golden carrot" — and the
-        // column between the icon and the action words is 55px wide on the smallest canvas, where
-        // shrinking put 74% of the string in the frame and cut the rest. The row is 24px tall, so an
-        // 18px block costs nothing and the word survives.
+        // Two lines rather than one: the label is "kind + variant" and the column between the icon
+        // and the action words is 55px wide on the smallest canvas. The row is 24px tall.
         PvDraw.textWrapLeft(ctx, tr, label, labelLeft, y, height, Math.max(0, labelMax), 2,
                 type == Type.KIND ? PvTheme.TEXT_DIM : PvTheme.TEXT);
         overflowTip(label, PvDraw.willCut(tr, label, Math.max(0, labelMax), 2));

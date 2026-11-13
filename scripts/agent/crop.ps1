@@ -5,16 +5,11 @@ param(
     [int]$Y = 0,
     [int]$W = 0,
     [int]$H = 0,
-    # Double rather than int: zooming in is the common case (x2, x4), but a 5120-wide desktop has to
-    # be scaled *down* to be viewable at all, and an integer scale cannot express that.
+    # Double rather than int: a 5120-wide desktop has to be scaled down, which an int cannot do.
     [double]$Scale = 1
 )
 
 # Crops a region out of a screenshot and optionally scales it up.
-#
-# Separate from the capture scripts because those capture; this one only post-processes. Keeping
-# the capture path free of extra work matters -- every line added there is a line that can move a
-# window and take a GLFW client down with it.
 
 Add-Type -AssemblyName System.Drawing
 

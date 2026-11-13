@@ -12,16 +12,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /**
  * {@code d.allowCrafting}: the result slot cannot be emptied.
  *
- * <p>Injected into {@link Slot} rather than into {@link CraftingResultSlot} because the latter does
- * not declare {@code canTakeItems} — it inherits it, and a mixin cannot inject into an inherited
- * method. The {@code instanceof} narrows it back to the two result slots that exist: the 3x3 grid in
- * {@code CraftingScreenHandler} and the 2x2 grid in the player's own inventory. Both matter; blocking
- * only the table would leave the smaller grid as a way around the rule.</p>
+ * <p>Hooks {@code mayPickup} at HEAD, the check every branch of {@code internalOnSlotClick} makes
+ * before moving a stack out. {@code ResultSlot} only consumes its ingredients in
+ * {@code onTakeItem}, so a refused take also refuses the craft.
  *
- * <p>{@code canTakeItems} is the check every branch of {@code internalOnSlotClick} makes before
- * moving a stack out — pick-up, shift-click and drag alike — and {@code CraftingResultSlot} only
- * consumes its ingredients in {@code onTakeItem}, which never runs if the take never happens. So a
- * refused take also refuses the craft, rather than quietly eating the ingredients.</p>
+ * <p>Injected into {@link Slot} because {@code ResultSlot} does not declare {@code mayPickup}; the
+ * {@code instanceof} narrows it to the 3x3 table grid and the 2x2 inventory grid.
  */
 @Mixin(Slot.class)
 public abstract class SlotMixin {

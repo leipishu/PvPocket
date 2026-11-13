@@ -7,12 +7,9 @@ import net.minecraft.client.Minecraft;
 /**
  * Tracks whether the local player is holding a sword block and tells the server.
  *
- * <p>The server cannot see a mouse button, so this flag exists only because the client said so. That
- * makes the edge-triggered version — send on change, never again — fragile in a way that has no
- * recovery: one lost or mistimed update leaves the server believing the sword is down until the
- * player releases and presses again, and from the player's side that is indistinguishable from
- * "blocking does not work". A periodic re-send costs one byte per second while a sword is raised and
- * is idempotent on the far end, which only writes when the value actually changes.</p>
+ * <p>The server cannot see a mouse button, so the client owns this flag. An update is sent when the
+ * value changes and re-sent every {@link #REFRESH_TICKS} ticks while the sword stays raised, so one
+ * lost packet does not leave the server blocking until the next press.
  */
 public final class BlockingInput {
 

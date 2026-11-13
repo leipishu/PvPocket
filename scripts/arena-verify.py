@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
 """Checks a converted arena template against an *independent* reading of its source.
 
-The first version of this script compared the pasted world against the `.nbt` that the converter
-had just written. That check cannot fail: if the converter decodes the source wrongly, it writes
-the same wrongness into the template, and the template then matches the world perfectly. It
-reported 80/80 on four arenas that were completely scrambled in game.
-
-So the reference is always a third-party implementation of the *source* format, never our own
-reader:
+The reference is always a third-party implementation of the source format, never the reader in
+this repository:
 
     .litematic      -> litemapy        (independent Python implementation of Litematica)
     world save      -> anvil-parser2   (independent .mca reader)
 
-`.schem` has no third-party reader wired up here. Rather than pretend, that path is refused — see
-`--source` below.
+`.schem` has no third-party reader wired up here, so that path is refused.
 
 Two modes:
 
@@ -23,8 +17,8 @@ Two modes:
     # in game: /place the template and probe it through RCON
     python scripts/arena-verify.py --source <world dir> --template arena_thistle
 
-The in-game mode additionally proves the paste itself (palette resolution, block states the game
-rejects, gravity blocks that fall), which the offline comparison cannot.
+The in-game mode also proves the paste itself (palette resolution, rejected block states, gravity
+blocks that fall), which the offline comparison cannot.
 """
 import argparse
 import glob
@@ -84,9 +78,7 @@ def chunk_sections(chunk):
     """Sections of a chunk as ``[(section_nbt, section_y), ...]``, for either save layout.
 
     Modern saves keep ``sections`` at the root of the chunk compound; 1.8 keeps ``Sections`` under
-    ``Level``, which anvil-parser2 has already unwrapped into ``chunk.data``. Reading only the
-    modern key is what made every 1.8 map look empty here — and "empty" is not a failure this
-    script can afford to report as a pass, so it exits instead.
+    ``Level``, which anvil-parser2 has already unwrapped into ``chunk.data``.
     """
     for key in ("sections", "Sections"):
         found = chunk.data.get(key)
@@ -105,12 +97,10 @@ def read_source_world(path):
 
     Two block layouts have to be handled, because the source maps come from both eras:
 
-    * 1.21 — a per-section ``block_states`` palette. ``chunk.get_block`` wants a global Y.
-    * 1.8 — flat ``Blocks`` / ``Data`` / ``Add`` byte arrays and numeric ids. ``chunk.get_block``
+    * 1.21: a per-section ``block_states`` palette. ``chunk.get_block`` wants a global Y.
+    * 1.8: flat ``Blocks`` / ``Data`` / ``Add`` byte arrays and numeric ids. ``chunk.get_block``
       returns an ``OldBlock`` with no name, and wants a section-local Y when the section is passed
-      explicitly. ``OldBlock.convert()`` is anvil-parser2's own flattening table, which is what
-      makes this an independent check of the converter's hand-written legacy path rather than the
-      same code run twice.
+      explicitly. ``OldBlock.convert()`` is anvil-parser2's own flattening table.
     """
     import anvil
 
@@ -141,10 +131,7 @@ def read_source_world(path):
                                         block = old.convert()
                                     except KeyError:
                                         # anvil-parser2's table has holes the converter's does
-                                        # not (`132:2`, tripwire, is the one that actually bites).
-                                        # The converter falls back to meta 0 for those, so mirror
-                                        # that here — the point of this reader is to catch a
-                                        # misread *byte*, not to out-vote the id table.
+                                        # not; mirror the converter's fallback to metadata 0.
                                         block = anvil.OldBlock(old.id, 0).convert()
                                 else:
                                     block = chunk.get_block(lx, y, lz)
@@ -179,10 +166,8 @@ def read_template(path):
 def prop_text(value):
     """Renders a block-state value the way it is written in a palette.
 
-    The legacy path is why this exists: `OldBlock.convert()` puts real Python ``True``/``False``
-    into ``properties``, and ``str(True)`` is ``"True"``. A block state string is always lowercase,
-    so comparing the two forms reports 198 "wrong" blocks that are in fact identical, and prints
-    them in a form where the difference is one capital letter in a 60-character line.
+    `OldBlock.convert()` puts real Python ``True``/``False`` into ``properties``, and ``str(True)``
+    is ``"True"``, while a block state string is always lowercase.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -193,12 +178,10 @@ def cross_check(source_path, nbt_path):
     """Compares the template against an independent reading of the source. Returns failure count."""
     truth = read_source(source_path)
     # The converter renames ids 1.21.1 does not have and drops blocks that cannot be placed.
-    # Apply the same transform to the reference so the comparison is about *reading*, not about
-    # whether the transform tables are the ones we expect.
+    # Apply the same transform to the reference so the comparison is about reading, not tables.
     _, truth = W.normalise(dict(truth))
     # anvil-parser2 and nbtlib hand back their own tag types, which do not compare equal to the
-    # plain strings the template reader produces. Coerce both sides to str before comparing, or
-    # every single block reports as wrong while printing identically.
+    # plain strings the template reader produces; coerce both sides before comparing.
     truth = {pos: (str(name), {str(k): prop_text(v) for k, v in props.items()})
              for pos, (name, props) in truth.items()}
 
@@ -269,9 +252,8 @@ def in_game(source_path, template, origin, samples, seed, no_place):
           % (os.path.basename(os.path.normpath(source_path)), size[0], size[1], size[2],
              len(truth)))
 
-    # A world save is built wherever the author felt like it, so its bounding box almost never
-    # starts at 0. The template does, because the converter rebases it. Sampling has to happen in
-    # template coordinates or every probe lands somewhere else in the plot.
+    # A world save is built wherever the author felt like it, so its bounding box rarely starts at
+    # 0; the converter rebases the template. Sampling has to happen in template coordinates.
     low = (min(xs), min(ys), min(zs))
     truth = {(x - low[0], y - low[1], z - low[2]): name for (x, y, z), name in truth.items()}
     xs = [p[0] for p in truth]

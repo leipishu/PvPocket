@@ -13,17 +13,14 @@ import java.util.Set;
 /**
  * The toggleable special effects a weapon can carry.
  *
- * <p>These are the things that cannot be folded into "damage / durability / knockback": they change
- * how the weapon behaves rather than how hard it hits. Each one maps to a vanilla enchantment, so the
- * effect is the real thing rather than a re-implementation — a swept attack really is a sweep.</p>
+ * <p>Each flag maps to a vanilla enchantment, so the effect is the real thing rather than a
+ * reimplementation.
  *
- * <p>{@link #appliesTo} is not decoration. Offering Infinity on a sword would produce an item with an
- * enchantment the game ignores, and a player who set it would believe they had configured something.
- * The editor only shows the flags a kind can actually carry.</p>
+ * <p>{@link #appliesTo} restricts the flags the editor offers, because an enchantment the game
+ * ignores would let a player configure something that does nothing.
  *
- * <p>Name and tooltip are {@code pvpocket.flag.<id>} and {@code pvpocket.flag.<id>.hint}. The
- * tooltip lives beside the name rather than in the editor because the editor is not the only place a
- * flag is named — the loadout diagnostic command prints them too.</p>
+ * <p>Name and tooltip are {@code pvpocket.flag.<id>} and {@code pvpocket.flag.<id>.hint}, used by
+ * the editor and by the loadout diagnostic command.
  */
 public enum WeaponFlag {
 
@@ -31,16 +28,14 @@ public enum WeaponFlag {
     INFINITY("infinity", Enchantments.INFINITY, 1, 1, ItemKind.BOW),
     FLAME("flame", Enchantments.FLAME, 1, 2, ItemKind.BOW),
     PUNCH("punch", Enchantments.PUNCH, 2, 3, ItemKind.BOW),
-    // Bit 4 is retired: it was RIPTIDE, which is now one of the three TridentStyle values.
-    // Do not reuse it — a saved preset written before the move would silently gain a different flag.
+    // Bit 4 is reserved: a preset written when it held RIPTIDE must not gain a different flag.
     PIERCING("piercing", Enchantments.PIERCING, 4, 5, ItemKind.CROSSBOW);
 
     /**
-     * The bit the old {@code RIPTIDE} flag occupied.
+     * The bit the retired {@code RIPTIDE} flag occupied.
      *
-     * <p>Kept so that {@link LoadoutEntry#decode} can recognise a preset saved before the move and
-     * turn it into a {@link TridentStyle} instead of quietly dropping the enchantment. Nothing writes
-     * this bit any more.</p>
+     * <p>{@link LoadoutEntry#decode} reads it to turn an older preset into a {@link TridentStyle}.
+     * No code writes this bit.
      */
     public static final int RETIRED_RIPTIDE_BIT = 1 << 4;
 
@@ -53,9 +48,9 @@ public enum WeaponFlag {
     /**
      * Bit position in the encoded mask.
      *
-     * <p>Explicit rather than {@code ordinal()} so that removing a flag does not shift every flag
-     * after it. The mask is written into saved presets, so a shift is not a cosmetic change: it
-     * turns somebody's Piercing crossbow into whatever moved into that bit.</p>
+     * <p>Explicit rather than {@code ordinal()}, so removing a flag does not shift the flags after
+     * it. The mask is written into saved presets, where a shift would turn a Piercing crossbow into
+     * another flag.
      */
     private final int bitIndex;
     private final ItemKind[] kinds;

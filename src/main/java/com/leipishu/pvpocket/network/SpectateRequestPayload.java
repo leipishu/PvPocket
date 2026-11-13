@@ -7,21 +7,15 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Client to server: one of four spectator intents.
+ * Client to server: one spectator intent.
  *
- * <p>One payload with an action byte rather than four payload types, because all four are the same
- * request — "do something about spectating" — and the session id is the only field any of them
- * carries. Four types would mean four registrations, four receivers and four {@code canSend}
- * checks for a feature that is one screen.</p>
- *
- * <p>The server re-validates every action against the live session; this payload expresses intent
- * only. A client that sends {@link #ACTION_JOIN} for a session with spectating disabled, for a
- * finished series, or for a session it is already a participant of, is refused with a chat line and
- * nothing else happens.</p>
+ * <p>One payload with an action byte rather than a payload type per intent, because the session id
+ * is the only other field any of them carries. The server re-validates every action against the
+ * live session, so this payload expresses intent only; a refused action answers with a chat line.
  */
 public record SpectateRequestPayload(int action, String sessionId) implements CustomPacketPayload {
 
-    /** Re-send the match list to the sender. The panel's 刷新 button. */
+    /** Re-send the match list to the sender. The panel's refresh button. */
     public static final int ACTION_LIST = 0;
     /** Enter the named session as a spectator. */
     public static final int ACTION_JOIN = 1;
@@ -32,11 +26,8 @@ public record SpectateRequestPayload(int action, String sessionId) implements Cu
     /**
      * Drop the camera back onto the spectator's own body, without leaving spectator mode.
      *
-     * <p>Separate from {@link #ACTION_LEAVE} because they answer different questions. Leaving is
-     * "I am done watching, put me back where I was"; detaching is "I want to fly around and look at
-     * this myself". Vanilla spectator mode has this too, and a spectator who attaches the camera and
-     * then cannot get out of it is a spectator who has to disconnect to see their own inventory
-     * again.</p>
+     * <p>Distinct from {@link #ACTION_LEAVE}, which stops watching and puts the player back where
+     * they were. Vanilla spectator mode offers the same detach.
      */
     public static final int ACTION_DETACH = 4;
 

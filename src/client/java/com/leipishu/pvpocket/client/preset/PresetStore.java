@@ -17,22 +17,17 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * The player's own presets, on the player's own machine.
+ * The player's own presets, stored on the player's machine.
  *
- * <p><b>Client-side, not world-side, and that is the point.</b> A loadout or a rule set is something
- * a player carries between servers; keeping it in the world save would mean re-creating it on every
- * server they join. {@code config/pvpocket/presets.json} is the one place that survives all of them.
- * The server never reads this file — when a preset is actually used it travels as an ordinary rule
- * or loadout submission, exactly like a hand-built one, so nothing downstream needs to know presets
- * exist.</p>
+ * <p>{@code config/pvpocket/presets.json} travels between servers; a world save does not. The
+ * server never reads this file: a used preset travels as an ordinary rule or loadout submission.
  *
- * <p>No locking and no cache invalidation: the file is read once, and every mutation rewrites the
- * whole thing through {@link PvPocketStorage#writeAtomically}. Presets are small and edited by hand
- * at human speed, so an append-only log would be more machinery than the problem deserves.</p>
+ * <p>The file is read once and rewritten whole on every mutation through
+ * {@link PvPocketStorage#writeAtomically}.
  */
 public final class PresetStore {
 
-    /** Upper bound on stored presets. Well past what anyone names by hand; a guard, not a policy. */
+    /** Upper bound on stored presets. */
     private static final int MAX_PRESETS = 64;
     private static final int VERSION = 1;
 
@@ -43,7 +38,7 @@ public final class PresetStore {
 
     private static PresetStore instance;
 
-    /** On-disk shape. Public fields so Gson needs no adapters, and flat so old files stay readable. */
+    /** On-disk shape. Public fields so Gson needs no adapters; flat so missing keys pass. */
     private static final class File_ {
         int version = VERSION;
         List<Entry> presets = new ArrayList<>();
@@ -72,7 +67,7 @@ public final class PresetStore {
         return instance;
     }
 
-    /** Newest first — the one just saved is the one being looked for. */
+    /** Newest first, so the preset just saved comes first. */
     public List<Preset> of(PresetKind kind) {
         ensureLoaded();
         List<Preset> out = new ArrayList<>();
@@ -102,8 +97,8 @@ public final class PresetStore {
     /**
      * Saves, replacing any preset of the same kind and name.
      *
-     * <p>Returns false when the name is unusable or the store is full. The caller shows the reason:
-     * a save button that silently does nothing is worse than one that refuses out loud.</p>
+     * <p>Returns false when the name is unusable, the payload is empty, or the store is full. The
+     * caller shows the reason.
      */
     public boolean put(PresetKind kind, String rawName, String encoded) {
         ensureLoaded();
@@ -154,8 +149,7 @@ public final class PresetStore {
             for (Entry entry : parsed.presets) {
                 PresetKind kind = PresetKind.byId(entry.kind);
                 String name = Preset.cleanName(entry.name);
-                // Unknown kinds and blank names are dropped one at a time rather than discarding the
-                // whole file: one bad row from a newer build must not cost the player the other nine.
+                // Drops unknown kinds and blank names one row at a time; the rest still loads.
                 if (kind == null || !Preset.isValidName(name) || entry.encoded == null) {
                     continue;
                 }

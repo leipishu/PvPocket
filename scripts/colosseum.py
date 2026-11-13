@@ -1,31 +1,10 @@
 #!/usr/bin/env python3
-"""Generates the amphitheatre arena template — the one map here that is not third-party art.
+"""Generates the amphitheatre arena template, the one map here that is not third-party art.
 
-Why this exists
----------------
-Every other arena in `data/pvpocket/structure/` is a converted world save, and each one had to be
-cleared for redistribution before it could ship. That search ran dry on the one shape that was
-actually wanted: a Roman amphitheatre. The maps in zzuf-maps are bridges, caverns and towns, the
-PGM community repositories are XML-only, and the builds on Planet Minecraft are "all rights
-reserved" by default — which for a file inside a jar is not a grey area, it is just not allowed.
+    python scripts/colosseum.py --out data/pvpocket/structure/arena_colosseum.nbt
 
-So this one is built from arithmetic instead. A colosseum is concentric ellipses, which is exactly
-what a loop is good at, and the result is unambiguously ours to license however the mod is. It also
-gets the size exactly right: the rule panel caps a plot at 160 x 64 x 160, and this is 145 x 29 x
-117 by construction rather than by cropping somebody's build.
-
-Shape
------
-    y=-1        sandstone sub-floor
-    y= 0        arena sand
-    y= 1.. 3    podium wall around the sand, with a gate at each end of the X axis
-    y= 4..13    ten rows of seating, one block of rise per row
-    y=13..27    outer wall, two cornice bands and pilasters
-    y=27        parapet walk
-
-`scripts/world2struct.py` is imported rather than duplicated: the template writer, the palette
-builder and the id renames are the same code path every converted map goes through, so a bug in
-them shows up here too instead of hiding in a second copy.
+Shape (y): -1 sandstone sub-floor, 0 arena sand, 1..3 podium wall with a gate at each end of the
+X axis, 4..13 ten seating rows, 13..27 outer wall with cornices and pilasters, 27 parapet walk.
 """
 import argparse
 import gzip
@@ -39,14 +18,13 @@ import world2struct as W  # noqa: E402
 # Semi-axes of the outer wall. The footprint is 2*these, plus one for the centre column.
 A_OUT, B_OUT = 72, 58
 
-# Semi-axes of the sand, as a fraction of the outer wall's. Kept explicit because the spawn pads are
-# placed a quarter of the *plot width* either side of the centre, and a sand that is too small puts
-# both players against the podium wall.
+# Semi-axes of the sand. Spawn pads sit a quarter of the plot width from the centre, so a sand
+# that is too small puts both players against the podium wall.
 A_ARENA = 50
 E_ARENA = A_ARENA / A_OUT
 
-# Radial thickness of the podium wall and of the outer wall, in e units. e is an ellipse metric, not
-# a distance, so these are converted from the block thickness on the X axis.
+# Radial thickness of the podium and outer walls, in e units. e is an ellipse metric, not a
+# distance, so these are converted from the block thickness on the X axis.
 PODIUM_E = 1.2 / A_OUT
 WALL_E = 0.955
 
@@ -76,12 +54,7 @@ def noise(x, z, salt=0):
 
 
 def value_noise(x, z, cell, salt=0):
-    """Bilinear value noise in [0, 1): patches with ragged edges rather than a lattice of squares.
-
-    The first version sampled the hash on a 3-block lattice and gave every cell one flat colour,
-    which is exactly what it looked like — a grid of 3x3 tiles, and an obviously generated one.
-    Interpolating between lattice corners turns the same hash into blobs.
-    """
+    """Bilinear value noise in [0, 1): patches with ragged edges rather than a lattice of squares."""
     gx, gz = x / float(cell), z / float(cell)
     x0, z0 = math.floor(gx), math.floor(gz)
     fx, fz = gx - x0, gz - z0
@@ -98,8 +71,7 @@ def floor_material(x, z):
     """Sand with patches of grit, so a 100-block circle does not read as a flat disc.
 
     One channel per material, not a ladder of thresholds on one channel: a ladder paints each
-    material as a ring around the previous one, which is how the second attempt ended up with a
-    lake of gravel wearing a red-sand outline.
+    material as a ring around the previous one.
     """
     if value_noise(x, z, 5, 1) < 0.20:
         return "minecraft:gravel"
@@ -136,7 +108,7 @@ def build():
 
             if e <= E_ARENA:
                 # The sub-floor goes down everywhere, gate included: skipping it under the gate
-                # leaves a three-wide notch in the only layer that stops the sand from falling.
+                # leaves a three-wide notch in the layer that stops the sand from falling.
                 put(blocks, x, -1, z, "minecraft:sandstone")
                 if not gate_span(x, z):
                     put(blocks, x, 0, z, floor_material(x, z))
@@ -196,8 +168,8 @@ def build():
 def carve_gates(blocks):
     """Opens the two gates and puts a barred back wall behind each one.
 
-    The podium wall is filled solid first, so the tunnel is carved rather than skipped: doing it in
-    one pass would leave the arch lintel missing, and a gate with no top is a notch.
+    The podium wall is filled solid first, so the tunnel is carved: a single pass would leave the
+    arch lintel missing.
     """
     for sign in (-1, 1):
         for x in range(A_ARENA - 2, A_ARENA + GATE_DEPTH + 1):
@@ -215,10 +187,8 @@ def carve_gates(blocks):
 def light_the_podium(blocks):
     """Lanterns on the podium cap, so the sand is not lit only by the sky straight down.
 
-    The cap is a one-block ring at an elliptical radius, so it has to be sampled by angle. The
-    obvious version — take cos/sin at 24 angles and round to a coordinate — lands off the ring at
-    almost every angle, because rounding a point on an ellipse does not stay on it. That produced
-    ten lanterns bunched at the two ends of the X axis.
+    The cap is a one-block ring at an elliptical radius, so it has to be sampled by angle:
+    rounding a point on an ellipse does not keep it on the ring.
     """
     cap_y = GATE_HEIGHT + 1
     ring = [(math.atan2(z, x), x, z) for (x, y, z), (name, _) in blocks.items()

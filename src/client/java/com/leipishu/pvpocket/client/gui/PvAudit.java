@@ -8,38 +8,13 @@ import java.util.Map;
 /**
  * Layout audit: finds the places where two things are drawn on top of each other.
  *
- * <p>The panel is drawn from code, so "does this overlap" is not a question the compiler or the
- * renderer can answer — a widget painted 6px too low simply paints over its neighbour, and the only
- * witness is whoever happens to open that screen at that window size. This class is that witness,
- * written down: every frame it takes the rectangles that were actually used (widget boxes from the
- * tree, text runs from {@link PvDraw}) and reports the pairs that collide, the boxes that fall
- * outside their panel, and the boxes that were given no room at all.</p>
+ * <p>Every frame it takes the rectangles that were actually used, from widget boxes and from
+ * {@link PvDraw} text runs, and reports the pairs that collide, the boxes that fall outside their
+ * panel and the boxes that were given no room. The kinds are {@code degenerate}, {@code escapes},
+ * {@code box/box}, {@code text/text} and {@code text/box}.
  *
- * <p>Deliberately free of Minecraft imports. It is fed rectangles by {@link PvScreen} and
- * {@link PvDraw} and knows nothing about drawing, which is what lets it run inside the client's own
- * render pass — measuring the real layout instead of a model of it — and still be read as a plain
- * geometry checker.</p>
- *
- * <h2>What counts as a defect</h2>
- *
- * <ul>
- *   <li><b>degenerate</b> — a visible box with no width or no height. Either a layout branch
- *       computed a negative size, or a widget was never given one; both draw nothing while still
- *       taking clicks.</li>
- *   <li><b>escapes</b> — a box outside the panel (roots) or the viewport (overlay). The scissor
- *       does not clamp a reversed rectangle, so a root that runs past the panel edge is drawn over
- *       whatever is beside it.</li>
- *   <li><b>box/box</b> — two widget boxes overlapping, neither of them inside the other. Siblings
- *       in one container, a root over another root, a root over a row: whoever is drawn last steals
- *       the clicks.</li>
- *   <li><b>text/text</b> — two text runs overlapping. On a 9px face that is unreadable mush, and it
- *       is the defect a screenshot shows first.</li>
- *   <li><b>text/box</b> — a text run crossing a widget it does not belong to (a label that was not
- *       fitted to the space it had). Text <em>inside</em> a widget is normal and is not reported.</li>
- * </ul>
- *
- * <p>Off unless {@code -Dpvpocket.audit=true}. {@link PvAuditHarness} turns it on and walks every
- * screen at two canvas sizes; {@code scripts/audit-ui.sh} runs that and fails on any finding.</p>
+ * <p>Free of Minecraft imports, so it can run inside the client's render pass. Off unless
+ * {@code -Dpvpocket.audit=true}; {@link PvAuditHarness} walks every screen at two canvas sizes.
  */
 public final class PvAudit {
 
@@ -55,13 +30,12 @@ public final class PvAudit {
     /**
      * Surface of a tooltip.
      *
-     * <p>A tooltip is drawn at the pointer and is allowed to cover anything — that is what it is
-     * for. It gets its own surface so the audit does not read "the hint covers the button it
-     * describes" as a defect sixty times a run.</p>
+     * <p>A tooltip is drawn at the pointer and may cover anything. Its own surface keeps the audit
+     * from reporting "the hint covers the button it describes".
      */
     public static final String TOOLTIP_LAYER = "tooltip";
 
-    /** Height of one line of the 9px face, for collision purposes. */
+    /** Height of one line of the 9px face when checking collisions. */
     private static final int TEXT_H = 9;
     /** Text is identified by a prefix of what it says; a long sentence is not a useful key. */
     private static final int TEXT_LABEL = 28;
@@ -70,7 +44,7 @@ public final class PvAudit {
     private static final Map<String, Integer> KINDS = new LinkedHashMap<>();
     private static final List<String> FINDINGS = new ArrayList<>();
     private static final java.util.Set<String> SEEN = new java.util.HashSet<>();
-    /** Labels that had to shrink, wrap onto a second line, and the distinct strings that had to be cut. */
+    /** Shrunk label count, wrapped label count, and the distinct strings that were cut. */
     private static int SHRUNK;
     private static int WRAPPED;
     private static final java.util.Set<String> CUT_LABELS = new java.util.LinkedHashSet<>();
@@ -82,11 +56,9 @@ public final class PvAudit {
     /**
      * Which surface is being drawn right now.
      *
-     * <p>Two boxes are only compared when they are on the same surface, because most of what looks
-     * like an overlap is one surface legitimately covering another: a dialog covers the panel it
-     * opened over, and a scrolled row is clipped by its viewport rather than colliding with the
-     * status line under it. Without this the audit reports the modal layer sixty times and the real
-     * defects drown.</p>
+     * <p>Two boxes are only compared when they are on the same surface, because most apparent
+     * overlaps are one surface covering another: a dialog covers the panel, a scrolled row is
+     * clipped by its viewport.
      */
     private static String layer = "";
 
@@ -175,10 +147,13 @@ public final class PvAudit {
     /**
      * A widget box.
      *
-     * @param id     unique within the frame, so a parent can be recognised as a parent
+     * @param id unique within the frame, so a parent can be recognised as a parent
+     *
      * @param parent id of the container that positioned it, or {@code null} for a root
-     * @param layer  the surface it is drawn on; see {@link #layer}
-     * @param clip   the rectangle this box is expected to stay inside, or {@code null} for none
+     *
+     * @param layer the surface it is drawn on; see {@link #layer}
+     *
+     * @param clip the rectangle this box is expected to stay inside, or {@code null} for none
      */
     public static void widget(String id, String name, String group, String parent, String layer,
                               int x, int y, int w, int h,
@@ -198,9 +173,7 @@ public final class PvAudit {
     /**
      * Records a text run whose height is not the nominal line height.
      *
-     * <p>Only shrunk labels use this: a label drawn at 0.8× is 7px tall, not 9. Recording the
-     * nominal height for it would make the box taller than the pixels, and the audit would then
-     * report a collision with whatever sits two pixels below a label that does not reach it.</p>
+     * <p>Only shrunk labels use this: a label drawn at 0.8x is 7px tall, not 9.
      */
     public static void text(String value, int x, int y, int w, int h) {
         if (!active || w <= 0 || value == null || value.isEmpty()) {
@@ -230,9 +203,8 @@ public final class PvAudit {
                 report("escapes", a, null, 0);
             }
             if (a.text) {
-                // A row scrolled past the viewport is clipped by the scissor, so its text is allowed
-                // to be off the bottom of the canvas; it is not allowed to be off the side of it,
-                // because nothing clips horizontally.
+                // A row scrolled past the viewport is clipped by the scissor, so its text may be
+                // off the bottom of the canvas, but nothing clips horizontally.
                 boolean scrolls = a.layer.startsWith(PANE_LAYER);
                 if (a.x < 0 || a.x + a.w > canvasW
                         || (!scrolls && (a.y < 0 || a.y + a.h > canvasH))) {
@@ -248,9 +220,8 @@ public final class PvAudit {
                 if (overlap <= 0) {
                     continue;
                 }
-                // A container and the thing it positioned are supposed to overlap: the pane is
-                // larger than its rows, and a row is larger than nothing. Everything else that
-                // shares pixels is a defect, whether or not the pair is in the same group.
+                // A container and the thing it positioned are supposed to overlap. Anything else
+                // that shares pixels is a defect, whether or not it is in the same group.
                 if (a.id.equals(b.parent) || b.id.equals(a.parent)) {
                     continue;
                 }
@@ -280,10 +251,9 @@ public final class PvAudit {
     /**
      * Records one finding, once.
      *
-     * <p>The audit runs every frame, so without this a single misplaced button would print sixty
-     * identical lines a second and bury everything else. The key is the pair of names plus where
-     * they were, which also means the same defect at a different canvas size is reported again —
-     * that is the interesting case, because it is how a size-dependent layout bug shows itself.</p>
+     * <p>The audit runs every frame, so a repeated finding is dropped to keep one misplaced button
+     * from printing sixty identical lines a second. The key includes the position, so the same
+     * defect at a different canvas size is reported again.
      */
     private static void report(String kind, Box a, Box b, int overlap) {
         String signature = screen + '|' + kind + '|' + a.name + '|' + (b == null ? "" : b.name)
@@ -300,8 +270,7 @@ public final class PvAudit {
             line.append(" x ").append(describe(b)).append(" (").append(overlap).append("px2)");
         }
         FINDINGS.add(line.toString());
-        // Straight to stdout: the client's own log is the one file a developer already has open,
-        // and a finding that only exists in memory is a finding nobody reads.
+        // Straight to stdout: the client's own log is the file a developer already has open.
         System.out.println(line);
     }
 
@@ -321,10 +290,8 @@ public final class PvAudit {
         if (FINDINGS.isEmpty()) {
             System.out.println("[pvaudit]    clean");
         }
-        // Labels are a separate report from overlaps on purpose: a shrunk label is the system
-        // working (the word survived), and a cut one is the system giving up (the word did not fit
-        // even at the legibility floor). Neither is a geometry finding — a cut label is *inside* its
-        // frame by construction, which is exactly why nothing else would ever report it.
+        // Labels are a separate report from overlaps: a shrunk label is the system working, and a
+        // cut one means the word did not fit even at the legibility floor.
         System.out.println("[pvaudit]    labels: " + SHRUNK + " shrunk, " + WRAPPED + " wrapped, "
                 + CUT_LABELS.size() + " cut");
         for (String cut : CUT_LABELS) {
@@ -339,7 +306,7 @@ public final class PvAudit {
         return total;
     }
 
-    /** One label drawn below 1.0× because its frame was narrower than the word. */
+    /** One label drawn below 1.0x because its frame was narrower than the word. */
     public static void shrunk() {
         if (ON) {
             SHRUNK++;
@@ -354,17 +321,15 @@ public final class PvAudit {
     }
 
     /**
-     * One label that did not fit even at {@link PvDraw#MIN_TEXT_SCALE} and had to be cut.
+     * One label that did not fit even at {@link PvDraw#MIN_TEXT_SCALE} and was cut.
      *
-     * <p>The frame width is recorded with it: "this string was cut" is not actionable, "this string
-     * needed 84px and had 46px" says whether the frame is slightly too narrow or the row is simply
-     * out of room.</p>
+     * <p>The frame width is recorded with it: "this string needed 84px and had 46px" says whether
+     * the frame is slightly too narrow or the row is out of room.
      */
     public static void cut(String value, int maxWidth, int naturalWidth) {
         if (ON && value != null && !value.isEmpty()) {
             // The screen and the canvas go with it: the same string is cut on a 320x180 canvas and
-            // fits at 426x240, and a list that does not say which is which sends the reader looking
-            // at a layout that is already correct.
+            // fits at 426x240.
             CUT_LABELS.add(value + "  [" + screen + ' ' + canvasW + 'x' + canvasH
                     + ", frame " + maxWidth + "px, needs "
                     + Math.round(naturalWidth * PvDraw.MIN_TEXT_SCALE) + "px at the floor]");

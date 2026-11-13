@@ -8,22 +8,14 @@ import net.minecraft.world.phys.Vec3;
 /**
  * The two knockback mechanisms of 1.8, reproduced for legacy players.
  *
- * <p>1.8 applies knockback in <em>two</em> separate places and they behave differently, which is the
- * part that is easy to get wrong:</p>
- * <ol>
- *   <li><b>Hurt response</b> — {@code EntityLivingBase#attackEntityFrom} calls
- *       {@code knockBack(entity, amount, dx, dz)} on every fresh hit. The strength is a hard-coded
- *       0.4 that does <em>not</em> scale with damage, the entity's current velocity is halved first,
- *       and the vertical component is always set (and clamped) rather than left alone.</li>
- *   <li><b>Attack impulse</b> — {@code EntityPlayer#attackTargetEntityWithCurrentItem} additionally
- *       calls {@code push(...)} when the attacker is sprinting or has the knockback
- *       enchantment. This is a pure additive impulse: it does <em>not</em> halve velocity again.</li>
- * </ol>
+ * <p>The hurt response, from {@code EntityLivingBase#knockBack}, uses a hard-coded strength of
+ * 0.4 that ignores damage, halves velocity first and always sets the vertical component. The
+ * attack impulse adds {@code push(...)} when the attacker is sprinting or holds knockback,
+ * without halving velocity again.
  *
  * <p>1.21.1 folds both into {@code LivingEntity#knockback(double, double, double)}, which always
- * halves velocity, always scales by {@code 1 - knockbackResistance} instead of rolling against it, and
- * leaves the vertical component untouched when the victim is airborne. The three methods here exist to
- * undo exactly those three differences.</p>
+ * halves velocity, scales by {@code 1 - knockbackResistance} instead of rolling against it, and
+ * leaves the vertical component alone when the victim is airborne.
  */
 public final class LegacyKnockback {
 
@@ -33,23 +25,12 @@ public final class LegacyKnockback {
     /**
      * The 1.8 hurt response, from {@code EntityLivingBase#knockBack}.
      *
-     * <pre>{@code
-     * if (this.rand.nextDouble() >= knockbackResistance) {
-     *     this.motionX /= 2.0D; this.motionY /= 2.0D; this.motionZ /= 2.0D;
-     *     this.motionX -= dx / f * 0.4F;
-     *     this.motionY += 0.4F;
-     *     this.motionZ -= dz / f * 0.4F;
-     *     if (this.motionY > 0.4D) this.motionY = 0.4D;
-     * }
-     * }</pre>
+     * <p>Halves the current velocity, subtracts {@code dx / length * 0.4} and adds {@code 0.4} to
+     * the vertical component, which is then clamped to 0.4.
      *
-     * <p>Resistance is a coin flip, not a multiplier: a full set of netherite (resistance 0.4) makes
-     * 40% of hits knock the player back not at all, instead of knocking them 40% less. That is a
-     * genuinely different feel and the reason this cannot reuse the vanilla method.</p>
-     *
-     * @param victim the entity being knocked back
-     * @param dx     attacker position minus victim position, X component
-     * @param dz     attacker position minus victim position, Z component
+     * <p>Resistance is a coin flip, not a multiplier: netherite (resistance 0.4) makes 40% of hits
+     * knock the player back not at all. {@code dx} and {@code dz} are the attacker position minus
+     * the victim position.
      */
     public static void applyHurt(LivingEntity victim, double dx, double dz) {
         double resistance = victim.getAttributeValue(Attributes.KNOCKBACK_RESISTANCE);
@@ -57,8 +38,8 @@ public final class LegacyKnockback {
             return;
         }
 
-        // 1.8 jitters the direction before calling knockBack, so a hit from exactly the same block
-        // still produces a usable normal. Reproduced here because the caller no longer does it.
+        // 1.8 jitters the direction before calling knockBack, so a hit from the same block still
+        // produces a usable normal.
         while (dx * dx + dz * dz < 1.0E-4D) {
             dx = (victim.getRandom().nextDouble() - victim.getRandom().nextDouble()) * 0.01D;
             dz = (victim.getRandom().nextDouble() - victim.getRandom().nextDouble()) * 0.01D;
@@ -80,20 +61,12 @@ public final class LegacyKnockback {
 
     /**
      * The 1.8 sprint/enchant impulse, from {@code EntityPlayer#attackTargetEntityWithCurrentItem}:
+     * {@code push(-sin(yaw) * i * 0.5, 0.1, cos(yaw) * i * 0.5)}.
      *
-     * <pre>{@code
-     * targetEntity.push(-sin(yaw) * i * 0.5, 0.1, cos(yaw) * i * 0.5);
-     * }</pre>
-     *
-     * <p>The caller is 1.21.1's {@code knockback(strength, x, z)} call site, where
+     * <p>The caller is the 1.21.1 {@code knockback(strength, x, z)} call site, where
      * {@code x = sin(yaw)}, {@code z = -cos(yaw)} and {@code strength = i * 0.5}. The signs are
-     * therefore reconstructed as {@code -x} and {@code -z}; doing it this way keeps the redirect
-     * handler free of any assumption about the attacker's yaw.</p>
-     *
-     * @param target   the entity being knocked back
-     * @param x        the {@code x} argument the vanilla call would have received
-     * @param z        the {@code z} argument the vanilla call would have received
-     * @param strength the {@code strength} argument the vanilla call would have received
+     * reconstructed as {@code -x} and {@code -z}, which keeps the redirect handler free of any
+     * assumption about the attacker's yaw.
      */
     public static void applyAttack(Entity target, double x, double z, double strength) {
         target.push(-x * strength, LegacyCombatValues.ATTACK_KNOCKBACK_UP, -z * strength);

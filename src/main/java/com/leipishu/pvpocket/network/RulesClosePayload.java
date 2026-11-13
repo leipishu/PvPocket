@@ -7,15 +7,14 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Server to client: "this negotiation is over, close the panel".
+ * Server to client: this negotiation is over, close the panel.
  *
- * <p>Without it a panel can outlive its session. The obvious case is one side accepting while the
- * other side still has the panel open — the round then starts with a modal dialog in front of a
- * player who is already in the arena. The same applies to a rejection, a dismissal, or a failed
- * start.</p>
+ * <p>A panel can otherwise outlive its session: one side accepts while the other still has the
+ * panel open, and the round starts with a modal dialog in front of a player in the arena. The same
+ * applies to a rejection, a dismissal, or a failed start.
  *
- * <p>The client only closes a panel whose session id matches, so a late packet can never shut a
- * newer negotiation's panel.</p>
+ * <p>The client only closes a panel whose session id matches, so a late packet cannot shut a newer
+ * negotiation's panel.
  */
 public record RulesClosePayload(String sessionId) implements CustomPacketPayload {
 

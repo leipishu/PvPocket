@@ -18,16 +18,14 @@ import java.util.HexFormat;
 /**
  * Owns the on-disk layout under {@code <world>/pvpocket/}.
  *
- * <p>Layout:
  * <pre>
  *   sessions/&lt;sessionId&gt;.json      session record
- *   snapshots/&lt;sessionId&gt;/&lt;uuid&gt;.dat  player survival snapshots (compressed NBT)
+ *   snapshots/&lt;sessionId&gt;/&lt;uuid&gt;.dat  survival snapshots (compressed NBT)
  *   journal/&lt;sessionId&gt;.jsonl      append-only event log
- *   loadouts/&lt;uuid&gt;.json           a player's saved loadout, outside of any duel
+ *   loadouts/&lt;uuid&gt;.json           a player's saved loadout
  * </pre>
  *
- * <p>Every write goes through {@link #writeAtomically} so a crash can never leave a
- * half-written file that later becomes a restore source.</p>
+ * <p>Every write goes through {@link #writeAtomically}, so no crash leaves a partial file.
  */
 public final class PvPocketStorage {
 

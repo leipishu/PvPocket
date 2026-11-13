@@ -9,16 +9,13 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * 禁止丢弃: the Q key refuses to throw a locked loadout item out of the hand.
+ * Refuses to throw a locked loadout item out of the hand.
  *
- * <p>{@code dropSelectedItem} is the whole of the no-container-open path: {@code
- * ServerPlayNetworkHandler.onPlayerAction} calls it for both {@code DROP_ITEM} (one) and {@code
- * DROP_ALL_ITEMS} (the Ctrl variant), and it is the method that both empties the inventory slot and
- * spawns the item entity. Cancelling at its head therefore leaves the stack where it was — nothing to
- * undo afterwards, which cancelling a later step would have required.</p>
+ * <p>Hooks {@code drop(Z)Z} at HEAD. {@code ServerPlayNetworkHandler.onPlayerAction} calls it for
+ * both {@code DROP_ITEM} and {@code DROP_ALL_ITEMS}, and it both empties the slot and spawns the
+ * item entity, so cancelling here leaves the stack where it was.
  *
- * <p>Returning {@code false} is the honest answer to "did anything drop": the caller ignores it, but
- * a future caller reading the boolean should not be told a drop happened.</p>
+ * <p>Returns {@code false} because nothing dropped.
  */
 @Mixin(ServerPlayer.class)
 public abstract class ServerPlayerEntityMixin {

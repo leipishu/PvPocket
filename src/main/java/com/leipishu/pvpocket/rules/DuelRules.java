@@ -16,19 +16,17 @@ import java.util.Map;
 /**
  * A concrete rule set: one integer per rule id.
  *
- * <p>Wire and disk format is {@code id=value} pairs joined by {@code ;}. That is deliberately dull:
- * it diffs cleanly in a journal, survives a rule being added or removed without a format bump, and
- * lets a client built from a different jar round-trip rules it does not know about instead of
- * corrupting them.</p>
+ * <p>Wire and disk format is {@code id=value} pairs joined by {@code ;}. It diffs cleanly in a
+ * journal, tolerates a rule being added or removed without a format bump, and round-trips ids the
+ * reader does not know.
  *
- * <p>The set is mutable while a proposal is being edited and immutable in practice once the round
- * starts — the session stores a copy plus a digest, and the journal records both, so "I agreed to
- * v1 but v3 ran" is answerable after the fact.</p>
+ * <p>The set is mutable while a proposal is edited. Once a round starts the session stores a copy
+ * plus a digest, and the journal records both.
  */
 public final class DuelRules {
 
     private final Map<String, Integer> values = new LinkedHashMap<>();
-    /** Ids whose stored value the clamp had to move, as {@code raw->stored}; see {@link #decode}. */
+    /** Ids the clamp moved, as {@code raw->stored}; see {@link #decode}. */
     private final Map<String, String> clamped = new LinkedHashMap<>();
 
     private DuelRules() {
@@ -56,14 +54,9 @@ public final class DuelRules {
             try {
                 int raw = Integer.parseInt(part.substring(eq + 1).trim());
                 RuleDefinition def = RuleCatalog.byId(id);
-                // Unknown ids are kept verbatim: a rule added on the server but missing from an
-                // older client must survive the round trip rather than be reset to its default.
+                // Unknown ids are kept verbatim so an older client can round-trip them.
                 int stored = def == null ? raw : normalise(id, raw);
-                // A value the normalisation had to move is the one case where the rule set a player
-                // agreed to is not the rule set that will run, and it is silent by construction —
-                // the digest in the journal hashes what was stored, not what was asked for.
-                // Recorded here and journalled at accept time; the case that motivated it is a map
-                // index left over from a build that had more maps than this one.
+                // A moved value is recorded for the journal; the digest hashes what was stored.
                 if (stored != raw) {
                     rules.clamped.put(id, raw + "->" + stored);
                 }
@@ -82,7 +75,7 @@ public final class DuelRules {
         return copy;
     }
 
-    /** Ids whose value was moved by {@link RuleDefinition#clamp} on the way in, as {@code raw->stored}. */
+    /** Ids moved by {@link RuleDefinition#clamp} on the way in, as {@code raw->stored}. */
     public Map<String, String> clampedValues() {
         return java.util.Collections.unmodifiableMap(clamped);
     }
@@ -99,11 +92,9 @@ public final class DuelRules {
     /**
      * Everything a stored value has to satisfy before any code reads it.
      *
-     * <p>Three steps, in this order: the definition's own range, the bits the panel will not let you
-     * clear, and the bits that exclude the rest. Applied on both the {@code set} path and the
-     * {@code decode} path, because the second one is how a session reloaded from disk, a preset file
-     * or a hand-built packet gets in — and a rule set that can only be trusted when it arrived
-     * through the panel is not a rule set at all.</p>
+     * <p>Three steps in order: the definition's range, the bits the panel locks on, and the bits
+     * that exclude the rest. Applied on both the {@code set} and the {@code decode} paths, since a
+     * rule set can also arrive from disk, a preset file or a hand-built packet.
      */
     private static int normalise(String id, int value) {
         RuleDefinition def = RuleCatalog.byId(id);
@@ -114,8 +105,7 @@ public final class DuelRules {
             if ((out & exclusive) != 0) {
                 out &= exclusive;
             } else if ((out & ~exclusive) == 0) {
-                // "none of the ordinary bits" and "the exclusive bit" are the same state; storing
-                // both spellings would make two rule sets that behave identically hash differently.
+                // Storing both spellings would make identical rule sets hash differently.
                 out = exclusive;
             }
         }
@@ -170,26 +160,18 @@ public final class DuelRules {
     /**
      * One-line summary for chat: only the rules that shape the match, not all thirty-nine.
      *
-     * <p>Assembled out of translatable pieces rather than formatted into a string. Every caller is
-     * either the server (which has no language and must hand the client a {@link Text}) or a client
-     * chat line, so a pre-formatted string would freeze one language into a message read by
-     * somebody speaking the other.</p>
+     * <p>Assembled from translatable pieces rather than formatted into a string, because the server
+     * has no language and must hand the client components.
      */
     public MutableComponent summaryText() {
         RuleDefinition mode = RuleCatalog.byId("c.mode");
         RuleDefinition sizeX = RuleCatalog.byId("e.sizeX");
         RuleDefinition sizeZ = RuleCatalog.byId("e.sizeZ");
-        // Clamped here as well as in the panel: "win 4 of at most 3" is a state the sliders can be
-        // left in for a frame, and a summary line that promises an unreachable target is worse than
-        // no summary at all.
+        // Clamped here too: a summary must not promise an unreachable target.
         int maxRounds = get("a.maxRounds");
         int winsNeeded = Math.min(get("a.winsNeeded"), maxRounds);
         ArenaMap map = ArenaMaps.byIndex(get("e.template"));
-        // The map is named, not just its size. It was the one field of this line that the reader
-        // could not recover from anywhere else, and it is the most visible thing about a match — two
-        // players who agreed on "斗兽场" had no way to tell from the summary that they were about to
-        // be dropped into the fun house. The size is still printed because it is what the flat map
-        // actually uses, but for any other map the name is the fact that matters.
+        // The map name is the one field of this line that no other part of the summary carries.
         return Component.empty()
                 .append(PvLang.t("pvpocket.rule.series.short", maxRounds, winsNeeded))
                 .append(Component.literal(" · "))

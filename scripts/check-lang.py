@@ -1,28 +1,21 @@
 #!/usr/bin/env python3
-"""语言文件自检：中英键集、占位符、代码引用、规则键族结构。
+"""Language file self-check: key sets, placeholders, code references, rule key families.
 
-为什么需要这个：AGENTS.md 只留了一条一次性的一行命令，而那条命令只看两件事（键集差、
-`%s` 数量）。真正会让玩家看到半句话的还有四种情况，它们都不会让编译失败：
+Four failure modes here never break the build: a key referenced by code but missing from the
+files, a placeholder count that does not match the call site, a `.label` without a `.hint`,
+and a gap in the `.c<N>` option numbering.
 
-  1. **代码引用了不存在的键** —— 面板上直接显示 `pvpocket.gui.foo.bar` 这串原文。
-     删一个键、改一个 id 就会发生，而且只有走到那个界面才看得见。
-  2. **占位符个数与调用点的实参个数不一致** —— `String.format` 对多余的 `%s` 原样保留，
-     于是消息末尾挂着一个 `%s`；少一个则抛异常，而抛在聊天消息里的异常会被吞掉。
-  3. **有 `.label` 没有 `.hint`** —— 规则行的提示句是空字符串，看起来像「这行没写说明」。
-  4. **`.c<N>` 位号不连续** —— `c0`/`c1`/`c3` 这种，中间那一位永远是空白 chip。
-     位号就是线格式（AGENTS.md 2b），所以这里只报不修：删位要整条删，不能重新编号。
+Keys that exist but are never referenced only warn by default: catalog keys are built by
+concatenation, so static scanning cannot see them. Prefixes found in the source (such as
+`"pvpocket.item." +`) count as live. `--strict` makes dead keys fail.
 
-反过来「语言文件里有、代码里没人用」的键只算警告：目录类（`ItemKind` / `ArenaMap` /
-`RuleDefinition`）的键是**拼出来的**，静态引用扫不到。脚本按源码里出现过的拼接前缀
-（`"pvpocket.item." +`）把它们认作活键，剩下的才是真的死键。默认只报告，`--strict` 才算失败。
-
-用法：
-    python scripts/check-lang.py             # 表格 + 退出码
-    python scripts/check-lang.py --verbose   # 附带每处的 file:line
-    python scripts/check-lang.py --strict    # 死键也算失败（挂 CI 时用）
+Usage:
+    python scripts/check-lang.py             # table + exit code
+    python scripts/check-lang.py --verbose   # include file:line for each finding
+    python scripts/check-lang.py --strict    # dead keys fail too (for CI)
     python scripts/check-lang.py --json out.json
 
-退出码：0 通过；1 有问题；2 脚本自身出错。
+Exit code: 0 pass, 1 problems, 2 script error.
 """
 import argparse
 import json
@@ -31,7 +24,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+# Sources live at the repository root: src/ is shared, a cell only decides how to compile it.
 SRC_ROOT = ROOT
 SRC_DIRS = [os.path.join(SRC_ROOT, "src", "main", "java"),
             os.path.join(SRC_ROOT, "src", "client", "java")]
@@ -39,30 +32,23 @@ LANG_DIR = os.path.join(SRC_ROOT, "src", "main", "resources", "assets", "pvpocke
 ZH = os.path.join(LANG_DIR, "zh_cn.json")
 EN = os.path.join(LANG_DIR, "en_us.json")
 
-# 我们自己管的键前缀。`key.*` 是原版/Fabric 的按键名，也归这个模组所有。
+# Key prefixes owned by this mod. `key.*` holds the vanilla/Fabric key names.
 KEY_PREFIXES = ("pvpocket.", "key.pvpocket.", "key.categories.pvpocket")
 
-# `%` 后面跟字母（且不是 `s`）才算写错：数字也必须走 `%s`，见 PvLang.t 的注释——混用 `%d`
-# 会让两个语言文件对「哪些参数是数字」产生分歧。
-#
-# 不能写成「`%` 后面不是 `s` 就报」：文案里的 `100% is the default` 是字面百分号，
-# 那样会把它当成占位符。所以只认「后面紧跟字母」这一种。
+# `%` followed by a letter other than s is a mistake: numbers go through %s as well, so both
+# files agree on argument types. A literal `100% is the default` must not be flagged.
 BAD_PLACEHOLDER = re.compile(r"%(?![s%])[A-Za-z]")
 
-# 这些调用里的字符串不是翻译键，只是恰好也在 `pvpocket.` 命名空间下——审计开关的
-# `-Dpvpocket.audit=true` 就是这种。按调用名排除，比按键的形状猜可靠。
+# These calls take strings that sit in the pvpocket namespace without being keys, such as
+# -Dpvpocket.audit=true. Excluding by call name beats guessing by the shape of the string.
 NOT_A_KEY_CALLS = ("getBoolean(", "getProperty(", "getenv(", "getInteger(", "getLong(")
 
 
-# --------------------------------------------------------------------------------------------
-# 源码扫描
-# --------------------------------------------------------------------------------------------
 
 def strip_comments(text):
-    """把注释替换成空格，保留换行与偏移，好让行号还算得准。
+    """Replaces comments with spaces, keeping newlines and offsets so line numbers stay right.
 
-    不能只删 `//` 到行尾：`String s = "http://x";` 里的 `//` 在字符串里。所以这里是一个
-    真正的字符扫描，而不是正则。
+    A character scan rather than a regex: `//` can sit inside a string literal.
     """
     out = []
     i, n = 0, len(text)
@@ -113,11 +99,11 @@ def java_sources():
 
 
 def scan():
-    """返回 (字面量引用, 拼接前缀, 调用点)。
+    """Returns (literal references, concatenation prefixes, call sites).
 
-    字面量引用：[(键, 相对路径, 行号)]，只收本模组命名空间下的。
-    拼接前缀：{前缀}，来自 `"pvpocket.item." +` 这种写法——它是「这类键是算出来的」的证据。
-    调用点：[(键, 实参数, 相对路径, 行号)]，只收首参是纯字面量的调用。
+    Literal references: [(key, relative path, line)], this mod's namespace only.
+    Concatenation prefixes: {prefix}, from `"pvpocket.item." +`: the key is computed.
+    Call sites: [(key, argument count, relative path, line)], literal first argument only.
     """
     literals, prefixes, calls = [], set(), []
     for path in java_sources():
@@ -134,8 +120,8 @@ def scan():
             if any(code[max(0, match.start() - 24):match.start()].rstrip().endswith(call)
                    for call in NOT_A_KEY_CALLS):
                 continue
-            # 紧跟 `+` 的字面量是拼接的前半截（`"pvpocket.map." + id`、
-            # `"pvpocket.rule.f.blockFilter.c" + index`）：它是一类键的前缀，不是键本身。
+            # A literal followed by `+` is the first half of a concatenation, so it is a key
+            # prefix rather than a key.
             tail = code[match.end():match.end() + 8].lstrip()
             if tail.startswith("+"):
                 prefixes.add(value)
@@ -155,7 +141,7 @@ def scan():
 
 
 def split_args(code, open_paren):
-    """从 `(` 起按顶层逗号切参数。返回 (参数列表, 是否找到配对括号)。"""
+    """Splits arguments on top-level commas from `(`. Returns (arguments, closed)."""
     depth, args, start = 0, [], open_paren + 1
     i, n = open_paren, len(code)
     while i < n:
@@ -184,7 +170,7 @@ def split_args(code, open_paren):
 
 
 def literal_value(arg):
-    """`"a"` 或 `"a" + "b"` 求值成字符串；含变量则返回 None（调用点无从判断，跳过）。"""
+    """`"a"` or `"a" + "b"` evaluates to a string; None when a variable is involved."""
     pieces = re.split(r"\s*\+\s*", arg.strip())
     out = []
     for piece in pieces:
@@ -195,13 +181,10 @@ def literal_value(arg):
     return "".join(out) if out else None
 
 
-# --------------------------------------------------------------------------------------------
-# 检查
-# --------------------------------------------------------------------------------------------
 
 class Report:
     def __init__(self):
-        self.problems = []   # (类别, 说明)
+        self.problems = []   # (category, message)
         self.warnings = []
 
     def bad(self, category, message):
@@ -216,7 +199,7 @@ def placeholders(text):
 
 
 def check_pair(report, zh, en):
-    """L1 键集 + L2 占位符。"""
+    """L1 key sets + L2 placeholders."""
     only_zh = sorted(set(zh) - set(en))
     only_en = sorted(set(en) - set(zh))
     for key in only_zh:
@@ -235,21 +218,20 @@ def check_pair(report, zh, en):
                            % (key, name, text))
         if not zh_text.strip():
             report.bad("空值", "%s 的中文是空字符串" % key)
-        # 英文可以是空的，而且是设计：`pvpocket.gui.result.win_en` 这类双语标题在英文环境里
-        # 由标题本身承担（见 SeriesResultScreen 的类注释），空串的意思是「不要画副标题」。
-        # 所以这里只报告，不算失败——真正该问的是「中文为什么是空的」。
+        # An empty English value is by design for keys ending in _en: the title carries itself,
+        # and an empty string means no subtitle, so this only warns.
         if not en_text.strip() and not key.endswith("_en"):
             report.warn("空值", "%s 的英文是空字符串" % key)
 
 
 def check_structure(report, zh):
-    """L5 键族结构：label 必有 hint，cN 从 0 连续。"""
+    """L5 key families: every label has a hint, cN numbering is contiguous from 0."""
     keys = set(zh)
     for key in sorted(keys):
         if key.endswith(".label") and (key[:-len(".label")] + ".hint") not in keys:
             report.bad("结构", "%s 有 label 没有 hint" % key)
 
-    # 反方向不查：`pvpocket.rule.group.a` / `pvpocket.flag.punch` 的 label 就是裸键本身。
+    # The reverse is not checked: `pvpocket.rule.group.a` has a bare label key.
     groups = {}
     for key in keys:
         match = re.match(r"(.+)\.c(\d+)$", key)
@@ -262,7 +244,7 @@ def check_structure(report, zh):
 
 
 def check_references(report, zh, literals, prefixes, calls):
-    """L3 字面量引用存在 + L4 调用点实参数。"""
+    """L3 literal references exist + L4 call-site argument counts."""
     keys = set(zh)
     for key, rel, line in literals:
         if key not in keys:
@@ -271,7 +253,7 @@ def check_references(report, zh, literals, prefixes, calls):
     resolved = 0
     for key, argc, rel, line in calls:
         if key not in keys:
-            continue          # 已经在 L3 报过了，不重复
+            continue          # already reported by L3
         resolved += 1
         want = placeholders(zh[key])
         if argc != want:
@@ -281,7 +263,7 @@ def check_references(report, zh, literals, prefixes, calls):
 
 
 def check_dead(report, zh, literals, prefixes):
-    """L6 死键：语言文件里有、代码里既没直接引用也不在任何拼接前缀之下。"""
+    """L6 dead keys: present in the file, referenced nowhere and under no prefix."""
     used = {key for key, _, _ in literals}
     dead = []
     for key in sorted(zh):
@@ -295,9 +277,6 @@ def check_dead(report, zh, literals, prefixes):
     return dead
 
 
-# --------------------------------------------------------------------------------------------
-# 入口
-# --------------------------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description="语言文件自检")

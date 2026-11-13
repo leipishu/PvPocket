@@ -18,19 +18,13 @@ import java.util.function.IntSupplier;
 /**
  * Describes one loadout row's editable fields as ordinary {@link RuleDefinition}s.
  *
- * <p>The whole point of doing it this way is that the loadout editor does not need a second widget
- * vocabulary. A damage slider is a slider; a material picker is a cycle; an enchantment toggle is a
- * toggle. Reusing {@code RuleRow} and the control set means the editor looks and behaves exactly like
- * the rule panel, which is what makes two screens feel like one product.</p>
+ * <p>A damage slider stays a slider, a material picker a cycle, an enchantment a toggle, so the
+ * editor reuses {@code RuleRow} and the same control set as the rule panel.
  *
- * <p>Fields that do not apply to a kind are not built at all rather than shown disabled. A greyed-out
- * "Infinity" on a sword is a promise that it could be enabled one day; a field that is simply absent
- * is the truth.</p>
+ * <p>Fields that do not apply to a kind are not built at all rather than shown disabled.
  *
- * <p>Every field's id is a translation key stem: {@code lo.count} reads its label from
- * {@code pvpocket.rule.lo.count.label} and its hint from {@code .hint}, exactly like a real rule. The
- * choice arrays below are arrays of <em>keys</em> taken from the catalog the values come from, so a
- * material renamed in one place cannot end up labelled as another.</p>
+ * <p>Every field id is a translation key stem: {@code lo.count} reads its label from
+ * {@code pvpocket.rule.lo.count.label} and its hint from {@code .hint}.
  */
 public final class LoadoutFields {
 
@@ -51,16 +45,13 @@ public final class LoadoutFields {
                 v -> entry.count = v));
 
         if (kind.materialised) {
-            // Only the materials that actually build an item for this kind, in tier order. A copper
-            // spear exists in 1.21.11 and a copper sword may not; offering the pair the game cannot
-            // build is a cycle that stops on an item that never arrives.
+            // Only the materials that actually build an item for this kind, in tier order: offering
+            // a pair the game cannot build is a cycle that stops on an item that never arrives.
             List<Material> available = kind.materials();
             List<Material> choices = available.isEmpty() ? List.of(Material.IRON) : available;
             if (!choices.contains(entry.material)) {
-                // The row was authored on a version that had this material. This is a draft copy
-                // (cancel throws it away), so falling back to the lowest available tier is the
-                // honest degradation: the player sees a material that exists instead of a cycle
-                // whose handle is parked on something the game cannot grant.
+                // Authored on a version that had this material. This is a draft copy, so falling
+                // back to the lowest available tier keeps the cycle on something grantable.
                 entry.material = choices.get(0);
             }
             String[] labels = choices.stream().map(m -> m.labelKey).toArray(String[]::new);
@@ -114,8 +105,8 @@ public final class LoadoutFields {
 
         for (WeaponFlag flag : WeaponFlag.of(kind)) {
             out.add(new Field(
-                    // The flag's own name and tooltip keys, not a copy under lo.*: an enchantment is
-                    // named once and used by both the loadout editor and the diagnostic command.
+                    // The flag's own name and tooltip keys, not a copy under lo.*: an enchantment
+                    // is named once and shared with the diagnostic command.
                     RuleDefinition.toggleNamed("lo.flag." + flag.id, RuleGroup.D,
                             flag.labelKey, flag.hintKey, entry.has(flag)),
                     () -> entry.has(flag) ? 1 : 0,
@@ -124,10 +115,8 @@ public final class LoadoutFields {
 
         if (kind.hasCompanion()) {
             if (kind == ItemKind.BOW && entry.has(WeaponFlag.INFINITY)) {
-                // An Infinity bow is always granted exactly one arrow — vanilla refuses to draw
-                // without one in the inventory, and the enchantment is what keeps it from being
-                // used up. Leaving the count field here would promise thirty-two arrows and deliver
-                // one, so the row becomes a read-only chip while the flag is on.
+                // An Infinity bow is granted exactly one arrow: vanilla refuses to draw without one
+                // and the enchantment keeps it from being used up, so the field is read-only.
                 out.add(new Field(
                         RuleDefinition.fixed("lo.arrows_infinity", RuleGroup.D,
                                 "pvpocket.rule.lo.arrows_infinity.value"),
@@ -135,10 +124,8 @@ public final class LoadoutFields {
                         v -> {
                         }));
             } else {
-                // One field, three meanings: the label names the item that actually arrives, so the
-                // player reads "obsidian" rather than a generic word they have to translate
-                // themselves. Step 1 for TNT because one flint and steel is all it takes; steps of 8
-                // for stacks you bring by the handful.
+                // One field, three meanings: the label names the item that actually arrives. TNT
+                // steps by 1, since one flint and steel is all it takes; stacks step by 8.
                 int step = kind == ItemKind.TNT ? 1 : 8;
                 out.add(new Field(
                         RuleDefinition.intRange(companionFieldId(kind), RuleGroup.D,
@@ -195,8 +182,8 @@ public final class LoadoutFields {
                         v -> entry.variant = blocks.get(Math.floorMod(v, blocks.size())).id()));
             }
             case TRIDENT -> {
-                // Three choices in one cycle, not two toggles: 忠诚 and 激流 are alternatives, and a
-                // pair of switches that silently turn each other off is a puzzle, not a control.
+                // Three choices in one cycle, not two toggles: loyalty and riptide are
+                // alternatives, and switches that turn each other off would be a puzzle.
                 TridentStyle[] styles = TridentStyle.values();
                 String[] labels = Arrays.stream(styles)
                         .map(s -> s.labelKey)
@@ -218,9 +205,8 @@ public final class LoadoutFields {
             }
         }
 
-        // Last on purpose. Everything above describes what the item *is*; this one describes a rule
-        // about it, and putting it between two "what it is" rows would read as another attribute.
-        // It applies to every kind, including potions and blocks, so it cannot live in the switch.
+        // Last, because everything above describes what the item is; this one is a rule about it
+        // and applies to every kind, so it cannot live in the switch.
         out.add(new Field(
                 RuleDefinition.toggle("lo.no_drop", RuleGroup.D, entry.noDrop),
                 () -> entry.noDrop ? 1 : 0,

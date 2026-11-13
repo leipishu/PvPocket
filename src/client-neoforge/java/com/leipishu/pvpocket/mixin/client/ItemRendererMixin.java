@@ -13,22 +13,16 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 /**
- * NeoForge side of the 1.8 first-person sword block: skip the display transform, build the pose.
+ * NeoForge side of the 1.8 first-person sword block: skips the display transform and builds the
+ * pose instead.
  *
- * <p><b>Why this is a second file.</b> NeoForge's patch replaces the vanilla line
- * {@code model.getTransforms().getTransform(ctx).apply(leftHand, poseStack)} inside
- * {@code ItemRenderer.render} with {@code ClientHooks.handleCameraTransforms(poseStack, model, ctx,
- * leftHand)}. The Fabric mixin's {@code @At(target = "…ItemTransform;apply(…)V")} therefore scans
- * zero candidates here and the client dies on {@code RenderType} load with
- * {@code Critical injection failure … (0/1) succeeded}. {@code MixinTargetCheck} cannot see this:
- * the class and the method both still exist, it is the <em>call site</em> that moved.</p>
+ * <p>NeoForge patches {@code ItemRenderer.render} to call
+ * {@code ClientHooks.handleCameraTransforms(poseStack, model, ctx, leftHand)}, so a mixin that
+ * targets {@code ItemTransform.apply} finds no candidate. {@code MixinTargetCheck} cannot
+ * detect that: the class and method both exist, only the call site moved.
  *
- * <p>Returning {@code model} instead of calling the original is the whole point — the wrapped call
- * does nothing but apply the transform and hand the model back ({@code BakedModel.applyTransform}
- * returns {@code this} for every vanilla model), so skipping it is exactly "skip the transform".</p>
- *
- * <p>Same class name as the Fabric twin on purpose: each build sees exactly one of them, so
- * {@code pvpocket.client.mixins.json} keeps a single entry.</p>
+ * <p>Returning {@code model} instead of calling the original is correct because the wrapped
+ * call only applies the transform and returns {@code this} for every vanilla model.
  */
 @Mixin(ItemRenderer.class)
 public abstract class ItemRendererMixin {

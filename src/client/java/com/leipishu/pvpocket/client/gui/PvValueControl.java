@@ -7,9 +7,8 @@ import java.util.function.IntConsumer;
 /**
  * A widget that edits one integer value.
  *
- * <p>Every rule in the catalog is an int on the wire, so the rule panel only ever talks to controls
- * through this interface. Adding a new control type therefore never touches the row or the screen —
- * it just has to render an int and report when the user changed it.</p>
+ * <p>Every rule value is an int, so the rule panel talks to its controls through this interface.
+ * Subclasses render the value and call {@link #emit()} when the user changes it.
  */
 public abstract class PvValueControl extends PvWidget {
 

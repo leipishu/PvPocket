@@ -11,29 +11,25 @@ import com.leipishu.pvpocket.session.SessionManager;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * 接线表：把所有「发生某事时该做什么」一次性挂到平台上。
+ * Wiring table: attaches every "when this happens, do that" hook to the platform.
  *
- * <p>这里没有一个加载器的名字。每个加载器的入口类只需要两行：</p>
+ * <p>No loader name appears here. Each loader entry point needs two lines:
  *
  * <pre>{@code
- * PvPlatform.install(new FabricPlatform());
- * PvBootstrap.wire(PvPlatform.get());
+ * PvPlatform.install(new FabricPlatform()); PvBootstrap.wire(PvPlatform.get());
  * }</pre>
  *
- * <p>这样分的好处是可验证：移植一格时，如果 {@code wire} 需要改，说明业务逻辑真的依赖了平台
- * 差异；如果只是实现类要改，那这次移植没有风险。</p>
- *
- * <p>顺序有意义的两处，都在下面标了：友伤否决必须在伤害落地之前，方块保护必须在方块被移除
- * 之前。其余都是「通知」。</p>
+ * <p>Order matters for the friendly-fire veto, which must run before damage lands, and for block
+ * protection, which must run before a block is removed. The rest are notifications.
  */
 public final class PvBootstrap {
 
     private PvBootstrap() {
     }
 
-    /** 挂上全部接线。每个入口类调一次。 */
+    /** Attaches every hook. Called once by each entry point. */
     public static void wire(PvPlatform platform) {
-        // payload 必须先注册再绑接收器：上行包的接收器在注册时就要用到类型。
+        // Payloads are registered before the receivers are bound: binding needs the types.
         PvPayloads.register(platform);
 
         platform.onServerStarted(server -> {
@@ -43,15 +39,11 @@ public final class PvBootstrap {
             boolean ready = ArenaManager.isReady(server);
             PvPocket.LOGGER.info("PvPocket session manager ready (arena world available: {})", ready);
             if (ready) {
-                // The copy layout has to be read before the gallery is filled: it is what says which
-                // extra cells each map owns, and a slot number is a stable address that must not
-                // change between restarts. Loading after the warm-up would leave the copies pointing
-                // at nothing until the second start.
+                // The copy layout is read before the gallery is filled: it says which extra cells
+                // each map owns, and a slot number is a stable address across restarts.
                 ArenaManager.loadLayout(server);
-                // Each map owns one cell of the duel dimension and stays stamped there between
-                // duels, so "select the colosseum" means "teleport to the colosseum's coordinates"
-                // rather than "paste a colosseum at the origin". Filling the gallery here means the
-                // dimension is laid out before anyone can pick a map.
+                // Each map owns one cell of the duel dimension and stays stamped there, so
+                // "select the colosseum" means "teleport to its coordinates".
                 ArenaManager.beginWarmUp();
             }
         });
@@ -62,8 +54,8 @@ public final class PvBootstrap {
                 manager.shutdown();
             }
             SessionManager.clear();
-            // Share codes are per-server-start by design; a code that outlived the process it was
-            // issued by would be a code nobody can revoke.
+            // Share codes are per-server-start: a code that outlived its process could not be
+            // revoked.
             PresetShareRegistry.clear();
         });
 
@@ -81,9 +73,8 @@ public final class PvBootstrap {
             }
         });
 
-        // 否决点一：友伤是「不许发生」而不是「减轻」，所以必须在伤害落地之前问。
-        // 能走到这里的都有攻击者与受害者，正好就是「这两人是不是一边」这个问题——会话答得了，
-        // 伤害管线答不了。
+        // Veto one: friendly fire is "must not happen" rather than "hurt less", so it is asked
+        // before damage lands. The session knows who shares a side; the damage pipeline does not.
         platform.onAllowDamage((victim, source, amount) ->
                 SessionManager.get() == null || SessionManager.get().allowDamage(victim, source));
 
@@ -108,18 +99,16 @@ public final class PvBootstrap {
             }
             // One exhibit per tick; a no-op once the gallery is filled.
             ArenaManager.warmUpTick(server);
-            // Drops expired share codes. Throttled inside, so this is a counter compare on most
-            // ticks — the five-minute promise is enforced even when nobody is publishing.
+            // Drops expired share codes. Throttled inside, so most ticks are a counter compare.
             PresetShareRegistry.tick();
         });
 
-        // 否决点二：地形保护，必须在方块被移除之前。记录改动是另一条路（World 的 mixin 负责，
-        // 它也能看见爆炸）。
+        // Veto two: terrain protection, before a block is removed. Recording changes is the other
+        // path, handled by the World mixin, which also sees explosions.
         platform.onAllowBlockBreak((player, level, pos) -> ArenaManager.allowBreak(level, player, pos));
 
-        // 物品使用的一半：末影珍珠、消耗品、`f.blockFilter` 禁掉的桶。放置不在这里——它走
-        // `ItemStack#useOnBlock`，由 `ItemStackMixin` 否决，因为 `interactItem` 只在
-        // `interactBlock` 拒绝之后才跑。
+        // Half of item use: ender pearls, consumables, and buckets banned by {@code f.blockFilter}.
+        // Placement goes through {@code ItemStack#useOnBlock} and is vetoed by ItemStackMixin.
         platform.onUseItem((player, level, hand) -> {
             ItemStack stack = player.getItemInHand(hand);
             UsePolicy.Denial denial = UsePolicy.shieldDenial(
@@ -137,7 +126,8 @@ public final class PvBootstrap {
             return PvPlatform.UseVerdict.DENY;
         });
 
-        // g.chatScope。取消原版的扇出，由 SessionManager 按规则投递给允许的收件人。
+        // {@code g.chatScope}: cancel the vanilla fan-out and let SessionManager deliver to the
+        // allowed recipients.
         platform.onAllowChat(SessionManager::allowChat);
 
         platform.onCommands(PvPocketCommands::register);

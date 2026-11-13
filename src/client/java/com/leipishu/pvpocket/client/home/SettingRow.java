@@ -11,15 +11,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import java.util.List;
 
 /**
- * One label and one control on a single line, for the settings page.
+ * One label and one optional control on a single line, for the settings page.
  *
- * <p>A row rather than two siblings because the control has to be positioned against the row's right
- * edge, and a scroll pane assigns every child the full pane width — a 28px switch handed 300px would
- * draw a 300px track. The row keeps the control at its natural size and places it.</p>
+ * <p>The control keeps its natural size and is placed against the row's right edge. A scroll pane
+ * assigns every child the full pane width, so the row positions the control itself.
  *
- * <p>Placement happens in {@code render}, not in {@link #onWidth}: the pane hands out widths before
- * it totals heights, so a child's final {@code y} does not exist yet when {@code onWidth} runs. Every
- * other container in this mod does the same thing for the same reason.</p>
+ * <p>Placement happens in {@code render}, not in {@link #onWidth}: the pane assigns widths before
+ * it totals heights, so a child's final {@code y} does not exist yet during {@code onWidth}.
  */
 public class SettingRow extends PvWidget {
 
@@ -29,9 +27,9 @@ public class SettingRow extends PvWidget {
     private final String label;
     private final PvWidget control;
     private final String value;
-    /** Optional status pill drawn right after the label, e.g. "beta" on a feature that is new. */
+    /** Optional status pill drawn right after the label, for example "beta". */
     private final PvBadge badge;
-    /** A sentence rather than a heading: it wraps, and its height follows from how wide the row is. */
+    /** A sentence rather than a heading: it wraps and its height follows the row width. */
     private boolean hint;
 
     public SettingRow(String label, PvWidget control, String value) {
@@ -53,12 +51,9 @@ public class SettingRow extends PvWidget {
     }
 
     /**
-     * A hint paragraph: one sentence explaining the section above it.
+     * Creates a hint paragraph: one sentence explaining the section above it.
      *
-     * <p>Not a header with a long label. "Changes are written to the vanilla controls too, and can be
-     * undone there." is 281px on one line and the settings page is 280px wide at best — as a header it
-     * was cut mid-word in both languages, and as a hint it is three lines of dim text that say what
-     * they mean.</p>
+     * <p>The text wraps to at most {@code HINT_LINES} lines and is drawn in dim text.
      */
     public static SettingRow hint(String text) {
         SettingRow row = new SettingRow(text, null, null);
@@ -67,9 +62,10 @@ public class SettingRow extends PvWidget {
     }
 
     /**
-     * A hint's height is a function of its width, so it is computed here rather than in the
-     * constructor: the scroll pane hands out widths before it totals heights, and this is the hook
-     * that runs in between.
+     * Computes a hint row's height from its wrapped line count.
+     *
+     * <p>The scroll pane calls this between assigning widths and totalling heights, the only point
+     * where the width is known.
      */
     @Override
     public void onWidth(int width) {
@@ -78,8 +74,7 @@ public class SettingRow extends PvWidget {
         }
         int lines = PvDraw.wrappedLines(Minecraft.getInstance().font, label, width,
                 HINT_LINES);
-        // Never shorter than a header: a hint that fits on one line should not be a tighter row than
-        // the section heading above it.
+        // A hint is never shorter than a 20px header.
         this.height = Math.max(20, PvDraw.wrappedHeight(lines) + 8);
     }
 
@@ -91,7 +86,7 @@ public class SettingRow extends PvWidget {
         Font tr = Minecraft.getInstance().font;
         if (hint) {
             PvDraw.textWrapLeft(ctx, tr, label, x, y, height, width, HINT_LINES, PvTheme.TEXT_DIM);
-            // Three lines and still not the whole sentence: the rest is one hover away.
+            // The full sentence is available as the hover tooltip when it is cut.
             overflowTip(label, PvDraw.willCut(tr, label, width, HINT_LINES));
             return;
         }
@@ -105,25 +100,16 @@ public class SettingRow extends PvWidget {
             reserve = control.width + 10;
         }
         if (value != null) {
-            // Drawn to the left of the control when there is one, and against the row's right edge
-            // when there is not. The operator page needs both at once — "4 plots · 1 live" beside a
-            // copy button — and dropping the value there would have been a row that silently lost
-            // half of what it was asked to show.
-            //
-            // A value that is longer than half the row is a value that has outgrown its column —
-            // "LGPL-3.0-only" is fine, a path or a version string with a build suffix is not. It
-            // shrinks first and takes its reserve from what it actually covers, so the label beside
-            // it is measured against the truth. A third, not a half, when a control shares the row:
-            // the label is the thing that names the row and it must not be the part that gives way.
+            // The value sits left of the control, or at the row's right edge when there is none.
+            // It is fitted to half the row, a third with a control; the label fits in the rest.
             int valueRoom = Math.max(24, control == null ? width / 2 : width / 3);
             int drawn = PvDraw.fittedWidth(tr, value, valueRoom);
             PvDraw.textFitRight(ctx, tr, value, x + width - reserve, textY, valueRoom,
                     PvTheme.TEXT_DIM);
             reserve += drawn + 10;
         }
-        // The badge takes its room out of the label's budget before the label is fitted: a long
-        // translated label must truncate rather than run underneath the pill. It is then placed
-        // against the *drawn* width, not the natural one, for the same reason.
+        // The badge's room is reserved before the label is fitted, and the badge is then placed
+        // against the drawn label width.
         int badgeRoom = badge == null ? 0 : badge.width + 6;
         int labelW = PvDraw.textFitLeft(ctx, tr, label, x, textY, width - reserve - badgeRoom,
                 PvTheme.TEXT);
@@ -167,7 +153,7 @@ public class SettingRow extends PvWidget {
         if (control != null && control.visible && control.contains(mouseX, mouseY)) {
             return control.tooltipAt(mouseX, mouseY);
         }
-        // The label's own text, when the row had to cut it (a hint sentence at a narrow width).
+        // The label text, when the row had to cut it.
         return overflow();
     }
 }

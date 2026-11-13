@@ -5,13 +5,10 @@ import com.leipishu.pvpocket.network.ArenaBoundsPayload;
 /**
  * Client-side copy of the plot outline the server is currently enforcing.
  *
- * <p>A plain holder rather than a field on the renderer, so the renderer can be a stateless callback
- * registered once and the network receiver has somewhere obvious to write. Both run on the client
- * thread — the receiver hops there through {@code client.execute} — so no synchronisation is needed,
- * and adding some would only hide a threading mistake if one ever appeared.</p>
+ * <p>A plain holder, so the renderer stays a stateless callback and the network receiver has one
+ * place to write. Both run on the client thread, so no synchronisation is needed.
  *
- * <p>{@link #clear()} is called on disconnect. A stale box would otherwise be drawn in the next world
- * the player joins, at coordinates that mean nothing there.</p>
+ * <p>Call {@link #clear()} on disconnect, or a stale box would be drawn in the next world.
  */
 public final class ArenaBounds {
 

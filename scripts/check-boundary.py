@@ -1,24 +1,13 @@
 #!/usr/bin/env python3
-"""加载器边界检查：`src/main` 里不许出现加载器 API。
+"""Loader boundary check: `src/main` and `src/client` must not import a loader API.
 
-AGENTS.md §5c 写了这条约定，但约定只有变成可执行的检查才算数。这条线决定了移植一格的代价：
-守住了就是「写一个 200 行的实现类」，破了就是「重写一遍」。而它破掉的方式总是很温和——
-某个工具方法「就一行 Fabric 调用」，顺手写进业务类里，编译照过，等移植到 NeoForge 才发现。
+Only import statements are judged, so naming a loader in a comment is fine.
 
-规则：
+Usage:
+    python scripts/check-boundary.py            # table + exit code
+    python scripts/check-boundary.py --verbose  # list every violation as file:line
 
-  * `src/main/java` 与 `src/client/java` 下**一个加载器 import 都不许有**。加载器代码在
-    `src/fabric/java` 与 `src/client-fabric/java`（将来还有 neoforge / forge 那几格），
-    那是另外的源根，不在这条规则的范围里。
-
-判定看的是 **import 语句**，不是出现过的字符串：注释和 Javadoc 里提到加载器名字是正常的
-（`PvPlatform` 的注释要解释三方的差异）。
-
-用法：
-    python scripts/check-boundary.py            # 表格 + 退出码
-    python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
-
-退出码：0 通过；1 有违规；2 脚本自身出错。
+Exit code: 0 pass, 1 violations, 2 script error.
 """
 import argparse
 import os
@@ -26,26 +15,25 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+# Sources live at the repository root: src/ is shared and a cell only decides how to compile it.
 SRC_ROOT = ROOT
 MAIN = os.path.join(SRC_ROOT, "src", "main", "java")
 CLIENT = os.path.join(SRC_ROOT, "src", "client", "java")
-# 加载器源根：这里**应该**有加载器 import，只做计数，不判定。列出来是为了让人确认它们确实在，
-# 而不是被误删——一个空的 src/fabric 与一个「接线写进了业务代码」的仓库，症状完全不同。
+# Loader source roots: these should contain loader imports, so they are counted, never judged.
 LOADER_ROOTS = (("fabric", os.path.join(SRC_ROOT, "src", "fabric", "java")),
                 ("client-fabric", os.path.join(SRC_ROOT, "src", "client-fabric", "java")),
                 ("neoforge", os.path.join(SRC_ROOT, "src", "neoforge", "java")),
                 ("client-neoforge", os.path.join(SRC_ROOT, "src", "client-neoforge", "java")),
                 ("forge", os.path.join(SRC_ROOT, "src", "forge", "java")))
 
-# 加载器 API 的包前缀。`net.fabricmc.api` 也在内——入口类自己就该待在加载器源根里。
+# Loader API package prefixes. net.fabricmc.api is included: an entry point belongs in a root.
 LOADER_PACKAGES = ("net.fabricmc.", "net.neoforged.", "net.minecraftforge.")
 
 IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+)\s*;", re.M)
 
 
 def scan(source_root, allowed=()):
-    """返回 [(相对路径, 行号, 被 import 的包)]，跳过 allowed 下的文件。"""
+    """Returns [(relative path, line, imported package)], skipping files under `allowed`."""
     hits = []
     if not os.path.isdir(source_root):
         return hits
@@ -98,8 +86,7 @@ def main():
     main_hits = scan(MAIN)
     client_hits = scan(CLIENT)
 
-    # 两边都是硬规则。客户端曾经只统计不失败，因为分层没做完；现在做完了，再留一个「不算失败」
-    # 的口子就等于给下一次悄悄泄漏开了绿灯。
+    # Both are hard rules: a counted-only client side is a loophole for the next leak.
     failed = report("main", main_hits, options.verbose, hard=True)
     failed |= report("client", client_hits, options.verbose, hard=True)
 

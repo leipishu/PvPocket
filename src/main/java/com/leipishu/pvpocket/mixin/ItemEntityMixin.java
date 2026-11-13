@@ -11,13 +11,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * {@code d.allowPickup}: dropped items stay on the ground.
  *
- * <p>{@code onPlayerCollision} is the only place an item moves itself into an inventory — it is what
- * {@code Entity#onPlayerCollision} calls for every player the item overlaps. Cancelling at the head
- * leaves the entity intact, so the drop is still visible and can still be picked up by whoever is
- * allowed to; the alternative of discarding it would make "关闭拾取" look like "清理地面".</p>
+ * <p>Hooks {@code playerTouch} at HEAD, the only place an item moves itself into an inventory.
+ * Cancelling leaves the entity intact, so the drop stays visible and can still be picked up by a
+ * player who is allowed to.
  *
- * <p>Deliberately silent. An item that does not move explains itself; a hint every tick while a
- * player stands on it would not.</p>
+ * <p>Silent: an item that does not move explains itself.
  */
 @Mixin(ItemEntity.class)
 public abstract class ItemEntityMixin {

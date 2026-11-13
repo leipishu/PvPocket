@@ -24,19 +24,14 @@ import java.util.function.Supplier;
 /**
  * Drives {@link PvAudit} across every screen, page and dialog the mod can show.
  *
- * <p>The audit needs real frames: a widget's position is decided in its own render pass (a scroll
- * pane lays its rows out inside {@code render}), text is measured as it is drawn, and the entrance
- * animation has to have finished before anything is where it will stay. So this walks the client
- * through one screen at a time, leaves each one up for a few ticks, and lets the normal render loop
- * do the measuring.</p>
+ * <p>The audit needs real frames: a widget's position is decided in its own render pass, text is
+ * measured as it is drawn, and the entrance animation has to finish. So this walks the client
+ * through one screen at a time and lets the normal render loop do the measuring.
  *
- * <p>It exists as a harness rather than as something a human clicks through because "does this
- * overlap" has to be answerable on a machine. Six screens times two canvas sizes times every page
- * is sixty layouts; nobody re-checks sixty layouts by hand after every layout tweak, which is how
- * the overlaps it finds got there in the first place.</p>
+ * <p>Six screens times two canvas sizes times every page is sixty layouts.
  *
  * <p>Off unless {@code -Dpvpocket.audit=true}; {@code -Dpvpocket.audit.exit=true} closes the client
- * when the walk is done, which is what {@code scripts/audit-ui.sh} uses to run this as a test.</p>
+ * when the walk is done.
  */
 public final class PvAuditHarness {
 
@@ -44,18 +39,16 @@ public final class PvAuditHarness {
      * The canvas sizes to audit.
      *
      * <p>426x240 is a 1280x720 window at GUI scale 3 and is the size the panel is designed on;
-     * 320x180 is the same window at scale 4, which is the smallest canvas a player actually gets —
-     * the panel loses 106px of width and 60px of height there, and every layout that only fits at
-     * the reference size breaks at this one.</p>
+     * 320x180 is the same window at scale 4, the smallest canvas a player gets. The panel loses
+     * 106px of width and 60px of height there.
      */
     private static final int[][] SIZES = {{426, 240}, {320, 180}};
 
     /**
      * Ticks a layout stays on screen before the next one replaces it.
      *
-     * <p>Three, not one: the first frame of a screen has no hover state and the entrance fade has
-     * not finished, and a tooltip needs a dwell before it appears. Anything that only overlaps once
-     * the animation settles would be missed by a single frame.</p>
+     * <p>Three, not one: the first frame has no hover state and the entrance fade has not finished,
+     * and a tooltip needs a dwell before it appears.
      */
     private static final int FRAMES = 3;
 
@@ -79,8 +72,8 @@ public final class PvAuditHarness {
         if (!PvAudit.ON) {
             return;
         }
-        // 审计跑的是真实的界面，所以它必须挂在真实的客户端 tick 上——与游戏里那一次启动
-        // 走同一条路径，否则「审计通过」就不能说明「玩家看到的不遮挡」。
+        // The audit measures the real interface, so it must run on the real client tick: the same
+        // path a player takes, or "audit passed" would not mean "nothing overlaps on screen".
         PvClientPlatform.get().onClientTick(() -> tick(Minecraft.getInstance()));
         System.out.println("[pvaudit] harness armed");
     }
@@ -99,8 +92,8 @@ public final class PvAuditHarness {
         Step step = STEPS.get(cursor);
         if (current == null) {
             current = step.factory.get();
-            // setScreen() runs init() at the window's real size; the second call overrides it so the
-            // same screen can be measured at a canvas it was not opened at.
+            // setScreen() runs init() at the window's real size; the second call overrides it so
+            // the same screen can be measured at a canvas it was not opened at.
             client.setScreen(current);
             current.init(client, step.width(), step.height());
             current.auditVariant(step.variant());
@@ -133,9 +126,8 @@ public final class PvAuditHarness {
         homeData();
         seedPresets();
         for (int[] size : SIZES) {
-            // The reviewer role carries the three-button commit stack and the 还原 chip, which is
-            // the arrangement most likely to run out of room; the draft role has a different stack
-            // and an editable roster, so both are walked.
+            // The reviewer role carries the three-button commit stack and the restore chip, the
+            // arrangement most likely to run out of room. The draft role is walked as well.
             for (int variant = 0; variant < 11; variant++) {
                 add("rules/reviewer", size, variant, () -> new RuleScreen(reviewer()));
             }
@@ -147,18 +139,14 @@ public final class PvAuditHarness {
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
             add("match/list", size, 0, () -> new MatchListScreen(matches()));
-            // Three cards: a win, a loss that ended early, and a four-side draw. The shapes decide
-            // widths — fifteen rounds is what makes the round list truncate, four sides is what makes
-            // the score block taller than the card was drawn for, and a loss is the only variant
-            // where the headline is not the accent colour.
+            // Three cards: a win, a loss that ended early, and a four-side draw. Fifteen rounds
+            // makes the round list truncate; four sides make the score block taller.
             for (int variant = 0; variant < 3; variant++) {
                 int v = variant;
                 add("result", size, variant, () -> SeriesResultScreen.sample(v));
             }
             // One variant per page, plus whatever dialogs the screen declares. The count is asked
-            // from the screen rather than written here: it was hardcoded at five, and the history
-            // detail dialog — the most crowded layout on the panel — was consequently never measured
-            // at all. A screen that grows a dialog can now say so in one place.
+            // from the screen rather than written here.
             int homeVariants = new HomeScreen().auditVariantCount();
             for (int variant = 0; variant < homeVariants; variant++) {
                 add("home", size, variant, HomeScreen::new);
@@ -188,7 +176,7 @@ public final class PvAuditHarness {
         return new LoadoutOpenPayload("audit", Loadout.defaultDuel().encode(), 0, "Dev2");
     }
 
-    /** An empty session id is the personal loadout: a different title, note and 保存 target. */
+    /** An empty session id is the personal loadout: a different title, note and save target. */
     private static LoadoutOpenPayload personalLoadout() {
         return new LoadoutOpenPayload("", Loadout.defaultDuel().encode(), 0, "");
     }
@@ -208,22 +196,17 @@ public final class PvAuditHarness {
      * "nothing here yet" line.
      *
      * <p>A screen audited only in its empty state hides every row it owns: the history cards, the
-     * round-dot strips, the four stat columns and the win strip do not exist until there is data.
-     * The numbers are arbitrary but shaped like real ones — three teams, a surrendered series, a
-     * series with rounds both won and lost — because that is what decides the widths.</p>
+     * round-dot strips, the four stat columns and the win strip. The numbers are shaped like real
+     * ones, because that is what decides the widths.
      *
-     * <p>Twelve records rather than three, cycling those same three shapes. Twelve is past one page
-     * at the default page size, which is the only way the audit ever sees the pager: the two arrows
-     * and the "2 / 3" counter do not exist on a single-page list, so a three-record fixture would
-     * leave the newest footer in the panel completely unmeasured.</p>
+     * <p>Twelve records, cycling three shapes. Twelve is past one page at the default page size,
+     * which is the only way the audit ever sees the pager.
      */
     private static void homeData() {
         long now = System.currentTimeMillis();
         String[] shapes = {
-                // First, and therefore the newest record: twelve rounds, which is what makes the
-                // detail dialog's label column wide enough to matter. "第 12 局" is half again as
-                // wide as "第 1 局", and a label column that is assumed rather than measured puts
-                // the win/loss mark through the last digit — the bug this fixture exists to keep.
+                // First, and therefore the newest record: twelve rounds, which makes the detail
+                // dialog's label column wide enough to matter.
                 "arena_colosseum|modern|2|1|8|4|1||420000"
                         + "|1,,90000;1,,120000;0,,210000;1,,80000;0,,95000;1,,70000"
                         + ";1,,110000;0,,60000;1,,100000;1,,85000;0,,75000;1,,65000|Dev2,Dev3|",
@@ -250,14 +233,11 @@ public final class PvAuditHarness {
     /**
      * The operator page's fixture: the same layout a real server would send, shaped to be awkward.
      *
-     * <p>{@code arena_fun_house} is the longest map name in either language and {@code arena_colosseum}
-     * is the only one that owns two plots, so the two widest things on the page — a name and a "2
-     * plots" value — are both in it. One map is fully leased, which is the state that disables its
-     * copy button, and one has no plots at all, which is the state that disables its remove button.
-     * Those two rows also carry the widest tooltips on the page.</p>
+     * <p>{@code arena_fun_house} is the longest map name and {@code arena_colosseum} owns two
+     * plots, so the two widest things on the page are both here. One map is fully leased, which
+     * disables its copy button, and one has no plots, which disables its remove button.
      *
-     * <p>The operator bit is set here for the same reason the history is twelve records long: a page
-     * that only exists for operators is a page the audit would otherwise never open.</p>
+     * <p>The operator bit is set so the audit opens a page that only operators see.
      */
     private static final String ARENA_ROWS = String.join("\n",
             "1,5,16,2,0",
@@ -276,9 +256,8 @@ public final class PvAuditHarness {
     /**
      * Two presets, so the preset page is measured with rows rather than with its empty state.
      *
-     * <p>Only when the store is empty: a developer who already has presets gets their own audited,
-     * which is strictly better data. The two that are written here go through the ordinary store and
-     * therefore land in the dev run's config, so {@link #clearPresets} takes them back out.</p>
+     * <p>Only when the store is empty: a developer who already has presets gets their own audited.
+     * The two written here go through the ordinary store, and {@link #clearPresets} removes them.
      */
     private static void seedPresets() {
         if (PresetStore.get().count(PresetKind.LOADOUT) == 0

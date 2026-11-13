@@ -6,12 +6,11 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Client to server: "I want to edit my loadout".
+ * Client to server: request to open the loadout editor.
  *
- * <p>Opening is a request rather than something the client decides, because the server is the only
- * side that knows whether a session is still in a stage where a loadout may still change. Once the
- * round is running the answer is no, and the client has to be told that rather than quietly editing
- * a copy that will never be applied.</p>
+ * <p>Opening is a request because only the server knows whether the session is still in a stage
+ * where a loadout may change. Once the round is running the answer is no, and the client is told
+ * that instead of editing a copy that will never be applied.
  */
 public record LoadoutRequestPayload() implements CustomPacketPayload {
 

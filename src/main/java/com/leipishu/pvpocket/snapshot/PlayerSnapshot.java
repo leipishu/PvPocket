@@ -35,30 +35,21 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * A frozen copy of a player's survival state.
+ * A copy of a player's survival state, taken before the first round and written back afterwards.
  *
- * <p>The bulk of the state is the player's own NBT, copied verbatim. That is deliberate: the
- * vanilla player tag carries inventory, ender chest, experience, effects, hunger, attributes and
- * any mod-attached persistent data, and hand-picking fields is how data loss happens. A handful of
- * things the player tag does not carry (dimension, team, fall distance) are stored alongside.</p>
+ * <p>The player tag is copied verbatim and restored with {@code player.load()}, which covers
+ * inventory, ender chest, experience, effects, hunger and mod-attached data. Fields the tag does
+ * not carry (dimension, team, fall distance) are stored beside it.
  *
- * <p>A snapshot is the single source of truth for "what the player looked like before the duel".
- * It is never merged with live state, only written once and read back on restore.</p>
- *
- * <p><b>Attributes are stored twice on purpose.</b> The player tag carries them, but only the ones
- * that have been modified: vanilla's {@code AttributeMap.save()} writes nothing for an attribute
- * still sitting at its default. {@code max_health} is precisely the attribute the arena always
- * changes and precisely the one a clean player has never modified — so the tag says nothing about
- * it, {@code player.load()} leaves whatever the arena wrote in place, and the player walks out with
- * the duel's health cap. {@link #maxHealthBase} and {@link #knockbackResistanceBase} are therefore
- * read from the live entity and written back explicitly, which is what makes "back to normal"
- * mean the server's normal rather than "whatever the last round set".</p>
+ * <p>Base attribute values are stored separately: vanilla saves an attribute only when it has been
+ * modified, and {@code load()} merges rather than resets, so the value the arena wrote to
+ * {@code max_health} would otherwise survive the restore.
  */
 public final class PlayerSnapshot {
 
     private static final int FORMAT_VERSION = 2;
 
-    /** Sentinel for a snapshot written before the base values were recorded: fall back to defaults. */
+    /** NaN when the snapshot predates base-value capture; readers fall back to the defaults. */
     private static final float UNKNOWN_BASE = Float.NaN;
 
     private final CompoundTag playerNbt;
@@ -126,9 +117,7 @@ public final class PlayerSnapshot {
     /**
      * Writes the snapshot back onto the player.
      *
-     * <p>Order matters: teleport first so the player is in the right dimension, then read the tag
-     * (which restores position, inventory, effects and hunger), then fix up the fields that are not
-     * part of the entity tag.</p>
+     * <p>Teleport first, then load the tag, then repair the fields the tag does not carry.
      */
     public void restore(ServerPlayer player) {
         MinecraftServer server = player.getServer();
@@ -142,10 +131,7 @@ public final class PlayerSnapshot {
         player.teleportTo(world, x, y, z, yaw, pitch);
         player.load(playerNbt.copy());
 
-        // Explicit, because load() is a merge and not a reset: an attribute the snapshot does not
-        // mention keeps the value the arena gave it. This is the whole "两行血" bug — the health cap
-        // was written by the round and never written back, and the restore reported success every
-        // time because the fingerprint was looking at a key name vanilla had renamed.
+        // load() merges: an attribute absent from the tag keeps the value the arena wrote.
         resetBase(player, Attributes.MAX_HEALTH, maxHealthBase);
         resetBase(player, Attributes.KNOCKBACK_RESISTANCE, knockbackResistanceBase);
 
@@ -154,8 +140,7 @@ public final class PlayerSnapshot {
             player.setHealth(maxHealth);
         }
         player.fallDistance = fallDistance;
-        // Authorised change: this is the restore path, and it runs while the player may still be
-        // inside the arena dimension, where the sandbox rule refuses mode changes.
+        // The restore path may change mode even inside the arena dimension.
         Sandbox.changeGameMode(player, GameType.byName(gameMode, GameType.SURVIVAL));
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
 
@@ -172,11 +157,10 @@ public final class PlayerSnapshot {
     }
 
     /**
-     * Puts one attribute back to what it was before the match.
+     * Sets one attribute base back to its pre-match value.
      *
-     * <p>Falls back to the entity type's default when the snapshot predates the recorded base. That
-     * default is the server's own idea of normal — the value another mod or a datapack configured —
-     * which is exactly the "服务器正常是多少就是多少" the player expects, rather than a hard-coded 20.</p>
+     * <p>A snapshot that predates the recorded base falls back to the entity type's default, which
+     * is the server's normal rather than a hard-coded 20.
      */
     private static void resetBase(ServerPlayer player, Holder<Attribute> attribute, float saved) {
         AttributeInstance instance = player.getAttribute(attribute);
@@ -201,8 +185,9 @@ public final class PlayerSnapshot {
     }
 
     /**
-     * Re-reads the player after a restore and compares against the snapshot. This is the self-check
-     * that turns "restore silently lost an item" into a logged anomaly instead of a support ticket.
+     * Re-reads the player and compares it against the snapshot.
+     *
+     * @return true when every digested field matches
      */
     public boolean verify(ServerPlayer player) {
         CompoundTag current = new CompoundTag();
@@ -211,12 +196,9 @@ public final class PlayerSnapshot {
     }
 
     /**
-     * Which digest keys differ from the snapshot, with both values, for the anomaly line.
+     * Names the digested fields that differ from the snapshot, for the anomaly line.
      *
-     * <p>Empty when {@link #verify} passes. The digest is a hash, so without this the only thing an
-     * anomaly says is "something differs" — and the next reader has to reconstruct two player states
-     * by hand to find out that it was, say, {@code Health}. Values are truncated because the point is
-     * to name the field, not to dump an inventory into a log line.</p>
+     * @return {@code key before -> after} entries joined by {@code ;}, or {@code (none)}
      */
     public String mismatch(ServerPlayer player) {
         CompoundTag current = new CompoundTag();
@@ -237,8 +219,7 @@ public final class PlayerSnapshot {
         if (element == null) {
             return "<absent>";
         }
-        // Same normalisation the fingerprint uses, otherwise every restore would report a
-        // difference in `attributes` that the digest itself considers equal.
+        // Same normalisation as the fingerprint, or every restore would report `attributes`.
         Tag shown = key.equals("attributes") && element instanceof ListTag list
                 ? canonicalAttributes(list)
                 : element;
@@ -278,10 +259,8 @@ public final class PlayerSnapshot {
     public static PlayerSnapshot readFrom(Path source) throws IOException {
         CompoundTag root = NbtIo.readCompressed(source, NbtAccounter.unlimitedHeap());
         int format = root.getInt("format");
-        // Format 1 wrote no base values. Accepting it is not optional: a session can be in flight
-        // across an upgrade, and refusing to read its snapshot would strand a player in the arena
-        // with the duel's kit. The base falls back to the entity default, which is the same answer
-        // the explicit value would have given for anyone who had not been tampered with.
+        // Format 1 recorded no base values. Reading it must still work: a session can be in flight
+        // across an upgrade, and its snapshot is the only way back out of the arena.
         if (format < 1 || format > FORMAT_VERSION) {
             throw new IOException("Unsupported snapshot format " + format + " in " + source);
         }
@@ -303,14 +282,11 @@ public final class PlayerSnapshot {
     }
 
     /**
-     * Fingerprint over the fields that must survive a round-trip exactly. Position, motion and
-     * on-ground flags are deliberately excluded: they are expected to differ between capture and
-     * restore, and including them would turn every restore into a false-positive anomaly.
+     * Fields that must survive a round trip unchanged. Position, motion and on-ground flags are
+     * excluded because they legitimately differ between capture and restore.
      *
-     * <p>{@code attributes} is lower-case because that is the key 1.20.5 renamed it to. The list used
-     * to say {@code Attributes}, which matches nothing in a modern player tag — so the self-check
-     * could not see an attribute at all, and the one bug it existed to catch (a health cap that
-     * survived the match) reported {@code verified:true} for weeks.</p>
+     * <p>Key names follow the player tag, where the attribute list is lower-case {@code attributes}
+     * since 1.20.5.
      */
     private static final String[] DIGEST_KEYS = {
             "Inventory", "EnderItems", "XpLevel", "XpP", "XpTotal",
@@ -335,13 +311,10 @@ public final class PlayerSnapshot {
     }
 
     /**
-     * Rewrites an attribute list into a form where "at the default" and "not mentioned" compare
-     * equal.
+     * Drops attribute entries sitting at their default and sorts the rest by id.
      *
-     * <p>They have to, because restore creates the entry: vanilla omits a default-valued attribute
-     * from the tag, but once {@code setBaseValue} has been called the attribute is written on the
-     * next save. Without this normalisation every correct restore would report an anomaly for the
-     * one attribute it just repaired — and an alert that always fires is the same as no alert.</p>
+     * <p>Restore creates entries that vanilla would have omitted, so without this every correct
+     * restore would report the attribute it just repaired.
      */
     private static ListTag canonicalAttributes(ListTag list) {
         List<CompoundTag> kept = new ArrayList<>();

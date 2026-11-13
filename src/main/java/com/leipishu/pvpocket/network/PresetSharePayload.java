@@ -7,14 +7,11 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * Client to server: "publish this preset as a code" or "give me the preset behind this code".
+ * Client to server: publish a preset as a code, or fetch the preset behind a code.
  *
- * <p>One payload for both directions of the exchange because they are one feature and one round
- * trip each; two payloads would have to be registered, guarded and kept in step for no gain.</p>
- *
- * <p>Only text travels. A share code carries a loadout string or a rule string, both of which the
- * receiving side re-validates before they reach the editor — the server is a relay here, not a
- * source of truth, so it never needs to understand the contents.</p>
+ * <p>One payload for both directions of the exchange because each is one round trip. Only text
+ * travels: a share code carries a loadout string or a rule string, and the receiving side
+ * re-validates it before it reaches the editor.
  */
 public record PresetSharePayload(int action, String kind, String name, String encoded, String code)
         implements CustomPacketPayload {
@@ -27,9 +24,8 @@ public record PresetSharePayload(int action, String kind, String name, String en
     /**
      * Hard ceiling on a shared preset string.
      *
-     * <p>The largest real loadout is a few kilobytes (36 entries of maybe 60 characters); 16 KB is
-     * an order of magnitude of headroom that still refuses a client trying to park a megabyte in the
-     * server's memory under the guise of a preset.</p>
+     * <p>The largest real loadout is a few kilobytes, 36 entries of maybe 60 characters; 16 KB
+     * leaves an order of magnitude of headroom.
      */
     public static final int MAX_ENCODED = 16_384;
 

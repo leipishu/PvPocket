@@ -39,14 +39,14 @@ import com.leipishu.pvpocket.network.SpectateStatePayload;
 import net.minecraft.client.Minecraft;
 
 /**
- * 客户端接线。**这里不该出现任何加载器名字**——入口与平台实现都在
- * {@code src/client-fabric}，与 {@code src/fabric} 那一半对称。
+ * Client wiring. No loader name appears here; entries and platform implementations live in
+ * {@code src/client-fabric} and {@code src/client-neoforge}.
  *
- * <p>形状照抄服务端的 {@code PvBootstrap}：一个 {@code wire(platform)} 装完所有东西，入口类只剩
- * 「装平台、调 wire」两行。这样 NeoForge 那一格要写的是一个新的平台实现，而不是第二份接线。</p>
+ * <p>{@link #wire} installs every handler and render hook. An entrypoint only installs the platform
+ * and calls it.
  *
- * <p>三件事：把服务端说了算的状态镜像下来、按 payload 决定开哪个界面、把渲染钩子挂上去。镜像的
- * 那一半永远只是拷贝——客户端从不决定哪条规则生效。</p>
+ * <p>Three jobs: mirror the state the server owns, open the screen a payload asks for, and attach
+ * the render hooks. The mirror only copies; the client never decides which rule applies.
  */
 public final class PvPocketClient {
 
@@ -54,21 +54,16 @@ public final class PvPocketClient {
     }
 
     public static void wire(PvClientPlatform platform) {
-        // Before anything can draw: the palette is read at draw time now that its tokens are no
-        // longer compile-time constants, so loading the saved theme here is what decides whether the
-        // first panel the player opens is light or dark.
+        // Loads the saved theme before the first draw; the palette is read at draw time.
         ClientPrefs.load();
         PvTheme.apply(ClientPrefs.theme());
 
         platform.onServerPacket(CombatStatePayload.ID, PvPocketClient::apply);
 
-        // The home panel's snapshot. Not a reason to open a screen — the player may have closed the
-        // panel before the answer arrived — so it only refreshes the cache and lets an open panel
-        // repaint on its next frame.
+        // Refreshes the home cache only. An open panel repaints on its next frame.
         platform.onServerPacket(HomeStatePayload.ID, HomeState::update);
 
-        // Somebody else's block, so it can be drawn. The platform hops to the client thread, because
-        // the render thread reads the same set every frame.
+        // The platform delivers this on the client thread, which the renderer requires.
         platform.onServerPacket(BlockingStatePayload.ID,
                 payload -> CombatState.setBlocking(payload.player(), payload.blocking()));
 
@@ -88,9 +83,7 @@ public final class PvPocketClient {
                 ((RuleScreen) client.screen).closeSilently();
                 return;
             }
-            // The loadout editor is a child of the rule panel, so it has to go too: leaving it
-            // open over a finished session would let the player keep editing a loadout that can
-            // never be applied.
+            // The loadout editor is a child of the rule panel, so it closes with it.
             if (client.screen instanceof LoadoutScreen editor
                     && editor.sessionId().equals(payload.sessionId())) {
                 client.setScreen(null);
@@ -100,41 +93,29 @@ public final class PvPocketClient {
         platform.onServerPacket(LoadoutOpenPayload.ID, payload -> {
             PvPocket.LOGGER.info("Received loadout_open for session {}", payload.sessionId());
             Minecraft client = Minecraft.getInstance();
-            // The editor is opened from the rule panel and returns to it, so the panel instance is
-            // carried across rather than reconstructed: rebuilding it would throw away any rule
-            // edits the player had made but not yet sent.
+            // Carries the panel instance across so unsent rule edits survive.
             RuleScreen parent = client.screen instanceof RuleScreen screen ? screen : null;
             client.setScreen(new LoadoutScreen(payload, parent));
         });
 
-        // No log line for the HUD payload: it arrives at every round boundary for every participant,
-        // and it would bury the panel lines that a developer actually needs to see.
+        // No log line for the HUD payload; it arrives at every round boundary for every player.
         platform.onServerPacket(MatchHudPayload.ID, MatchHud::update);
         platform.onServerPacket(ArenaBoundsPayload.ID, ArenaBounds::update);
         platform.onServerPacket(PrepareScreensPayload.ID, PrepareScreens::update);
 
-        // The match list always opens a fresh screen rather than patching an open one. Refresh is
-        // implemented by asking the server again, so a payload arriving while the panel is open
-        // means the list genuinely changed — and rebuilding it is the only way to get the row
-        // buttons to match the new rows.
+        // Opens a fresh screen so the row buttons match the new rows.
         platform.onServerPacket(MatchListPayload.ID,
                 payload -> Minecraft.getInstance().setScreen(new MatchListScreen(payload)));
 
         platform.onServerPacket(SpectateStatePayload.ID, SpectatorHud::update);
 
-        // The possessed body's hotbar. Separate from the spectator bar because it changes on a
-        // different clock: the bar only moves when the camera does, the hotbar whenever the target
-        // swaps a slot or takes damage.
+        // The possessed body's hotbar; it updates on a different clock than the spectator bar.
         platform.onServerPacket(PossessPayload.ID, PossessionHud::update);
 
-        // Share-code answers. Hopped onto the client thread by the platform, because the dialog that
-        // consumes them lives on the render thread and mutates its own widgets.
+        // Share-code answers; the platform delivers these on the client thread.
         platform.onServerPacket(PresetShareResultPayload.ID, PresetShare::receive);
 
-        // The result card. Unlike the panel openers above, this one can decline to open at all: the
-        // settings page has a switch, and the server does not know about it — it sends the card to
-        // every participant and lets each client decide. That is the right split, because the
-        // preference belongs to the installation, not to the account.
+        // The result card honours the local switch; the server sends it to every participant.
         platform.onServerPacket(SeriesResultPayload.ID, payload -> {
             if (!ClientPrefs.resultScreen()) {
                 return;
@@ -147,8 +128,7 @@ public final class PvPocketClient {
             Minecraft.getInstance().setScreen(new SeriesResultScreen(result));
         });
 
-        // A stale mirror after leaving a world would make the next join start with a phantom block
-        // penalty and a hidden attack cooldown, so both sides of the mirror are dropped together.
+        // Drops every mirror so the next join starts clean.
         platform.onDisconnect(() -> {
             CombatState.clearAll();
             BlockingInput.reset();
@@ -159,11 +139,9 @@ public final class PvPocketClient {
             PrepareScreens.clear();
             SpectatorHud.clear();
             PossessionHud.clear();
-            // The dialog is gone with the screen, and a listener left behind would take the next
-            // server's answer and write it into a store the player is not looking at.
+            // Clears the listener so a later answer cannot reach a closed dialog.
             PresetShare.listener(null);
-            // Stats and history belong to the server that sent them; keeping them across a server
-            // change would show one server's win rate on another server's panel.
+            // Stats and history belong to the server that sent them.
             HomeState.clear();
         });
 
@@ -175,8 +153,7 @@ public final class PvPocketClient {
         HomeClient.register();
         InventoryButton.register();
         BoundaryRenderer.register();
-        // No-op unless -Dpvpocket.audit=true: walks every screen at two canvas sizes and reports
-        // the rectangles that collide. See PvAudit.
+        // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
         PvAuditHarness.register();
 
         PvPocket.LOGGER.info("PvPocket client bootstrap complete (platform: {})", platform.name());
@@ -185,20 +162,16 @@ public final class PvPocketClient {
     /**
      * A payload that arrived before there was a player to attribute it to.
      *
-     * <p>Round start teleports everybody into the arena dimension and then sends the state, so the
-     * two can land in the same batch. Dropping the payload in that window would leave the mirror on
-     * the previous rule set for the whole round — no blocking intent, no predicted slowdown — and
-     * the symptom is not "the mirror is stale" but "right-click does nothing".
+     * <p>Round start teleports everybody into the arena dimension and then sends the state, so both
+     * can land in the same batch. {@link #applyPendingState} retries from the client tick.
      */
     private static CombatStatePayload pending;
 
     /**
-     * The last series whose card this client has already shown.
+     * The session id of the last series whose card this client showed.
      *
-     * <p>A series can be finished twice — a clean end, then a shutdown that runs the same teardown —
-     * and the second payload would otherwise reopen a card the player has already dismissed. Keyed
-     * on the session id rather than on a timestamp because it is the thing that is actually unique,
-     * and cleared on disconnect so a new world starts with a clean slate.</p>
+     * <p>Cleared on disconnect. A series can finish twice, and the second payload must not reopen a
+     * card the player already dismissed.
      */
     private static String lastResultSession;
 
@@ -212,15 +185,13 @@ public final class PvPocketClient {
         CombatState.setMode(client.player.getUUID(),
                 payload.legacy() ? CombatMode.LEGACY_1_8 : CombatMode.MODERN);
         CombatState.setBlocking(client.player.getUUID(), payload.blocking());
-        // Without this the client predicts a placement the server refuses and keeps a block only it
-        // can see; the same mask makes both sides reach the same answer.
+        // Same gate as the server, so both sides predict the same placement.
         CombatState.setUseGate(client.player.getUUID(), payload.useGate(), payload.bans());
-        // An explosion destroys blocks on whichever side runs it, so this has to reach the client or
-        // it leaves holes the server never confirms.
+        // Explosions run on both sides, so the client needs the same allowance.
         CombatState.setClientExplosivesAllowed(payload.explosives());
     }
 
-    /** Applies a state payload that had to wait for the player to exist. Called from the client tick. */
+    /** Applies a state payload that waited for the player. Called from the client tick. */
     public static void applyPendingState() {
         CombatStatePayload waiting = pending;
         if (waiting != null) {

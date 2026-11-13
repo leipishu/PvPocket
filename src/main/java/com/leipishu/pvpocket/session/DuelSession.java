@@ -21,26 +21,26 @@ public final class DuelSession {
     public long updatedAt;
     public String voidReason;
 
-    /** "modern" or "legacy", derived from c.mode. */
+    /** Match mode, {@code "modern"} or {@code "legacy"}, derived from c.mode. */
     public String mode = "modern";
     /**
      * How many rounds the whole series may run, 1..15. Derived from {@code a.maxRounds}.
      *
-     * <p>Was {@code bestOf}, a number that could only ever be odd because the win count was derived
-     * from it ({@code bestOf / 2 + 1}). The two are separate rules now, so this is just a cap: the
-     * series ends early when somebody reaches {@link #winsNeeded}, and ends on the cap when nobody
-     * does.</p>
+     * <p>A cap only: the series ends early when somebody reaches {@link #winsNeeded}, and ends on
+     * the cap when nobody does.
      */
     public int maxRounds = 1;
-    /** Round wins needed to take the series, 1..{@link #maxRounds}. Derived from {@code a.winsNeeded}. */
+    /**
+     * Round wins needed to take the series, 1..{@link #maxRounds}. Derived from
+     * {@code a.winsNeeded}.
+     */
     public int winsNeeded = 1;
-    /** 1-based index of the round currently being played or just played. */
+    /** Index of the round currently being played or just played, 1-based. */
     public int round;
 
     /**
      * Encoded rule set plus its fingerprint. Both are written to disk and to the journal, so a
-     * disputed match can be checked against the exact rules that ran rather than the rules the
-     * proposer remembers proposing.
+     * disputed match can be checked against the rules that ran.
      */
     public String rules;
     public String rulesDigest;
@@ -48,10 +48,8 @@ public final class DuelSession {
     /**
      * Decoded form of {@link #rules}, rebuilt whenever the encoded string changes.
      *
-     * <p>Not persisted and not a second source of truth: it is keyed on the string itself, so a
-     * caller that assigns {@code rules} directly (which several do) cannot leave a stale decode
-     * behind. The cache exists because the rule questions are asked from hot paths — the hunger
-     * and regeneration checks run once per player per tick.</p>
+     * <p>Not persisted. The cache is keyed on the string itself, so assigning {@code rules}
+     * directly cannot leave a stale decode behind. The rule questions run on hot paths.
      */
     private transient String rulebookSource;
     private transient Rulebook rulebook;
@@ -64,16 +62,14 @@ public final class DuelSession {
         }
         return rulebook;
     }
-    /** Bumped on every accepted edit, so "you agreed to v1, this is v3" is visible to both sides. */
+    /** Bumped on every accepted edit, so both sides can tell which revision they agreed to. */
     public int rulesRevision;
     /**
      * Bumped every time somebody changes their loadout between rounds; see
      * {@code Participant#acceptedLoadoutRevision}.
      *
-     * <p>Deliberately not the same counter as {@link #rulesRevision}. The rules are frozen once the
-     * series starts — {@code d.allowSwapBetweenRounds} is about the loadout alone, and a single
-     * counter would make a loadout change look like a re-negotiation of the rule set, which is the
-     * one thing a mid-series change must not be able to do.</p>
+     * <p>Separate from {@link #rulesRevision}: the rules are frozen once the series starts, and
+     * {@code d.allowSwapBetweenRounds} covers the loadout alone.
      */
     public int loadoutRevision;
     /** Uuid of the player who authored the current revision. */
@@ -86,22 +82,19 @@ public final class DuelSession {
     /**
      * How many sides this series has, derived from the roster when the match starts.
      *
-     * <p>Stored rather than recomputed because the rule set is frozen at start but the session record
-     * outlives it: the journal, the restore path and the result announcement all need to know how
-     * many sides there were, and a roster that was edited mid-negotiation must not be able to
-     * retroactively change the shape of a match that already ran.</p>
+     * <p>Stored rather than recomputed, so a roster edited mid-negotiation cannot change the shape
+     * of a match that already ran.
      *
-     * <p>This is the number of <em>cards</em> the proposer put on the table, including any left
-     * empty. A side with nobody on it does not play — see {@link #playingTeams()}.</p>
+     * <p>This is the number of cards the proposer put on the table, including any left empty. A
+     * side with nobody on it does not play; see {@link #playingTeams()}.
      */
     public int teamCount = 2;
 
     /**
      * Rounds won, keyed by team index as a string ("0".."3").
      *
-     * <p>Team-scoped rather than player-scoped: a 2v2 is won by a side, and giving each member a
-     * personal win count would let the scoreboard show 3:2 in a three-round series. The map is keyed
-     * by string because that is what Gson round-trips without a custom adapter.</p>
+     * <p>Team-scoped, so a 2v2 is won by a side rather than by each member. The key is a string
+     * because that is what Gson round-trips without a custom adapter.
      */
     public Map<String, Integer> teamScore = new LinkedHashMap<>();
 
@@ -110,18 +103,16 @@ public final class DuelSession {
     /**
      * One entry per settled round, appended by {@code settle}.
      *
-     * <p>Persisted with the session because the match record is written at the end of the series: a
-     * crash between the last round and {@code finishSeries} would otherwise leave a match whose
-     * score exists and whose round detail does not. The list is capped by {@link #maxRounds}, so it
-     * cannot grow without bound.</p>
+     * <p>Persisted with the session because the match record is written at the end of the series.
+     * Capped by {@link #maxRounds}.
      */
     public List<RoundLog> roundLog = new ArrayList<>();
 
-    /** The outcome of one round. Plain fields, like everything else that round-trips through Gson. */
+    /** The outcome of one round. Plain fields, so it round-trips through Gson. */
     public static final class RoundLog {
         /** Side that took the round, or {@code -1} for a round nobody won. */
         public int winner;
-        /** {@code DEATH}, {@code BOUNDARY}, {@code SURRENDER}, {@code TIMEOUT}, ... */
+        /** One of {@code DEATH}, {@code BOUNDARY}, {@code SURRENDER}, {@code TIMEOUT}. */
         public String reason;
         /** Length of the round in milliseconds. */
         public long ms;
@@ -138,8 +129,7 @@ public final class DuelSession {
 
     /**
      * Set when a round outcome is decided but cannot be applied yet. Death is the main case: the
-     * player is on the death screen and cannot be teleported, so the settle is deferred until
-     * they respawn.
+     * player is on the death screen and cannot be teleported, so the settle waits for the respawn.
      */
     public String pendingWinner;
     public String pendingReason;
@@ -147,19 +137,15 @@ public final class DuelSession {
     /**
      * The side that won the decided-but-not-applied round, or {@code -1}.
      *
-     * <p>Separate from {@link #pendingWinner} because the winner is a side now: a 2v2 is won by two
-     * players, and storing one of their uuids would make the result depend on which of them happened
-     * to land the last hit. {@code pendingWinner} is kept as "the participant whose respawn this
-     * settle is waiting for", which is a different question.</p>
+     * <p>{@link #pendingWinner} holds the participant whose respawn the settle waits for, which is
+     * a different question from which side won.
      */
     public int pendingWinnerTeam = -1;
 
     /**
      * Why the series ended, when that reason is not "somebody reached the win count".
      *
-     * <p>{@code "SURRENDER"} and {@code "CUT"} are the two that need saying out loud: both can end a
-     * series with the winner <em>behind</em> on rounds, and a bare "Dev1 获胜（0:1）" reads like a bug
-     * unless the sentence also says the opponent quit.</p>
+     * <p>{@code "SURRENDER"} and {@code "CUT"} can end a series with the winner behind on rounds.
      */
     public String seriesEndReason;
 
@@ -175,9 +161,8 @@ public final class DuelSession {
     /**
      * Everybody on a different side than {@code uuid}, in join order.
      *
-     * <p>There is no {@code opponentOf} returning one player. That method existed while a match had
-     * exactly two sides; with three or four there is no such person, and every caller that wanted
-     * "the other side" wants the whole of it — a chat line, a panel subtitle, a HUD column.</p>
+     * <p>Declined invites are excluded. There is no single-opponent variant, since a match can have
+     * three or four sides.
      */
     public List<Participant> opponentsOf(String uuid) {
         Participant me = participant(uuid);
@@ -202,11 +187,10 @@ public final class DuelSession {
     }
 
     /**
-     * Members of a side who are actually in the match — declined invites excluded.
+     * Members of a side who are actually in the match; declined invites excluded.
      *
-     * <p>Two lists rather than one because a rejection is not a removal. The declined player stays
-     * on the record so the journal can say who said no and the panel can grey them out, but every
-     * question that means "who is playing" has to ask this one instead.</p>
+     * <p>A rejection is not a removal: the declined player stays on the record, but every question
+     * that means "who is playing" has to use this list.
      */
     public List<Participant> activeMembers(int team) {
         List<Participant> out = new ArrayList<>();
@@ -221,10 +205,8 @@ public final class DuelSession {
     /**
      * Sides with at least one player left, in card order.
      *
-     * <p>An empty card is not an error and not a side: the proposer is allowed to put four cards on
-     * the table and only fill two, and the two that were filled are the match. This is the list that
-     * decides whether a roster can start at all — fewer than two entries and there is nobody to
-     * fight.</p>
+     * <p>An empty card is not a side: the proposer may put four cards on the table and fill two.
+     * Fewer than two entries means there is nobody to fight.
      */
     public List<Integer> playingTeams() {
         List<Integer> out = new ArrayList<>();
@@ -247,9 +229,8 @@ public final class DuelSession {
     /**
      * Teams that still have somebody standing this round.
      *
-     * <p>Read from {@link Participant#eliminated} rather than from online-ness: a disconnected player
-     * is not necessarily out (they may reconnect during the grace period), whereas an eliminated one
-     * is out for the round by decision.</p>
+     * <p>Read from {@link Participant#eliminated} rather than from online-ness: a disconnected
+     * player may reconnect during the grace period.
      */
     public List<Integer> survivingTeams() {
         List<Integer> out = new ArrayList<>();

@@ -7,36 +7,21 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * What a spectator's screen needs to draw the body they are riding in.
+ * Server to client: what a spectator's screen needs to draw the body they are riding in.
  *
- * <p>Attaching the camera with {@code setCameraEntity} gives the first-person view for free — the
- * world, the held item, the swing animation, the damage flash are all rendered from the target
- * already. What it does <em>not</em> give is the HUD: the hotbar belongs to the spectator, and a
- * spectator is in {@link net.minecraft.world.level.GameType#SPECTATOR}, where vanilla draws no hotbar at
- * all. So the one thing that has to travel over the wire is the target's hotbar, plus the two
- * numbers a viewer wants while watching a fight: health and armour.</p>
+ * <p>Attaching the camera with {@code setCameraEntity} gives the first-person view already, but not
+ * the HUD: a spectator is in {@link net.minecraft.world.level.GameType#SPECTATOR}, where vanilla
+ * draws no hotbar. The wire carries the target's hotbar plus its health and armour.
  *
- * <p><b>Encoding.</b> Nine slots as {@code id,count} separated by {@code ;}, empty for an empty
- * slot. Item ids rather than NBT: the client only needs to draw an icon and a count, and sending
- * full stacks nine times a second to every spectator is a lot of bytes for a glint. A malformed
- * entry is skipped rather than thrown on, for the same reason the match list tolerates bad rows —
- * a HUD is not worth a disconnect.</p>
- *
- * <p>The vitals are a nested record rather than two more fields because {@code PacketCodec.tuple}
- * stops at six components, and the alternative — flattening health and armour into a string — would
- * make the one thing on this payload that is genuinely numeric the one thing that has to be parsed.</p>
- *
- * @param active   false means "stop drawing the possessed HUD"; every other field is then ignored
- * @param targetId entity id of the body being ridden, or -1 when detached
- * @param name     display name of that body, so the HUD can label itself
- * @param selected hotbar slot 0-8 that the target currently has selected
- * @param slots    the nine hotbar slots, {@code id,count} joined by {@code ;}
- * @param vitals   health and armour points of that body
+ * <p>Nine slots are encoded as {@code id,count} separated by {@code ;}, empty for an empty slot; a
+ * malformed entry is skipped rather than thrown on. {@code active = false} means stop drawing and
+ * every other field is ignored, {@code targetId} is -1 when detached, {@code selected} is the
+ * hotbar slot 0-8, and {@code name} labels the HUD.
  */
 public record PossessPayload(boolean active, int targetId, String name, int selected,
                              String slots, Vitals vitals) implements CustomPacketPayload {
 
-    /** The two numbers that change without the hotbar changing, kept together so they share a codec. */
+    /** Health and armour of the possessed body, kept together so they share a codec. */
     public record Vitals(float health, int armor) {
 
         public static final StreamCodec<RegistryFriendlyByteBuf, Vitals> CODEC = StreamCodec.composite(

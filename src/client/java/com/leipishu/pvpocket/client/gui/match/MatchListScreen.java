@@ -20,15 +20,12 @@ import java.util.List;
 /**
  * The {@code /pvpocket list} panel: every duel currently being fought, with a way in.
  *
- * <p>Rows are drawn by hand rather than built from a scroll pane of row widgets, and that is a
- * deliberate limit rather than a shortcut: the panel shows at most {@link #MAX_ROWS} matches, and a
- * server running more than six simultaneous duels is a server that needs a different UI, not a
- * scrollbar. Past the cap the panel says how many it is not showing and points at
- * {@code /pvpocket spectate <id>}, which is the escape hatch for the one operator who needs it.</p>
+ * <p>Rows are drawn by hand rather than built from a scroll pane of row widgets. The panel shows at
+ * most {@link #MAX_ROWS} matches; past the cap it says how many it is not showing and points at
+ * {@code /pvpocket spectate <id>}.
  *
- * <p>The buttons are real widgets in the screen's root list, positioned to sit on their row. That
- * keeps focus traversal, hover, tooltips and keyboard activation working exactly as they do in the
- * rule panel — the parts of a GUI that are easy to get subtly wrong are the parts this reuses.</p>
+ * <p>The buttons are real widgets in the screen's root list, positioned on their row, so focus
+ * traversal, hover, tooltips and keyboard activation work as they do in the rule panel.
  */
 public class MatchListScreen extends PvScreen {
 
@@ -45,18 +42,16 @@ public class MatchListScreen extends PvScreen {
      * Least width the map name keeps before the row drops what qualifies it.
      *
      * <p>48px is "Colosseum" at the legibility floor. The stage chip and the round number are
-     * measured against it, not the other way round — see the right-to-left budget in the row
-     * renderer.</p>
+     * measured against it.
      */
     private static final int MIN_MAP_ROOM = 48;
 
     /**
      * One row of the list, parsed from the payload's flat encoding.
      *
-     * <p>{@code map} is a map id and {@code stage} is a session stage name — both identifiers rather
-     * than text, because the server that produced them has no language. {@link #mapLabel()} and
-     * {@link #stageLabel()} are the reader's-language versions, resolved on the client at draw
-     * time.</p>
+     * <p>{@code map} is a map id and {@code stage} a session stage name, both identifiers rather
+     * than text, since the server has no language. {@link #mapLabel()} and {@link #stageLabel()}
+     * resolve them on the client.
      */
     public record Entry(String id, String map, String stage, int round, int maxRounds,
                         String score, int flags, int spectators, List<String> players) {
@@ -85,10 +80,8 @@ public class MatchListScreen extends PvScreen {
         }
 
         /**
-         * The stage's name in the reader's language.
-         *
-         * <p>Falls back to the raw stage constant, which is what the server sent: a client built
-         * against a newer session lifecycle shows {@code ROUND_SETTLED} rather than a blank chip.</p>
+         * Returns the stage's name in the reader's language, falling back to the raw stage
+         * constant, which is what the server sent.
          */
         public String stageLabel() {
             String key = "pvpocket.stage." + stage.toLowerCase(java.util.Locale.ROOT);
@@ -99,10 +92,8 @@ public class MatchListScreen extends PvScreen {
         /**
          * Parses the payload, dropping malformed rows.
          *
-         * <p>A row that does not split into the expected number of fields is a version skew — the
-         * server is running a build that knows about a field this client does not. Dropping the row
-         * is the answer that keeps the rest of the panel usable; throwing would turn a cosmetic
-         * mismatch into a crash on a screen the player cannot close.</p>
+         * <p>A row that does not split into nine fields is a version skew. Dropping it keeps the
+         * rest of the panel usable; throwing would turn a cosmetic mismatch into a crash.
          */
         public static List<Entry> parse(String encoded) {
             List<Entry> out = new ArrayList<>();
@@ -138,7 +129,7 @@ public class MatchListScreen extends PvScreen {
     private int rowTop;
     /** Rows actually drawn: the design cap and the height of the canvas, whichever is smaller. */
     private int shownRows;
-    /** The footer's 关闭 button, so the hint beside it knows where it has to stop. */
+    /** The footer's close button, so the hint beside it knows where it has to stop. */
     private PvButton closeButton;
 
     public MatchListScreen(MatchListPayload payload) {
@@ -153,9 +144,7 @@ public class MatchListScreen extends PvScreen {
     protected void init() {
         roots.clear();
         // Rows start at the top and the footer is pinned to the bottom, so how many fit is a
-        // subtraction rather than a constant: on a 320x180 canvas the panel is 160px tall, and three
-        // 38px rows already reach past the footer rule and under the close button. MAX_ROWS is the
-        // design cap; this is the physical one.
+        // subtraction: on a 320x180 canvas the panel is 160px tall.
         int fit = Math.max(1, (height - 20 - HEADER_H - FOOTER_H) / ROW_H);
         shownRows = Math.min(entries.size(), Math.min(MAX_ROWS, fit));
         int extra = entries.size() > shownRows ? 14 : 0;
@@ -194,9 +183,8 @@ public class MatchListScreen extends PvScreen {
             }
         }
         button.size(BTN_W, BTN_H);
-        // Inset from the card's edge, not flush with it: the card border is at
-        // panelX + panelW - 12, so a button ending there overlaps the border and reads as if it is
-        // falling out of the row.
+        // Inset from the card's edge: a button ending at the border reads as if it is falling out
+        // of the row.
         button.x = panelX + panelW - 20 - BTN_W;
         button.y = rowTop + index * ROW_H + (ROW_H - BTN_H) / 2 - 2;
         roots.add(button);
@@ -230,8 +218,7 @@ public class MatchListScreen extends PvScreen {
 
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.match.title"), panelX + 16, panelY + 11,
                 PvTheme.TEXT);
-        // The count shares the title row now that the band is one line: it is a modifier of the
-        // title ("duels: 3"), not a second subject, and the rule under it went with the second row.
+        // The count shares the title row: it modifies the title rather than being a second subject.
         PvDraw.textRight(ctx, tr, entries.isEmpty()
                         ? PvLang.str("pvpocket.gui.match.count.none")
                         : PvLang.str("pvpocket.gui.match.count.some", entries.size()),
@@ -251,8 +238,8 @@ public class MatchListScreen extends PvScreen {
                     panelX + panelW / 2, rowTop + shownRows * ROW_H + 2, PvTheme.TEXT_MUTED);
         }
         PvDraw.hLine(ctx, panelX + 12, panelY + panelH - FOOTER_H, panelW - 24, PvTheme.DIVIDER);
-        // Fitted against the 关闭 button rather than left to run: the hint is a sentence in both
-        // languages and it used to end under the button on a 320x180 canvas.
+        // Fitted against the close button rather than left to run: the hint is a sentence in both
+        // languages and would otherwise end under the button on a 320x180 canvas.
         PvDraw.text(ctx, tr,
                 PvDraw.fit(tr, PvLang.str("pvpocket.gui.match.keys"),
                         (closeButton == null ? panelX + panelW - 68 : closeButton.x) - 8
@@ -282,17 +269,13 @@ public class MatchListScreen extends PvScreen {
         }
 
         // Two lines of 8px with 5px leading occupy 21px of the 34px card, so the block starts at
-        // y+7 and ends at y+28 — centred, with the same 3px above and below. Every element on line
-        // one shares that baseline, including the stage chip, which is why the chip is 12px tall at
-        // y+5 rather than 13px at y+5: half a pixel of misalignment is visible on a label this small.
+        // y+7 and ends at y+28. Every element on line one shares that baseline.
         int textX = x + 10;
         int line1 = y + 7;
         int line2 = y + 20;
 
         // The right-hand block is measured first, because the left block has to stop before it. On
-        // a 320x180 canvas the card is 178px wide and "Colosseum" + "In progress" + "Round 2/7" is
-        // 180px on its own — without a budget the round number was drawn straight through the score.
-        // Right to left: the score, then the watcher count, then whatever is left for the map name.
+        // a 320x180 canvas the card is 178px wide and that block is 180px on its own.
         int anchor = panelX + panelW - 20 - BTN_W - 12;
         String score = entry.score();
         int scoreW = tr.width(score);
@@ -309,11 +292,8 @@ public class MatchListScreen extends PvScreen {
                 : null;
         int room = leftLimit - textX;
         int roundW = round == null ? 0 : tr.width(round) + 6;
-        // Right-to-left priority: the round number goes first (it qualifies the stage), then the
-        // stage chip itself (it qualifies the map), and the map name keeps a floor-sized minimum
-        // throughout. Squeezing all three into a 178px card truncated the map to two letters and
-        // still ran the round through the score; on the narrowest card the answer is to say where
-        // and who, and to leave the state to the accent bar on the leading edge.
+        // Right to left: the round number goes first, then the stage chip, and the map name keeps a
+        // floor-sized minimum throughout.
         if (round != null && room - chipW - 8 - roundW < MIN_MAP_ROOM) {
             round = null;
             roundW = 0;
@@ -322,16 +302,13 @@ public class MatchListScreen extends PvScreen {
         if (!stageChip) {
             chipW = 0;
         }
-        // Shrunk rather than cut: the map name is the row's subject, and a 178px card in English is
-        // exactly where "arena_colosseum" became "arena_co…". The width the run actually covers is
-        // what the stage chip is anchored to, so the two cannot drift apart.
+        // Shrunk rather than cut: the map name is the row's subject, and the width the run actually
+        // covers is what the stage chip is anchored to.
         int mapW = PvDraw.textFitLeft(ctx, tr, entry.mapLabel(), textX, line1,
                 Math.max(MIN_MAP_ROOM, room - chipW - 8 - roundW), PvTheme.TEXT);
 
-        // Stage chip, right after the map name so the eye reads "where, then what state". The live
-        // colour is keyed on the stage constant, not on the rendered word: "in progress" is a
-        // different string in every language and comparing against it broke the moment a second one
-        // existed.
+        // Stage chip, right after the map name. The live colour is keyed on the stage constant, not
+        // on the rendered word, which differs in every language.
         int stageColor = "ROUND_ACTIVE".equals(entry.stage()) ? PvTheme.LIVE : PvTheme.ACCENT;
         int chipX = textX + mapW + 8;
         if (stageChip) {
@@ -343,8 +320,7 @@ public class MatchListScreen extends PvScreen {
                 PvTheme.TEXT_DIM);
 
         // Score and spectator count right-aligned against the button, on one line centred in the
-        // card. They used to sit on the two text baselines on the left, which left the score in the
-        // top third of the row next to a button centred in it — the two anchors disagreed.
+        // card, so both anchors agree.
         int scoreY = y + (h - 8) / 2 + 1;
         PvDraw.textRight(ctx, tr, score, anchor, scoreY, PvTheme.TEXT);
         if (watchers != null) {
@@ -360,8 +336,8 @@ public class MatchListScreen extends PvScreen {
 
     private void join(String sessionId) {
         send(SpectateRequestPayload.join(sessionId));
-        // Closed immediately: the server is about to switch this player into spectator mode and
-        // teleport them, and a modal panel over that transition would be the last thing they see.
+        // Closed immediately: the server switches this player into spectator mode and teleports
+        // them, and a modal panel over that transition would be the last thing they see.
         Minecraft.getInstance().setScreen(null);
     }
 

@@ -1,14 +1,6 @@
 param(
-    # Captures a dev client by asking the window to render itself, instead of copying the screen.
-    #
-    # Why: CopyFromScreen returns whatever is actually on the desktop at those coordinates, so it
-    # silently produces a picture of the wallpaper whenever the game window is behind something or
-    # has lost focus. A paused Minecraft stops drawing new frames, which makes that failure look
-    # like "the mod froze" rather than "the capture missed".
-    #
-    # PrintWindow with PW_RENDERFULLCONTENT (2) asks the window to paint into a bitmap. For a
-    # DWM-composited GLFW window this returns the last composited frame even when the window is
-    # occluded, which is exactly what a screenshot of a paused client needs.
+    # Captures a dev client with PrintWindow(PW_RENDERFULLCONTENT) instead of CopyFromScreen, which
+    # saves whatever is on the desktop when the window is occluded or has lost focus.
     [string]$Username = "Dev1",
     [string]$Out = "",
     [int]$SettleMs = 400
@@ -29,8 +21,7 @@ public class Pw {
 "@
 
 # Find the client by --username, not by window title: all four Fabric clients share a title.
-# The argfile expansion that makes this work on NeoForge lives in client-proc.ps1, shared with the
-# click / key / type helpers so the six of them cannot drift apart again.
+# The @argfile expansion that makes this work on NeoForge lives in client-proc.ps1.
 . "$PSScriptRoot/client-proc.ps1"
 
 $proc = Find-ClientProcess $Username
@@ -57,6 +48,5 @@ $g.Dispose()
 $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 
-# A window that refuses to paint returns an all-black bitmap; say so rather than writing a picture
-# that looks like a crash.
+# A window that refuses to paint returns an all-black bitmap.
 Write-Output "$Username PrintWindow=$ok size=${w}x${h} -> $Out"

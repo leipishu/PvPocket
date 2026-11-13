@@ -7,10 +7,9 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 /**
  * Reads the inventory panel's origin.
  *
- * <p>{@code HandledScreen} keeps {@code x} and {@code y} protected with no getters, and they are the
- * only way to place a button beside the panel rather than at a fixed screen coordinate. An accessor
- * is the smallest possible coupling: no behaviour changes, and if the field is ever renamed the
- * build fails instead of the button landing somewhere arbitrary.</p>
+ * <p>{@code AbstractContainerScreen} keeps {@code leftPos} and {@code topPos} protected with no
+ * getters. They are the only way to place a button beside the panel instead of at a fixed screen
+ * coordinate.
  */
 @Mixin(AbstractContainerScreen.class)
 public interface HandledScreenAccessor {

@@ -1,15 +1,10 @@
 param(
-    # Brings a dev client's window back on screen and reports what the window manager says about it.
-    #
-    # Why this exists: a client that has been minimised by another script's -HideOthers, or that
-    # ended up behind a maximised editor, still reports a plausible GetWindowRect -- so a capture
-    # "succeeds" and writes a picture of the desktop wallpaper. Nothing in that failure names the
-    # window, which is why this prints visibility and iconic state instead of just restoring.
+    # Restores a dev client's window and reports what the window manager says about it. A minimised
+    # window still reports a plausible rect, so a capture of it saves the desktop instead.
     [string]$Username = "Dev1",
 
-    # Optional cascade position. Several dev clients all open at the same default spot, so without
-    # this only the last one raised is actually readable. Pass -X/-Y to spread them out; the size is
-    # never touched (a geometry change on a live GLFW client has taken the client down before).
+    # Optional cascade position: all dev clients open at the same spot. Pass -X/-Y to spread them
+    # out. The size is never touched; a geometry change has taken a live GLFW client down.
     [int]$X = -1,
     [int]$Y = -1
 )

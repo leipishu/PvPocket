@@ -13,22 +13,18 @@ import java.util.UUID;
 /**
  * Each player's saved loadout, outside of any duel.
  *
- * <p>Without this there is nowhere to stand: the editor was only reachable from a duel's rule panel,
- * so a player who wanted to decide what to bring <em>before</em> challenging anyone had to first
- * challenge someone and then edit — which is backwards, and also means the challenge carries a
- * loadout nobody chose.</p>
+ * <p>The editor is reachable without a duel, so a player can decide what to bring beforehand.
  *
- * <p>One file per player rather than one map file. A shared map would need read-modify-write on every
- * save, and two players saving in the same tick would lose one of the two. Per-player files are
- * independent, so {@link PvPocketStorage#writeAtomically} is enough and no locking is needed.</p>
+ * <p>One file per player rather than one map file: per-player files are independent, so
+ * {@link PvPocketStorage#writeAtomically} is enough and no locking is needed.
  *
- * <p>This is a convenience, not a source of truth: the loadout that actually gets granted is the one
- * stored on the {@code Participant} and journalled as {@code LOADOUT_APPLIED}. Editing this book mid
- * -duel cannot change a round that is already running.</p>
+ * <p>This is a convenience, not a source of truth. The granted loadout is the one stored on the
+ * {@code Participant} and journalled as {@code LOADOUT_APPLIED}, so editing this book mid-duel
+ * cannot change a running round.
  */
 public final class LoadoutBook {
 
-    /** On-disk shape. Kept deliberately flat so an old file stays readable after a field is added. */
+    /** On-disk shape, kept flat so an added field leaves old files readable. */
     private static final class Saved {
         String encoded;
         String savedAt;
@@ -47,9 +43,7 @@ public final class LoadoutBook {
     /**
      * The player's saved loadout, or the default preset if they have never saved one.
      *
-     * <p>Returns a copy every time. Callers mutate what they get back (the editor does, and so does
-     * slot assignment); handing out the cached instance would let one caller's edit leak into the
-     * next caller's view before it was ever saved.</p>
+     * <p>Returns a copy every time, because callers mutate what they get back.
      */
     public Loadout get(UUID player) {
         Loadout cached = cache.get(player);
@@ -77,9 +71,7 @@ public final class LoadoutBook {
         try {
             storage.writeJson(file(player), saved);
         } catch (IOException e) {
-            // A failed write is not fatal: the in-memory copy still applies to the next duel this
-            // session, and the player is told when they next look. Losing a cosmetic preference is
-            // not worth aborting a duel over.
+            // A failed write is not fatal: the in-memory copy still applies to the next duel.
             PvPocket.LOGGER.error("Cannot save loadout for {}", player, e);
         }
     }
@@ -109,8 +101,8 @@ public final class LoadoutBook {
                 return null;
             }
             Loadout loadout = Loadout.decode(saved.encoded);
-            // A saved loadout that no longer validates (catalog shrank between versions) is dropped
-            // rather than partially honoured: granting half of it would be worse than the preset.
+            // A saved loadout that fails validation is dropped rather than partially honoured,
+            // because granting half of it is worse than the preset.
             return loadout.validate().isEmpty() ? loadout : null;
         } catch (Exception e) {
             PvPocket.LOGGER.warn("Discarding unreadable loadout file {}", path, e);

@@ -13,12 +13,11 @@ import java.util.List;
 /**
  * A complete set of items one side enters the round with.
  *
- * <p>The loadout is part of what both players agree to, so it is encoded to a single string and
- * fingerprinted exactly like the rule set: a disputed match can be replayed against the loadout that
- * actually ran, not the one somebody remembers proposing.</p>
+ * <p>Encoded to a single string and fingerprinted like the rule set, so a disputed match can be
+ * replayed against the loadout that ran.
  *
- * <p>Nothing here touches the world. Validation is pure data checking, which is what makes it cheap
- * enough to run on every keystroke in the editor and again on the server when the loadout arrives.</p>
+ * <p>Nothing here touches the world. Validation is pure data checking, cheap enough to run on every
+ * keystroke and again on the server when the loadout arrives.
  */
 public final class Loadout {
 
@@ -30,9 +29,8 @@ public final class Loadout {
      * A stable identifier, not a display name.
      *
      * <p>It is encoded into the loadout string and therefore into its fingerprint, so it must not
-     * change when the client's language does — a loadout saved in Chinese and re-read by an English
-     * client would otherwise fingerprint differently for no reason at all. The presets are named by
-     * id here and translated at the point of display by {@link #displayName()}.</p>
+     * change with the client's language. Presets are named by id here and translated by
+     * {@link #displayName()}.
      */
     public String name = "default";
     public final List<LoadoutEntry> entries = new ArrayList<>();
@@ -51,9 +49,8 @@ public final class Loadout {
     /**
      * The preset a player who never opens the editor gets.
      *
-     * <p>Deliberately plain: an iron sword, a shield, food, and a bow with arrows. It is meant to be
-     * playable and obviously editable, not optimal — a preset that already looks tuned makes players
-     * assume the numbers are fixed.</p>
+     * <p>An iron sword, a shield, food, and a bow with arrows: playable and obviously editable
+     * rather than tuned.
      */
     public static Loadout defaultDuel() {
         Loadout loadout = new Loadout();
@@ -118,12 +115,10 @@ public final class Loadout {
     }
 
     /**
-     * How many rows carry 禁止丢弃.
+     * How many rows carry the drop lock.
      *
-     * <p>Journalled next to {@code LOADOUT_APPLIED}. The digest alone cannot answer "did my switch
-     * reach the round": it changes for any edit, so it says the loadout is a different document
-     * without saying whether the lock came with it. A number that goes 6 → 5 the moment the switch is
-     * turned off makes that answer readable at a glance.</p>
+     * <p>Journalled next to {@code LOADOUT_APPLIED}. The digest changes for any edit, so it cannot
+     * say whether the lock reached the round; this count can.
      */
     public int lockedCount() {
         int count = 0;
@@ -138,19 +133,16 @@ public final class Loadout {
     /**
      * The same loadout with every shield taken out.
      *
-     * <p>1.8 has no shields, and leaving one in the offhand is not cosmetic: vanilla raises it on
-     * right-click, which both blocks damage outright and eats the right-click that the 1.8 sword
-     * block needs. Stripping happens at grant time rather than at edit time so one saved loadout can
-     * serve a modern round and a legacy one without being rewritten behind the player's back.</p>
+     * <p>1.8 has no shields, and a raised shield in the offhand blocks damage and eats the
+     * right-click that the 1.8 sword block needs. Stripping happens at grant time, so one saved
+     * loadout serves both a modern round and a legacy one.
      *
-     * <p>Returns a copy — the caller's loadout still describes what the player agreed to, which is
-     * what the fingerprint in the journal is taken over.</p>
+     * <p>Returns a copy; the caller's loadout still describes what the player agreed to.
      */
     public Loadout withoutShields() {
         Loadout copy = copy();
         copy.entries.removeIf(entry -> entry.kind == ItemKind.SHIELD);
-        // A row that arrived without a slot (a hand-edited string) is skipped by grant(), so the
-        // layout is re-derived after the removal rather than assumed complete.
+        // Rows without a slot are skipped by grant(), so the layout is re-derived after removal.
         copy.autoAssignSlots();
         return copy;
     }
@@ -162,8 +154,8 @@ public final class Loadout {
     /**
      * The name to show a player.
      *
-     * <p>The two presets are stored as ids and translated here; anything else is a name that came
-     * from disk, which is data rather than a string this mod owns, so it is shown as-is.</p>
+     * <p>The two presets are stored as ids and translated here; any other name came from disk and
+     * is shown as-is.
      */
     public Component displayName() {
         return switch (name) {
@@ -182,9 +174,8 @@ public final class Loadout {
     /**
      * Fills in a slot for every entry that does not have one.
      *
-     * <p>Armour goes to the armour slots, a shield to the offhand, everything else to the hotbar and
-     * then the main inventory. Entries that already carry a slot keep it — the player's arrangement is
-     * part of the loadout, and re-deriving it on every edit would move items under their cursor.</p>
+     * <p>Armour goes to the armour slots, a shield to the offhand, everything else to the hotbar
+     * and then the main inventory. Entries that already carry a slot keep it.
      */
     public void autoAssignSlots() {
         boolean[] taken = new boolean[41];
@@ -230,14 +221,13 @@ public final class Loadout {
     // ------------------------------------------------------------------ validation
 
     /**
-     * Returns one human-readable problem per offending row, in row order.
+     * Returns one problem per offending row, in row order.
      *
-     * <p>Empty means "this loadout can be granted". The server runs this again on arrival: the client
-     * runs it to keep the save button honest, but a client is not a source of truth.</p>
+     * <p>Empty means the loadout can be granted. The server runs this again on arrival; the client
+     * runs it to keep the save button honest.
      *
-     * <p>Returns {@link Text} rather than strings because the same list is produced on both sides:
-     * the client draws it in the footer, and the server quotes the first entry back in a chat line.
-     * A string built on the server would be in the server's language, which is nobody's.</p>
+     * <p>Returns components because both sides produce the list: the client draws it in the footer
+     * and the server quotes the first entry back in a chat line.
      */
     public List<Component> validate() {
         List<Component> problems = new ArrayList<>();
@@ -266,14 +256,8 @@ public final class Loadout {
 
     private static List<Component> validateEntry(LoadoutEntry entry, MutableComponent row) {
         List<Component> problems = new ArrayList<>();
-        // Every kind, not only the materialised ones. A mace on 1.20.1 and a wind charge on 1.20.1
-        // resolve to an empty stack exactly as quietly as a copper spear on 1.21.1, and the old
-        // materialised-only guard let both through: the row validated clean and then granted nothing.
-        //
-        // Two different sentences, because they are two different mistakes. "This version has no
-        // such item" is a preset that came from a newer build and can only be fixed by removing the
-        // row; "this material has no such item" is a row on a material this build cannot build and
-        // can be fixed by picking another tier.
+        // Every kind is checked, since a kind this build cannot materialise resolves to an empty
+        // stack. Two messages: the item is missing from this version, or this material has none.
         if (!entry.kind.resolvesByVariant()) {
             if (!entry.kind.available()) {
                 problems.add(PvLang.t("pvpocket.loadout.problem.item_missing", row));
@@ -406,11 +390,10 @@ public final class Loadout {
     }
 
     /**
-     * Whether any row that produced {@code fingerprint} still asks for 禁止丢弃.
+     * Whether any row that produced {@code fingerprint} still carries the drop lock.
      *
      * <p>Read by {@link LoadoutLock#restamp} after a save. Two rows can grant the same item with
-     * different settings; taking the stricter answer means a stack is only unlocked when every row
-     * that could have produced it says it may be dropped.</p>
+     * different settings, so a stack is unlocked only when every such row allows it.
      */
     public boolean locks(String fingerprint) {
         for (LoadoutEntry entry : entries) {

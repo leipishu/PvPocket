@@ -24,19 +24,14 @@ import java.util.function.Supplier;
 /**
  * The preset dialog, shared by the rule panel and the loadout editor.
  *
- * <p>One dialog for both kinds because the four verbs are the same in both: save what is on screen,
- * load one back, hand one to somebody, take one from somebody. Only the encoded string differs, and
- * that is a parameter. Two dialogs would have drifted the way two rule panels would have.</p>
+ * <p>One dialog for both kinds because the four verbs are the same: save what is on screen, load
+ * one back, share one, import one. Only the encoded string differs, and that is a parameter.
  *
- * <p>It sits on the screen's modal layer rather than inside the panel: the panel is already carrying
- * a tab strip, a scroll pane and a footer, and a preset list squeezed into what is left would have
- * to be scrolled inside a scroll. The scrim also answers "am I about to overwrite what I am editing",
- * which an inline panel cannot.</p>
+ * <p>It sits on the screen's modal layer: the panel already carries a tab strip, a scroll pane and
+ * a footer, and a preset list inside it would be a scroll inside a scroll.
  *
- * <p>All four verbs are local except the two that involve another player. Saving and loading touch
- * only {@link PresetStore}; publishing and importing go through the server, which holds the code for
- * five minutes and forgets it. That asymmetry is the point of the feature: the code is a courier,
- * the file is the library.</p>
+ * <p>Saving and loading touch only {@link PresetStore}; publishing and importing go through the
+ * server, which holds the code for five minutes.
  */
 public class PresetOverlay extends PvWidget {
 
@@ -110,8 +105,8 @@ public class PresetOverlay extends PvWidget {
     }
 
     /**
-     * Esc goes through the screen, not through {@link #dismiss()}, so the listener is dropped here
-     * too — otherwise a closed dialog keeps receiving the next one's answers.
+     * Drops the share listener when Esc closes the dialog through the screen, so a closed dialog
+     * does not receive the next one's answers.
      */
     @Override
     public void dismissed() {
@@ -152,7 +147,7 @@ public class PresetOverlay extends PvWidget {
         return Math.max(0, rows.size() - rowsVisible());
     }
 
-    /** Positions the five child widgets. Called every render because the card follows the viewport. */
+    /** Positions the five child widgets; the card follows the viewport. */
     private void layout() {
         int px = cardX();
         int py = cardY();
@@ -233,11 +228,9 @@ public class PresetOverlay extends PvWidget {
     }
 
     /**
-     * The server's answer.
+     * Handles the server's answer.
      *
-     * <p>On a publish the code goes straight to the clipboard as well as into the field: the whole
-     * point of the code is that it ends up somewhere else, and making the player select and copy it
-     * by hand would be a step whose only purpose is to prove the code exists.</p>
+     * <p>On a publish the code goes to the clipboard as well as into the field.
      */
     private void onShareResult(PresetShareResultPayload result) {
         switch (result.status()) {
@@ -286,8 +279,8 @@ public class PresetOverlay extends PvWidget {
         layout();
         Font tr = Minecraft.getInstance().font;
 
-        // Darker than the screen's own scrim: this dialog sits on top of a panel that is already
-        // dimmed, and equal darkness would leave the two reading as one surface.
+        // Darker than the screen's own scrim: this dialog sits on a panel that is already dimmed,
+        // and equal darkness would merge the two surfaces.
         ctx.fill(0, 0, width, height, PvTheme.alpha(0xA0000000, appearT));
 
         int px = cardX();
@@ -325,7 +318,7 @@ public class PresetOverlay extends PvWidget {
 
         PvDraw.hLine(ctx, px + 12, listBottom() + 2, pw - 24, PvTheme.DIVIDER);
 
-        // The two labels are drawn rather than being part of the field, so that an empty field still
+        // The two labels are drawn rather than being part of the field, so an empty field still
         // says what it wants; a placeholder alone disappears the moment the player types.
         PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.preset.name_label"),
                 px + 12, nameField.y + (nameField.height - 8) / 2 + 1, PvTheme.TEXT_DIM);

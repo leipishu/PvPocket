@@ -3,34 +3,12 @@ package com.leipishu.pvpocket.client.gui;
 /**
  * Analytic rasteriser for the panel's shapes.
  *
- * <p>Deliberately free of any Minecraft import: the whole thing is arithmetic over a pixel grid,
- * which is what lets {@link #main} self-check the coverage without launching a client.</p>
+ * <p>Free of any Minecraft import: the arithmetic runs over a pixel grid, so {@link #main} can
+ * self-check coverage without launching a client.
  *
- * <h2>Why a signed distance field</h2>
- *
- * <p>A rounded rectangle used to be anti-aliased by computing, for each corner row, how far the true
- * edge sits inside the bounding box and painting the column it lands in at partial alpha. That is a
- * one-dimensional measure: it knows where the edge crosses the row, and nothing about how much of
- * the pixel the curve actually covers vertically. At 45 degrees along the arc the two differ by up
- * to a quarter of a pixel of alpha, and at GUI scale 3 a quarter of a logical pixel is a visible
- * step in a 3x3 block — which is exactly the "pixel art" edge this class exists to remove.</p>
- *
- * <p>So coverage comes from the signed distance instead: {@code d} is negative inside, and a pixel
- * whose centre sits {@code d} away from the boundary is covered by {@code clamp(0.5 - d, 0, 1)}.
- * The 0.5 is the box filter of a one-pixel-wide sample: a pixel exactly on the edge is half in. This
- * is correct on a straight edge (where it reduces to the old horizontal fraction), on a diagonal,
- * and on an arc, with one formula.</p>
- *
- * <h2>Why the rows are still split</h2>
- *
- * <p>Coverage per pixel would be {@code w*h} evaluations and {@code w*h} draw calls. Only the
- * boundary needs that treatment, so each row is scanned from both ends until it reaches a pixel that
- * is fully inside, and the run between the two is emitted as a single span. The draw-call count is
- * therefore the same as the row-split version it replaces — roughly three per row — while the alpha
- * on the boundary pixels comes from the distance field rather than from a lookup on one axis.</p>
- *
- * <p>Interior pixels are never painted twice: the spans of a row are disjoint by construction, and
- * the boundary scan hands every pixel to exactly one of the three emitters.</p>
+ * <p>Coverage comes from a signed distance field: {@code d} is negative inside, and a pixel whose
+ * centre sits {@code d} from the boundary is covered by {@code clamp(0.5 - d, 0, 1)}. Each row is
+ * scanned from both ends and the fully covered run between them is emitted as one span.
  */
 public final class PvRaster {
 
@@ -38,8 +16,7 @@ public final class PvRaster {
      * Receives one horizontal run of one pixel row.
      *
      * <p>{@code argb} already carries the coverage, so the sink never has to know how the alpha was
-     * derived — which is what lets a two-colour panel edge be composited in the same pass as a flat
-     * fill.</p>
+     * derived.
      */
     public interface Sink {
         void span(int x0, int y, int x1, int argb);
@@ -54,10 +31,8 @@ public final class PvRaster {
     /**
      * A rectangle with independent corner radii, filled with one colour.
      *
-     * <p>Per-corner radii exist for one caller: the content well of a panel, whose top-left,
-     * top-right and bottom-left corners are square (they sit against the chrome) and whose
-     * bottom-right corner has to follow the panel's own radius. Expressing that as a shape is a
-     * good deal simpler than clipping one rectangle with another.</p>
+     * <p>Per-corner radii serve the content well of a panel: three corners are square and the
+     * bottom-right follows the panel's own radius.
      */
     public static void roundedRect(int x, int y, int w, int h,
                                    int rTL, int rTR, int rBR, int rBL,
@@ -115,16 +90,11 @@ public final class PvRaster {
     /**
      * A rounded rectangle filled with {@code fill} and outlined with {@code border}, in one pass.
      *
-     * <p>The outline is inset — it owns the outermost {@code thickness} pixels, exactly as the
-     * "draw the border, then draw the fill one pixel in" pair it replaces did. It is not centred on
-     * the boundary, because a centred one-pixel stroke only covers half of the outer row and reads
-     * as a lighter line than the panel next to it.</p>
+     * <p>The outline is inset: it owns the outermost {@code thickness} pixels. A centred one-pixel
+     * stroke covers only half of the outer row and reads as a lighter line.
      *
-     * <p>Compositing both colours per boundary pixel, instead of painting two shapes over each
-     * other, is what keeps the seam clean: the pixel reports the fraction of itself the border
-     * covers and mixes the two fills by that fraction, at the shape's own coverage as its alpha. Two
-     * stacked shapes would instead blend a feathered border edge into a feathered fill edge and put
-     * a 50%-alpha ring of the wrong colour along every straight edge.</p>
+     * <p>Each boundary pixel reports the fraction of itself the border covers and mixes the two
+     * fills by that fraction, at the shape's own coverage as its alpha.
      */
     public static void roundedPanel(int x, int y, int w, int h, int radius, int thickness,
                                     int border, int fill, Sink sink) {
@@ -148,21 +118,16 @@ public final class PvRaster {
             // A pixel is pure fill once its whole extent is more than the border's depth inside.
             double solid = -(t + 0.75D);
 
-            // The right edge is located first, by distance alone, so the flat middle span knows where
-            // it stops; the left pass then emits runs and stops at the first solid pixel, which is
-            // where that middle begins. Each edge pixel is therefore measured once, not twice.
+            // The right edge is located first, by distance alone, so the left pass knows where the
+            // flat middle begins. Each edge pixel is measured once.
             int rightStart = i1;
             while (rightStart > i0
                     && sd(rightStart - 0.5D + x - cx, j + 0.5D + y - cy, hw, hh, r, r, r, r) > solid) {
                 rightStart--;
             }
 
-            // Runs, not pixels. Along a straight edge every pixel of a row sits at the same distance,
-            // so they all come out the same colour: shading each one separately produced one fill
-            // call per pixel — 1,686 of them for a 380px panel row, against 66 for the same
-            // rectangle without a border — and a scrolling list of such panels spent more time
-            // emitting quads than drawing them. Only the corners, where the distance really does
-            // change from pixel to pixel, still emit one span each.
+            // Runs, not pixels: along a straight edge every pixel of a row has the same distance
+            // and colour, so a 380px row emits 66 spans instead of 1,686 one-pixel fills.
             int leftEnd = i0;
             int from = i0;
             int color = 0;
@@ -220,10 +185,9 @@ public final class PvRaster {
     /**
      * A border-only ring, {@code thickness} pixels deep, inset from the shape's own edge.
      *
-     * <p>Rasterised as a band rather than as "outer shape minus inner shape" because a fill with
-     * zero alpha draws nothing: the subtraction never happens, and the inner shape has to be carved
-     * out of the band arithmetically. Here that is just the distance test — a pixel belongs to the
-     * band when its extent overlaps {@code [-thickness, 0]} in distance.</p>
+     * <p>Rasterised as a band rather than as outer shape minus inner shape, because a fill with
+     * zero alpha draws nothing. A pixel belongs to the band when its extent overlaps
+     * {@code [-thickness, 0]} in distance.
      */
     public static void ring(int x, int y, int w, int h, int radius, int thickness,
                             int color, Sink sink) {
@@ -274,9 +238,8 @@ public final class PvRaster {
     /**
      * Signed distance to a box with per-corner radii, measured from the box's centre.
      *
-     * <p>The corner radius is picked by quadrant, which is the standard trick: each quadrant is a
-     * box rounded by its own radius, and the four agree along the axes, so the field stays
-     * continuous.</p>
+     * <p>The corner radius is picked by quadrant: each quadrant is a box rounded by its own radius,
+     * and the four agree along the axes.
      */
     private static double sd(double px, double py, double hw, double hh,
                              double tl, double tr, double br, double bl) {
@@ -297,9 +260,8 @@ public final class PvRaster {
     /**
      * Coverage of the inset band {@code [-t, 0]} by a pixel spanning {@code [d-0.5, d+0.5]}.
      *
-     * <p>Written as an interval overlap rather than as a distance ramp: a one-pixel stroke has to
-     * come out at full alpha on the row it owns, and {@code 0.5 - (|d| - t/2)} would put it at 50%
-     * instead.</p>
+     * <p>An interval overlap rather than a distance ramp, so a one-pixel stroke comes out at full
+     * alpha on the row it owns.
      */
     private static float band(double d, double t) {
         double lo = Math.max(d - 0.5D, -t);
@@ -310,12 +272,10 @@ public final class PvRaster {
     /**
      * Coverage of one pixel, from the distance at its centre.
      *
-     * <p>One sample rather than a 2x2 supersample, and the difference is not laziness: the
-     * {@code 0.5 - d} ramp <em>is</em> the box filter of the pixel, so averaging four of them over
-     * the same pixel averages four one-pixel-wide filters and comes out as a 1.5-pixel-wide one.
-     * On a straight edge that reported 0.75 where the truth is 1.0. The ramp is exact on straight
-     * and 45-degree edges, and inside a corner arc its error is second order in the radius — about
-     * 2% at the 6px radius the panels use.</p>
+     * <p>One sample rather than a 2x2 supersample: the {@code 0.5 - d} ramp is the box filter of
+     * the pixel, so averaging four of them gives a 1.5-pixel-wide filter. The ramp is exact on
+     * straight and 45-degree edges, and inside a corner arc its error is about 2% at the 6px radius
+     * the panels use.
      */
     private static float fillCoverage(int i, int j, int x, int y, double cx, double cy,
                                       double hw, double hh, double tl, double tr,
@@ -338,10 +298,8 @@ public final class PvRaster {
     /**
      * How far the true edge sits inside the bounding box on row {@code j}.
      *
-     * <p>{@code arc} takes the distance <em>from the edge the corner belongs to</em>, which is the
-     * row index at the top and {@code h - j} at the bottom. Passing the distance from the corner's
-     * centre instead is the same number at r=1 and wrong everywhere else — it puts the widest part
-     * of the arc against the row that should be the narrowest.</p>
+     * <p>{@code arc} takes the distance from the edge the corner belongs to, which is the row index
+     * at the top and {@code h - j} at the bottom.
      */
     private static double arcInset(int j, int h, double top, double bottom) {
         double jc = j + 0.5D;
@@ -369,10 +327,8 @@ public final class PvRaster {
      * Coverage self-check, runnable without a client: {@code java -cp build/classes/java/client
      * com.leipishu.pvpocket.client.gui.PvRaster}.
      *
-     * <p>It asserts the three properties the drawing code relies on and that no screenshot can
-     * prove: every pixel is painted at most once (no translucent fill stacking into a darker bar),
-     * no pixel that the shape covers is left unpainted (no black notch along an edge), and the
-     * emitted alpha agrees with a 8x8 reference within a tenth of a pixel.</p>
+     * <p>It asserts three properties: every pixel is painted at most once, no covered pixel is left
+     * unpainted, and the emitted alpha agrees with an 8x8 reference within a tenth of a pixel.
      */
     public static void main(String[] args) {
         int failures = 0;
@@ -398,9 +354,7 @@ public final class PvRaster {
      * The same check for a bordered panel.
      *
      * <p>The panel path shades a band instead of breaking at the first covered pixel, so it is the
-     * one that can emit a pixel twice or leave a hole in the middle of a straight edge — and it did,
-     * at a rate of one fill call per pixel, until the runs were merged. Checking it separately is
-     * what keeps that from coming back.</p>
+     * path that can emit a pixel twice or leave a hole in a straight edge.
      */
     private static int checkPanel(int w, int h, int r) {
         final int pad = 2;
@@ -482,9 +436,8 @@ public final class PvRaster {
         String first = null;
         for (int y = 0; y < bh; y++) {
             for (int x = 0; x < bw; x++) {
-                // Reference coverage is the true area: point samples, not the 0.5-d ramp the
-                // rasteriser uses, or the comparison would just be the approximation marking its
-                // own homework.
+                // Reference coverage is the true area from point samples, not the 0.5-d ramp the
+                // rasteriser uses, or the comparison would grade its own approximation.
                 double ref = 0D;
                 for (int sy = 0; sy < 8; sy++) {
                     for (int sx = 0; sx < 8; sx++) {

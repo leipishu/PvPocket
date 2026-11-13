@@ -13,25 +13,21 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Short-lived codes that let one player hand a preset to another.
  *
- * <p>Deliberately in memory and deliberately temporary. A share code is a <em>transfer</em>, not a
- * publication: the receiving client writes the preset to its own disk and never needs the code
- * again. Persisting them would create a second, worse preset library on the server, with no owner,
- * no expiry and no way to remove one — which is the opposite of what "saved locally" asks for.</p>
+ * <p>A share code is a transfer, not a publication: the receiving client writes the preset to its
+ * own disk and never needs the code again, so the codes live in memory only.
  *
- * <p>Everything here runs on the server thread. Packet handlers already hop onto it and the sweep is
- * driven from the server tick, so there is no locking and no concurrent collection.</p>
+ * <p>Everything here runs on the server thread, so there is no locking.
  */
 public final class PresetShareRegistry {
 
-    /** How long a code stays valid. Five minutes is long enough to paste it somewhere and short
-     *  enough that a leaked code is worthless by the time anyone finds it. */
+    /** How long a code stays valid, in milliseconds. Five minutes is long enough to paste it. */
     public static final long TTL_MS = 5L * 60L * 1000L;
 
-    /** 30^6 ≈ 7.3e8, so a collision is rare and the retry loop below is nearly free. */
+    /** A space of 30^6 is about 7.3e8, so a collision is rare and the retry loop is nearly free. */
     private static final int CODE_LEN = 6;
     /**
-     * No 0/O/1/I/L: the code is read off one screen and typed into another, and those five
-     * characters are the entire reason people mis-type codes.
+     * Omits the characters {@code 0O1IL}: the code is read off one screen and typed into another,
+     * and those are the ones readers confuse.
      */
     private static final String ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
     /** Global ceiling. Reached only by a script; a person will never have this many live codes. */
@@ -57,8 +53,7 @@ public final class PresetShareRegistry {
     /**
      * Stores a preset and returns the code to hand out, or null when the store is full.
      *
-     * <p>The caller has already validated the kind, the name and the size — this method is storage,
-     * not policy, and duplicating the checks here would give two places to keep in step.</p>
+     * <p>The caller validates the kind, the name and the size; this method is storage, not policy.
      */
     public static String publish(UUID owner, PresetKind kind, String name, String encoded) {
         sweep();
@@ -74,8 +69,7 @@ public final class PresetShareRegistry {
     /**
      * Looks a code up, dropping it if it has expired.
      *
-     * <p>Expiry is checked on read as well as by the sweep: the sweep runs on a timer, and "the code
-     * still works for up to a tick after it expired" is a race nobody should have to reason about.</p>
+     * <p>Expiry is checked on read as well as by the sweep, so a code never works past its TTL.
      */
     public static Shared fetch(String rawCode) {
         String code = normalise(rawCode);
@@ -93,13 +87,12 @@ public final class PresetShareRegistry {
         return shared;
     }
 
-    /** Called from the server tick; internally throttled so it does not walk the map 20 times a second. */
+    /** Called from the server tick; throttled so it does not walk the map 20 times a second. */
     public static void tick() {
         if (--sweepCountdown > 0) {
             return;
         }
-        // Every 5 seconds: the TTL is 300 seconds, so an entry lives at most 305 seconds and the
-        // "cleaned after five minutes" promise is off by at most one sweep.
+        // Every 5 seconds: with a 300 second TTL, an entry lives at most 305 seconds.
         sweepCountdown = 100;
         sweep();
     }
@@ -124,8 +117,8 @@ public final class PresetShareRegistry {
     /**
      * Canonical form of a typed code.
      *
-     * <p>Upper-cased and stripped of spaces and dashes, because the code is copied by eye: "ab3-k9"
-     * and "AB3K9" are the same code and refusing one of them would be a puzzle, not security.</p>
+     * <p>Upper-cased and stripped of anything that is not a letter or digit, so "ab3-k9" and
+     * "AB3K9" are the same code.
      */
     public static String normalise(String raw) {
         if (raw == null) {
@@ -153,8 +146,7 @@ public final class PresetShareRegistry {
                 return code;
             }
         }
-        // 64 collisions in a row means the map is effectively full; the caller reports "full" rather
-        // than handing out a code that points at somebody else's preset.
+        // 64 collisions in a row means the map is effectively full; the caller reports "full".
         return null;
     }
 

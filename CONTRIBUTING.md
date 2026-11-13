@@ -223,6 +223,69 @@ PvPocket/
 
 **截图用完即删**（`find runs -name '*.png' -delete`），只保留最终要展示的那几张。
 
+## 注释
+
+注释写**这段代码是什么、怎么用**，不写它是怎么变成现在这样的。改动的来龙去脉属于提交信息与
+`CHANGELOG.md`，写进注释里会随时间腐烂，而且和代码放在一起时没人分得清哪句还成立。
+
+允许的三类内容：
+
+1. 说明一个类型或方法做什么、参数与返回值的约定、边界条件。
+2. 说明调用方式，尤其是调用顺序有要求、或调用方容易误用的地方。
+3. 标记：`TODO:`、`FIXME:`、`NOTE:`，后面跟一句具体的说明。
+
+不允许的两类：**改动史**（「以前是……」「不再……」）和**论证**（「这样做是因为……」）。需要论证
+的地方写进 `docs/`，注释里只留一句结论，必要时用 `// see docs/zh/...` 指过去。
+
+```java
+// 不要
+// 这里以前是直接读 remapClasspath.txt 的，但那是注解处理器的副产物，换 Loom 版本就没了，
+// 所以改成由 Gradle 写一个稳定的文件出来，这样两个加载器走同一条路，不用再分叉。
+
+// 要
+// Written by the cell's writeCompileClasspath task; stable across Loom versions.
+```
+
+```java
+/**
+ * Restores the snapshot onto the player and verifies the result.
+ *
+ * @param player an online, living player; a corpse is rejected by the caller
+ * @return true when the state digest matches the snapshot
+ */
+```
+
+### 可以脚本验证的（CI 会跑）
+
+```bash
+python scripts/check-comments.py            # 全仓库
+python scripts/check-comments.py --summary  # 每个文件的违规数
+```
+
+| 规则 | 判据 |
+| --- | --- |
+| `cjk` / `non-ascii` | 注释里不出现中文或任何非 ASCII 字符（破折号、箭头、弯引号都算） |
+| `first-person` | 不出现 I / me / my / we / us / our |
+| `narrative` | 不出现 `used to`、`no longer`、`the old code`、`this fix` 一类叙述改动的短语 |
+| `javadoc-form` | 摘要句首字母大写、以句号结尾 |
+| `javadoc-p` | `<p>` 与 `@param` / `@return` 等标签前有一个空 `*` 行 |
+| `javadoc-long` | 单个 Javadoc 不超过 12 行 |
+| `javadoc-tag` | 不用 `@author` / `@since` / `@version` |
+| `type-doc` | public 顶层类型必须有 Javadoc |
+| `code-run` | 连续 `//` 不超过 2 行；成段说明用 Javadoc |
+| `commented-out` | 不留注释掉的代码，删掉或恢复 |
+| `width` | 注释行不超过 100 列 |
+
+### 靠人判断的
+
+- **一句话说完**。需要第二句才写第二句，不要为了显得完整而铺开。
+- **不复述签名**。`getName()` 不需要注释说「返回名字」。
+- **不写修辞**。「这正是……的原因」「关键在于」这类结构一律删掉，直接陈述事实。
+- **不用口语**（「搞」「弄」「一堆」），也不用过度书面语（「 hereby 」「it is worth noting that」）。
+- **术语与代码一致**：代码里叫 `session`，注释就不要写「对局对象」。
+- 配置与脚本文件（`*.gradle`、`*.sh`、`*.py`、`*.toml`）里的注释**只保留解释非显然行为的**，
+  能用代码说清的一律删掉。
+
 ## 提交
 
 - 提交信息用中文，一句话说清「改了什么」，正文写**为什么**，尤其是取舍。

@@ -1,47 +1,15 @@
 #!/usr/bin/env python3
-"""Turn a downloaded Minecraft world save into a vanilla structure template.
+"""Turns a downloaded Minecraft world save into a vanilla structure template.
 
-Why this exists: the arena presets we want (PvP arenas) are published as *world saves* — a zip
-containing `region/*.mca`. PvPocket needs a *structure template* (`data/pvpocket/structure/<id>.nbt`)
-that it can paste onto a plot. The obvious conversion route is to open the world in a client and
-re-save it, but vanilla's structure block is capped at 48x48x48, so anything larger than that cannot
-be captured that way at all. Reading the region files directly has no such limit, and it means the
-only thing a human has to do is download the zip.
-
-Three input shapes, picked by extension:
-
-    * a world save   -- a directory containing `region/`, or the downloaded `.zip`
-    * `.litematic`   -- Litematica / Masa projection file (gzipped NBT, flat palette per region)
-    * `.schem`       -- Sponge schematic v2/v3 (gzipped NBT, varint block indices)
-
-`.litematic` is by far the cheapest to eat: there is no chunk or region layer at all, so the whole
-`.mca` dance below (8192-byte sector table, per-chunk compression byte, the pre/post-1.18 `Level`
-split) simply does not apply. What remains is the flat palette plus a long array of block indices —
-and that long array is packed *differently* from a chunk section, which is the one trap in this
-whole file:
-
-    chunk section   floor(64 / bits) values per long, leftover high bits wasted
-    litematic       one continuous bit stream; a value starting at bit 61 of one long
-                    continues at bit 0 of the next
-
-The two agree only when `bits` divides 64 (4, 8, 16, 32). A palette of 18..29 blocks needs 5 bits,
-so almost every real map falls in the disagreeing case. See `unpack_longs` for the reader and
-`docs/PvPocket-场地模板-调研与工具.md` for how this was found (short version: the first conversion
-looked fine on synthetic samples and produced a completely scrambled arena in game).
-
-Two subcommands:
+Inputs are picked by extension: a world save directory or .zip containing region/, a Litematica
+.litematic, or a Sponge .schem (v2/v3). Vanilla's structure block caps at 48x48x48, which is why
+region files are read directly instead.
 
     python scripts/world2struct.py probe <input> [--box x1 y1 z1 x2 y2 z2]
-        Reports the bounding box of the non-air blocks, how many blocks that is, the palette size
-        and the height histogram. Run this first: it is how we find out whether a build fits a plot
-        and where its floor is.
-
     python scripts/world2struct.py convert <input> --out <file.nbt> [options]
-        Writes a structure template. Prints the same report plus the output size.
 
-The output is deliberately *only* blocks: no entities, and no block-entity NBT unless asked. A
-downloaded arena can contain chests, hoppers, command blocks and item frames, and every one of those
-is either a free-item exploit or a way to run commands inside a duel.
+The output holds blocks only: no entities and no block-entity NBT, since chests, hoppers and
+command blocks are either an item exploit or a way to run commands inside a duel.
 """
 import argparse
 import gzip
@@ -52,8 +20,6 @@ import struct
 import sys
 import zipfile
 import zlib
-
-# ---------------------------------------------------------------------------- NBT
 
 TAG_END = 0
 TAG_BYTE = 1
@@ -69,9 +35,8 @@ TAG_COMPOUND = 10
 TAG_INT_ARRAY = 11
 TAG_LONG_ARRAY = 12
 
-# Values are stored as (tag_type, payload). Compounds are dict[str] -> (type, payload); lists are
-# (elem_type, [payload, ...]). Keeping the type alongside every value is what lets the writer emit a
-# faithful copy of anything it read, which is what the round-trip test needs.
+# Values are (tag_type, payload). Compounds are dict[str] -> (type, payload); lists are
+# (elem_type, [payload, ...]). Keeping the type lets the writer emit a faithful copy.
 
 
 class Reader:
@@ -250,12 +215,10 @@ def t_list(elem, items):
     return (TAG_LIST, (elem, items))
 
 
-# ------------------------------------------------------------------- world reading
-
 AIRISH = {"minecraft:air", "minecraft:cave_air", "minecraft:void_air"}
 
-# Removed from converted structures by default. Each of these is either an exploit or a leftover from
-# the map author's own tooling; none of them belong in a fighting pit.
+# Removed from converted structures: each of these is an exploit or a leftover from the author's
+# tooling, and none of them belongs in a fighting pit.
 DEFAULT_STRIP = {
     "minecraft:barrier",
     "minecraft:light",
@@ -267,10 +230,8 @@ DEFAULT_STRIP = {
     "minecraft:repeating_command_block",
 }
 
-# Renames between the versions these maps are authored in (1.16 era) and the one we run (1.21.1).
-# An id that no longer exists is not an error at conversion time -- it just becomes air in game,
-# silently, which is the worst possible failure mode for an arena floor. This list covers the ids a
-# 1.16-era build can realistically contain; anything newer than 1.21.1 still has to be eyeballed.
+# Renames between the version these maps are authored in (1.16 era) and 1.21.1. An id that does
+# not exist becomes air in game, silently, which is the worst failure mode for an arena floor.
 RENAMES = {
     "minecraft:grass_path": "minecraft:dirt_path",
     "minecraft:grass": "minecraft:short_grass",
@@ -278,11 +239,8 @@ RENAMES = {
     "minecraft:wall_sign": "minecraft:oak_wall_sign",
 }
 
-# Blocks that exist in the map's version but not in 1.21.1. There is no rename to fall back on --
-# the id is simply newer than our game -- so without this table they turn into air, silently, and
-# an arena loses whatever railing or trim they were holding. Every entry keeps the same blockstate
-# shape (stairs keep facing/half/shape, bars keep the four side booleans) so the silhouette survives.
-# Verified against 1.21.1's own blockstate list (1062 ids, taken from the client jar).
+# Blocks that exist in the map's version but not in 1.21.1, so there is no rename to fall back on.
+# Every entry keeps the same blockstate shape, so the silhouette survives.
 FALLBACK = {
     "minecraft:waxed_exposed_copper_bars": "minecraft:iron_bars",
     "minecraft:exposed_copper_bars": "minecraft:iron_bars",
@@ -370,9 +328,8 @@ def iter_chunks(region_data):
             _, root = read_nbt(raw)
         except Exception:
             continue
-        # Three layouts in the wild: 1.18+ puts lowercase `sections` at the root, 1.13-1.17 nest
-        # them under `Level`, and 1.8-era chunks (including the ones PGM map packs ship) use a
-        # capitalised `Sections` array of numeric-id sections.
+        # Three layouts in the wild: 1.18+ has lowercase `sections` at the root, 1.13-1.17 nest
+        # them under `Level`, and 1.8 chunks use a capitalised `Sections` array.
         body = None
         for candidate in (root, root.get("Level", (None, {}))[1]):
             if not isinstance(candidate, dict):
@@ -444,13 +401,9 @@ def section_blocks(section):
 def legacy_section_blocks(section):
     """1.8-era section: numeric block ids in `Blocks`, 4-bit metadata in `Data`.
 
-    <p>There is no palette to read, so every id+metadata pair has to be flattened to a modern block
-    name. Doing that by hand would be a table of a few hundred blocks; `anvil-parser2` already ships
-    Paper's conversion table (`LEGACY_ID_MAP`, 1631 entries), so this is twenty lines instead.</p>
-
-    <p>Properties come back as Python bools and ints. They are stringified here because everything
-    downstream — the structure palette, the comparison in `arena-verify.py` — treats properties as
-    the strings NBT would store.</p>
+    Every id+metadata pair has to be flattened to a modern name, and `anvil-parser2` already ships
+    Paper's conversion table (`LEGACY_ID_MAP`). Properties are stringified here because everything
+    downstream treats them as the strings NBT would store.
     """
     raw = section.get("Blocks")
     if raw is None:
@@ -469,8 +422,8 @@ def legacy_section_blocks(section):
         meta = (data[index >> 1] >> (4 * (index & 1))) & 0xF if data else 0
         entry = LEGACY_ID_MAP.get("%d:%d" % (block_id, meta))
         if entry is None:
-            # An unmapped metadata value is almost always a variant we do not care about; falling
-            # back to metadata 0 keeps the block instead of punching a hole in the build.
+            # An unmapped metadata value is usually a variant that does not matter; metadata 0
+            # keeps the block instead of punching a hole in the build.
             entry = LEGACY_ID_MAP.get("%d:0" % block_id)
         if entry is None:
             continue
@@ -521,27 +474,17 @@ def scan(source, box=None, strip_bedrock=False):
     return finish(blocks)
 
 
-# ---------------------------------------------------------------- litematic / Sponge
-
-# A .litematic is gzipped NBT with no chunk/region layer at all: the block list is one flat
-# palette plus one flat long array per named sub-region. That is the whole reason it is easier to
-# eat than a world save -- no sector table, no per-chunk compression byte, no pre/post-1.18 split.
-# The inner bit packing is NOT the vanilla section packing -- see unpack_longs below.
+# A .litematic has no chunk or region layer: one flat palette plus one flat long array per
+# sub-region. The inner bit packing is not the vanilla section packing; see unpack_longs.
 
 
 def unpack_longs(longs, bits, count):
     """Litematica's packed long array -> list of `count` values of `bits` bits each.
 
-    <p><b>This is not the vanilla chunk packing.</b> A chunk section stores floor(64/bits) values per
-    long and throws the leftover bits away; Litematica packs a continuous bit stream, so a value that
+    This is not the vanilla chunk packing. A chunk section stores floor(64/bits) values per long
+    and throws the leftover bits away; Litematica packs a continuous bit stream, so a value that
     starts at bit 61 of one long continues at bit 0 of the next. The two agree only when `bits`
-    divides 64 (4, 8, 16, 32). Every arena in this pack has 18-29 palette entries, i.e. 5 bits, which
-    is exactly the case where they disagree -- reading it the vanilla way produces a build that is
-    plausible-looking garbage: the first few dozen blocks land correctly and everything after drifts
-    by one bit position per value.</p>
-
-    <p>Cross-checked against litemapy (the reference Python implementation of this format) on all
-    four source files.</p>
+    divides 64, and every arena here needs 5 bits. Cross-checked against litemapy.
     """
     mask = (1 << bits) - 1
     span = (1 << 64) - 1
@@ -682,8 +625,8 @@ def load(path, box=None, strip_bedrock=False):
         finally:
             if isinstance(source, zipfile.ZipFile):
                 source.close()
-    # normalise recomputes the box: dropping an unsupported block that happened to be the extreme
-    # corner would otherwise leave the template one block larger than the build.
+    # normalise recomputes the box: dropping a block at the extreme corner would leave the
+    # template one block larger than the build.
     return normalise(blocks)
 
 
@@ -711,8 +654,8 @@ def report(bbox, blocks, show_palette=False):
         busiest_y, _ = max(per_y.items(), key=lambda kv: kv[1])
         print("height    y=%d has the most blocks (%d)" % (busiest_y, per_y[busiest_y]))
         print("          first non-empty y=%d, last y=%d" % (floors[0][0], floors[-1][0]))
-        # The busiest layer is almost always the fighting floor, and its footprint is what the plot
-        # size has to be — not the bounding box, which includes the stands.
+        # The busiest layer is usually the fighting floor, and its footprint is what the plot
+        # size has to be, not the bounding box, which includes the stands.
         at = [(x, z) for (x, y, z) in blocks if y == busiest_y]
         print("          that layer spans x %d..%d  z %d..%d  (%d x %d)"
               % (min(p[0] for p in at), max(p[0] for p in at),
@@ -725,14 +668,9 @@ def report(bbox, blocks, show_palette=False):
 def stabilise(name):
     """Replaces blocks that fall when placed with the closest block that does not.
 
-    Concrete powder is the one that actually bites: it is a gravity block, so every floating patch of
-    it in a downloaded arena collapses the moment the template lands, and the build comes out with
-    powder piled on the floor and holes where it used to be. Concrete is the same colour, is not
-    affected by gravity, and is what the author would have used if they had not been building in
-    creative with a brush.
-
-    Sand and gravel are left alone on purpose: they are usually ground fill with support underneath,
-    and swapping them for sandstone would change the look of a map rather than fix a bug.
+    Concrete powder is the one that bites: it is a gravity block, so every floating patch of it
+    collapses the moment the template lands. Concrete is the same colour and does not fall. Sand
+    and gravel are left alone: they are usually ground fill with support underneath.
     """
     if name.endswith("_concrete_powder"):
         return name[:-len("_powder")]
@@ -747,34 +685,23 @@ def needs_support(name):
             or name in FLOOR_ATTACHED)
 
 
-# Blocks that must have *something* directly beneath them. Same failure mode as a pressure plate:
-# the game removes them on the first tick after placement, so the template would claim a block the
-# world never shows. `redstone_wire` is here because a bridge map lost two of them in testing —
-# they had been laid across a gap and the paste put them in mid-air.
+# Blocks that need something directly beneath them. Same failure mode as a pressure plate: the
+# game removes them on the first tick, so the file would claim a block the world never shows.
 FLOOR_ATTACHED = ("minecraft:redstone_wire", "minecraft:rail", "minecraft:powered_rail",
                   "minecraft:detector_rail", "minecraft:activator_rail",
                   "minecraft:lily_pad")
 
 
-# Blocks that are dropped however well supported they are, because they do not hold still.
-#
-# `fire` climbs its own `age` and then removes itself, so a template that ships fire puts the world
-# in a state the template no longer describes — which the arena reads as a change and reverts, for
-# ever, at the speed fire burns out. `tripwire` is worse: any entity that crosses one flips
-# `attached`, and a player walking through the map is exactly that. Both are decoration in every
-# map seen so far, and losing six blocks of fire is a better trade than a revert every few seconds.
+# Blocks dropped however well supported they are, because they do not hold still. `fire` ages and
+# then removes itself; any entity crossing `tripwire` flips `attached`, which reverts the arena.
 SELF_DESTRUCTING = ("minecraft:fire", "minecraft:soul_fire", "minecraft:tripwire")
 
 
 def drop_unstable(blocks):
     """Removes blocks that cannot survive being placed.
 
-    <p>Found the hard way: the quartz arena has a pale oak pressure plate sitting in mid-air, and
-    pressure plates break the instant the game ticks them with nothing underneath. Keeping it would
-    mean the file claims a block the world will never show, which then reads as a converter bug in
-    any check that trusts the file. It also matters at runtime: a block that pops *after* the plot's
-    baseline is captured leaves the arena permanently one block off its own map, and every revert
-    puts the block back just in time for it to pop again.</p>
+    A block that pops after the plot baseline is captured leaves the arena permanently one block
+    off its own map, and every revert puts it back just in time for it to pop again.
     """
     doomed = []
     for pos, (name, props) in blocks.items():
@@ -804,11 +731,10 @@ def drop_unstable(blocks):
 
 
 def normalise(blocks):
-    """Brings a downloaded build into the 1.21.1 world it is going to be pasted into.
+    """Brings a downloaded build into the 1.21.1 world it will be pasted into.
 
-    Three passes, in this order, and the order matters: rename first so the fallback table can see
-    ids the map's own version still had, stabilise second so a powder id that was just renamed is
-    still caught, and drop last because support is decided against final ids.
+    Three passes in this order: rename first so the fallback table sees the map's own ids,
+    stabilise second so a just-renamed powder is still caught, drop last.
     """
     renamed = {}
     for (x, y, z), (name, props) in list(blocks.items()):
@@ -918,9 +844,8 @@ def main(argv):
             handle.write(raw)
         print("wrote     %s (%.1f KB%s)" % (args.out, len(raw) / 1024.0,
                                             "" if args.no_gzip else ", gzipped"))
-        # Read it back through the same parser. A converter that cannot read its own output is
-        # not a converter, and a silent off-by-one in the palette index would only surface as a
-        # scrambled build inside the game.
+        # Read it back through the same parser: a silent off-by-one in the palette index would
+        # only surface as a scrambled build in game.
         _, back = read_nbt(raw)
         back_size = tuple(back["size"][1][1])
         back_blocks = len(back["blocks"][1][1])

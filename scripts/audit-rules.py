@@ -1,30 +1,23 @@
 #!/usr/bin/env python3
-"""规则接线审计：每条规则 id 在 RuleCatalog 之外是否真的还有读取点。
+"""Rule wiring audit: does every rule id have a reader outside RuleCatalog?
 
-为什么需要这个：面板能改、能存盘、能进 journal，都不能说明它影响对局。唯一的判据是
-「这条 id 除了 RuleCatalog 之外还有没有别的地方读它」——这正是 docs/zh/02-rules.md §3
-写下的判定方法，以前是手工过一遍，现在把它变成可以挂 CI 的检查。
+A panel that can edit, save and journal a value proves nothing about the duel. The only test
+is whether some other code reads that id, which is the method docs/zh/02-rules.md section 3
+describes.
 
-它回答三个问题：
+Three questions: does a rule have a behavioural reader rather than only a log line, is its
+default inside its own declared range, and does Rulebook expose a getter nobody calls.
 
-  1. 每条规则有没有行为读取点（不是只写日志，也不是根本没人读）
-  2. 默认值是否落在自己声明的范围内（越界的默认值会在面板上第一帧就被夹住，看起来「改了没反应」）
-  3. Rulebook 里有没有「写了 getter 但没人调」的死接口
+Four verdicts: OK, LOG_ONLY (read only on a journal / LOGGER / sendMessage line), NO_READER,
+and FIXED (RuleKind.FIXED, display only, not a problem).
 
-四类结论：
-
-    OK        至少有一处读取点，且不只是在写日志
-    LOG_ONLY  有读取点，但全部出现在 journal / LOGGER / sendMessage 那一行（"仅记录"）
-    NO_READER 除 RuleCatalog 之外没有任何代码读它（面板改了个寂寞）
-    FIXED     RuleKind.FIXED，本来就只做展示，不进问题清单
-
-用法：
-    python scripts/audit-rules.py              # 表格 + 退出码
-    python scripts/audit-rules.py --verbose    # 附带每处读取点的 file:line
-    python scripts/audit-rules.py --docs       # 额外比对 docs/zh/02-rules.md 里的"默认"
+Usage:
+    python scripts/audit-rules.py              # table + exit code
+    python scripts/audit-rules.py --verbose    # include file:line for each reader
+    python scripts/audit-rules.py --docs       # compare defaults with docs/zh/02-rules.md
     python scripts/audit-rules.py --json out.json
 
-退出码：0 全部 OK；1 存在 LOG_ONLY / NO_READER / 默认值越界 / 死 getter；2 脚本自身出错。
+Exit code: 0 all OK, 1 LOG_ONLY / NO_READER / bad default / dead getter, 2 script error.
 """
 import argparse
 import json
@@ -33,7 +26,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# 源码在仓库根，不再挂在某个 cell 下：src/ 是共享的，cell 只决定怎么编译它。
+# Sources live at the repository root: src/ is shared, a cell only decides how to compile it.
 SRC_ROOT = ROOT
 SRC = os.path.join(SRC_ROOT, "src")
 RULES_PKG = os.path.join(SRC, "main", "java", "com", "leipishu", "pvpocket", "rules")
@@ -45,10 +38,10 @@ ARENA_MAPS = os.path.join(SRC, "main", "java", "com", "leipishu", "pvpocket", "a
 DOCS = os.path.join(ROOT, "docs", "zh", "02-rules.md")
 LANG = os.path.join(SRC, "main", "resources", "assets", "pvpocket", "lang", "zh_cn.json")
 
-# 一行里出现这些词，说明这条规则的读取只是为了留证据，不改变任何行为。
+# A line containing one of these only records evidence; it changes no behaviour.
 LOG_MARKERS = ("journal(", "LOGGER", "sendMessage", "append(\"", "PvAudit")
 
-# 工厂方法 → (默认值在参数里的下标, 是否枚举/多选)
+# Factory method -> (index of the default in the argument list, is enum/multi)
 KINDS = {
     "toggle": (2, False),
     "toggleNamed": (4, False),
@@ -67,10 +60,10 @@ def read(path):
 
 
 def split_args(text, start):
-    """从 start（紧跟 '(' 之后）开始按顶层逗号切分，返回 (参数列表, 右括号位置)。
+    """Splits on top-level commas from just after `(`. Returns (arguments, closing paren).
 
-    必须真的数括号和引号：参数里有 `choices("a.maxRounds", 6)` 和 `ArenaManager.MAX_SIZE_XZ`，
-    逐字段正则会在第一处嵌套括号上错位，把后面几条规则一起吃掉。
+    Brackets and quotes have to be counted: arguments contain `choices("a.maxRounds", 6)`
+    and `ArenaManager.MAX_SIZE_XZ`, which a field-by-field regex would mis-split.
     """
     args, buf = [], []
     depth, in_str, i = 0, False, start
@@ -113,12 +106,12 @@ def unquote(expr):
 
 
 def arena_map_count():
-    """ArenaMaps.labelKeys() 的长度——e.template 的选项数由它决定。"""
+    """Length of ArenaMaps.labelKeys(), which decides the option count of e.template."""
     try:
         text = read(ARENA_MAPS)
     except OSError:
         return 0
-    # 地图以 `new ArenaMap(...)` 或 ALL 列表里的枚举项登记；数 ALL 里的条目更稳。
+    # Maps are registered as `new ArenaMap(...)` or as entries in ALL; counting ALL is safer.
     m = re.search(r"ALL\s*=\s*List\.of\((.*?)\);", text, re.S)
     if m:
         return len(re.findall(r"\bnew\s+\w+\s*\(", m.group(1))) or \
@@ -127,7 +120,7 @@ def arena_map_count():
 
 
 def choice_count(expr):
-    """`choices("id", 6)` → 6；`ArenaMaps.labelKeys()` → 地图数；否则 None。"""
+    """`choices("id", 6)` -> 6, `ArenaMaps.labelKeys()` -> map count, otherwise None."""
     m = re.search(r"choices\(\s*\"[^\"]+\"\s*,\s*(\d+)\s*\)", expr)
     if m:
         return int(m.group(1))
@@ -137,7 +130,7 @@ def choice_count(expr):
 
 
 def parse_catalog():
-    """[{'id','group','kind','default','min','max','step','choices'}] 按目录顺序。"""
+    """[{'id','group','kind','default','min','max','step','choices'}] in order."""
     text = read(CATALOG)
     out = []
     for m in re.finditer(r"\badd\(RuleDefinition\.(\w+)\(", text):
@@ -177,7 +170,7 @@ def parse_catalog():
             elif raw.startswith("0b"):
                 value = int(raw, 2)
                 width = choice_count(args[def_index + 1]) if def_index + 1 < len(args) else 4
-                # 按 bit0 在最左显示，和面板上 chip 的排列一致
+                # bit0 is shown leftmost, matching the chip order on the panel
                 entry["default"] = "".join(
                     "1" if value >> i & 1 else "0" for i in range(width or 4))
                 entry["default_value"] = value
@@ -188,7 +181,7 @@ def parse_catalog():
             entry["min"], entry["max"], entry["step"] = args[2], args[3], args[4]
         if is_choice and def_index is not None and def_index + 1 < len(args):
             entry["choices"] = choice_count(args[def_index + 1])
-            # 选项键未必是 pvpocket.rule.<id>.cN —— e.template 用的是 ArenaMaps 的地图名。
+            # Option keys are not always pvpocket.rule.<id>.cN: e.template uses map names.
             entry["choices_local"] = "choices(" in args[def_index + 1]
         out.append(entry)
     return out
@@ -213,7 +206,7 @@ def java_body(text, open_brace):
 
 
 def rulebook_getters():
-    """{getter: [ids]} —— Rulebook 里每个 public 方法体读到的规则 id。"""
+    """{getter: [ids]}: rule ids read by each public method body in Rulebook."""
     text = read(RULEBOOK)
     out = {}
     for m in re.finditer(r"public\s+[\w<>\[\].]+\s+(\w+)\([^)]*\)\s*\{", text):
@@ -237,7 +230,7 @@ def is_comment(line):
 
 
 def find_readers(rule_id, skip=()):
-    """除 skip 里的文件之外，每一处非注释的 `"rule.id"` 出现。"""
+    """Every non-comment `"rule.id"` occurrence outside the skipped files."""
     needle = '"%s"' % rule_id
     skip = {os.path.abspath(p) for p in skip}
     sites = []
@@ -261,7 +254,7 @@ def find_readers(rule_id, skip=()):
 
 
 def getter_callers(getter):
-    """除 Rulebook 自己之外，谁调用了 getter()。"""
+    """Callers of getter() outside Rulebook itself."""
     needle = getter + "("
     out = []
     for path in java_sources():
@@ -275,13 +268,14 @@ def getter_callers(getter):
             if needle not in line or is_comment(line):
                 continue
             if re.search(r"\b%s\s*=\s*%s\s*\(" % (getter, getter), line):
-                continue  # 局部变量同名，不是调用
+                continue  # a local variable with the same name, not a call
             out.append("%s:%d" % (os.path.relpath(path, ROOT).replace("\\", "/"), n))
     return out
 
 
 def range_problem(rule):
-    """默认值是否落在声明的范围内。越界的默认值会被面板第一帧夹住，看起来像「改了没反应」。"""
+    """Is the default inside the declared range? An out-of-range default is clamped on the
+    first frame, which reads as a setting that does nothing."""
     if rule["kind"] not in ("intRange", "decimal", "percent", "enumOf", "multi"):
         return None
     value = rule["default_value"]
@@ -309,11 +303,11 @@ def _num(expr):
     expr = expr.strip()
     if re.fullmatch(r"-?\d+", expr):
         return int(expr)
-    return None  # 常量（ArenaManager.MAX_SIZE_XZ）不解析，交给编译期
+    return None  # constants such as ArenaManager.MAX_SIZE_XZ are left to the compiler
 
 
 def default_label(rule, lang):
-    """把默认值翻译成面板上真正显示的文字，才能和文档里那句「默认 …」比。"""
+    """Translates the default into the text the panel shows, to compare with the docs."""
     rid = rule["id"]
     value = rule["default_value"]
     if value is None:
@@ -328,12 +322,10 @@ def default_label(rule, lang):
 
 
 def coverage(rules, world_dir):
-    """哪些规则从来没以非默认值跑过。
+    """Which rules never ran with a non-default value.
 
-    「有读取点」是代码层的问题，「真的会变」是运行时的问题，而运行时只有跑过才知道。这里不去
-    启动服务端，而是读已经写下的 journal：每一次被接受的规则集都在 RULES_ACCEPTED 里，把历史上
-    出现过的取值和目录默认值一比，就能把「从来没验证过」的规则列出来。比默认值更值得看的是
-    「跑过非默认值的那些」——它们才是这套配置被真正检验过的部分。
+    Reads the journal already on disk instead of starting a server: every accepted rule set is
+    in RULES_ACCEPTED, so the values seen so far can be compared with the catalog defaults.
     """
     import glob
     files = glob.glob(os.path.join(world_dir, "pvpocket", "journal", "*.jsonl"))
@@ -375,7 +367,7 @@ def coverage(rules, world_dir):
 
 
 def doc_defaults():
-    """{id: '默认 ...'} 来自 docs/zh/02-rules.md，尽力而为。"""
+    """{id: default text} from docs/zh/02-rules.md, best effort."""
     out = {}
     if not os.path.exists(DOCS):
         return out
@@ -387,9 +379,9 @@ def doc_defaults():
 
 
 def check_lang(rules):
-    """每条规则的 label / hint / 每个选项键是否齐全，以及中英两套是否对得上。
+    """Every rule has a label, a hint and one key per option, and zh/en line up.
 
-    缺 label 的规则在面板上就是一行空白 —— 它不报错、不进日志，只是看起来像界面没画完。
+    A rule without a label is a blank row on the panel: no error, no log line.
     """
     missing, mismatched = [], []
     try:
@@ -404,7 +396,7 @@ def check_lang(rules):
             if key not in zh:
                 missing.append((rid, key))
         if not rule.get("choices_local", True):
-            continue  # 选项键来自别处（ArenaMaps），按 cN 检查会全部误报
+            continue  # option keys come from ArenaMaps; checking cN would be all false positives
         count = rule["choices"]
         if rule["kind"] == "fixed":
             count = 1
@@ -507,7 +499,7 @@ def main():
         for rid, why in out_of_range:
             print("  ! %-22s %s" % (rid, why))
 
-    # 反向检查：Rulebook 里 public 但没有外部调用者的 getter。
+    # Reverse check: public getters in Rulebook with no external caller.
     dead = []
     for name in sorted(getters):
         if not getter_callers(name):
@@ -541,7 +533,7 @@ def main():
                 continue
             label = default_label(r, lang)
             if label is None:
-                # 数字与开关的文档措辞太自由，只在文档里出现了数字时比数字
+                # doc wording for numbers and toggles is free-form, so compare digits only
                 m = re.search(r"-?\d+", want)
                 if m and str(r["default"]) != m.group(0):
                     print("  ! %-22s 代码 %-6s 文档 %s" % (r["id"], r["default"], want))

@@ -18,30 +18,25 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * The hotbar of the body a spectator is riding in.
  *
- * <p>Vanilla draws no hotbar in spectator mode, which is correct for a free-flying ghost and wrong
- * for someone attached to a fighter: the whole point of riding in somebody's head is to see what
- * they have in their hand and what they are about to switch to. Nine slots come from the server as
- * {@code id,count} pairs. The held item in front of the camera is a separate job — vanilla skips
- * the first-person hand entirely in spectator mode, so {@code PossessedHandRenderer} draws it and
- * reads {@link #state()} from here to know whose hand to draw.</p>
+ * <p>Vanilla draws no hotbar in spectator mode. Nine slots arrive from the server as
+ * {@code id,count} pairs. The held item is drawn by {@code PossessedHandRenderer}, which reads
+ * {@link #state()} to know whose hand to draw.
  *
- * <p>Drawn where the vanilla hotbar would be, at the same size, so it reads as "this player's
- * hotbar" rather than as another overlay. The selected slot is the only thing highlighted, because
- * it is the only slot whose state is about to matter.</p>
+ * <p>The bar sits where the vanilla hotbar would be, at the same size. Only the selected slot is
+ * highlighted.
  *
- * <p>Nothing here is interactive. A spectator cannot press 1-9 to change somebody else's held item,
- * and a HUD that looked clickable would be lying.</p>
+ * <p>Nothing here is interactive: a spectator cannot change somebody else's held item.
  */
 public final class PossessionHud implements PvClientPlatform.HudLayer {
 
     private static final int SLOT = 20;
     private static final int PANEL_W = SLOT * 9 + 2;
     private static final int PANEL_H = SLOT + 2;
-    /** Same offset vanilla uses for the hotbar, so the two never disagree about where "bottom" is. */
+    /** Same offset vanilla uses for the hotbar, so both agree on where "bottom" is. */
     private static final int BOTTOM = 22;
 
     private static PossessPayload state;
-    /** Parsed once per payload rather than once per frame: nine registry lookups per frame is silly. */
+    /** Parsed once per payload; nine registry lookups per frame is wasteful. */
     private static ItemStack[] slots = new ItemStack[9];
     private static String name = "";
     private static float health;
@@ -90,9 +85,8 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
     /**
      * Turns the flat field into stacks.
      *
-     * <p>Tolerant on purpose: an unknown id becomes an empty slot and a malformed group is skipped.
-     * The worst case is one blank square in a HUD, and no HUD is worth throwing inside a render
-     * callback — that would take the frame down, not the slot.</p>
+     * <p>An unknown id becomes an empty slot and a malformed group is skipped, so a render callback
+     * never throws. The worst case is one blank square in the HUD.
      */
     private static ItemStack[] parse(String encoded) {
         ItemStack[] out = new ItemStack[9];
@@ -102,7 +96,7 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
         if (encoded == null || encoded.isEmpty()) {
             return out;
         }
-        // -1 keeps trailing empty slots, which is exactly the case this encoding has to preserve.
+        // -1 keeps trailing empty slots, which this encoding has to preserve.
         String[] groups = encoded.split(";", -1);
         for (int i = 0; i < Math.min(groups.length, out.length); i++) {
             String group = groups[i];
@@ -160,9 +154,7 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
             PvDraw.roundRect(ctx, sx, sy, SLOT, SLOT, 3,
                     PvTheme.alpha(chosen ? PvTheme.CARD_ACTIVE : PvTheme.SUNKEN, appearT));
             if (chosen) {
-                // A full rounded ring, one pixel thick, inset by one. The previous version drew two
-                // 2px bars on the top and bottom edges, which read as a strikethrough rather than as
-                // a selection: it framed the slot in one axis and left the other open.
+                // A full rounded ring, one pixel thick, inset by one.
                 PvDraw.ring(ctx, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 3, 1,
                         PvTheme.alpha(PvTheme.ACCENT, appearT));
             }
@@ -171,10 +163,8 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
                 continue;
             }
             ctx.renderItem(stack, sx + 2, sy + 2);
-            // The count has to go through drawItemInSlot rather than drawText. Items are drawn at
-            // z=150 and text at z=0, so a hand-placed number renders *behind* the icon it is
-            // labelling; that helper pushes the text to z=200 first. It also brings the durability
-            // bar and the cooldown wipe along for free.
+            // renderItemDecorations, not renderItem: items sit at z=150, text at z=0, so the helper
+            // pushes text to z=200. It also draws the durability bar and the cooldown wipe.
             ctx.renderItemDecorations(tr, stack, sx + 2, sy + 2);
         }
 

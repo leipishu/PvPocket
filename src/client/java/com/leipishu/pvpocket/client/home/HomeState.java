@@ -7,16 +7,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The last home-screen snapshot, parsed, held on the client.
+ * The last home-screen snapshot, parsed and held on the client.
  *
- * <p>Static rather than passed into the screen because the screen is recreated on every window
- * resize and on every page rebuild: a snapshot that lived on the screen instance would be thrown away
- * by an F11 press and the panel would flash "no data" for a round trip. The client is single-threaded
- * and only one home screen can be open, so one slot is the whole cache.</p>
+ * <p>The state is static because the screen is recreated on every resize and every page rebuild.
+ * The client is single-threaded and only one home screen can be open, so one slot is enough.
  *
- * <p>{@link #version()} is bumped on every update. The screen watches it instead of being rebuilt
- * from the network callback: the callback can arrive while the screen is mid-render, and rebuilding a
- * widget list from inside a render pass is how a self-drawn GUI grows a concurrent modification.</p>
+ * <p>{@link #version()} is bumped on every update. The screen watches it instead of rebuilding from
+ * the network callback, which can arrive mid-render.
  */
 public final class HomeState {
 
@@ -48,9 +45,8 @@ public final class HomeState {
     /**
      * One finished series, from this player's side.
      *
-     * <p>{@code rounds} is parsed lazily into {@link Round} only when the detail dialog opens: a
-     * thirty-row list would otherwise build thirty lists of round objects every time the screen is
-     * opened, to draw six-pixel squares.</p>
+     * <p>{@code rounds} is parsed on demand by {@link #roundList()}, so the field stays a single
+     * string until the detail dialog opens.
      */
     public record History(String id, long t, String map, String mode, int teams, int teamSize,
                           int myScore, int theirScore, boolean won, String reason, long duration,
@@ -76,7 +72,7 @@ public final class HomeState {
                     out.add(new Round("1".equals(f[0]), f[1],
                             Math.max(0L, Long.parseLong(f[2]))));
                 } catch (NumberFormatException ignored) {
-                    // A malformed round is dropped; the match row still draws.
+                    // A malformed round is dropped and the match row still draws.
                 }
             }
             return out;
@@ -90,8 +86,8 @@ public final class HomeState {
     /**
      * One row of the operator page: a map, how many plots it owns, and how many are in use.
      *
-     * <p>{@code copies} counts the map's own address, so "4 plots" is four concurrent duels of this
-     * map, not three plus one.</p>
+     * <p>{@code copies} counts the map's own address, so "4 plots" means four concurrent duels of
+     * this map.
      */
     public record MapRow(String id, int copies, int leased) {
 
@@ -111,9 +107,8 @@ public final class HomeState {
     /**
      * The arena section of the snapshot, as the operator page reads it.
      *
-     * <p>{@code guard} is this reader's own stray-player flag, not a server-wide setting: the switch
-     * in the panel means "do not move me out", and a shared value would make it look broken to the
-     * second operator on the server.</p>
+     * <p>{@code guard} is this reader's own stray-player flag, not a server-wide setting: it means
+     * the player is not moved out of the arena.
      */
     public record Arena(boolean guard, int stamped, int slots, int leased, boolean building,
                         List<MapRow> maps) {
@@ -240,11 +235,10 @@ public final class HomeState {
     }
 
     /**
-     * The arena block, or {@link Arena#EMPTY} when the field is absent.
+     * Returns the arena block, or {@link Arena#EMPTY} when the field is absent.
      *
-     * <p>Absent is the normal case, not an error: the server leaves it empty for everyone below
-     * operator level, and an older server does not send it at all. Both mean the same thing to this
-     * client — no operator page — so both read as empty rather than as a broken snapshot.</p>
+     * <p>The server leaves the block empty below operator level, and an older server does not send
+     * it at all. Both read as empty.
      */
     private static Arena parseArena(String block) {
         if (block == null || block.isEmpty()) {

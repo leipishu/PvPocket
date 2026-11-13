@@ -22,22 +22,15 @@ import net.minecraft.client.gui.GuiGraphics;
 /**
  * The item editor, as a modal over the loadout list.
  *
- * <p>It used to be a permanent right-hand column, which is why it was unreadable: three columns of a
- * 406px panel left it 66px wide, and the controls are 104px and 168px wide by design. As a dialog it
- * gets the full panel width, and the list behind it gets the column that used to be wasted on a pane
- * that was empty whenever nothing was selected.</p>
+ * <p>The controls write into a copy of the entry, and only confirm copies it back, so cancel
+ * leaves the original untouched.
  *
- * <p><b>Edits are a draft.</b> The controls write into a copy, and only 确定 copies it back. Without
- * that, 取消 would be a lie: the controls mutate the entry directly, and there is no per-field undo to
- * put it back.</p>
- *
- * <p>The field rows are the same {@link RuleRow}s the rule panel uses, so a slider here and a slider
- * there are the same widget with the same keyboard handling — which is the whole reason the loadout
- * editor reuses {@code LoadoutFields} instead of inventing a form.</p>
+ * <p>The field rows are the same {@link RuleRow}s the rule panel uses, so a slider here and a
+ * slider there share one widget and one keyboard path.
  */
 public class LoadoutEditor extends PvWidget {
 
-    /** Called with the edited draft. The screen decides whether it replaces an entry or adds one. */
+    /** Called with the edited draft; the screen decides whether to replace an entry or add one. */
     public interface Listener {
         void onConfirm(LoadoutEntry draft);
 
@@ -56,7 +49,9 @@ public class LoadoutEditor extends PvWidget {
     private Listener listener;
     private float appearT;
 
-    /** @param source the entry being edited, or a fresh one for an add; it is copied, never touched */
+    /**
+     * @param source the entry to edit, or a fresh one for an add; it is copied, never touched
+     */
     public LoadoutEditor(LoadoutEntry source) {
         this.draft = source.copy();
         this.confirm = new PvButton(PvLang.str("pvpocket.gui.loadout.editor.confirm"),
@@ -85,7 +80,7 @@ public class LoadoutEditor extends PvWidget {
         this.listener = listener;
     }
 
-    /** What the player would get if they pressed 确定 now — used for the live list summary. */
+    /** Returns the draft the confirm button would submit, for the live list summary. */
     public LoadoutEntry draft() {
         return draft;
     }
@@ -147,11 +142,8 @@ public class LoadoutEditor extends PvWidget {
         Font tr = Minecraft.getInstance().font;
         placeChrome();
 
-        // Darker than the screen's own backdrop: the modal sits over a panel that is already on a 77%
-        // scrim, and equal darkness would leave the two reading as one surface.
-        //
-        // This covers everything in the panel except item icons, which are not GUI pixels — the
-        // screen stops submitting those while an overlay is up (see PvDraw.itemsVisible).
+        // Darker than the screen's own backdrop, so the modal reads above the panel's 77% scrim.
+        // Item icons are not GUI pixels and are hidden by the overlay (see PvDraw.itemsVisible).
         ctx.fill(0, 0, width, height, PvTheme.alpha(0xA0000000, appearT));
 
         int px = panelX();
@@ -187,8 +179,8 @@ public class LoadoutEditor extends PvWidget {
         int px = panelX();
         int py = panelY();
         if (mx < px || mx >= px + panelW() || my < py || my >= py + panelH()) {
-            // A click on the scrim is "cancel". Consumed either way, so it cannot also press whatever
-            // the dialog was covering.
+            // A click on the scrim cancels. Consumed either way, so it cannot press whatever the
+            // dialog was covering.
             fireCancel();
             return true;
         }
@@ -220,7 +212,7 @@ public class LoadoutEditor extends PvWidget {
         return true;
     }
 
-    /** The dialog is a single Tab stop; its rows keep their own keyboard handling through the pane. */
+    /** The dialog is a single Tab stop; its rows keep their own keyboard handling via the pane. */
     @Override
     public boolean focusable() {
         return false;

@@ -8,22 +8,14 @@ import java.util.List;
 /**
  * Vertically scrolling container.
  *
- * <p>Three decisions worth keeping:</p>
- * <ul>
- *   <li><b>Children are repositioned, not translated.</b> Each layout pass writes the scrolled
- *       absolute {@code y} back into the child. Hit-testing therefore happens in screen space with
- *       no coordinate conversion, which is where scroll containers usually grow their bugs.</li>
- *   <li><b>Clipping is scissor-based, not visibility-based.</b> A partially visible row is drawn
- *       clipped rather than hidden, so the list does not appear to lose its first row as you
- *       scroll. Rows fully outside the viewport are skipped as an early-out.</li>
- *   <li><b>The wheel moves a target, not the offset.</b> The offset follows the target with a 110ms
- *       time constant, so a fast flick decelerates instead of stopping dead, and the rows move with
- *       the same motion the rest of the interface uses.</li>
- * </ul>
+ * <p>Children are repositioned rather than translated: each layout pass writes the scrolled
+ * absolute {@code y} into the child, so hit-testing needs no coordinate conversion.
  *
- * <p>The rule panel only ever has a few dozen rows, so this is not virtualised — a viewport check is
- * enough. If a later screen needs thousands of rows, the layout pass is the single place to add
- * windowing.</p>
+ * <p>Clipping is scissor-based. A partially visible row is drawn clipped, and rows fully outside
+ * the viewport are skipped.
+ *
+ * <p>The wheel moves a target offset that the real offset follows with a 110ms time constant. The
+ * list is not virtualised; the rule panel has a few dozen rows.
  */
 public class PvScrollPane extends PvWidget {
 
@@ -55,10 +47,8 @@ public class PvScrollPane extends PvWidget {
     /**
      * Restores a scroll offset, clamped to the current content.
      *
-     * <p>Needed when a caller rebuilds its rows while the player is looking at them: without this the
-     * list would jump back to the top on every edit, which reads as the panel losing its place.
-     * Restoring is instant on purpose — an animated restore would look like the list scrolling by
-     * itself in response to an edit somewhere else.</p>
+     * <p>For a caller that rebuilds its rows while the player is looking at them, so the list does
+     * not jump back to the top. The restore is instant rather than animated.
      */
     public void scrollTo(int offset) {
         target = Math.max(0, Math.min(offset, maxScroll()));
@@ -75,11 +65,8 @@ public class PvScrollPane extends PvWidget {
     }
 
     private void layout(float d) {
-        // Width before height: a row's height can depend on how wide it is (label beside the control
-        // when there is room, stacked when there is not), so the widths have to be handed out before
-        // anything is totalled. The scrollbar decision therefore uses the previous frame's content
-        // height, which is stable in practice — a list that grows past the viewport shows its bar one
-        // frame late, and one frame at 60fps is not a state anyone can observe.
+        // Width before height: a row's height can depend on its width, so widths are handed out
+        // before anything is totalled. The bar decision uses the previous frame's content height.
         boolean bar = maxScroll() > 0;
         int childWidth = Math.max(0, width - (bar ? PvTheme.SCROLLBAR_W + 8 : 0));
         for (PvWidget child : children) {
@@ -111,9 +98,8 @@ public class PvScrollPane extends PvWidget {
 
     @Override
     public void render(GuiGraphics ctx, int mouseX, int mouseY, float delta) {
-        // A pane with no room is not a pane with a small viewport: a negative width produces a
-        // reversed scissor rect, which the renderer does not clamp, so every child would draw
-        // unclipped across whatever is next to it. Bailing out is the only safe reading.
+        // A pane with no room is skipped: a negative width produces a reversed scissor rect, which
+        // the renderer does not clamp, so every child would draw unclipped.
         if (!visible || width <= 0 || height <= 0) {
             return;
         }
@@ -126,17 +112,15 @@ public class PvScrollPane extends PvWidget {
         String layer = PvAudit.layer(PvAudit.paneLayer(this));
         boolean blocked = PvScreen.modalPointer();
         // A row is either under the pointer or it is not, and "not" has to be a coordinate outside
-        // it rather than a cleared flag: rows compute their own hover from the numbers render()
-        // receives (an inline "remove", a stepper cap, a chip), so a cleared updateHover() still
-        // left those lit — behind a scrim, or half-scrolled out of the viewport.
+        // it: rows compute their own hover from the numbers render() receives.
         int px = blocked ? -1 : mouseX;
         int py = blocked ? -1 : mouseY;
         for (PvWidget child : children) {
             boolean outside = child.y + child.height < y || child.y > y + height;
             if (blocked || outside) {
                 child.updateHover(-1, -1);
-                // A clipped row is skipped outright; a row behind a scrim still has to be drawn,
-                // because the whole point of the scrim is that the panel is visible under it.
+                // A clipped row is skipped outright; a row behind a scrim is still drawn, because
+                // the scrim keeps the panel visible under it.
                 if (!blocked) {
                     continue;
                 }
@@ -148,10 +132,8 @@ public class PvScrollPane extends PvWidget {
         PvAudit.layer(layer);
         ctx.disableScissor();
 
-        // Fades on whichever side still has content. Without them a half-scrolled row reads as a
-        // rendering glitch; with them the list visibly continues past the edge and the scrollbar
-        // stops being the only clue. Both edges animate, so the cue arrives and leaves with the
-        // scroll position instead of popping.
+        // Fades on whichever side still has content, so a half-scrolled row reads as continuing
+        // past the edge. Both edges animate with the scroll position.
         fadeTopT = PvAnim.damp(fadeTopT, scroll > 0.5F ? 1F : 0F, d, 0.08F);
         fadeBottomT = PvAnim.damp(fadeBottomT, scroll < maxScroll() - 0.5F ? 1F : 0F, d, 0.08F);
         if (fadeTopT > 0.01F) {
@@ -167,7 +149,7 @@ public class PvScrollPane extends PvWidget {
         }
     }
 
-    /** 10px gradient drawn as stacked 1px lines, so no shader or gradient API is involved. */
+    /** Draws a 10px gradient as stacked 1px lines, with no shader or gradient API. */
     private void fade(GuiGraphics ctx, int top, boolean downwards, float strength) {
         int bg = PvTheme.PANEL;
         int w = width - (maxScroll() > 0 ? PvTheme.SCROLLBAR_W + 8 : 0);
@@ -247,14 +229,11 @@ public class PvScrollPane extends PvWidget {
     /**
      * A copy of the child list, for event dispatch.
      *
-     * <p>Children are allowed to rebuild this pane from inside their own handlers — that is exactly
-     * what a row's "×" does, and what a slider does on every tick through {@code rebuildListQuietly}.
-     * Iterating the live list then throws {@link java.util.ConcurrentModificationException} on the
-     * client's render thread, which is a crash rather than a glitch: it took both dev clients down
-     * the first time a row was removed.</p>
+     * <p>Children may rebuild this pane from inside their own handlers, which a row's "x" does and
+     * a slider does on every tick. Iterating the live list would throw
+     * {@link java.util.ConcurrentModificationException}.
      *
-     * <p>The stale widgets in the copy are harmless — they have already been deselected, so their
-     * handlers return false.</p>
+     * <p>The stale widgets in the copy are harmless: their handlers return false.
      */
     private List<PvWidget> snapshot() {
         return children.isEmpty() ? List.of() : new ArrayList<>(children);

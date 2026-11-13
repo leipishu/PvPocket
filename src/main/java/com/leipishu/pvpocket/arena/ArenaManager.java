@@ -35,22 +35,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The duel dimension, its plot grid, and the rules that keep a plot from leaking into the next duel.
+ * The duel dimension, its plot grid, and the rules that keep one plot out of the next duel.
  *
  * <p>Minecraft cannot create dimensions at runtime, so the design is one fixed dimension whose
  * interior is carved into a grid of non-overlapping plots. Every session leases one plot for the
- * duration of its round and returns it when it settles.</p>
+ * duration of its round and returns it when it settles.
  *
- * <p>Three invariants hold here and nowhere else:</p>
- * <ol>
- *   <li><b>No mobs, ever.</b> The dimension's {@code monster_spawn_light_level} of 0 only stops
- *       daylight spawning; a dark pocket or a night cycle still spawns. Natural spawning is therefore
- *       cancelled outright in this world, and anything that slips in through another path is swept.</li>
- *   <li><b>A plot is returned to its baseline.</b> Blocks are tracked as "differs from baseline", so
- *       reverting is a baseline write and the map cannot be permanently altered by a duel.</li>
- *   <li><b>Two sessions never share a plot.</b> Leases are keyed by session id, so a double release
- *       cannot free someone else's plot.</li>
- * </ol>
+ * <p>Three invariants hold here: no mobs (natural spawning is cancelled and strays are swept), a
+ * plot is returned to its baseline (blocks are tracked as "differs from baseline"), and two
+ * sessions never share a plot (leases are keyed by session id).
  */
 public final class ArenaManager {
 
@@ -61,8 +54,8 @@ public final class ArenaManager {
     public static final int SURFACE_Y = ArenaRegion.SURFACE_Y;
 
     /**
-     * Grid shape. The first {@code ArenaMaps.ALL.size()} cells are the maps' own addresses; the rest
-     * are the pool that {@link #addCopy} hands out when a map needs a second, third or fourth cell.
+     * Grid shape. The first {@code ArenaMaps.ALL.size()} cells are the maps' own addresses; the
+     * rest are the pool that {@link #addCopy} hands out when a map needs another cell.
      */
     public static final int COLS = 4;
     public static final int ROWS = 4;
@@ -71,21 +64,19 @@ public final class ArenaManager {
      * Interior size of one cell.
      *
      * <p>A cell is the unit the dimension is divided into, and the unit that gets cleared when a
-     * map is stamped. It is deliberately larger than most maps: the cell has to be able to hold the
-     * biggest one (the colosseum, 147x119) without its walls crossing into the neighbour.</p>
+     * map is stamped. It is larger than most maps so it can hold the biggest one, the colosseum at
+     * 147x119, without its walls crossing into the neighbour.
      *
-     * <p>It is no longer the largest plot a duel may ask for — see {@link #MAX_SIZE_XZ}. A plot may
-     * spill past its own cell into the gap, which is what keeps the flat arena's ceiling from being
-     * tied to the colosseum's width.</p>
+     * <p>Not the largest plot a duel may ask for; see {@link #MAX_SIZE_XZ}. A plot may spill past
+     * its own cell into the gap.
      */
     public static final int CELL = 160;
 
     /**
      * Empty ring between two neighbouring cells, in blocks.
      *
-     * <p>This is what makes two arenas read as two places. At the original 32 the colosseum's outer
-     * wall was close enough to the next cell to look like part of it; 96 leaves a clear band of flat
-     * ground between every pair.</p>
+     * <p>This is what makes two arenas read as two places: 96 leaves a clear band of flat ground
+     * between every pair.
      */
     public static final int GAP = 96;
 
@@ -98,35 +89,28 @@ public final class ArenaManager {
     /**
      * Closest two maximum-size plots may come to each other, in blocks.
      *
-     * <p>Exactly both plots' {@link ArenaRegion#BUFFER} shelves (8 each) plus 16 blocks of clear
-     * gap. The shelves must not touch: a shared shelf would let a player knocked off one arena walk
-     * straight onto the other's floor, which is the whole reason the buffer exists. The remaining 16
-     * is what keeps the two barrier rings from reading as one continuous wall. Narrower and the two
-     * arenas stop being two places; wider and the flat arena's ceiling drops for no benefit.</p>
+     * <p>Both plots' {@link ArenaRegion#BUFFER} shelves (8 each) plus 16 blocks of clear gap. The
+     * shelves must not touch: a shared shelf would let a player knocked off one arena walk onto the
+     * other's floor. The remaining 16 keeps the two barrier rings from reading as one wall.
      */
     private static final int MIN_ARENA_GAP = 32;
 
     /**
      * Largest plot the rule panel may request.
      *
-     * <p>Not the cell size. A plot is centred in its cell, so a plot wider than the cell spills into
-     * the gap on both sides — and the gap is exactly where a plot is allowed to go, because nothing
-     * else is ever stamped there. The only hard limit is the neighbour: at {@code PITCH - 32} two
-     * maximum plots still leave {@link #MIN_ARENA_GAP} between them.</p>
+     * <p>Not the cell size. A plot is centred in its cell, so a wider plot spills into the gap on
+     * both sides, where nothing else is ever stamped. The limit is the neighbour: at
+     * {@code PITCH - 32} two maximum plots still leave {@link #MIN_ARENA_GAP} between them.
      *
-     * <p>Raised from {@code CELL} so the flat arena is not capped by the colosseum. The flat plot is
-     * the one map whose size the players choose, so its ceiling is the grid's, not the widest shipped
-     * build's; 224 is 40% more side than the old 160 and the panel's slider now reaches it.</p>
+     * <p>224, so the flat plot's size is not capped by the widest shipped build.
      */
     public static final int MAX_SIZE_XZ = PITCH - MIN_ARENA_GAP;
 
     /**
      * Tallest plot the rule panel may request.
      *
-     * <p>Raised from 64 once the dimension became void: with nothing generated there is no reason
-     * to cap a build at 64 blocks, and the tallest shipped map is 43. The real ceiling is the
-     * dimension height minus the buffer wall, which is what {@code e.sizeY} 96 plus
-     * {@code SURFACE_Y + 2} leaves comfortably clear.</p>
+     * <p>96. The tallest shipped map is 43, and the real ceiling is the dimension height minus the
+     * buffer wall, which 96 plus {@code SURFACE_Y + 2} leaves clear.
      */
     public static final int MAX_SIZE_Y = 96;
 
@@ -136,9 +120,8 @@ public final class ArenaManager {
     /**
      * The stamped plot living in each cell, whether or not it is leased.
      *
-     * <p>This array is why a map has a fixed address. A cell keeps its map between duels, so
-     * selecting the colosseum always means going to the same coordinates — and a second duel on the
-     * same map takes a spare cell rather than stamping over the first one.</p>
+     * <p>A cell keeps its map between duels, so selecting the colosseum always goes to the same
+     * coordinates, and a second duel on the same map takes a spare cell.
      */
     private static final ArenaRegion[] CELLS = new ArenaRegion[SLOTS];
 
@@ -151,41 +134,28 @@ public final class ArenaManager {
     /**
      * How many cells each map gets on a fresh install, its own address included.
      *
-     * <p>Only two maps are here, and both for the same reason: they are the ones a busy server runs
-     * out of first. The flat plot is the default map — a server that has not customised anything
-     * runs every duel on it — and the colosseum is the one people ask for by name. One copy of each
-     * means the second duel on that map has to be turned away; four and two respectively cover an
-     * evening of several concurrent rooms without asking an operator to think about it.</p>
-     *
-     * <p>Every other map keeps one cell. Copies are capacity, not decoration: each one costs a cell
-     * of the grid, and the grid is what a server actually runs out of.</p>
+     * <p>The flat plot is the default map and the colosseum is the one players ask for by name, so
+     * they get four and two cells. Every other map keeps one cell.
      */
     private static final Map<String, Integer> DEFAULT_COPIES = Map.of(
             "flat", 4,
             "arena_colosseum", 2);
 
     /**
-     * The cells handed out beyond a map's own address, keyed by map id, in the order they were added.
+     * The cells handed out beyond a map's own address, keyed by map id, in the order they were
+     * added.
      *
-     * <p>This map is the record the copies live in: slot numbers are stable addresses, so the third
-     * copy of the flat plot is always the same coordinates, across restarts and across a reset. It
-     * is persisted to {@code pvpocket/arena.json} for exactly that reason — re-deriving the layout
-     * from "the first free cell" would move every copy the moment somebody added one.</p>
+     * <p>Slot numbers are stable addresses, so the third copy of the flat plot is always the same
+     * coordinates, across restarts and across a reset. Persisted to {@code pvpocket/arena.json}.
      */
     private static final Map<String, List<Integer>> EXTRA = new LinkedHashMap<>();
 
     /**
      * Maps that have given up their own address, and therefore live only in {@link #EXTRA}.
      *
-     * <p>A map's home cell is derived from its index in {@link ArenaMaps#ALL} and cannot be
-     * "un-derived", so deleting a map's last copy — which the operator is allowed to do, down to
-     * none at all — needs somewhere to say so. This is that place. {@link #copiesOf} subtracts one
-     * for every id in here, and {@link #addCopy} puts the home cell back by removing the id.</p>
-     *
-     * <p>The alternative was to persist each map's complete cell list instead of its extras, which
-     * reads better but would have made every map's home cell a matter of file contents rather than
-     * of the map's identity. The address is the thing that must not move; this set only records
-     * whether it is currently in use.</p>
+     * <p>A map's home cell is derived from its index in {@link ArenaMaps#ALL}, so deleting a map's
+     * last copy needs somewhere to record that the address is unused. {@link #copiesOf} subtracts
+     * one for every id here, and {@link #addCopy} restores the home cell by removing the id.
      */
     private static final java.util.Set<String> NO_HOME = new java.util.LinkedHashSet<>();
 
@@ -194,9 +164,8 @@ public final class ArenaManager {
     /**
      * On-disk shape of {@code arena.json}. A record so Gson needs no reflection on private fields.
      *
-     * <p>Version 2 added {@code noHome}. A version 1 file loads unchanged — the field is simply
-     * null, which reads as "no map has given up its address", i.e. exactly what a version 1 layout
-     * meant. Nothing has to be migrated; the next save writes version 2.</p>
+     * <p>Version 2 added {@code noHome}. A version 1 file loads with the field null, which reads as
+     * "no map has given up its address"; the next save writes version 2.
      */
     private record LayoutFile(int version, Map<String, List<Integer>> extra, List<String> noHome) {
     }
@@ -204,10 +173,8 @@ public final class ArenaManager {
     /**
      * Reads the copy layout, seeding the defaults on a world that has none.
      *
-     * <p>Called once per server start, before {@link #beginWarmUp}. A missing file is the normal
-     * first-run case and the normal upgrade case: both should end up with the default copies, and
-     * the file is written so the next start reads the same slots instead of allocating them
-     * again.</p>
+     * <p>Called once per server start, before {@link #beginWarmUp}. A missing file seeds the
+     * defaults and is written back so the next start reads the same slots.
      */
     public static void loadLayout(MinecraftServer server) {
         EXTRA.clear();
@@ -230,7 +197,7 @@ public final class ArenaManager {
                 }
             } catch (IOException | RuntimeException e) {
                 // Losing this file costs the extra cells, not the maps: every map still has its own
-                // address, which is derived from its index and cannot be lost. Re-seed and carry on.
+                // address, which is derived from its index. Re-seed and carry on.
                 PvPocket.LOGGER.warn("Could not read {}; copy layout falls back to defaults", file, e);
                 EXTRA.clear();
                 NO_HOME.clear();
@@ -255,8 +222,8 @@ public final class ArenaManager {
             if (EXTRA.containsKey(map.id)) {
                 continue;
             }
-            // A map whose address was given up has an entry — an empty one — so it is never
-            // reseeded; the second test is for a hand-written file that dropped both.
+            // A map whose address was given up has an empty entry, so it is never reseeded; the
+            // second test is for a hand-written file that dropped both.
             if (NO_HOME.contains(map.id)) {
                 EXTRA.put(map.id, new ArrayList<>());
                 changed = true;
@@ -282,9 +249,8 @@ public final class ArenaManager {
     /**
      * Drops duplicate, out-of-range and home-slot collisions from the loaded layout.
      *
-     * <p>A hand-edited or half-written file must not be able to point two maps at one cell — that is
-     * two arenas stamped on top of each other, which is the bug the whole slot scheme exists to
-     * prevent. Returns true when anything had to be dropped.</p>
+     * <p>A hand-edited or half-written file must not point two maps at one cell. Returns true when
+     * anything was dropped.
      */
     private static boolean sanitise() {
         boolean changed = false;
@@ -305,8 +271,8 @@ public final class ArenaManager {
             }
             entry.setValue(kept);
         }
-        // A noHome entry for a map that does not exist is a line that would never be read again, and
-        // leaving it in the file makes the next operator wonder which map it referred to.
+        // A noHome entry for a map that does not exist would never be read again, and leaving it
+        // makes the next operator wonder which map it referred to.
         for (String id : new ArrayList<>(NO_HOME)) {
             boolean known = false;
             for (ArenaMap map : ArenaMaps.ALL) {
@@ -350,10 +316,9 @@ public final class ArenaManager {
     /**
      * How many cells a map owns, its own address included.
      *
-     * <p>Zero is a legal answer. Deleting every copy of a map is how an operator takes it out of
-     * circulation — the rule panel then steps over it, and a session that still has it selected is
-     * refused at "同意并开始". A map with no cells is not a broken map; it is one nobody can be sent
-     * to.</p>
+     * <p>Zero is a legal answer. Deleting every copy of a map takes it out of circulation: the rule
+     * panel steps over it, and a session that still has it selected is refused at the confirm
+     * prompt.
      */
     public static int copiesOf(ArenaMap map) {
         List<Integer> extra = EXTRA.get(map.id);
@@ -365,12 +330,10 @@ public final class ArenaManager {
      * Every cell a map owns, its own address first.
      *
      * <p>The address is {@code ArenaMaps.ALL.indexOf(map)} and never moves; the extra copies are
-     * whatever {@link #EXTRA} recorded. Returning them as one array is what lets {@link #allocate}
-     * stop caring which is which.</p>
+     * whatever {@link #EXTRA} recorded. Empty when the map has been deleted down to nothing.
      *
-     * <p>Empty when the map has been deleted down to nothing. The order matters to {@link
-     * #removeCopy}, which takes cells from the end: dropping the last copy added keeps every other
-     * copy at the address it had before.</p>
+     * <p>The order matters to {@link #removeCopy}, which takes cells from the end, so dropping the
+     * last copy added keeps every other copy at the address it had.
      */
     public static int[] slotsOf(ArenaMap map) {
         List<Integer> extra = EXTRA.get(map.id);
@@ -414,13 +377,11 @@ public final class ArenaManager {
     /**
      * Hands a map one more cell, persists the layout, and builds it.
      *
-     * <p>Operator-only, and the one way to raise the number of duels a server can run at once. The
-     * cell is recorded before it is built: a stamp that fails halfway leaves a reserved address,
-     * which is recoverable, while a built cell nobody recorded would be erased by the next map that
-     * gets it.</p>
+     * <p>Operator-only. The cell is recorded before it is built, so a stamp that fails halfway
+     * leaves a reserved address rather than a built cell nobody recorded.
      *
-     * <p>A flat copy is reserved but not built — its platform is cut to whatever size the rules ask
-     * for, so there is nothing to paste yet. It is stamped by the first lease that lands on it.</p>
+     * <p>A flat copy is reserved but not built; its platform is cut to whatever size the rules ask
+     * for, so it is stamped by the first lease that lands on it.
      *
      * @return the cell the copy was given, or -1 when the grid has no spare cell left
      */
@@ -428,10 +389,8 @@ public final class ArenaManager {
         if (map == null) {
             return -1;
         }
-        // A map with no cells left gets its own address back before it gets a spare one. Its address
-        // is the coordinates an operator wrote down, so handing it a cell at the far end of the grid
-        // instead would silently undo the "every map has a fixed address" promise for exactly the
-        // map that had its address taken away.
+        // A map with no cells gets its own address back before it gets a spare one: the address is
+        // the coordinates an operator wrote down.
         int home = homeSlot(map);
         if (home >= 0 && NO_HOME.remove(map.id)) {
             saveLayout(server);
@@ -456,26 +415,22 @@ public final class ArenaManager {
         return slot;
     }
 
-    /** {@link #removeCopy} found nothing to delete: the map already owns no cells. */
+    /** Returned by {@link #removeCopy} when the map already owns no cells. */
     public static final int REMOVE_NONE = -1;
-    /** {@link #removeCopy} refused: every cell the map owns is leased to a live duel. */
+    /** Returned by {@link #removeCopy} when every cell the map owns is leased to a live duel. */
     public static final int REMOVE_BUSY = -2;
 
     /**
      * Takes one cell away from a map and wipes it, the inverse of {@link #addCopy}.
      *
-     * <p>Cells go from the end of {@link #slotsOf}, so the copy added last is the one removed first
-     * and every older copy keeps the address it had. When the extras run out the map's own address
-     * is given up too — {@code /pvpocket arena remove flat 4} leaves the flat plot with nothing, and
-     * that is deliberate: the number of cells is capacity, and capacity is allowed to be zero. A map
-     * with no cells cannot be picked in the rule panel, which is the visible consequence.</p>
+     * <p>Cells go from the end of {@link #slotsOf}, so the copy added last is removed first and
+     * every older copy keeps its address. When the extras run out the map's own address is given
+     * up too: {@code /pvpocket arena remove flat 4} leaves the flat plot with no cells.
      *
-     * <p>A leased cell is stepped over rather than destroyed. Deleting it would leave the duel's
-     * players standing in air over the void with a session that still thinks it owns a plot, and the
-     * cell would be cleared under them the moment they were teleported out. If every cell is leased
-     * the call refuses and the operator waits for the round.</p>
+     * <p>A leased cell is stepped over, since deleting it would leave the duel's players in the air
+     * over the void; if every cell is leased the call returns {@link #REMOVE_BUSY}.
      *
-     * @return the cell that was released, or {@link #REMOVE_NONE} / {@link #REMOVE_BUSY}
+     * @return the released cell, {@link #REMOVE_NONE} or {@link #REMOVE_BUSY}
      */
     public static int removeCopy(MinecraftServer server, ArenaMap map) {
         if (map == null) {
@@ -506,20 +461,16 @@ public final class ArenaManager {
     }
 
     /**
-     * Empties a cell a map no longer owns: terrain back to void, entities gone, gallery entry gone.
+     * Empties a cell a map has given up: terrain back to void, entities gone, gallery entry gone.
      *
-     * <p>The blocks have to go, not just the record. A cell that keeps its stamp but has no owner is
-     * a build nobody can be sent to, and nothing else will ever clean it: the gallery fill only
-     * re-stamps a map's first copy, and {@link #wipeUnstampedCells} walks {@link #CELLS}, which has
-     * no entry for a cell nobody owns. It would sit in the dimension until the cell happened to be
-     * given to another map.</p>
+     * <p>The blocks have to go, not just the record, because nothing else cleans a cell with no
+     * owner: the gallery fill only re-stamps a map's first copy, and {@link #wipeUnstampedCells}
+     * walks {@link #CELLS}, which has no entry for it.
      *
-     * <p><b>{@link #CELLS} cannot be trusted here.</b> It is rebuilt on every start by the warm-up,
-     * and the warm-up only stamps each map's <em>first</em> copy — so a copy stamped in a previous
-     * session is on disk but unknown to this one. When the region is known it is used, because its
-     * box is exactly what was built; when it is not, a maximum-size box centred in the cell is
-     * cleared instead. That box is a superset of anything a plot can occupy in this cell and a
-     * subset of the cell's own clearance, so it cannot reach a neighbour.</p>
+     * <p>{@link #CELLS} is rebuilt on every start and only holds each map's first copy, so a copy
+     * stamped in a previous session may be unknown here. When the region is known its box is used;
+     * otherwise a maximum-size box centred in the cell is cleared, which is a superset of anything
+     * a plot can occupy in that cell.
      */
     private static void vacate(MinecraftServer server, int slot, ArenaMap map) {
         ServerLevel world = world(server);
@@ -539,11 +490,8 @@ public final class ArenaManager {
                     cellX, cellZ, CELL, CELL, map, false, false);
         }
         final ArenaRegion cleared = region;
-        // Timed for the same reason stamp() is. Deleting a copy runs on the server thread and can
-        // block it for a second, so an operator who freezes mid-command deserves a number in the log
-        // rather than a guess. The erased count separates "this cell was empty" from "this cell was
-        // a full arena": only the second one costs anything, and only the second one is worth
-        // warning about when it happens during a round.
+        // Timed like stamp(). Deleting a copy blocks the server thread, and the erased count
+        // separates an empty cell from a full arena.
         long started = System.nanoTime();
         int wiped = suppressRecording(() -> cleared.reset(world, cleared.sizeY));
         purge(world, cleared);
@@ -580,8 +528,8 @@ public final class ArenaManager {
     /**
      * While non-zero, block writes are not recorded as plot deviations.
      *
-     * <p>Reset and revert both write the baseline back; recording those writes would immediately
-     * re-mark every position as changed and turn a clean plot into a permanently dirty one.</p>
+     * <p>Reset and revert both write the baseline back, and recording those writes would re-mark
+     * every position as changed.
      */
     private static int recordingSuppressed;
 
@@ -605,30 +553,14 @@ public final class ArenaManager {
     /**
      * Leases the plot that belongs to the selected map, stamping it if this is the first time.
      *
-     * <p>When a map is selected its bounding box wins over {@code sizeX/sizeY/sizeZ}: the plot has to
-     * cover the whole build, otherwise the boundary test would declare a player standing on the
-     * stands as having left the arena.</p>
+     * <p>When a map is selected its bounding box wins over {@code sizeX/sizeY/sizeZ}, so the plot
+     * covers the whole build.
      *
-     * <p><b>Every map has a fixed address.</b> The first cell of a map is chosen from its index in
-     * {@link ArenaMaps#ALL}, not from "whichever cell is free": the first version took the first
-     * free slot, so a server that runs one duel at a time pasted every map into slot 0, one on top
-     * of the previous. Because the plot is centred by its own size, the new map landed inside the
-     * old one and both were visible at once. Taking the map's own cell means the colosseum is always
-     * at the colosseum's coordinates.</p>
-     *
-     * <p><b>Copies are the capacity, not an overflow.</b> A map owns one cell per copy, recorded in
-     * {@link #EXTRA}; this takes the first of them that nobody is standing in. When every copy is
-     * leased the map is full and the caller must be told so — silently stamping a fifth flat arena
-     * into somebody else's cell is how two duels end up in one place. The number of copies is an
-     * operator decision ({@code /pvpocket arena copy}), not something a busy evening can raise on
-     * its own.</p>
-     *
-     * <p>A cell that already holds the requested map is reused as-is — the map stays stamped between
-     * duels, so a round only has to undo the previous round's edits.</p>
-     *
-     * <p>Returns null when no cell is available, which the caller must treat as "cannot start"
-     * rather than as a soft failure — silently reusing a busy plot would teleport two duels into
-     * each other.</p>
+     * <p>Every map has a fixed address, chosen from its index in {@link ArenaMaps#ALL}, so the
+     * colosseum is always at the colosseum's coordinates. A map owns one cell per copy, recorded
+     * in {@link #EXTRA}; this takes the first copy nobody is standing in. A cell that already holds
+     * the map is reused as-is after reverting the previous round's edits. Returns null when no cell
+     * is available, which the caller must treat as "cannot start".
      */
     public static ArenaRegion allocate(MinecraftServer server, String sessionId,
                                        int sizeX, int sizeY, int sizeZ, ArenaMap map,
@@ -670,12 +602,11 @@ public final class ArenaManager {
     }
 
     /**
-     * Clears a cell and stamps a map into it, leaving the result registered as that cell's occupant.
+     * Clears a cell, stamps a map into it, and registers the result as that cell's occupant.
      *
-     * <p>Clearing uses the cell rectangle rather than the map's box, and clears to the taller of the
-     * outgoing and incoming build heights. Both details exist for the same reason: a cell handed
-     * from the colosseum to the 45-wide island must not keep the colosseum's outer wall standing
-     * around the island.</p>
+     * <p>Clearing uses the cell rectangle rather than the map's box and clears to the taller of the
+     * outgoing and incoming build heights, so a cell handed from the colosseum to the 45-wide
+     * island does not keep the colosseum's outer wall.
      */
     private static ArenaRegion stamp(MinecraftServer server, int slot, ArenaMap map,
                                      int sx, int sy, int sz,
@@ -696,11 +627,8 @@ public final class ArenaManager {
             return null;
         }
         int clearY = previous == null ? sy : Math.max(sy, previous.sizeY);
-        // Phase timings, because this is the one operation in the mod that blocks the server for a
-        // visible stretch and the block counts do not say where the time went: clearing an empty
-        // cell is a few million reads that write nothing, while pasting is tens of thousands of
-        // writes, and the two want opposite fixes. Without the split, "stamping takes a second" has
-        // no next step; with it, the log names the phase.
+        // Phase timings: clearing an empty cell is a few million reads that write nothing, while
+        // pasting is tens of thousands of writes, so the log names each phase.
         long started = System.nanoTime();
         int cleared = suppressRecording(() -> region.reset(world, clearY));
         long clearedAt = System.nanoTime();
@@ -709,26 +637,24 @@ public final class ArenaManager {
         if (map.isFlat()) {
             floorBlocks = suppressRecording(() -> buildPlatform(world, region));
         } else {
-            // Paste and capture both run with recording suppressed. The paste writes tens of
-            // thousands of blocks, and every one of them would otherwise be filed as "the player
-            // changed this" -- the deviation set would be full before the first round.
+            // Paste and capture both run with recording suppressed: otherwise every written block
+            // would be filed as a player change and the deviation set would fill up.
             pasted = suppressRecording(() -> map.paste(world, region) ? 1 : 0);
         }
         long builtAt = System.nanoTime();
-        // Capture runs for the flat plot too. Its platform has to be part of the baseline, or the
-        // first revert of a duel would delete the ground out from under the players.
+        // Capture runs for the flat plot too, so its platform is part of the baseline; otherwise
+        // the first revert would delete the ground under the players.
         suppressRecording(() -> {
             region.capture(world);
             return 0;
         });
-        // After capture, so the barrier shelf is not mistaken for part of the map. It sits one block
-        // below the plot floor and outside the plot box, which is exactly the volume capture skips.
+        // After capture, so the barrier shelf is not mistaken for part of the map: it sits one
+        // block below the plot floor and outside the plot box.
         int bufferBlocks = suppressRecording(() -> buildBuffer(world, region));
         int entities = purge(world, region);
         long finished = System.nanoTime();
-        // Registered here rather than by the caller so both paths -- a duel lease and the startup
-        // warm-up -- leave the cell with an occupant. Forgetting it in warm-up meant the gallery was
-        // stamped but invisible, and every later lease re-stamped over it.
+        // Registered here rather than by the caller so both the duel lease and the startup warm-up
+        // leave the cell with an occupant.
         CELLS[slot] = region;
         PvPocket.LOGGER.info("Stamped {} into cell {} at {},{},{} (cleared {} blocks, map {} "
                         + "pasted {}, platform {} blocks, buffer {} barrier, {} template blocks, "
@@ -743,12 +669,11 @@ public final class ArenaManager {
     /**
      * Lays the flat arena's floor.
      *
-     * <p>The dimension is void, so "flat" no longer means "whatever the generator put there" — there
-     * is nothing under anything. A flat plot is a platform of the requested size, floating exactly
-     * where a pasted map's base would be, which is why it sits at {@link ArenaRegion#PLATFORM_Y} and
-     * not at {@link ArenaRegion#SURFACE_Y}.</p>
+     * <p>The dimension is void, so a flat plot is a platform of the requested size, floating where
+     * a pasted map's base would be. It sits at {@link ArenaRegion#PLATFORM_Y}, one below
+     * {@link ArenaRegion#SURFACE_Y}.
      *
-     * <p>Returns the block count so the caller can log it the same way it logs a paste.</p>
+     * <p>Returns the block count so the caller can log it the same way it logs a paste.
      */
     private static int buildPlatform(ServerLevel world, ArenaRegion region) {
         BlockState floor = Blocks.SMOOTH_STONE.defaultBlockState();
@@ -766,28 +691,13 @@ public final class ArenaManager {
     /**
      * Builds the invisible buffer around a plot: a barrier shelf and a barrier wall at its rim.
      *
-     * <p>Without it a plot's edge is a drop into nothing, because the dimension is void. Two
-     * separate problems, two separate pieces:</p>
-     * <ul>
-     *   <li><b>The shelf</b> covers the whole plot box plus {@link ArenaRegion#BUFFER} on every side,
-     *       one block <em>below</em> the plot floor. It is what catches a player who walks or is
-     *       knocked off the map: they land on it instead of dying to the void, and can walk back.
-     *       It covers the plot box as well as the ring because a build's box is not its footprint —
-     *       the island is a disc inside a square box, so its corners are empty and a ring-only shelf
-     *       would leave four holes to fall through.</li>
-     *   <li><b>The wall</b> stands at the outer rim of the shelf, from the shelf up past the tallest
-     *       thing the map can hold, so the shelf is a place you can be rescued from rather than a
-     *       ledge you walk off the far side of.</li>
-     * </ul>
+     * <p>The shelf covers the whole plot box plus {@link ArenaRegion#BUFFER} on every side, one
+     * block below the plot floor. It covers the box as well as the ring because a build's box is
+     * not its footprint: the island is a disc inside a square box, so its corners are empty and a
+     * ring-only shelf would leave four holes to fall through.
      *
-     * <p>Barrier rather than glass or stone on purpose: it is invisible, unbreakable, and cannot be
-     * obtained, so the buffer adds nothing to look at and nothing to exploit. The boundary curtain
-     * is still drawn at the plot box, inside the shelf, which is why the boundary rule keeps its
-     * meaning — leaving the plot is still a rule violation, it just is not a death sentence any
-     * more.</p>
-     *
-     * <p>Runs after {@link ArenaRegion#capture} so the shelf cannot be mistaken for map blocks: it
-     * is one below the plot floor and outside the plot box, and capture scans neither.</p>
+     * <p>The wall stands at the outer rim of the shelf and reaches past the tallest thing the map
+     * can hold. Runs after {@link ArenaRegion#capture} so the shelf is not mistaken for map blocks.
      */
     private static int buildBuffer(ServerLevel world, ArenaRegion region) {
         BlockState barrier = Blocks.BARRIER.defaultBlockState();
@@ -834,19 +744,17 @@ public final class ArenaManager {
     /**
      * How far above the higher spawn pad the preparation wall reaches.
      *
-     * <p>Eight blocks is enough that nobody jumps it by accident and short enough that it costs
-     * almost nothing to place and remove every round. It is not meant to survive a player who
-     * deliberately pillars up: the preparation window is thirty seconds of standing still, and the
-     * boundary rule is waiting on the other side of it anyway.</p>
+     * <p>Eight blocks is enough that nobody jumps it by accident and cheap enough to place and
+     * remove every round. It does not stop a player who pillars up, but the preparation window is
+     * thirty seconds and the boundary rule waits on the other side.
      */
     private static final int PREPARE_WALL_MARGIN = 8;
 
     /**
      * Absolute y of the top block of the preparation wall.
      *
-     * <p>Measured from the spawn pads rather than from the plot floor because a map's floor is not
-     * where the players are: the colosseum's sand is a few blocks up, and a wall sized from
-     * {@code PLATFORM_Y} would end below the players' feet on any raised build.</p>
+     * <p>Measured from the spawn pads rather than from the plot floor, because a map's floor is not
+     * where the players are: the colosseum's sand is a few blocks up.
      */
     public static int prepareWallTop(ArenaRegion region) {
         int pads = Math.max(region.spawnY(0), region.spawnY(1));
@@ -856,40 +764,14 @@ public final class ArenaManager {
     /**
      * Builds the solid wall that closes the arena during the preparation window.
      *
-     * <p>This is the one place where the boundary is <em>real</em> rather than a rule. During
-     * preparation nobody can be hit, so the only thing a player can usefully do is walk out and be
-     * somewhere strange when the round goes live. A rendered curtain does not stop that — the
-     * existing curtain is deliberately walk-through, because a boundary you can push against is a
-     * boundary the countdown rule can never see. So for the preparation window the wall is made of
-     * {@code minecraft:barrier}: invisible, unbreakable, unobtainable, and solid to the engine.</p>
+     * <p>During preparation nobody can be hit, so the only useful move is to walk out. The wall is
+     * {@code minecraft:barrier}: invisible, unbreakable, solid to the engine, and one block outside
+     * the fight area, just behind where the boundary curtain is drawn.
      *
-     * <p>It sits one block <em>outside</em> the fight area, which puts it just behind where the
-     * boundary curtain is drawn. That is the whole trick: the player bumps into something invisible
-     * at the same place the client is painting a wall, so the two agree without the server having to
-     * send anything per frame.</p>
+     * <p>Only air is written over: on a map with an inset fight area, such as the colosseum, the
+     * ring lands on the podium wall, and overwriting it would carve a trench no revert could undo.
      *
-     * <p>Barrier rather than glass so nothing has to be cleaned out of the player's inventory and
-     * nothing appears in the world to look at once the round starts. {@link #removePrepareWall} only
-     * clears blocks that are still barrier, so a map that happens to have its own barrier blocks at
-     * the same coordinates keeps them.</p>
-     *
-     * <p><b>Only air is written over.</b> The ring runs one block outside the fight area, and on a
-     * map whose fight area is inset — the colosseum — that line lands on the single block of podium
-     * wall between the sand and the seating. Overwriting it put a one-block trench around the whole
-     * arena: the barrier is cleared to air afterwards, and because the write happened with recording
-     * suppressed, {@link #revertRegion} could not put the map back either. The trench then survived
-     * every later round in that cell, which is how it came to look like a hole in the map. A solid
-     * map block is already an obstacle, so the ring has nothing to add there.</p>
-     *
-     * <p>The screens between the sides are built here too, from the same material — see
-     * {@link #prepareScreens}. They are the half of this barrier the player can <em>see</em>: the
-     * client paints them solid white from the planes this class reports, which is why the blocks
-     * themselves can stay invisible.</p>
-     *
-     * <p>Recording is suppressed: the wall is outside the plot box, but {@code regionAt} matches on
-     * the plot box and a wall at {@code pitMinX - 1} can still fall inside it on a map with no
-     * inset — and a barrier block filed as "the player placed this" would make the whole ring
-     * unbreakable-but-tracked and would be reverted into existence at the next settle.</p>
+     * <p>The screens are built here too; see {@link #prepareScreens}. Recording is suppressed.
      */
     public static int buildPrepareWall(ServerLevel world, ArenaRegion region, int sides) {
         if (world == null || region == null) {
@@ -921,10 +803,9 @@ public final class ArenaManager {
     /**
      * Writes barrier only where there is nothing, so the ring can never carve a map.
      *
-     * <p>Not tracked, unlike the screens: the ring's teardown is a barrier scan, which is safe
-     * because the converter strips {@code barrier} out of every shipped template. The screens sit
-     * further inside the fight area, where a map is free to use that block for its own invisible
-     * walls, which is why those are tracked by coordinate instead.</p>
+     * <p>Not tracked: the ring's teardown is a barrier scan, which is safe because the converter
+     * strips {@code barrier} out of every shipped template. The screens sit further inside the
+     * fight area and are tracked by coordinate instead.
      */
     private static int standIfAir(ServerLevel world, int x, int y, int z, BlockState barrier) {
         BlockPos pos = new BlockPos(x, y, z);
@@ -938,9 +819,8 @@ public final class ArenaManager {
     /**
      * How far in front of a side's pad its screen stands, in blocks.
      *
-     * <p>Far enough that the side has room to spread out and read the panel, close enough that the
-     * two screens do not meet in the middle on the smallest legal plot. Four also leaves the
-     * knockback of the first exchange somewhere to go once the screens come down.</p>
+     * <p>Four leaves the side room to spread out and read the panel, keeps the two screens from
+     * meeting in the middle on the smallest legal plot, and leaves the knockback somewhere to go.
      */
     private static final int SCREEN_GAP = 4;
 
@@ -948,9 +828,7 @@ public final class ArenaManager {
      * One preparation screen: a vertical plane one block thick, spanning the fight area.
      *
      * <p>Sent to the client verbatim, so the white wall it paints and the barrier blocks the server
-     * stands in the world are the same object. Deriving the plane twice — once here, once on the
-     * client from pads and insets — is how a wall ends up drawn a block away from the thing you are
-     * bumping into.</p>
+     * stands in the world are the same object.
      */
     public record Screen(boolean alongZ, int plane, int from, int to, int floorY, int height) {
     }
@@ -958,14 +836,11 @@ public final class ArenaManager {
     /**
      * Where each side's screen would stand, without touching the world.
      *
-     * <p>One method for both jobs: {@link #buildScreens} stands barrier blocks on these planes and
-     * the session sends the same list to the client to paint. The client cannot compute them itself
-     * — the pads come from a ring search over the stamped map — so the server is the only place the
-     * answer exists.</p>
+     * <p>{@link #buildScreens} stands barrier blocks on these planes and the session sends the same
+     * list to the client to paint. The client cannot compute them, because the pads come from a
+     * ring search over the stamped map.
      *
-     * <p>Sides that cannot be screened are dropped rather than clamped onto the centre line: on a
-     * plot barely wider than the two pads there is no room for a screen that is not also a wall in
-     * the middle of the fight, and half a screen would be worse than none.</p>
+     * <p>Sides that cannot be screened are dropped rather than clamped onto the centre line.
      */
     public static List<Screen> prepareScreens(ArenaRegion region, int sides) {
         if (region == null) {
@@ -976,12 +851,8 @@ public final class ArenaManager {
             return List.of();
         }
         List<Screen> screens = new ArrayList<>(count);
-        // Footed one block below the lowest pad, not at the plot floor. The floor is where the flat
-        // arena's platform is, but a downloaded map floats: its floor is tens of blocks under the
-        // surface, and a screen anchored there would be a wall hanging into the void — thousands of
-        // invisible blocks per round, and a white sheet visible from outside the island. One block
-        // below the pad keeps the foot at the players' own level, which is the only level that has
-        // to be blocked.
+        // Footed one block below the lowest pad, not at the plot floor: a map floats, so a screen
+        // anchored at the floor would hang thousands of blocks into the void.
         int floor = Integer.MAX_VALUE;
         for (int i = 0; i < count; i++) {
             floor = Math.min(floor, region.spawnY(i));
@@ -1014,14 +885,8 @@ public final class ArenaManager {
     /**
      * Stands the barrier blocks a screen needs, on the planes {@link #prepareScreens} reports.
      *
-     * <p>Barrier, not glass: the wall the player sees is painted by the client from the same plane,
-     * so the block only has to be solid. That also keeps the world looking empty the instant the
-     * round goes live, which is when the drawn wall disappears.</p>
-     *
-     * <p>Only air is written over. Overwriting the map would not be undone by
-     * {@link ArenaRegion#clearScreens} writing air, so it would carve a one-block slot through
-     * whatever the plane crossed. Skipping non-air leaves the screen solid where it matters — the
-     * direct line — and the map untouched.</p>
+     * <p>Only air is written over. {@link ArenaRegion#clearScreens} writes air back, so overwriting
+     * the map would carve a slot through whatever the plane crossed.
      */
     private static int buildScreens(ServerLevel world, ArenaRegion region, int sides) {
         BlockState barrier = Blocks.BARRIER.defaultBlockState();
@@ -1048,9 +913,9 @@ public final class ArenaManager {
     /**
      * Tears the preparation barrier down: the ring, then every screen block still standing.
      *
-     * <p>Only barrier blocks are removed from the ring, so a map that happens to have its own
-     * barriers at the same coordinates keeps them. The screens are removed from the recorded
-     * position list instead — see {@link ArenaRegion#clearScreens} for why a scan would be wrong.</p>
+     * <p>Only barrier blocks are removed from the ring, so a map with its own barriers at the same
+     * coordinates keeps them. Screens are removed from the recorded position list; see
+     * {@link ArenaRegion#clearScreens}.
      */
     public static int removePrepareWall(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
@@ -1099,20 +964,12 @@ public final class ArenaManager {
      * Queues the gallery fill: the first copy of every map gets stamped into its own cell, one per
      * tick.
      *
-     * <p>Without this the cells only fill in as maps get played, and an operator flying around
-     * before the first duel sees an empty plain — which is what made the stacking bug hard to see in
-     * the first place.</p>
+     * <p>Only the first copy of each map. Extra copies are capacity and are built the first time
+     * somebody is sent to one.
      *
-     * <p>Only the <em>first</em> copy of each map. Extra copies are capacity: an operator who asked
-     * for a second colosseum wants the ability to run two colosseum duels, not two colosseums to
-     * look at, and pre-stamping them would double both the startup freeze and the disk the dimension
-     * takes. A copy is built the first time somebody is sent to it.</p>
-     *
-     * <p>Spread over ticks rather than done in one go on purpose. A single stamp is a cell-sized
-     * clear (160x160x~40 reads) plus tens of thousands of block writes, and the colosseum alone is
-     * 109k blocks; doing eight of them back to back in {@code SERVER_STARTED} freezes the server for
-     * long enough that the watchdog starts complaining. One per tick keeps the start responsive, and
-     * nobody can be in a duel yet anyway.</p>
+     * <p>Spread over ticks because a single stamp is a cell-sized clear (160x160x40 reads) plus
+     * tens of thousands of block writes, and the colosseum alone is 109k blocks. Doing eight in a
+     * row in {@code SERVER_STARTED} freezes the server long enough for the watchdog to complain.
      */
     public static void beginWarmUp() {
         warmUpCursor = 0;
@@ -1125,10 +982,11 @@ public final class ArenaManager {
     }
 
     /**
-     * Stamps at most one exhibit. Called from the server tick hook; a no-op once the gallery is done.
+     * Stamps at most one exhibit. Called from the server tick hook; a no-op once the gallery is
+     * done.
      *
-     * <p>It also doubles as crash recovery: a cell whose map was half-edited when the process died
-     * is cleared and restamped, so debris cannot become part of the next round's baseline.</p>
+     * <p>A cell whose map was half-edited when the process died is cleared and restamped, so debris
+     * cannot become part of the next round's baseline.
      */
     public static void warmUpTick(MinecraftServer server) {
         if (warmUpCursor < 0) {
@@ -1146,9 +1004,8 @@ public final class ArenaManager {
 
         int slot = warmUpCursor++;
         ArenaMap map = ArenaMaps.ALL.get(slot);
-        // A map whose address was given up owns no cells, so there is nothing here to fill: stamping
-        // it would rebuild a build no rule panel can send anybody to, and the cell would sit there
-        // until the next `remove` happened to clear it.
+        // A map whose address was given up owns no cells, so there is nothing to fill: stamping it
+        // would rebuild a build no rule panel can send anybody to.
         if (!NO_HOME.contains(map.id) && !map.isFlat() && !USED[slot] && CELLS[slot] == null) {
             int sx = clampSize(map.sizeX, MAX_SIZE_XZ);
             int sy = clampSize(map.sizeY, MAX_SIZE_Y);
@@ -1191,8 +1048,8 @@ public final class ArenaManager {
     /**
      * Every cell that currently holds a stamped map, leased or not.
      *
-     * <p>Distinct from {@link #leased()} on purpose: the gallery outlives any single duel, so an
-     * operator asking "where is the colosseum" needs the exhibits, not the active leases.</p>
+     * <p>Distinct from {@link #leased()}: the gallery outlives any single duel, so "where is the
+     * colosseum" needs the exhibits, not the active leases.
      */
     public static List<ArenaRegion> gallery() {
         List<ArenaRegion> out = new ArrayList<>(SLOTS);
@@ -1212,8 +1069,7 @@ public final class ArenaManager {
     /**
      * How many cells currently hold a plot, for the operator panel's "n / total stamped" line.
      *
-     * <p>Counts the registered occupants rather than the blocks: a cell whose map was never built
-     * and a cell that is empty are the same thing to an operator deciding whether to add a copy.</p>
+     * <p>Counts registered occupants rather than blocks.
      */
     public static int stampedCount() {
         int stamped = 0;
@@ -1231,8 +1087,8 @@ public final class ArenaManager {
         if (region != null && region.index >= 0 && region.index < SLOTS) {
             USED[region.index] = false;
         }
-        // Deliberately does not clear CELLS[slot]: the map stays stamped where it is, which is what
-        // gives each map a stable address. The next lease of the same map reuses it.
+        // Does not clear CELLS[slot]: the map stays stamped where it is, which gives each map a
+        // stable address. The next lease of the same map reuses it.
         return region;
     }
 
@@ -1250,21 +1106,14 @@ public final class ArenaManager {
     }
 
     /**
-     * Map indices that a live duel is currently standing on, as a bitmask over {@link ArenaMaps#ALL}.
+     * Map indices a live duel is standing on, as a bitmask over {@link ArenaMaps#ALL}.
      *
-     * <p>A mask rather than a list because it has to cross the wire: the rule panel greys these out,
-     * and a set of up to sixteen booleans is one integer. {@code exceptSessionId} lets a session
-     * re-open its own panel without seeing its own plot as taken.</p>
+     * <p>A mask rather than a list because it has to cross the wire: the rule panel greys these
+     * out, and up to sixteen booleans fit in one integer. {@code exceptSessionId} lets a session
+     * re-open its own panel without seeing its own plot as taken.
      *
-     * <p>Keyed on the map, not on the cell, and that is still right: a map with four copies may
-     * host four duels at once, but a fifth has to wait. So the bit means "pressing this would be
-     * refused", not "somebody is playing this map" — the panel greys a map out exactly when picking
-     * it would get nowhere.</p>
-     *
-     * <p>Two things make a map unselectable, and they share the bit because they share the outcome:
-     * every copy leased, or no copies at all. A map deleted down to zero cells is not "busy", but a
-     * second bit would have to be threaded through the rule payload and the picker to say something
-     * the player cannot act on differently — in both cases the answer is "pick another map".</p>
+     * <p>A bit means "pressing this would be refused", not "somebody is playing this map". A map is
+     * marked when every copy is leased or when it has no copies at all.
      */
     public static int busyMapMask(String exceptSessionId) {
         int[] leased = new int[ArenaMaps.ALL.size()];
@@ -1315,10 +1164,9 @@ public final class ArenaManager {
     /**
      * Drops every lease and every remembered exhibit, on server stop.
      *
-     * <p>{@link #CELLS} is cleared here even though {@link #release} deliberately keeps it: a stop
-     * destroys the {@code ServerWorld} these regions were stamped into, so the objects would be
-     * pointing at a world that no longer exists. The blocks themselves are on disk, so the next
-     * start re-derives the whole gallery — which is the same path a crash takes.</p>
+     * <p>{@link #CELLS} is cleared here even though {@link #release} keeps it: a stop destroys the
+     * {@code ServerWorld} these regions were stamped into. The blocks are on disk, so the next
+     * start re-derives the gallery.
      */
     public static void clearAll() {
         BY_SESSION.clear();
@@ -1328,17 +1176,14 @@ public final class ArenaManager {
     }
 
     /**
-     * Erases the cells the gallery fill will <em>not</em> re-stamp, so a hard reset really empties
-     * the dimension.
+     * Erases the cells the gallery fill will not re-stamp, so a hard reset really empties the
+     * dimension.
      *
-     * <p>The gallery fill skips three kinds of cell by design: the flat plot, which is built at
-     * whatever size the rules ask for and therefore cannot be pre-stamped, any extra copy of a map
-     * (those are built on first use, not at startup), and any cell no map owns. Re-stamping an
-     * exhibit clears its cell as a side effect, so those need nothing here — doing them twice would
-     * double the cost of the one operation that already blocks the server for several seconds.</p>
+     * <p>The gallery fill skips the flat plot, which is built at whatever size the rules ask for,
+     * any extra copy of a map, and any cell no map owns. Re-stamping an exhibit clears its cell as
+     * a side effect, so only the skipped cells need work here.
      *
-     * <p>Called <em>before</em> {@link #clearAll()}: the regions are what know how tall the debris
-     * in their cell can be.</p>
+     * <p>Call before {@link #clearAll()}, while the regions still know how tall their debris is.
      *
      * @return how many blocks were changed
      */
@@ -1367,9 +1212,8 @@ public final class ArenaManager {
     /**
      * Hook for every block write in the arena dimension.
      *
-     * <p>Called from a {@code ServerWorld} mixin rather than from player events on purpose: that is
-     * the single choke point shared by placement, breaking, explosions, pistons, fluids and fire, so
-     * a plot cannot be altered through a path the mod forgot to listen to.</p>
+     * <p>Called from a {@code ServerWorld} mixin rather than from player events, because that is
+     * the single choke point shared by placement, breaking, explosions, pistons, fluids and fire.
      */
     public static void onBlockChanged(ServerLevel world, BlockPos pos, BlockState newState) {
         if (recordingSuppressed > 0) {
@@ -1394,11 +1238,10 @@ public final class ArenaManager {
     /**
      * Vetoes a block break that the plot's own rules forbid.
      *
-     * <p>The distinction the rule asks for is "map block" versus "block a player put here this
-     * round", and that is exactly what the deviation set answers. It does not know <em>which</em>
-     * player placed a block, so "拆除自己放置的方块" is enforced as "拆除本局放置的方块" — for a 1v1 in a
-     * sealed plot the two readings only differ if a player deliberately dismantles the opponent's
-     * cover, which is a play-style question rather than a correctness one.</p>
+     * <p>The rule distinguishes "map block" from "block a player put here this round", which is
+     * what the deviation set answers. It does not know which player placed a block, so "break your
+     * own blocks" is enforced as "break blocks placed this round"; in a sealed 1v1 the two readings
+     * differ only when a player dismantles the opponent's cover.
      */
     public static boolean allowBreak(Level world, Player player, BlockPos pos) {
         if (!(world instanceof ServerLevel) || !isArena(world)) {
@@ -1429,12 +1272,11 @@ public final class ArenaManager {
     /**
      * Teleports one player to their side's pad, fanned out by team-mate index.
      *
-     * <p>Team-mates would otherwise be teleported to the same block and pushed apart by the collision
-     * solver, which on a narrow map means somebody lands in the wall or off the edge. The fan is
-     * perpendicular to the way the side is facing, two blocks apart, centred on the pad — so a
-     * four-player side is a line of four rather than a stack of one.</p>
+     * <p>Team-mates would otherwise land on the same block and be pushed apart by the collision
+     * solver. The fan is perpendicular to the way the side faces, two blocks apart, centred on the
+     * pad.
      *
-     * <p>{@code memberCount == 1} keeps the exact old coordinate, which is every 1v1.</p>
+     * <p>{@code memberCount == 1} teleports to the pad coordinate exactly, which is every 1v1.
      */
     public static boolean teleportToSpawn(ServerPlayer player, ArenaRegion region, int spawnIndex,
                                           int member, int memberCount) {
@@ -1457,14 +1299,8 @@ public final class ArenaManager {
             double side = (col - (cols - 1) / 2.0D) * 2.0D;
             double depth = row * 2.0D;
             double rad = Math.toRadians(yaw);
-            // Right-hand vector of the facing direction, and "backwards" is toward the player's own
-            // end of the arena so rows do not walk into the middle of the map.
-            //
-            // Minecraft's forward vector for a yaw is (-sin, cos), so backwards is (sin, -cos) — the
-            // signs here are the whole point. Getting them the wrong way round still produces a
-            // legal 2x2, which is why it is worth writing down: the formation ends up two blocks
-            // further into the arena instead of two blocks further back, and nobody notices until
-            // somebody measures the spawn against the plot edge.
+            // Right-hand vector of the facing direction; "backwards" is toward the player's own end
+            // of the arena. A yaw's forward vector is (-sin, cos), so backwards is (sin, -cos).
             double rightX = Math.cos(rad);
             double rightZ = Math.sin(rad);
             x += rightX * side;
@@ -1488,28 +1324,24 @@ public final class ArenaManager {
     /**
      * Puts a player back at the nearest point inside the plot instead of at their spawn.
      *
-     * <p>The distinction matters: "拉回" promises to undo the step that took them out, not to undo
-     * the whole fight. Teleporting to spawn would hand the opponent a free reset of position every
-     * time somebody clipped the edge.</p>
+     * <p>Teleporting to spawn would hand the opponent a free reset of position every time somebody
+     * clipped the edge.
      *
-     * <p>The clamp stops one block short of the wall ring on every side, otherwise the player would
-     * be placed inside the boundary blocks and suffocate.</p>
+     * <p>The clamp stops one block short of the wall ring on every side, so the player is not
+     * placed inside the boundary blocks.
      */
     public static boolean pullInside(ServerPlayer player, ArenaRegion region) {
         ServerLevel world = world(player.getServer());
         if (world == null || region == null) {
             return false;
         }
-        // Clamped to the fight area, not the plot box. On the colosseum the box includes the
-        // seating, so clamping to the box would "pull back" a player who walked out of the sand by
-        // dropping them onto the stands — inside the geometry, outside the fight, still out of
-        // bounds, and pulled again on the next tick.
+        // Clamped to the fight area, not the plot box: on the colosseum the box includes the
+        // seating, so clamping to the box would drop the player on the stands.
         double x = Mth.clamp(player.getX(), region.pitMinX() + 1.5D, region.pitMaxX() - 0.5D);
         double z = Mth.clamp(player.getZ(), region.pitMinZ() + 1.5D, region.pitMaxZ() - 0.5D);
         double y = Mth.clamp(player.getY(), SURFACE_Y, SURFACE_Y + region.sizeY - 2.0D);
-        // Below the map base the player is not being pushed back, they are falling out of the void.
-        // Clamping their Y to the map base would put them back at a height where there is nothing to
-        // stand on, and they would fall straight back out; look for the floor instead.
+        // Below the map base the player is falling out of the void, not being pushed back: clamping
+        // Y would put them where there is nothing to stand on, so look for the floor instead.
         if (player.getY() < SURFACE_Y) {
             int stand = region.standY(world, Mth.floor(x), Mth.floor(z));
             if (stand >= 0) {
@@ -1527,20 +1359,16 @@ public final class ArenaManager {
     /**
      * How far outside the plot a spectator may fly, in blocks.
      *
-     * <p>Measured from the plot box rather than from the boundary curtain. On four of the five
-     * maps the two are the same rectangle and this is simply "the boundary plus twelve". On the
-     * colosseum they are not: the curtain stands on the sand, and the plot box is the outer wall
-     * plus ten rows of seating. Measuring from the curtain there would pen the spectator inside the
-     * stands, where every view is the inside of a block; measuring from the box lets them circle the
-     * building, which is the only way to watch a colosseum fight.</p>
+     * <p>Measured from the plot box rather than from the boundary curtain. On the colosseum the two
+     * differ: the curtain stands on the sand and the box is the outer wall plus ten rows of
+     * seating, so measuring from the curtain would pen the spectator inside the stands.
      *
      * <p>Twelve is chosen against the grid: neighbouring cells are {@link #GAP} blocks apart, so a
-     * spectator at the limit is still a long way from the next arena and cannot see one duel from
-     * inside another.</p>
+     * spectator at the limit is still far from the next arena.
      */
     public static final double SPECTATOR_MARGIN = 12.0D;
 
-    /** How far above the plot top a spectator may climb. Watching from directly overhead, not orbit. */
+    /** How far above the plot top a spectator may climb, for watching from overhead. */
     public static final double SPECTATOR_HEADROOM = 10.0D;
 
     /** How far below the platform a spectator may dip, to look up at the underside of the map. */
@@ -1550,8 +1378,7 @@ public final class ArenaManager {
      * The box a detached spectator is allowed to fly in.
      *
      * <p>Only detached spectators are clamped. While the camera is attached to a participant the
-     * spectator's own body is not moving, so there is nothing to constrain — and teleporting a body
-     * nobody is looking at would be one packet per tick for no visible effect.</p>
+     * spectator's body is not moving, so there is nothing to constrain.
      */
     public static AABB spectatorBox(ArenaRegion region) {
         return new AABB(
@@ -1567,9 +1394,8 @@ public final class ArenaManager {
      * Clamps a spectator back into {@link #spectatorBox}.
      *
      * <p>Server-side teleport, like {@link #pullInside}: spectator flight is client-authoritative,
-     * so the only lever the server has is to say where the player actually is. The result is a
-     * spectator who slides along the limit instead of crossing it, which is the same behaviour the
-     * world border gives and reads as a wall rather than as a glitch.</p>
+     * so the server can only say where the player actually is. The result slides along the limit
+     * instead of crossing it.
      *
      * @return true when the player was outside and has been moved back in.
      */
@@ -1596,7 +1422,7 @@ public final class ArenaManager {
      * Writes a plot back to its baseline and empties its deviation set.
      *
      * <p>Recording is suppressed for the duration, otherwise every restored position would be
-     * re-marked as a change by the very write that undoes it.</p>
+     * re-marked as a change by the write that undoes it.
      */
     public static int revertRegion(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
@@ -1608,9 +1434,8 @@ public final class ArenaManager {
     /**
      * Removes every dropped item and experience orb in the plot.
      *
-     * <p>This is a correctness requirement, not housekeeping: a player who dies in the arena drops
-     * their survival inventory, then gets it back from the snapshot. If those drops stayed on the
-     * ground the player could walk over and collect them, duplicating the entire inventory.</p>
+     * <p>A player who dies in the arena drops their survival inventory and then gets it back from
+     * the snapshot; if the drops stayed, the player could collect both.
      */
     public static int clearDroppedItems(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
@@ -1629,7 +1454,7 @@ public final class ArenaManager {
         return removed;
     }
 
-    /** Removes every entity in the plot except players. Used when a plot is handed to a new duel. */
+    /** Removes every entity in the plot except players, when a plot is handed to a new duel. */
     public static int purge(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
@@ -1646,9 +1471,9 @@ public final class ArenaManager {
     /**
      * Removes living non-player entities from every leased plot.
      *
-     * <p>Natural spawning is already cancelled in this dimension; this catches the remaining doors —
-     * spawn eggs, spawner blocks, {@code /summon}, and modded spawners — without also deleting the
-     * arrows, splash potions and dropped items a duel legitimately produces mid-round.</p>
+     * <p>Natural spawning is already cancelled in this dimension; this catches spawn eggs, spawner
+     * blocks, {@code /summon} and modded spawners without deleting the arrows, splash potions and
+     * dropped items a duel produces mid-round.
      */
     public static int sweepMobs(MinecraftServer server) {
         ServerLevel world = world(server);

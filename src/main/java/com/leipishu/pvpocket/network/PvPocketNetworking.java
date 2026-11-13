@@ -15,9 +15,8 @@ import net.minecraft.server.level.ServerPlayer;
 /**
  * Payload registration plus the server-side gate for client combat input.
  *
- * <p>The client is allowed to express intent ("I am holding right-click with a sword"), never
- * state. Every payload that arrives here is re-validated against the authoritative session data
- * before it is allowed to change anything.</p>
+ * <p>The client expresses intent, never state. Every payload that arrives here is re-validated
+ * against the authoritative session data before it may change anything.
  */
 public final class PvPocketNetworking {
 
@@ -28,10 +27,9 @@ public final class PvPocketNetworking {
     /**
      * One snapshot per player per second.
      *
-     * <p>Not a rate limit for its own sake: the home screen sends a request on open, and opening it
-     * by tapping a hotkey twice is a thing players do. Each answer walks the player's history file,
-     * so the second request in the same second would do the same disk read to produce a payload the
-     * client is about to overwrite.</p>
+     * <p>The home screen sends a request on open, and each answer walks the player's history file.
+     * A second request in the same second would repeat that read for a payload the client is about
+     * to overwrite.
      */
     private static final java.util.Map<java.util.UUID, Long> HOME_REQUESTS = new java.util.HashMap<>();
 
@@ -52,15 +50,13 @@ public final class PvPocketNetworking {
     /**
      * Publishes or fetches a preset share code.
      *
-     * <p>Validation lives here rather than in the registry because this is the boundary where
-     * untrusted input arrives: an unknown kind, a blank name and an oversized string are all
-     * rejected before anything is stored. The registry stays pure storage.</p>
+     * <p>Validation lives here because this is the boundary where untrusted input arrives: an
+     * unknown kind, a blank name and an oversized string are rejected before anything is stored.
      */
     static void onPresetShare(ServerPlayer player, PresetSharePayload payload) {
         if (!PvPlatform.get().canSend(player, PresetShareResultPayload.ID)) {
-            // A client without the channel would never see the answer, so there is nothing to do
-            // that would not just be a log line. The mod is mandatory in practice; this is the
-            // protocol-level guard, not a policy one.
+            // A client without the channel would never see the answer, so there is nothing to do.
+            // The mod is mandatory in practice; this is the protocol-level guard.
             return;
         }
         if (payload.action() == PresetSharePayload.ACTION_FETCH) {
@@ -87,8 +83,7 @@ public final class PvPocketNetworking {
                     PresetShareResultPayload.failure(PresetShareResultPayload.STATUS_FULL));
             return;
         }
-        // Logged because a share code is the one thing here with no server-side record: if a player
-        // says "the code does not work", this line is the only evidence that it ever existed.
+        // A share code has no server-side record, so this line is the only evidence it existed.
         PvPocket.LOGGER.info("Preset code {} for {} ({} / {})", code,
                 player.getName().getString(), kind.id, name);
         PvPlatform.get().send(player, PresetShareResultPayload.published(kind.id, name,
@@ -98,9 +93,8 @@ public final class PvPocketNetworking {
     /**
      * Pushes the scoreboard to one client.
      *
-     * <p>Silent on purpose — no log line. Unlike a panel opening (which a developer wants to see in
-     * the log when it does not appear), the HUD is sent on every round boundary to every participant,
-     * and logging it would bury the interesting lines.</p>
+     * <p>Silent: the HUD is sent on every round boundary to every participant, and a log line per
+     * send would bury the state transitions it sits next to.
      */
     public static void sendHud(ServerPlayer player, MatchHudPayload payload) {
         if (PvPlatform.get().canSend(player, MatchHudPayload.ID)) {
@@ -111,8 +105,7 @@ public final class PvPocketNetworking {
     /**
      * Pushes the plot outline to one client, or clears it.
      *
-     * <p>Silent like {@link #sendHud}: this fires at every round boundary for every participant, and
-     * a log line per player per round would drown the state transitions it sits next to.</p>
+     * <p>Silent like {@link #sendHud}: it is sent at every round boundary for every participant.
      */
     public static void sendBounds(ServerPlayer player, ArenaBoundsPayload payload) {
         if (PvPlatform.get().canSend(player, ArenaBoundsPayload.ID)) {
@@ -123,8 +116,7 @@ public final class PvPocketNetworking {
     /**
      * Pushes the preparation screens to one client, or clears them.
      *
-     * <p>Silent for the same reason as {@link #sendBounds}: it is sent next to the bounds on every
-     * round boundary, so a log line here would be noise around the transitions it accompanies.</p>
+     * <p>Silent like {@link #sendHud}: it is sent next to the bounds at every round boundary.
      */
     public static void sendScreens(ServerPlayer player, PrepareScreensPayload payload) {
         if (PvPlatform.get().canSend(player, PrepareScreensPayload.ID)) {
@@ -136,9 +128,8 @@ public final class PvPocketNetworking {
      * Opens the rule panel on the client.
      *
      * <p>Guarded by {@code canSend}: Fabric throws if a payload is sent to a client that never
-     * declared the channel. The mod is mandatory, but "mandatory" is enforced by policy, not by the
-     * protocol — a vanilla client can still connect — and a rule proposal must degrade to "nothing
-     * happens" rather than to a server-side exception.</p>
+     * declared the channel, and a vanilla client can still connect. A rule proposal degrades to
+     * nothing happening rather than to a server-side exception.
      */
     public static void openRules(ServerPlayer player, RulesOpenPayload payload) {
         boolean canSend = PvPlatform.get().canSend(player, RulesOpenPayload.ID);
@@ -153,12 +144,8 @@ public final class PvPocketNetworking {
      * Tells a client to drop its rule panel because the negotiation it belongs to is finished.
      *
      * <p>Sent at every terminal transition of a negotiation: accepted, rejected, dismissed or
-     * aborted. Without it a panel can outlive its session — the visible case is one side accepting
-     * while the other side still has the panel open, which starts the round with a modal dialog in
-     * front of a player who is already in the arena.</p>
-     *
-     * <p>The client only closes a panel whose session id matches, so a late packet can never shut a
-     * newer negotiation's panel and over-sending is harmless.</p>
+     * aborted, so a panel cannot outlive its session. The client only closes a panel whose session
+     * id matches, so a late packet cannot shut a newer negotiation's panel.
      */
     public static void closeRules(ServerPlayer player, String sessionId) {
         if (PvPlatform.get().canSend(player, RulesClosePayload.ID)) {
@@ -169,9 +156,8 @@ public final class PvPocketNetworking {
     /**
      * Pushes the home screen's snapshot to one client.
      *
-     * <p>Silent, unlike the panel openers: this is an answer to a request the player just made, and
-     * the interesting log line for "the screen is empty" is on the client side (did the request
-     * leave). A line per hotkey press would be noise.</p>
+     * <p>Silent: this answers a request the player just made, and the useful log line for "the
+     * screen is empty" is on the client side.
      */
     public static void sendHomeState(ServerPlayer player, HomeStatePayload payload) {
         if (PvPlatform.get().canSend(player, HomeStatePayload.ID)) {
@@ -179,7 +165,8 @@ public final class PvPocketNetworking {
         }
     }
 
-    /** Opens the loadout editor. Same {@code canSend} reasoning as {@link #openRules}. */    public static void openLoadout(ServerPlayer player, LoadoutOpenPayload payload) {
+    /** Opens the loadout editor. Guarded by {@code canSend}, as {@link #openRules}. */
+    public static void openLoadout(ServerPlayer player, LoadoutOpenPayload payload) {
         boolean canSend = PvPlatform.get().canSend(player, LoadoutOpenPayload.ID);
         PvPocket.LOGGER.info("Loadout editor -> {} (canSend={}, session={})",
                 player.getName().getString(), canSend, payload.sessionId());
@@ -189,11 +176,11 @@ public final class PvPocketNetworking {
     }
 
     /**
-     * Opens (or refreshes) the match list panel on the client.
+     * Opens or refreshes the match list panel on the client.
      *
-     * <p>Logged like the other panel openers: "the panel did not appear" is the one failure mode
-     * that cannot be diagnosed from the client, and the answer is always one of two things —
-     * {@code canSend} was false, or the payload never left the server.</p>
+     * <p>Logged like the other panel openers: "the panel did not appear" cannot be diagnosed from
+     * the client, and the answer is either that {@code canSend} was false or that the payload never
+     * left the server.
      */
     public static void openMatchList(ServerPlayer player, MatchListPayload payload) {
         boolean canSend = PvPlatform.get().canSend(player, MatchListPayload.ID);
@@ -208,8 +195,7 @@ public final class PvPocketNetworking {
     /**
      * Pushes the spectator bar state to one client, or clears it.
      *
-     * <p>Silent, like the HUD: it is sent on join, on every camera switch and on every leave, and a
-     * log line per press of the cycle key would be noise.</p>
+     * <p>Silent: it is sent on join, on every camera switch and on every leave.
      */
     public static void sendSpectate(ServerPlayer player, SpectateStatePayload payload) {
         if (PvPlatform.get().canSend(player, SpectateStatePayload.ID)) {
@@ -220,9 +206,8 @@ public final class PvPocketNetworking {
     /**
      * Pushes the possessed body's hotbar and vitals to one spectator.
      *
-     * <p>Only sent while the camera is attached, and only when the content actually changed — the
-     * caller compares signatures first. A spectator watching someone stand still costs one string
-     * compare per tick and no packets at all.</p>
+     * <p>Only sent while the camera is attached and only when the content changed; the caller
+     * compares signatures first.
      */
     public static void sendPossess(ServerPlayer player, PossessPayload payload) {
         if (PvPlatform.get().canSend(player, PossessPayload.ID)) {
@@ -233,10 +218,8 @@ public final class PvPocketNetworking {
     /**
      * Hands one participant the card for a series that just ended.
      *
-     * <p>Silent, like the HUD: it is sent once per player per series, next to the chat line that says
-     * the same thing in words. Whether it is drawn at all is the client's decision — the settings
-     * page has a switch for it — so a refusal here would be the server guessing at a preference it
-     * does not own.</p>
+     * <p>Silent: sent once per player per series, next to the chat line that says the same thing.
+     * Whether the card is drawn is the client's decision, behind a settings switch.
      */
     public static void sendSeriesResult(ServerPlayer player, SeriesResultPayload payload) {
         if (PvPlatform.get().canSend(player, SeriesResultPayload.ID)) {
@@ -247,9 +230,9 @@ public final class PvPocketNetworking {
     /**
      * Re-validates a blocking request and pushes the resulting authoritative state back down.
      *
-     * <p>Only the client knows whether a mouse button is held, so the request has to be taken at
-     * face value — but every reason to refuse it is checked here: wrong rule set, no sword in hand,
-     * dead, spectator. A refusal is still echoed back so the client mirror cannot drift.</p>
+     * <p>Only the client knows whether a mouse button is held, but every reason to refuse is
+     * checked here: wrong rule set, no sword in hand, dead, spectator. A refusal is still echoed
+     * back so the client mirror cannot drift.
      */
     static void applyBlocking(ServerPlayer player, boolean requested) {
         boolean accepted = requested
@@ -265,10 +248,8 @@ public final class PvPocketNetworking {
         boolean changed = CombatState.isBlocking(player.getUUID()) != blocking;
         CombatState.setBlocking(player.getUUID(), blocking);
         if (changed) {
-            // Blocking is the one piece of combat state that exists only because the client said
-            // so, so "the request never arrived" and "the request was refused" have to be
-            // distinguishable without a debugger. One line per transition is cheap; a duel is not
-            // a thousand blocks.
+            // Blocking exists only because the client said so, so "never arrived" and "refused"
+            // have to be distinguishable. One line per transition is cheap.
             PvPocket.LOGGER.info("Blocking {} for {}", blocking ? "on" : "off",
                     player.getName().getString());
             sendState(player);
@@ -279,11 +260,8 @@ public final class PvPocketNetworking {
     /**
      * Tells every other client that {@code player} started or stopped blocking.
      *
-     * <p>The blocker is skipped: their own client learns the flag from {@link #sendState}, and
-     * sending both would only give two packets the chance to arrive in the wrong order.</p>
-     *
-     * <p>Silent, unlike {@link #setBlocking} — the transition itself is already logged there, and
-     * this is a fan-out of the same event rather than a second event.</p>
+     * <p>The blocker is skipped: their own client learns the flag from {@link #sendState}.
+     * {@link #setBlocking} already logs the transition, so this fan-out does not.
      */
     public static void broadcastBlocking(ServerPlayer player, boolean blocking) {
         BlockingStatePayload payload = new BlockingStatePayload(player.getUUID(), blocking);
@@ -295,20 +273,20 @@ public final class PvPocketNetworking {
     }
 
     /**
-     * Clears every remote blocking pose.
+     * Clears every remote blocking pose for a player whose combat state is being dropped.
      *
-     * <p>Called where the server drops combat state wholesale rather than player by player — arena
-     * reset and shutdown. Without it the last frame a client saw is kept forever, and a player who
-     * was blocking when the round ended goes on standing in a block pose for everyone else.</p>
+     * <p>Called where the server drops combat state wholesale rather than player by player, such as
+     * arena reset and shutdown. Without it the client keeps the last pose it saw.
      */
     public static void clearBlocking(ServerPlayer player) {
         broadcastBlocking(player, false);
     }
 
     /**
-     * Sends the current authoritative state unconditionally. Used at the points where the session
-     * layer flips the rule set (round start, restore, join), where the client's mirror is known to
-     * be stale and a change-gated send could be skipped.
+     * Sends the current authoritative state unconditionally.
+     *
+     * <p>Used where the session layer flips the rule set (round start, restore, join), where the
+     * client's mirror is known to be stale and a change-gated send could be skipped.
      */
     public static void sendState(ServerPlayer player) {
         if (!PvPlatform.get().canSend(player, CombatStatePayload.ID)) {

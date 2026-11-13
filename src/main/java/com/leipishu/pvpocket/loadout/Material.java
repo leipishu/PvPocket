@@ -6,24 +6,21 @@ import net.minecraft.network.chat.MutableComponent;
 /**
  * The material a materialised item is built from.
  *
- * <p><b>Material is display only.</b> This is the one place where the design deliberately departs
- * from vanilla: an iron sword and a netherite sword differ in colour and in nothing else, because the
- * player sets the damage, the durability and the knockback explicitly. That is why
- * {@link LoadoutBuilder} <em>replaces</em> the {@code attribute_modifiers} component instead of adding
- * to it — appending would leave the vanilla material bonus in place and quietly make the material
- * matter again.</p>
+ * <p>Material is display only: an iron sword and a netherite sword differ in colour and in nothing
+ * else, because the player sets damage, durability and knockback explicitly.
+ * {@link LoadoutBuilder} replaces the {@code attribute_modifiers} component rather than appending
+ * to it.
  *
- * <p>"Display only" is also why the name is a translation key rather than a literal: the one thing
- * this enum contributes to the item is the word in front of it, and that word is language-specific
- * by definition.</p>
+ * <p>The name is a translation key rather than a literal, because the word in front of the item is
+ * language-specific.
  */
 public enum Material {
 
     WOOD("wood", "wooden", 0),
     STONE("stone", "stone", 1),
     /**
-     * A weapon tier only from 1.21.11 onwards, and not for every kind — {@link ItemKind#materials()}
-     * asks the registry per kind, so copper shows up exactly where a copper variant exists.
+     * A weapon tier only from 1.21.11 onwards, and not for every kind. {@link ItemKind#materials()}
+     * asks the registry per kind, so copper appears only where a copper variant exists.
      */
     COPPER("copper", "copper", 2),
     IRON("iron", "iron", 3),
@@ -34,7 +31,7 @@ public enum Material {
     public final String id;
     public final String labelKey;
     private final String itemPrefix;
-    /** Display order only. It carries no stat meaning — see the class note. */
+    /** Display order only; it carries no stat meaning. */
     public final int tier;
 
     Material(String id, String itemPrefix, int tier) {

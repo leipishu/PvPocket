@@ -19,14 +19,12 @@ import java.util.UUID;
 /**
  * The player picker, drawn on the screen's modal layer.
  *
- * <p>It covers the whole viewport rather than sitting inside the panel: the scrim is what says "this
- * is a question you have to answer", and a dialog that only dims its own corner reads as another
- * region of the panel instead of as a step on top of it. The screen gives it the mouse before any
- * root, so a click that lands on the scrim cannot also press the card behind it.</p>
+ * <p>It covers the whole viewport rather than sitting inside the panel, so the scrim reads as a
+ * question on top of the panel. The screen gives it the mouse before any root, so a click on the
+ * scrim cannot also press the card behind it.
  *
- * <p>The candidate list arrives from the server already filtered — online, not spectating, not
- * already in a duel or holding an invite. Offering a name and then refusing it is worse than never
- * offering it, and only the server knows which of those is true.</p>
+ * <p>The candidate list arrives from the server already filtered: online, not spectating, not
+ * already in a duel or holding an invite.
  */
 public class PlayerPicker extends PvWidget {
 
@@ -90,8 +88,8 @@ public class PlayerPicker extends PvWidget {
         appearT = PvAnim.damp(appearT, 1F, d, 0.05F);
         Font tr = Minecraft.getInstance().font;
 
-        // Darker than the screen's own backdrop: the modal has to be above a panel that is already
-        // sitting on a 77% scrim, and equal darkness would leave the two reading as one surface.
+        // Darker than the screen's own backdrop: the modal sits above a panel that already covers
+        // the screen at 77%, and equal darkness would merge the two surfaces.
         ctx.fill(0, 0, width, height, PvTheme.alpha(0xA0000000, appearT));
 
         int px = panelX();
@@ -183,8 +181,8 @@ public class PlayerPicker extends PvWidget {
         int px = panelX();
         int py = panelY();
         if (mx < px || mx >= px + PANEL_W || my < py || my >= py + panelH()) {
-            // Clicking the scrim dismisses. Consumed either way — the screen treats a modal click as
-            // handled, which is what stops it reaching the card underneath.
+            // Clicking the scrim dismisses. Consumed either way, so the click cannot reach the card
+            // underneath.
             if (listener != null) {
                 listener.onCancel();
             }

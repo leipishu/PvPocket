@@ -9,32 +9,14 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * Server to client: everything the home screen draws that the client cannot know by itself.
  *
- * <p>One snapshot, four flat strings, same reasoning as {@link MatchListPayload}: the whole payload
- * is display data and a collection codec would drag a record-per-row type through the wire format
- * for no benefit. A row that fails to parse is dropped by the client rather than crashing a screen
- * the player cannot close.</p>
- *
  * <pre>
  *   stats    matches,wins,rounds,roundWins,damage,kills,deaths,streak,bestStreak,lastPlayed
  *   history  id|t|map|mode|teams|myScore|theirScore|won|reason|duration|rounds|opponents|teamMates
- *   matches  same format as MatchListPayload
  *   arena    guard,stamped,slots,leased,building  then one line per map: id,copies,leased
  * </pre>
  *
- * <p>{@code flags} says what the reader can do right now, so the home screen can grey out the
- * primary action with a reason instead of sending a request the server will refuse:</p>
- * <ul>
- *   <li>bit 0 — the reader is a participant of a live session</li>
- *   <li>bit 1 — the reader is watching a session</li>
- *   <li>bit 2 — the reader has a draft waiting</li>
- *   <li>bit 3 — stats were available (false when the store has never been written)</li>
- *   <li>bit 4 — the reader may administer the arena (operator level 3)</li>
- * </ul>
- *
- * <p><b>{@code arena} is empty for anyone without the operator bit.</b> The layout of every map is
- * not secret, but the panel that reads it is drawn only for operators, and a payload field that no
- * screen on that client can reach is data sent for nobody. It also means an older client that
- * ignores the field costs nothing.</p>
+ * <p>{@code flags} bits: 0 participant, 1 watching, 2 draft, 3 stats, 4 operator. {@code arena}
+ * is empty without bit 4, and {@code matches} uses the {@link MatchListPayload} row format.
  */
 public record HomeStatePayload(String stats, String history, String matches, int flags, String arena)
         implements CustomPacketPayload {

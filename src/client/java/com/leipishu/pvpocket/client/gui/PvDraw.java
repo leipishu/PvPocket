@@ -9,62 +9,34 @@ import java.util.List;
 /**
  * Drawing primitives for the custom GUI layer.
  *
- * <p>Everything is drawn from code — no nine-patch textures, no vanilla widget skins. That means
- * the look survives any GUI scale and any resource pack, and there is no asset to get wrong at
- * 1×/2×/3×/4×.</p>
+ * <p>Everything is drawn from code: no nine-patch textures and no vanilla widget skins, so the look
+ * survives any GUI scale and any resource pack.
  *
- * <h2>Why nothing is bold any more</h2>
+ * <p>No bold text. Vanilla's bold flag is a second draw of the glyph shifted one pixel, which a
+ * resource pack's font renders as a smear, so hierarchy comes from colour and position.
  *
- * <p>Vanilla's {@code §l} is not a typeface weight, it is a second draw of the same glyph shifted one
- * pixel right. The bundled bitmap font has a hand-made bold sheet, so it looks right; a resource
- * pack's TrueType font does not, and the same code that reads as "heavier" on the default font reads
- * as "smeared" on the font most players install. Since the whole interface is laid out for players
- * who replace the font, hierarchy here comes from colour and from position instead: a title is
- * {@code TEXT} on a band with a divider under it, and the body below is {@code TEXT_DIM}.</p>
- *
- * <h2>Why the rounded rectangles are anti-aliased</h2>
- *
- * <p>A rounded rectangle drawn as whole-pixel rows has a staircase at every corner, and on a
- * near-black surface a hard staircase is the strongest "pixel art" cue in the whole panel. Every
- * shape here therefore goes through {@link PvRaster}, which takes the coverage of each boundary
- * pixel from a signed distance field rather than from a one-dimensional lookup — see that class for
- * why one axis is not enough on an arc.</p>
- *
- * <h2>Why the split is by row</h2>
- *
- * <p>A rounded rectangle used to be drawn as a full-width corner band plus a full-height middle
- * band. Two opaque fills over each other are invisible; two 14%-alpha fills are not — they compose
- * to 26%, which put a darker bar along the top and bottom of every tinted chip in the interface.
- * The correction was to split the shape so no pixel is painted twice, but it was applied
- * horizontally (left segment, middle band, right segment) and the side strips of the rows between
- * the corners were never covered. The split has to be vertical: the straight band owns the rows the
- * corners cannot reach, the corner rows own the rest, and the two sets are disjoint by
- * construction.</p>
+ * <p>Rounded shapes go through {@link PvRaster}, which takes boundary coverage from a signed
+ * distance field. The shape is split by row so no pixel is painted twice.
  */
 public final class PvDraw {
 
     /**
-     * Whether item icons may be drawn this pass. Cleared while a modal is being drawn over the panel.
+     * Whether item icons may be drawn this pass. Cleared while a modal is drawn over the panel.
      *
-     * <p>Item icons are not GUI pixels: {@code DrawContext.drawItem} translates to <b>z = 150</b> and
-     * renders through a depth-tested item layer, while every panel fill, scrim and glyph goes into
-     * the GUI layer at z = 0 with depth testing off. Depth testing means the icon wins on geometry,
-     * not on draw order, so no scrim drawn afterwards can cover it — the scrim is simply further
-     * away. Flushing the buffer first does not help either: the item layer is emitted after the GUI
-     * layer regardless of when it was submitted.</p>
+     * <p>Item icons are not GUI pixels: they render through a depth-tested item layer at z = 150,
+     * while panel fills, scrims and glyphs go into the GUI layer at z = 0 with depth testing off. A
+     * scrim drawn afterwards cannot cover an icon.
      *
-     * <p>So a dialog cannot dim what is behind it while the things behind it are items. The only
-     * reliable answer is to not submit them: {@code PvScreen} clears this for the roots pass when an
-     * overlay is up, and widgets that draw items check it.</p>
+     * <p>{@code PvScreen} clears this for the roots pass while an overlay is up, and widgets that
+     * draw items check it.
      */
     public static boolean itemsVisible = true;
 
     /**
      * The one span sink, reused across calls.
      *
-     * <p>A fresh sink per shape would allocate several dozen objects per frame, and the visual
-     * specification forbids the animation layer from allocating. The GUI is single-threaded, so one
-     * instance with a mutable target is enough.</p>
+     * <p>A fresh sink per shape would allocate several dozen objects per frame. The GUI is
+     * single-threaded, so one instance with a mutable target is enough.
      */
     private static final SpanEmitter EMITTER = new SpanEmitter();
 
@@ -102,10 +74,8 @@ public final class PvDraw {
     /**
      * A rounded rectangle whose four corners carry their own radius.
      *
-     * <p>Used by the panel chrome: the content well is square at its top-left, top-right and
-     * bottom-left (it abuts the sidebar and the header) and rounded at the bottom-right (it follows
-     * the panel's own corner). Expressing that as one shape costs a quadrant test in the distance
-     * field; expressing it as a clip costs a scissor state change and a whole extra pass.</p>
+     * <p>Used by the panel chrome: the content well is square at three corners and rounded at the
+     * bottom-right, where it follows the panel's own corner.
      */
     public static void roundRect(GuiGraphics ctx, int x, int y, int w, int h,
                                  int rTL, int rTR, int rBR, int rBL, int color) {
@@ -116,7 +86,7 @@ public final class PvDraw {
         PvRaster.roundedRect(x, y, w, h, rTL, rTR, rBR, rBL, color, EMITTER);
     }
 
-    /** Rounded rectangle with a 1px border: filled with {@code border}, then inset with {@code fill}. */
+    /** Rounded rectangle with a 1px border: filled with {@code border}, inset with {@code fill}. */
     public static void roundPanel(GuiGraphics ctx, int x, int y, int w, int h, int radius,
                                   int border, int fill) {
         if (w <= 0 || h <= 0) {
@@ -129,9 +99,8 @@ public final class PvDraw {
     /**
      * Border only, {@code thickness} pixels thick, inset from the shape's own edge.
      *
-     * <p>Not "outer rounded rect plus transparent inner rect": a transparent fill draws nothing, so
-     * that version produced a solid block of the ring colour over whatever it was supposed to
-     * outline. {@link PvRaster#ring} carves the inner shape out arithmetically instead.</p>
+     * <p>A transparent inner fill draws nothing, so the ring is carved arithmetically in
+     * {@link PvRaster#ring}.
      */
     public static void ring(GuiGraphics ctx, int x, int y, int w, int h, int radius, int thickness,
                             int color) {
@@ -158,8 +127,8 @@ public final class PvDraw {
     /**
      * Two-layer soft edge for surfaces that sit over the world instead of over the scrim.
      *
-     * <p>Panels no longer use this: behind a 77% scrim a shadow is invisible. HUD bars still need
-     * it, because their background is whatever the player is standing in front of.</p>
+     * <p>Panels do not use it, since a shadow is invisible behind a 77% scrim. HUD bars still need
+     * it, because their background is whatever the player stands in front of.
      */
     public static void shadow(GuiGraphics ctx, int x, int y, int w, int h, int radius) {
         roundRect(ctx, x - 2, y - 1, w + 4, h + 5, radius + 2, 0x30000000);
@@ -171,9 +140,8 @@ public final class PvDraw {
     /**
      * A chevron pointing along {@code dir} (+1 right, -1 left), {@code height} pixels tall.
      *
-     * <p>Two pixels thick, drawn row by row. The stroke is deliberately not anti-aliased: a smoothed
-     * 1.5px diagonal at GUI scale 1 turns into grey mush, while two hard pixels stay two hard pixels
-     * at every scale.</p>
+     * <p>Two pixels thick, drawn row by row, and not anti-aliased: a smoothed 1.5px diagonal at GUI
+     * scale 1 turns into grey mush.
      */
     public static void chevron(GuiGraphics ctx, int cx, int cy, int dir, int height, int color) {
         int half = Math.max(1, height / 2);
@@ -203,10 +171,8 @@ public final class PvDraw {
     /**
      * Records the run for the layout audit, then draws it.
      *
-     * <p>The measurement is already needed for {@code textRight}/{@code textCenter}, and the audit
-     * needs the same number for the same string: a label that was not fitted to the space it had is
-     * invisible to every other kind of check, because nothing in the code knows it ran over the
-     * control beside it. One {@code getWidth} per run is the cheapest place to catch that.</p>
+     * <p>The audit needs the same width the drawing needs, and a label that ran over its neighbour
+     * is invisible to every other check. One {@code getWidth} per run catches it.
      */
     public static void text(GuiGraphics ctx, Font tr, String s, int x, int y, int color) {
         if (PvAudit.ON) {
@@ -233,27 +199,22 @@ public final class PvDraw {
     // -------------------------------------------------------------- shrink to fit
 
     /**
-     * Smallest scale a label inside a fixed frame may be drawn at before it is truncated instead.
+     * Smallest scale a label inside a fixed frame may be drawn at before it is truncated.
      *
-     * <p>0.75 is the floor because the panel's body face is 8px tall: below three quarters the
-     * glyphs stop resolving into letters at GUI scale 1, and a label nobody can read is worse than
-     * one that ends in an ellipsis. Anything wider than {@code 1 / 0.75 ≈ 1.33×} its frame is not a
-     * sizing problem any more — it is a string that belongs in a wrapped paragraph, or a frame that
-     * has to give up some space.</p>
+     * <p>0.75 is the floor because the body face is 8px tall: below three quarters the glyphs stop
+     * resolving into letters at GUI scale 1. A label wider than {@code 1 / 0.75 = 1.33x} its frame
+     * belongs in a wrapped paragraph.
      *
-     * <p>Why shrink at all: this interface is built for two languages whose words differ in length
-     * by up to a factor of two, and every frame in it is measured from the short one. Truncating is
-     * what those frames used to do, which is how a button row ended up reading
-     * {@code Copy res… / Acc… / Rej…}. Shrinking keeps the word.</p>
+     * <p>Frames are measured from the shorter of two languages, whose words differ in length by up
+     * to a factor of two. Shrinking keeps the word.
      */
     public static final float MIN_TEXT_SCALE = 0.75F;
 
     /**
-     * How far short of the floor a single line may land before it is wrapped or cut instead.
+     * How far short of the floor a single line may land before it is wrapped or cut.
      *
-     * <p>Two pixels is the rounding distance, not a second tier: a frame 55px wide against a 75px
-     * label needs 0.733, and cutting "Accept & start" over 1.6px would trade a legible word for an
-     * ellipsis. Anything genuinely too wide misses by far more than this.</p>
+     * <p>Two pixels is the rounding distance: a 55px frame against a 75px label needs 0.733, and
+     * cutting "Accept & start" over 1.6px would trade a legible word for an ellipsis.
      */
     private static final int FLOOR_SLACK = 2;
 
@@ -267,10 +228,9 @@ public final class PvDraw {
     /**
      * A label measured against the space it has: the string to draw, at what scale, and how wide.
      *
-     * <p>Three tiers, in this order, because each is worse than the one before it: draw it as
-     * written; draw it smaller but still legible; cut it. The third tier only happens when the label
-     * is more than a third wider than its frame — at that point shrinking has already lost the size
-     * hierarchy the design relies on.</p>
+     * <p>Three tiers, each worse than the last: draw it as written, draw it smaller but
+     * legible, cut it. Cutting happens only when the label is more than a third wider than its
+     * frame.
      */
     private record Fit(String text, float scale, int width) {
     }
@@ -303,8 +263,9 @@ public final class PvDraw {
     }
 
     /**
-     * Draws {@code s} from {@code x}, shrinking it until it fits {@code maxWidth}. Returns the width
-     * actually covered, so a caller can lay out what comes after it.
+     * Draws {@code s} from {@code x}, shrinking it until it fits {@code maxWidth}.
+     *
+     * <p>Returns the width actually covered, so a caller can lay out what comes after it.
      */
     public static int textFitLeft(GuiGraphics ctx, Font tr, String s, int x, int y,
                                   int maxWidth, int color) {
@@ -313,7 +274,7 @@ public final class PvDraw {
         return fit.width;
     }
 
-    /** Right-aligned variant: the run ends at {@code right} and grows leftwards into {@code maxWidth}. */
+    /** Right-aligned variant: the run ends at {@code right} and grows left into the space. */
     public static int textFitRight(GuiGraphics ctx, Font tr, String s, int right, int y,
                                    int maxWidth, int color) {
         Fit fit = measure(tr, s, maxWidth);
@@ -321,7 +282,7 @@ public final class PvDraw {
         return fit.width;
     }
 
-    /** Centred variant: the run is centred on {@code centerX} and may be at most {@code maxWidth} wide. */
+    /** Centred variant: the run is centred on {@code centerX} and at most {@code maxWidth} wide. */
     public static int textFitCenter(GuiGraphics ctx, Font tr, String s, int centerX, int y,
                                     int maxWidth, int color) {
         Fit fit = measure(tr, s, maxWidth);
@@ -337,20 +298,15 @@ public final class PvDraw {
     // -------------------------------------------------------------- wrap when shrinking fails
 
     /**
-     * Draws {@code s} inside a {@code maxWidth × boxH} frame, using up to {@code maxLines} lines.
+     * Draws {@code s} inside a {@code maxWidth x boxH} frame, using up to {@code maxLines} lines.
      *
-     * <p>The fourth tier, and the one that exists because shrinking is not always enough. A word
-     * only shrinks so far before it stops being a word; past that, a frame that is too narrow for one
-     * line is not necessarily too narrow for two. "Cycle spectator camera" is 121px on one line and
-     * 60px per line as "Cycle spectator / camera", so a 74px label column can hold it at full size
-     * instead of holding 75% of it and cutting the last word.</p>
+     * <p>Shrinking comes first; wrapping is reached only when one line would be cut. "Cycle
+     * spectator camera" is 121px on one line and 60px per line as two lines.
      *
-     * <p>Shrinking still comes first, though: a label that fits on one line at 0.85× stays on one
-     * line. Wrapping is only reached when a single line would have to be cut, which keeps the
-     * one-line rhythm of the panels intact everywhere the frame is merely a little tight.</p>
+     * @param top top of the frame; the block is centred vertically in {@code boxH}
      *
-     * @param top   top of the frame; the block is centred vertically in {@code boxH}
-     * @param boxH  height of the frame the label has to live in
+     * @param boxH height of the frame the label has to live in
+     *
      * @return the width the block covered, i.e. its widest line, so a caller can anchor to it
      */
     public static int textWrapLeft(GuiGraphics ctx, Font tr, String s, int x, int top,
@@ -375,12 +331,9 @@ public final class PvDraw {
     }
 
     /**
-     * Whether {@code s} would lose text in a {@code maxWidth × maxLines} frame.
+     * Whether {@code s} would lose text in a {@code maxWidth x maxLines} frame.
      *
-     * <p>Asked before drawing so a container can attach the full string as a tooltip. Shrinking and
-     * wrapping are how a label stays whole; this is what to do with the ones that cannot — a 55px
-     * chip holding "Team wool" is a frame that fits, and a 55px chip holding a whole sentence is a
-     * label whose rest belongs somewhere the player can ask for it.</p>
+     * <p>Asked before drawing so a container can attach the full string as a tooltip.
      */
     public static boolean willCut(Font tr, String s, int maxWidth, int maxLines) {
         return layout(tr, s, maxWidth, maxLines).cut();
@@ -393,9 +346,8 @@ public final class PvDraw {
         int natural = tr.width(s);
         if (maxLines <= 1 || natural <= maxWidth
                 || natural * MIN_TEXT_SCALE <= maxWidth + FLOOR_SLACK) {
-            // One line, shrunk if need be. The third test is the rounding slack: a label that lands
-            // within two pixels of the floor keeps its one-line rhythm instead of spending a second
-            // line on something that only needed a slightly wider frame.
+            // One line, shrunk if need be. The third test is the rounding slack, so a label within
+            // two pixels of the floor keeps its one-line rhythm.
             Fit one = measure(tr, s, maxWidth);
             boolean cut = natural > maxWidth && natural * MIN_TEXT_SCALE > maxWidth + FLOOR_SLACK;
             return new Wrapped(List.of(one.text()), one.scale(), cut);
@@ -438,9 +390,8 @@ public final class PvDraw {
     /**
      * Draws one measured run, scaling the matrix when it had to shrink.
      *
-     * <p>The audit is handed the <em>drawn</em> box, not the natural one: a shrunk label covers less
-     * than its text would at 1.0×, and recording the natural size would invent a collision with
-     * whatever sits beside it.</p>
+     * <p>The audit is handed the drawn box, not the natural one, so a shrunk label does not
+     * report a collision with whatever sits beside it.
      */
     private static void drawScaled(GuiGraphics ctx, Font tr, Fit fit, int x, int y, int color) {
         if (fit.text.isEmpty()) {
@@ -464,7 +415,7 @@ public final class PvDraw {
 
     // ------------------------------------------------------------------ strings
 
-    /** Clips text to {@code maxWidth}, appending an ellipsis when it had to be cut. */
+    /** Clips text to {@code maxWidth}, appending an ellipsis when it is cut. */
     public static String fit(Font tr, String s, int maxWidth) {
         if (tr.width(s) <= maxWidth) {
             return s;
@@ -479,7 +430,7 @@ public final class PvDraw {
 
     /**
      * Wraps a string to {@code maxWidth}, breaking on spaces where possible and on any character
-     * otherwise. CJK text has no spaces, so a word-only wrapper would overflow on every label.
+     * otherwise. CJK text has no spaces, so a word-only wrapper would overflow.
      */
     public static List<String> wrap(Font tr, String s, int maxWidth) {
         List<String> lines = new ArrayList<>();

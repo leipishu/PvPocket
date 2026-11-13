@@ -15,13 +15,9 @@ import java.nio.file.Path;
 /**
  * Presentation preferences that belong to this installation, not to a world or a server.
  *
- * <p>Separate from {@code presets.json} because the two have different lifetimes and different
- * failure modes: losing a preset loses something the player made, losing a theme preference costs a
- * click. Keeping them in one file would mean a corrupt preset row could take the theme with it.</p>
- *
- * <p>Key bindings are deliberately <b>not</b> here. They live in vanilla's {@code options.txt} through
- * {@code KeyBinding#setBoundKey}, so that the mod's keys appear in the vanilla controls screen and
- * there is exactly one place a binding can be wrong.</p>
+ * <p>Stored in {@code config/pvpocket/client.json}, apart from {@code presets.json}. Key bindings
+ * live in vanilla's {@code options.txt} through {@code KeyBinding#setBoundKey}, so they appear in
+ * the vanilla controls screen.
  */
 public final class ClientPrefs {
 
@@ -31,11 +27,10 @@ public final class ClientPrefs {
             .create();
 
     /**
-     * Bounds of the history page size, and the value a file that predates the setting gets.
+     * Bounds of the history page size, and the value used when the field is absent.
      *
-     * <p>Ten is the default because it is the largest round number that still shows more than one
-     * page on a typical list without making the pager decorative. Five is the floor: below that the
-     * footer is taller than the list it paginates.</p>
+     * <p>Ten is the default: the largest step that still shows more than one page on a typical
+     * list. Five is the floor, below which the footer is taller than the list it paginates.
      */
     public static final int HISTORY_PAGE_MIN = 5;
     public static final int HISTORY_PAGE_MAX = 30;
@@ -43,18 +38,10 @@ public final class ClientPrefs {
     public static final int DEFAULT_HISTORY_PAGE = 10;
 
     /**
-     * Four sizes for the match scoreboard, from smallest to largest.
+     * Four scoreboard sizes for the match HUD, smallest first: 0.75, 0.9, 1.0 and 1.2.
      *
-     * <p>The third step is what the HUD was drawn at before the setting existed, so the default
-     * changes nothing for anyone who never opens the settings page. The steps are not evenly spaced
-     * on purpose: a player who moves one notch down wants the bar out of the way, not a 5% nudge,
-     * while the largest step is bounded by the fact that the bar sits over the middle of the screen
-     * — at 1.5× a two-side bar covers a fifth of a 2× GUI view, and the thing it covers is the fight.
-     * </p>
-     *
-     * <p>Nothing smaller than 0.75×: that is the panel's own legibility floor ({@code
-     * PvDraw.MIN_TEXT_SCALE}), and a scoreboard whose numbers cannot be read has no reason to exist.
-     * </p>
+     * <p>Step 3 is the default and draws at 1.0. Nothing goes below 0.75, the panel's own
+     * legibility floor ({@code PvDraw.MIN_TEXT_SCALE}).
      */
     public static final int HUD_SCALE_MIN = 1;
     public static final int HUD_SCALE_MAX = 4;
@@ -66,18 +53,15 @@ public final class ClientPrefs {
         int version = 1;
         String theme = "dark";
         boolean motion = true;
-        /** Rows per page on the history list. Zero in a file written before the field existed. */
+        /** Rows per page on the history list. Zero when the field is absent from the file. */
         int historyPageSize = DEFAULT_HISTORY_PAGE;
-        /** Scoreboard size step, 1..4. Zero in a file written before the field existed. */
+        /** Scoreboard size step, 1..4. Zero when the field is absent from the file. */
         int hudScale = DEFAULT_HUD_SCALE;
         /**
          * Whether a finished series opens the result card.
          *
-         * <p>On by default, including for a file written before the field existed: Gson leaves an
-         * absent field at its initialiser, which is the same answer the settings page shows, and a
-         * feature that has to be discovered in a settings page before it does anything is a feature
-         * nobody finds. It is one Esc away from being dismissed, and one switch away from never
-         * appearing again.</p>
+         * <p>Defaults to true, including when the field is absent, which matches the value the
+         * settings page shows.
          */
         boolean resultScreen = true;
     }
@@ -143,7 +127,10 @@ public final class ClientPrefs {
         save();
     }
 
-    /** Rows per page on the history list, always within {@link #HISTORY_PAGE_MIN}..{@link #HISTORY_PAGE_MAX}. */
+    /**
+     * Rows per page on the history list, always within {@link #HISTORY_PAGE_MIN} and
+     * {@link #HISTORY_PAGE_MAX}.
+     */
     public static int historyPageSize() {
         return historyPageSize;
     }
@@ -154,12 +141,8 @@ public final class ClientPrefs {
     }
 
     /**
-     * Snaps a value onto the allowed range, with zero meaning "not in the file".
-     *
-     * <p>Gson leaves a field it cannot find at its initialiser, so a missing key is already handled;
-     * this covers the other two cases — a file hand-edited to something absurd, and a value written
-     * by a future build with a wider range — and both have to survive a downgrade without leaving
-     * the list paginating in fifths of a row.</p>
+     * Snaps a value onto {@link #HISTORY_PAGE_MIN}..{@link #HISTORY_PAGE_MAX}, with zero meaning
+     * "not in the file".
      */
     private static int clampPage(int raw) {
         if (raw <= 0) {
@@ -178,17 +161,17 @@ public final class ClientPrefs {
         save();
     }
 
-    /** The multiplier the HUD draws itself at — what {@link #hudScale()} means on screen. */
+    /** The multiplier the HUD draws itself at, i.e. {@link #hudScale()} on screen. */
     public static float hudScaleFactor() {
         return HUD_SCALE_FACTORS[clampHudScale(hudScale) - HUD_SCALE_MIN];
     }
 
-    /** The same step as a percentage, for the readout. 100% is the default and the old size. */
+    /** The same step as a percentage, for the readout. 100% is the default. */
     public static int hudScalePercent(int step) {
         return Math.round(HUD_SCALE_FACTORS[clampHudScale(step) - HUD_SCALE_MIN] * 100F);
     }
 
-    /** Same contract as {@link #clampPage}: zero means the field was not in the file. */
+    /** Same contract as {@link #clampPage}: zero means the field is absent from the file. */
     private static int clampHudScale(int raw) {
         if (raw <= 0) {
             return DEFAULT_HUD_SCALE;

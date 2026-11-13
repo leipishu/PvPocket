@@ -1,25 +1,14 @@
 #!/usr/bin/env bash
-#
-# 启动开发客户端并自动加入同一个房间，用于测试双人决斗与观战。
-#
-# 前提：共享服务端已经在另一个终端运行（见 README「开发联调」）。
-# 本脚本只负责客户端，不托管服务端，这样服务端控制台仍然可以输入命令
-# （stop / op / gamemode / pvpocket 等），这对调试比"一个窗口管全部"更有用。
-#
-# 用法：
-#   scripts/dev-2clients.sh                     # 两个客户端（Dev1 / Dev2），默认
-#   PVP_CLIENTS=3 scripts/dev-2clients.sh       # 三个客户端（Dev3 用来观战）
-#   PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
-#   CELL=1.21.1-neoforge scripts/dev-2clients.sh   # 换一格（任务名与目录随之切换）
-#
+# Starts dev clients that auto-join one room; the server must already be running.
 set -uo pipefail
 
+# Usage: scripts/dev-2clients.sh; PVP_CLIENTS=3 adds a spectator, CELL=... picks the cell.
+# PVP_ADDR selects host:port, default localhost:25565.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CELL="${CELL:-1.21.1-fabric}"
 LOGS="$ROOT/versions/$CELL/build/devlogs"
 ADDR="${PVP_ADDR:-localhost:25565}"
 PORT="${ADDR##*:}"
-# 观战需要第三个玩家：两个参与者都在决斗里，没人能站在旁边看。
 COUNT="${PVP_CLIENTS:-2}"
 
 cd "$ROOT" || { echo "[dev] 找不到 $ROOT"; exit 1; }
@@ -36,12 +25,8 @@ if ! port_open; then
 fi
 echo "[dev] 服务端在 $ADDR 已就绪"
 
-# 每个客户端必须用不同的 run 目录和不同的用户名：
-#   - 同一个目录会让两个 JVM 抢 logs/latest.log，输的一方静默丢日志；
-#   - 同一个用户名会被服务端当成同一个玩家，第二个连接直接顶掉第一个。
-#
-# Gradle 任务名两个加载器完全一致：runClient / runClient2 / runClient3 / runClient4。
-# 运行目录由 gradle/pvpocket-cells.gradle 决定，统一在 runs/<cell>/client<N>，脚本不参与。
+# Each client needs its own run dir and username: a shared dir makes two JVMs fight over
+# logs/latest.log, and a shared username is rejected as a duplicate login.
 PIDS=()
 for i in $(seq 1 "$COUNT"); do
     if [ "$i" -eq 1 ]; then TASK="runClient"; else TASK="runClient${i}"; fi

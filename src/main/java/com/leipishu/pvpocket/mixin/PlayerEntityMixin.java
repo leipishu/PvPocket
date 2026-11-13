@@ -24,20 +24,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /**
  * The attacker side of the legacy rule set.
  *
- * <p>Four differences from 1.21.1, all inside {@code PlayerEntity#attack}:</p>
- * <ol>
- *   <li>No attack cooldown — charge progress is forced to full.</li>
- *   <li>The sprint/enchant knockback is an additive impulse, not a second velocity-halving
- *       knockback.</li>
- *   <li>No sweeping attack — it was introduced in 1.9.</li>
- *   <li>A sprinting player can still land a critical hit. 1.21.1 forbids it; 1.8 does not, which is
- *       the whole basis of the sprint-crit.</li>
- * </ol>
+ * <p>Six differences from 1.21.1, all inside {@code PlayerEntity#attack}: no attack cooldown, an
+ * additive sprint knockback instead of a second velocity-halving knockback, no sweeping attack,
+ * sprint-crits allowed, no 1.9 attack sounds, and no damage-indicator particles.
  */
 @Mixin(Player.class)
 public abstract class PlayerEntityMixin {
 
-    /** 1.8 has no attack cooldown, so charge progress is always full. */
+    /** Forces charge progress to full: 1.8 has no attack cooldown. */
     @Inject(method = "getAttackStrengthScale", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyFullCharge(float baseTime, CallbackInfoReturnable<Float> cir) {
         Player self = (Player) (Object) this;
@@ -47,16 +41,11 @@ public abstract class PlayerEntityMixin {
     }
 
     /**
-     * Replaces the vanilla sprint/enchant knockback with 1.8's additive impulse.
+     * Replaces the vanilla sprint and enchant knockback with 1.8's additive impulse.
      *
-     * <p>This redirects both {@code takeKnockback} call sites in {@code attack} — the sprint impulse
-     * and the sweep impulse — with one handler. That is safe because the sweep is disabled separately
-     * below, so the second site is unreachable for a legacy attacker; for everyone else the handler
-     * forwards to vanilla unchanged.</p>
-     *
-     * <p>The distinction matters: 1.21.1 routes this through {@code takeKnockback}, which halves the
-     * victim's velocity a <em>second</em> time (the hurt response already halved it). 1.8 adds a flat
-     * impulse on top of the already-halved velocity, so sprint hits send the victim further.</p>
+     * <p>Redirects both {@code takeKnockback} call sites in {@code attack}. The sweep site is
+     * unreachable for a legacy attacker because the sweep is disabled below; every other caller
+     * forwards to vanilla.
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
@@ -72,17 +61,12 @@ public abstract class PlayerEntityMixin {
     }
 
     /**
-     * Disables the sweeping attack for legacy attackers.
+     * Disables the sweeping attack for legacy attackers by emptying the {@code getStackInHand}
+     * result in {@code attack}.
      *
-     * <p>The sweep gate is the last condition before the sweep flag is set:
-     * {@code if (this.getStackInHand(Hand.MAIN_HAND).getItem() instanceof SwordItem) bl4 = true;}
-     * — and {@code attack} calls {@code getStackInHand} exactly once. Returning an empty stack makes
-     * that {@code instanceof} fail, which is the narrowest way to suppress the sweep without
-     * reimplementing the whole method.</p>
-     *
-     * <p>This is not cosmetic. For a legacy player the charge check {@code h > 0.9F} is always true
-     * (cooldown is forced to full), so without this every stationary sword hit would also sweep every
-     * nearby entity — a mechanic that did not exist in 1.8.</p>
+     * <p>The sweep gate tests that stack with {@code instanceof SwordItem}, so an empty stack makes
+     * the test fail. Without it every stationary sword hit would sweep, because the charge check
+     * {@code h > 0.9F} is always true for a legacy player.
      */
     @ModifyExpressionValue(method = "attack",
             at = @At(value = "INVOKE",
@@ -95,10 +79,8 @@ public abstract class PlayerEntityMixin {
     /**
      * Allows the sprint-crit for legacy attackers.
      *
-     * <p>1.21.1's critical-hit condition ends with {@code && !this.isSprinting()}; 1.8's ends with
-     * {@code && targetEntity instanceof EntityLivingBase} and has no sprinting check at all. This is
-     * the second {@code isSprinting()} call in {@code attack} — the first one gates the sprint
-     * knockback and must keep its real value.</p>
+     * <p>Hooks the second {@code isSprinting()} call in {@code attack}, the one in the critical-hit
+     * condition. The first call gates the sprint knockback and keeps its real value.
      */
     @ModifyExpressionValue(method = "attack",
             at = @At(value = "INVOKE",
@@ -110,17 +92,11 @@ public abstract class PlayerEntityMixin {
     }
 
     /**
-     * Silences the 1.9 attack sound set for legacy attackers.
+     * Silences the 1.9 attack sounds for legacy attackers.
      *
-     * <p>1.8 plays exactly one sound when a hit lands: {@code entity.player.hurt} on the victim. The
-     * crit / knockback / strong / weak / nodamage / sweep sounds that {@code attack} fires are all
-     * 1.9 additions, and they are the main reason a modern trade sounds "chunkier" than a 1.8 one —
-     * three sounds land where 1.8 has one, and they fire at a different pitch each time. Muting them
-     * leaves the hurt sound as the only feedback, which is what 1.8's rhythm actually is.</p>
-     *
-     * <p>Both overloads are redirected because {@code attack} uses both: the redirect-overload for
-     * the "no damage" branch, the volume/pitch one everywhere else. Scoped to {@code attack}, so
-     * nothing outside combat is affected.</p>
+     * <p>1.8 plays one sound per hit, {@code entity.player.hurt} on the victim. Both overloads are
+     * redirected because {@code attack} uses both: the redirect overload for the "no damage"
+     * branch, the volume and pitch one everywhere else. Scoped to {@code attack}.
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
@@ -150,9 +126,8 @@ public abstract class PlayerEntityMixin {
     /**
      * Drops the 1.9 damage-indicator particles for legacy attackers.
      *
-     * <p>{@code DAMAGE_INDICATOR} — the small dark hearts that pop off a target hit for more than
-     * two points — does not exist in 1.8. It is also spawned server-side only, so a client-side
-     * filter would never see it.</p>
+     * <p>{@code DAMAGE_INDICATOR}, the small dark hearts on a hit for more than two points, does
+     * not exist in 1.8. It is spawned server-side only, so this redirects {@code sendParticles}.
      */
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
@@ -172,11 +147,10 @@ public abstract class PlayerEntityMixin {
     }
 
     /**
-     * {@code c.naturalRegen} off: hunger no longer heals.
+     * Turns off natural regeneration: with {@code c.naturalRegen} off, hunger does not heal.
      *
-     * <p>{@code canFoodHeal} is the single gate the hunger manager asks before regenerating, so
-     * returning false here removes natural regeneration and nothing else — golden apples and potions
-     * heal through {@code heal()}, not through this.</p>
+     * <p>Hooks {@code isHurt}, the single gate the hunger manager asks before regenerating. Golden
+     * apples and potions heal through {@code heal()} and are unaffected.
      */
     @Inject(method = "isHurt", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noNaturalRegen(CallbackInfoReturnable<Boolean> cir) {
@@ -187,11 +161,10 @@ public abstract class PlayerEntityMixin {
     }
 
     /**
-     * {@code c.hunger} off: nothing adds exhaustion, so the bar never drains.
+     * Turns off hunger drain: with {@code c.hunger} off, nothing adds exhaustion.
      *
-     * <p>Cancelling here rather than in {@code HungerManager#update} keeps the two rules apart —
-     * cancelling {@code update} would also freeze the regeneration timer and the starvation damage,
-     * which belong to {@code c.naturalRegen} and to the damage veto respectively.</p>
+     * <p>Hooks {@code causeFoodExhaustion} at HEAD. Cancelling {@code HungerManager#update} instead
+     * would also freeze the regeneration timer and the starvation damage.
      */
     @Inject(method = "causeFoodExhaustion", at = @At("HEAD"), cancellable = true)
     private void pvpocket$noHungerDrain(float exhaustion, CallbackInfo ci) {

@@ -18,44 +18,31 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * The victim side of the legacy rule set: everything that happens <em>to</em> a player.
+ * The victim side of the legacy rule set: everything that happens to a player.
  *
- * <p>Every hook is guarded by the same question — is this player currently registered as legacy — and
- * nothing else. Anything that is not a registered legacy player falls through untouched, so a modern
- * player standing next to a legacy duel is never affected.</p>
- *
- * <p>There are four effects, because that is what 1.8 has: blocking damage reduction, a blocking
- * movement penalty, the fixed-strength hurt knockback, and linear armour. Notably there is <em>no</em>
- * blocking-knockback hook — see {@link LegacyCombatValues} for the source evidence that 1.8 blocking
- * never reduced knockback.</p>
+ * <p>Every hook asks whether the player is registered as legacy and leaves everything else
+ * untouched. There are four effects, matching 1.8: blocking damage reduction, a blocking movement
+ * penalty, fixed-strength hurt knockback, and linear armour. 1.8 blocking never reduced knockback,
+ * so there is no blocking-knockback hook.
  */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {
 
     /**
-     * 原版的护甲耐久扣减，1.8 的护甲计算里也要跑。
+     * Vanilla armour durability loss, which the 1.8 armour calculation also runs.
      *
-     * <p>{@code hurtArmor} 是 {@code protected}，跨包直接调 {@code self.hurtArmor(...)} 在 javac
-     * 眼里是非法访问（JLS 6.6.2：跨包访问 protected 成员要求限定类型是访问者的子类）。
-     * Loom 的编译路径不知为何放行了这一处，ModDevGradle 那边立刻报错——也就是说这行代码一直
-     * 是靠一个加载器的宽容活着的。用 {@code @Shadow} 声明一次是 mixin 的正规做法，两边都合法，
-     * 而且 {@code MixinTargetCheck} 会核对它确实存在于目标类上。</p>
+     * <p>{@code hurtArmor} is protected and lives in another package, so a direct call from here is
+     * illegal. {@code @Shadow} declares it once and is legal on every loader.
      */
     @Shadow
     protected abstract void hurtArmor(DamageSource source, float amount);
 
     /**
-     * 1.8 blocking damage reduction, applied at the same point in the pipeline as the original.
+     * Applies 1.8 blocking damage reduction at HEAD of {@code hurt}, before armour runs.
      *
-     * <p>{@code damage} computes the final amount and then hands it to {@code applyDamage}, which is
-     * where armor and absorption live. HEAD is therefore before armor, matching 1.8's
-     * {@code damageEntity}, which also reduced blocking damage before calling
-     * {@code applyArmorCalculations}.</p>
-     *
-     * <p>{@code DamageTypeTags.BYPASSES_ARMOR} is the modern stand-in for 1.8's
-     * {@code DamageSource#isUnblockable}: in 1.8 every source built with
-     * {@code setDamageBypassesArmor()} (fire, drowning, starvation, fall, void, magic, wither,
-     * indirect magic) was marked unblockable, which is exactly the modern bypass-armor set.</p>
+     * <p>1.8 also reduced blocking damage before {@code applyArmorCalculations}.
+     * {@code DamageTypeTags.BYPASSES_ARMOR} stands in for 1.8's unblockable sources, which are the
+     * same set.
      */
     @ModifyVariable(method = "hurt", at = @At("HEAD"), argsOnly = true, index = 2)
     private float pvpocket$blockingDamage(float amount, DamageSource source) {
@@ -70,12 +57,11 @@ public abstract class LivingEntityMixin {
     }
 
     /**
-     * 1.8 armour: linear in armour points, with no toughness term.
+     * Applies 1.8 armour at HEAD of {@code getDamageAfterArmorAbsorb}: linear in armour points,
+     * with no toughness term.
      *
-     * <p>Hooked at HEAD rather than at the {@code DamageUtil#getDamageLeft} call so that
-     * {@code damageArmor} still runs — 1.8 also damaged armour inside
-     * {@code applyArmorCalculations}, so skipping it would silently make legacy duels consume less
-     * armour durability than vanilla.</p>
+     * <p>Hooking here rather than at the damage calculation keeps {@code damageArmor} running, so
+     * armour durability is still consumed.
      */
     @Inject(method = "getDamageAfterArmorAbsorb", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyArmor(DamageSource source, float amount,
@@ -91,12 +77,12 @@ public abstract class LivingEntityMixin {
     }
 
     /**
-     * 1.8 hurt knockback: fixed strength, halve-then-push, always pops the victim up.
+     * Applies 1.8 hurt knockback at HEAD of {@code knockback}: fixed strength, halve then push, and
+     * the victim always pops up.
      *
-     * <p>This covers every damage source, including mobs and projectiles, because the hurt response
-     * is a property of the victim's rule set rather than the attacker's. The attacker's own knockback
-     * impulse is handled separately in {@code PlayerEntityMixin}, which redirects the call site inside
-     * {@code attack} so that it never reaches this hook.</p>
+     * <p>Covers every damage source, including mobs and projectiles, because the hurt response
+     * belongs to the victim's rule set. The attacker's impulse is redirected in
+     * {@code PlayerEntityMixin}, so it never reaches this hook.
      */
     @Inject(method = "knockback", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyHurtKnockback(double strength, double x, double z, CallbackInfo ci) {
@@ -108,22 +94,11 @@ public abstract class LivingEntityMixin {
     }
 
     /**
-     * 1.8 scales movement input rather than the speed attribute. Doing the same here keeps the
-     * penalty self-clearing: the input is recomputed every tick, so nothing can leak into the
-     * player's saved attributes.
+     * Scales movement input for a blocking player at HEAD of {@code aiStep}, and drops sprint.
      *
-     * <p>Unlike the hooks above this one is <em>not</em> restricted to the logical server. The client
-     * predicts its own movement, so if only the server slowed the player down the client would keep
-     * sending full-speed positions and the server would reject them, producing a visible pull-back
-     * every tick. The client's view of the flag comes from {@code CombatStatePayload}, so both sides
-     * scale by the same factor and agree.</p>
-     *
-     * <p>Sprint is dropped as well, because 1.8 could not block and sprint at once. There it fell out
-     * of the arithmetic: the scaled {@code moveForward} (1.0 × 0.2) is below the 0.8 the sprint check
-     * wants, so the block cancelled the sprint on the tick it started. 1.21's sprint start has no
-     * "using an item" test at all, so without this a blocking player keeps full sprint speed at 20%
-     * input — noticeably faster than the 1.8 shuffle, and it also keeps the sprint knockback bonus
-     * available while defending.</p>
+     * <p>Scaling input rather than the speed attribute keeps the penalty self-clearing, because the
+     * input is recomputed every tick. The hook runs on both sides: the client predicts its own
+     * movement, and a server-only penalty would be rejected as a pull-back every tick.
      */
     @Inject(method = "aiStep", at = @At("HEAD"))
     private void pvpocket$blockingSlowdown(CallbackInfo ci) {
@@ -138,18 +113,11 @@ public abstract class LivingEntityMixin {
     }
 
     /**
-     * Career damage, counted where the final number exists.
+     * Records career damage at HEAD of {@code actuallyHurt}, where the final amount exists.
      *
-     * <p>{@code applyDamage} receives the amount <em>after</em> armour and <em>before</em> absorption
-     * and the health subtraction, which is the only point where "how hard did that hit land" is a
-     * single value. Earlier (in {@code damage}) armour is still to be applied; later (in
-     * {@code onDamaged}) the health has already moved and the amount would have to be reconstructed
-     * from a difference.</p>
-     *
-     * <p>Restricted to {@link ServerPlayerEntity} so the client's prediction never counts: the
-     * prediction runs the same method on the client's copy of the victim, and counting there would
-     * double every hit. The membership rules live in {@code SessionManager#noteDamage} — this hook
-     * stays one call so there is only one place to change what a duel hit is.</p>
+     * <p>That point is after armour and before absorption and the health subtraction. Restricted to
+     * {@link ServerPlayerEntity} so the client's prediction never counts. Membership rules live in
+     * {@code SessionManager#noteDamage}.
      */
     @Inject(method = "actuallyHurt", at = @At("HEAD"))
     private void pvpocket$recordDuelDamage(DamageSource source, float amount, CallbackInfo ci) {

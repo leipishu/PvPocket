@@ -12,16 +12,12 @@ import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.sounds.SoundEvents;
 
 /**
- * One finished series in the history list.
+ * One finished series in the history list: score, outcome chip, map line and round strip.
  *
- * <p>Two lines in a 38px card, the same rhythm the match list uses, so the two lists read as the same
- * kind of object. What differs is the leading element: a match in progress leads with the map and a
- * state chip, a finished one leads with the score, because the score is the reason anyone opens this
- * page.</p>
+ * <p>The row is 42px tall and draws a 38px card with two text lines and a leading accent bar. The
+ * outcome is carried by the accent colour and a chip, never by red or green.
  *
- * <p>The result is carried by an accent-tinted chip rather than by red/green. Red is reserved for
- * destructive actions in this system, and a red "lost" badge would be the only place in the interface
- * where red means something other than "this removes something".</p>
+ * <p>{@code onClick} runs on a left click inside the row. A click outside it is ignored.
  */
 public class HistoryRow extends PvWidget {
 
@@ -39,8 +35,7 @@ public class HistoryRow extends PvWidget {
 
     public HistoryRow(HomeState.History record, Runnable onClick) {
         this.record = record;
-        // Parsed once, not once per frame: the strip is redrawn on every render pass, and a thirty-row
-        // list would otherwise re-split thirty strings sixty times a second.
+        // Rounds are parsed once here and reused by every render pass.
         this.rounds = record.roundList();
         this.onClick = onClick;
         this.height = H;
@@ -61,8 +56,7 @@ public class HistoryRow extends PvWidget {
                 PvTheme.mix(PvTheme.BORDER, PvTheme.BORDER_STRONG, hotT),
                 PvTheme.mix(PvTheme.CARD, PvTheme.CARD_HOVER, hotT));
 
-        // A two-pixel bar on the leading edge says the outcome without spending width on it. Won is
-        // the accent; lost is the plain border, because "nothing happened here" is the honest reading.
+        // Two-pixel leading bar: accent when the series was won, plain border when lost.
         PvDraw.roundRect(ctx, x + 1, y + 7, 2, h - 14, 1,
                 record.won() ? PvTheme.ACCENT : PvTheme.BORDER);
 
@@ -71,8 +65,7 @@ public class HistoryRow extends PvWidget {
         int line2 = y + 22;
 
         String score = record.myScore() + " : " + record.theirScore();
-        // Everything on this line is chained off what came before it, so each run reports what it
-        // actually covered rather than what it would have covered at full size.
+        // Each run reports the width it covered; the next run starts after it.
         int scoreW = PvDraw.textFitLeft(ctx, tr, score, textX, line1, width / 2, PvTheme.TEXT);
 
         String chip = PvLang.str(record.won()
@@ -84,11 +77,8 @@ public class HistoryRow extends PvWidget {
         PvDraw.text(ctx, tr, chip, chipX + 5, line1,
                 record.won() ? PvTheme.ACCENT : PvTheme.TEXT_MUTED);
 
-        // The round strip used to be measured first and the map name got what was left, which on a
-        // 200px row left it eight pixels: "Colosseum · Modern · 1v1" cut to "Colo…". The strip is
-        // the most redundant thing on this line — the score already says who won — so it yields: the
-        // map line states what it needs to keep its words, and the strip takes whole dots out of the
-        // remainder. When there is no remainder it is not drawn at all.
+        // The map line claims its floor width first and the strip takes whole dots from the
+        // remainder. The strip is not drawn when no remainder is left.
         String full = metaLine();
         int metaX = chipX + chipW + 8;
         int metaFull = x + width - 10 - metaX;
@@ -100,8 +90,7 @@ public class HistoryRow extends PvWidget {
             drawDots(ctx, dotsX, line1 + 2);
         }
         int mapRoom = Math.max(8, (dots > 0 ? dotsX - 8 : x + width - 10) - metaX);
-        // Rebuilt against the room it actually got, so the qualifiers are dropped one at a time
-        // instead of the whole line being cut in the middle.
+        // Rebuilt for the room measured above, so qualifiers drop one at a time.
         String shown = metaLine(full, mapRoom);
         boolean metaShort = !shown.equals(full) || PvDraw.willCut(tr, shown, mapRoom, 1);
         PvDraw.textFitLeft(ctx, tr, shown, metaX, line1, mapRoom, PvTheme.TEXT_DIM);
@@ -110,21 +99,18 @@ public class HistoryRow extends PvWidget {
                 ? PvLang.str("pvpocket.gui.home.history.solo")
                 : PvLang.str("pvpocket.gui.home.history.vs", record.opponents());
         String second = HomeText.stamp(record.t()) + " · " + who;
-        // Player names are unbounded, so this line is the one that has to give way first: it shrinks
-        // to the legibility floor and is cut only beyond it.
+        // Player names are unbounded; this line shrinks to the floor before it is cut.
         PvDraw.textFitLeft(ctx, tr, second, textX, line2, width - 20, PvTheme.TEXT_MUTED);
         boolean secondCut = PvDraw.willCut(tr, second, width - 20, 1);
-        // Hovering restores whatever the row could not show: the qualifiers it dropped, or the end
-        // of the player names.
+        // The hover tooltip carries the text the row could not show.
         overflowTip(metaShort ? full : second, metaShort || secondCut);
     }
 
     /**
-     * One square per round, left to right.
+     * Draws one six-pixel square per round, left to right, at most {@code MAX_DOTS} of them.
      *
-     * <p>Six pixels rather than a number: a "2-1-0-1" string needs a legend and thirty pixels, while
-     * four squares say the same thing at a glance. The strip is capped, and the cap is stated by the
-     * card simply stopping — a series longer than twelve rounds is beyond what the rules allow.</p>
+     * <p>{@code startX} is the left edge of the first square, {@code top} its top edge. The strip
+     * stops at the cap without any marker.
      */
     private void drawDots(GuiGraphics ctx, int startX, int top) {
         int i = 0;
@@ -154,11 +140,10 @@ public class HistoryRow extends PvWidget {
     }
 
     /**
-     * The meta line, assembled from the parts that fit.
+     * Returns the meta line rebuilt from the parts that fit in {@code room}.
      *
-     * <p>Dropping a qualifier beats cutting the whole string: "Colosseum · 1v1" names the row, while
-     * "Colosseum · Moder…" names half of it and nothing at all once the mode is the part that was cut.
-     * The map name is never dropped — it is what identifies the record.</p>
+     * <p>Falls back from the full line to map plus teams, then to the map label alone. The map
+     * label is always returned, whatever the room.
      */
     private String metaLine(String full, int room) {
         String map = record.mapLabel();
@@ -174,7 +159,7 @@ public class HistoryRow extends PvWidget {
         return floorWidth(net.minecraft.client.Minecraft.getInstance().font, s) <= room;
     }
 
-    /** Width a string needs at the legibility floor — the least room that still shows every word. */
+    /** Width a string needs at the legibility floor, where every word is still visible. */
     private static int floorWidth(Font tr, String s) {
         return Math.round(tr.width(s) * PvDraw.MIN_TEXT_SCALE);
     }
@@ -184,8 +169,7 @@ public class HistoryRow extends PvWidget {
         if (!contains(mouseX, mouseY)) {
             return null;
         }
-        // The full map line beats "click to open": the row's own tooltip says what a click does,
-        // which the pointer already implies, while a shortened map line says nothing at all.
+        // The full map line takes priority over the row's own tooltip.
         return overflow() != null ? overflow() : tooltip;
     }
 

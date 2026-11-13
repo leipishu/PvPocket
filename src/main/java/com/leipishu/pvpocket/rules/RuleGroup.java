@@ -4,15 +4,11 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.network.chat.MutableComponent;
 
 /**
- * The seven rule groups from the locked specification. The letter is the stable id prefix, so a
- * rule's group can be derived from its id without a lookup — which keeps the wire format readable
- * and makes a partially-known rule set (client built from an older jar) fail loudly instead of
- * silently landing in the wrong tab.
+ * The seven rule groups. The letter is the stable id prefix, so a rule's group follows from its id
+ * without a lookup.
  *
  * <p>The letter also picks the translation key: the tab strip reads
- * {@code pvpocket.rule.group.<letter>}. It is not shown anywhere — the tab strip used to print it
- * beside the label, which repeated a prefix the player never types; that space now holds the
- * "this page has unsaved changes" dot.</p>
+ * {@code pvpocket.rule.group.<letter>}.
  */
 public enum RuleGroup {
 

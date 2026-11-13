@@ -1,14 +1,6 @@
 param(
-    # Clicks a point given as a fraction of the game's client area, and captures the client area.
-    #
-    # Why fractions and not pixels: a dev client gets restored from minimised (SW_RESTORE) or
-    # maximised by whatever script ran before, and both change the client size. Absolute coordinates
-    # then land on the wrong button, and the failure looks like "the mod ignored my click" instead of
-    # "the click went somewhere else". A fraction of the client area survives every resize, and the
-    # capture is cropped to the client area so a fraction read off the picture maps back exactly.
-    #
-    # Coordinates are fractions in 0..1 of the client area, measured from its top-left. The capture
-    # is written at native size, so a pixel p in the image is p/width horizontally.
+    # Clicks a point given as a fraction of the client area, then captures the client area.
+    # Fractions survive window resizes; absolute pixels do not.
     [string]$Username = "Dev1",
     [double]$FX = 0.5,
     [double]$FY = 0.5,
@@ -59,7 +51,7 @@ $origin = New-Object FracWin+POINT
 
 $cx = [int][Math]::Round($FX * $cw)
 $cy = [int][Math]::Round($FY * $ch)
-# Clamp: a click one pixel outside the client area is a click on the frame, which the game never sees.
+# Clamp: one pixel outside the client area lands on the frame, which the game never sees.
 $cx = [Math]::Max(0, [Math]::Min($cw - 1, $cx))
 $cy = [Math]::Max(0, [Math]::Min($ch - 1, $cy))
 

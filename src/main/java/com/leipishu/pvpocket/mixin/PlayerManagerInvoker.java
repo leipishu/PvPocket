@@ -8,13 +8,10 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 /**
  * Exposes vanilla's per-player playerdata write.
  *
- * <p>{@code PlayerManager.save(ServerPlayerEntity)} is {@code protected} and there is no
- * public equivalent short of {@code saveAll()}. It matters because a restore is applied to
- * the live entity and would otherwise only reach the disk at the next autosave (up to five minutes)
- * or a clean disconnect: a hard stop inside that window reloads the pre-match inventory on the next
- * login, and the following match then snapshots the loadout as the player's baseline. Calling the
- * vanilla method rather than re-implementing it also keeps the {@code .dat_old} rotation and the
- * internal bookkeeping it does.</p>
+ * <p>{@code PlayerList.save(ServerPlayer)} is {@code protected} and there is no public equivalent
+ * short of {@code saveAll()}. A restore is applied to the live entity and would otherwise reach the
+ * disk only at the next autosave, up to five minutes later, or on a clean disconnect. Calling the
+ * vanilla method also keeps the {@code .dat_old} rotation and its internal bookkeeping.
  */
 @Mixin(PlayerList.class)
 public interface PlayerManagerInvoker {

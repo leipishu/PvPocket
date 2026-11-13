@@ -9,19 +9,18 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * Server to client: the answer to a {@link PresetSharePayload}, success or refusal.
  *
- * <p>The status is an int rather than a message because the refusal has to be shown in the reader's
- * own language — the server has no language, so it answers with a code and the client turns it into
- * a sentence. The same reason the rule panel's problems travel as translation keys.</p>
+ * <p>The status is an int rather than a message because the refusal has to be shown in the
+ * reader's language; the client turns the code into a sentence.
  *
- * <p>On success the whole preset comes back, including the name: the receiver stores it under the
- * name the sender chose, so "同事的弓" arrives as "同事的弓" rather than as "imported-1".</p>
+ * <p>On success the whole preset comes back, including the name, so the receiver stores it under
+ * the name the sender chose.
  */
 public record PresetShareResultPayload(int status, String kind, String name, String encoded,
                                        String code, int ttlSeconds) implements CustomPacketPayload {
 
     public static final int STATUS_PUBLISHED = 0;
     public static final int STATUS_FETCHED = 1;
-    /** The code never existed, or it existed and has been swept. Deliberately not distinguished. */
+    /** The code never existed, or it existed and has been swept. Not distinguished. */
     public static final int STATUS_UNKNOWN_CODE = 2;
     /** The publish request was unusable: unknown kind, blank name, or an oversized payload. */
     public static final int STATUS_REJECTED = 3;
