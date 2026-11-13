@@ -8,8 +8,18 @@ and resolves the //? if blocks, so one tree still feeds every cell.
 Two operations, in this order:
 
   //? if <cond> {     a block that only survives when <cond> holds for --mc
+  //?} elif <cond> {    the next branch of the same chain
   //?} else {          the alternative block
   //?}                 end of block
+
+A condition is one comparison or a space-separated list of them, and every term must hold:
+
+  >=1.21.11              1.21.11 and newer
+  >=1.21.11 <26.1        1.21.11 up to but excluding 26.1
+
+The list form exists because a chain of `//? if` / `//? elif` cannot express "this band ends
+here" on its own: once a fourth version lands, the middle bands need both a lower and an upper
+bound. Without it the only way to say that is to nest blocks, and a three-band file nests twice.
 
   scripts/port/<mc>.tsv   `old<TAB>new` pairs, applied as whole-word replacements
 
@@ -40,25 +50,34 @@ def version_key(text):
 
 
 def condition_holds(expression, target):
-    match = re.match(r"^(>=|<=|==|>|<)?\s*(\S+)$", expression.strip())
-    if not match:
-        raise ValueError("cannot parse condition: %r" % expression)
-    operator = match.group(1) or ">="
-    limit = version_key(match.group(2))
+    """True when every space-separated term holds; a single term is the common case."""
+    terms = expression.split()
+    if not terms:
+        raise ValueError("empty condition")
     here = version_key(target)
-    return {
-        ">=": here >= limit,
-        ">": here > limit,
-        "<=": here <= limit,
-        "<": here < limit,
-        "==": here == limit,
-    }[operator]
+    for term in terms:
+        match = re.match(r"^(>=|<=|==|>|<)?\s*(\S+)$", term)
+        if not match:
+            raise ValueError("cannot parse condition: %r" % term)
+        operator = match.group(1) or ">="
+        limit = version_key(match.group(2))
+        holds = {
+            ">=": here >= limit,
+            ">": here > limit,
+            "<=": here <= limit,
+            "<": here < limit,
+            "==": here == limit,
+        }[operator]
+        if not holds:
+            return False
+    return True
 
 
 def resolve_blocks(text, target, path):
     """Drop the directives and keep only the branches that hold for --mc."""
     out = []
-    # Each entry is (keep, branch_taken): keep says whether lines are emitted.
+    # Each entry is (keep, branch_taken): keep says whether lines are emitted, branch_taken says
+    # an earlier branch of the same chain already matched.
     stack = []
     for number, line in enumerate(text.splitlines(keepends=True), start=1):
         match = DIRECTIVE.match(line)
@@ -67,19 +86,34 @@ def resolve_blocks(text, target, path):
                 out.append(line)
             continue
         body = match.group(1).strip()
+        if body == "}":
+            if not stack:
+                raise SyntaxError("%s:%d: //?} without //? if" % (path, number))
+            stack.pop()
+            continue
+        # The closing form is written `//?} else {`, so a leading brace belongs to the previous
+        # branch and not to the directive.
+        if body.startswith("}"):
+            body = body[1:].strip()
         if body.startswith("if ") and body.endswith("{"):
             holds = condition_holds(body[3:-1], target)
             stack.append([holds, holds])
-        elif body in ("} else {", "else {", "else"):
+        elif body.startswith("elif ") and body.endswith("{"):
+            if not stack:
+                raise SyntaxError("%s:%d: //?} elif without //? if" % (path, number))
+            frame = stack[-1]
+            if frame[1]:
+                frame[0] = False
+            else:
+                holds = condition_holds(body[5:-1], target)
+                frame[0] = holds
+                frame[1] = holds
+        elif body in ("else {", "else"):
             if not stack:
                 raise SyntaxError("%s:%d: //?} else without //? if" % (path, number))
             frame = stack[-1]
             frame[0] = not frame[1]
             frame[1] = True
-        elif body == "}":
-            if not stack:
-                raise SyntaxError("%s:%d: //?} without //? if" % (path, number))
-            stack.pop()
         else:
             raise SyntaxError("%s:%d: unknown directive //? %s" % (path, number, body))
     if stack:
