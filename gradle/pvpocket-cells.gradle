@@ -67,6 +67,24 @@ ext.pvpocketSrc = { String relative ->
     portVersion ? new File(portOutput, relative) : rootProject.file("src/${relative}")
 }
 
+// Every subproject inherits the default roots versions/<cell>/src/<set>/<kind>. Sources are shared
+// at the repository root, so those never exist and an IDE shows an empty module. Drop just those.
+afterEvaluate {
+    project.sourceSets.each { sourceSet ->
+        ['java', 'resources'].each { kind ->
+            def dirs = sourceSet."${kind}"
+            // Compare normalised paths: a File built from a string keeps backslashes on Windows and
+            // never equals the entry Gradle stored with forward slashes.
+            def defaultDir = project.file("src/${sourceSet.name}/${kind}").absolutePath.replace('\\', '/')
+            // srcDirs hands out a copy, so setSrcDirs is the only way to remove an entry.
+            def kept = dirs.srcDirs.findAll { it.absolutePath.replace('\\', '/') != defaultDir }
+            if (kept.size() != dirs.srcDirs.size()) {
+                dirs.setSrcDirs(kept)
+            }
+        }
+    }
+}
+
 // Archive name is derived from the cell name: 1.21.1-fabric -> pvpocket-fabric-1.21.1.
 def cellParts = project.name.split('-')
 base {

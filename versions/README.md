@@ -90,3 +90,22 @@ javac -classpath "$(cat versions/1.21.1-fabric/build/compile-classpath.txt)" \
 
 `gen-src` 在 `.gitignore` 里，IDEA 会给它灰绿色底，但源根图标与跳转都正常。它由
 `generatePortSources` 写出，`clean` 会一并删掉，**不要手改**——下次构建就没了。
+
+## 在某个版本上跑
+
+所有脚本都用 `CELL=` 选格子，默认是 1.21.1，所以 1.21.11 不需要另一套脚本：
+
+```bash
+CELL=1.21.11-neoforge scripts/dev-duel.sh        # 服务端 + 两个客户端，一键联调
+CELL=1.21.11-fabric  scripts/audit-ui.sh         # 82 个界面的遮挡检查
+CELL=1.21.11-fabric  scripts/dev-2clients.sh     # 只起客户端，服务端自己开
+```
+
+`scripts/check-logic.sh` 要两个变量，因为它一次核两格（Fabric 与 NeoForge 的 mixin 目标可能不同）：
+
+```bash
+FABRIC_CELL=1.21.11-fabric NEOFORGE_CELL=1.21.11-neoforge bash scripts/check-logic.sh
+```
+
+run 目录自动是 `runs/<cell>/`，两个版本、两个加载器都不共用——存档格式与 `options.txt` 都不兼容。
+`./gradlew :1.21.11-neoforge:runClient` 这类任务也可以直接从 IDEA 的 Gradle 面板点。
