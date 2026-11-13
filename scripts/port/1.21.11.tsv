@@ -28,3 +28,4 @@ PlayerRenderer	AvatarRenderer
 getMinBuildHeight	getMinY
 getMaxBuildHeight	getMaxY
 serverLevel	level
+RULE_DAYLIGHT	ADVANCE_TIME

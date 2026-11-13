@@ -18,7 +18,11 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+//? if >=1.21.11 {
+import net.minecraft.world.InteractionResult;
+//?} else {
 import net.minecraft.world.InteractionResultHolder;
+//?}
 import net.minecraft.world.item.ItemStack;
 import com.mojang.brigadier.CommandDispatcher;
 
@@ -150,12 +154,22 @@ public final class FabricPlatform implements PvPlatform {
     public void onUseItem(UseItemVeto veto) {
         UseItemCallback.EVENT.register((player, world, hand) -> {
             if (!(player instanceof ServerPlayer serverPlayer)) {
+//? if >=1.21.11 {
+                return InteractionResult.PASS;
+//?} else {
                 return InteractionResultHolder.pass(player.getItemInHand(hand));
+//?}
             }
             ItemStack stack = serverPlayer.getItemInHand(hand);
+//? if >=1.21.11 {
+            return veto.allow(serverPlayer, world, hand) == UseVerdict.ALLOW
+                    ? InteractionResult.PASS
+                    : InteractionResult.FAIL;
+//?} else {
             return veto.allow(serverPlayer, world, hand) == UseVerdict.ALLOW
                     ? InteractionResultHolder.pass(stack)
                     : InteractionResultHolder.fail(stack);
+//?}
         });
     }
 }

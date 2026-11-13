@@ -68,7 +68,12 @@ public abstract class ExplosionMixin {
         if (self.getDirectSourceEntity() instanceof AbstractWindCharge) {
             return true;
         }
+//? if >=1.21.11 {
+        // TODO: the sound is no longer reachable from Explosion; find the client-side carrier.
+        return false;
+//?} else {
         return self.getExplosionSound() != null
                 && self.getExplosionSound().value() == SoundEvents.WIND_CHARGE_BURST.value();
+//?}
     }
 }
