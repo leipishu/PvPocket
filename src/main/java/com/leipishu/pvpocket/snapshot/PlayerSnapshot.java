@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.snapshot;
 
+import com.leipishu.pvpocket.compat.PvNbt;
+
 import com.leipishu.pvpocket.compat.PvCompat;
 
 import com.leipishu.pvpocket.arena.Sandbox;
@@ -88,11 +90,10 @@ public final class PlayerSnapshot {
     }
 
     public static PlayerSnapshot capture(ServerPlayer player) {
-        CompoundTag nbt = new CompoundTag();
-        player.saveWithoutId(nbt);
+        CompoundTag nbt = PvNbt.save(player);
 
         MinecraftServer server = PvCompat.server(player);
-        String dimension = player.level().dimension().location().toString();
+        String dimension = PvCompat.dimensionId(player.level().dimension()).toString();
 
         Scoreboard scoreboard = server.getScoreboard();
         PlayerTeam team = scoreboard.getPlayersTeam(player.getScoreboardName());
@@ -104,7 +105,7 @@ public final class PlayerSnapshot {
                 player.getYRot(), player.getXRot(),
                 player.gameMode.getGameModeForPlayer().getName(),
                 team == null ? null : team.getName(),
-                player.fallDistance,
+                (float) player.fallDistance,
                 baseOf(player, Attributes.MAX_HEALTH),
                 baseOf(player, Attributes.KNOCKBACK_RESISTANCE),
                 fingerprintOf(nbt)
@@ -131,7 +132,7 @@ public final class PlayerSnapshot {
 
         player.stopRiding();
         PvCompat.teleport(player, world, x, y, z, yaw, pitch);
-        player.load(playerNbt.copy());
+        PvNbt.load(player, playerNbt.copy(), player.level().registryAccess());
 
         // load() merges: an attribute absent from the tag keeps the value the arena wrote.
         resetBase(player, Attributes.MAX_HEALTH, maxHealthBase);
@@ -192,8 +193,7 @@ public final class PlayerSnapshot {
      * @return true when every digested field matches
      */
     public boolean verify(ServerPlayer player) {
-        CompoundTag current = new CompoundTag();
-        player.saveWithoutId(current);
+        CompoundTag current = PvNbt.save(player);
         return fingerprintOf(current).equals(fingerprint);
     }
 
@@ -203,8 +203,7 @@ public final class PlayerSnapshot {
      * @return {@code key before -> after} entries joined by {@code ;}, or {@code (none)}
      */
     public String mismatch(ServerPlayer player) {
-        CompoundTag current = new CompoundTag();
-        player.saveWithoutId(current);
+        CompoundTag current = PvNbt.save(player);
         List<String> out = new ArrayList<>();
         for (String key : DIGEST_KEYS) {
             String before = describe(key, playerNbt);
@@ -260,24 +259,24 @@ public final class PlayerSnapshot {
 
     public static PlayerSnapshot readFrom(Path source) throws IOException {
         CompoundTag root = NbtIo.readCompressed(source, NbtAccounter.unlimitedHeap());
-        int format = root.getInt("format");
+        int format = PvNbt.getInt(root, "format");
         // Format 1 recorded no base values. Reading it must still work: a session can be in flight
         // across an upgrade, and its snapshot is the only way back out of the arena.
         if (format < 1 || format > FORMAT_VERSION) {
             throw new IOException("Unsupported snapshot format " + format + " in " + source);
         }
-        CompoundTag playerNbt = root.getCompound("player");
+        CompoundTag playerNbt = PvNbt.getCompound(root, "player");
         return new PlayerSnapshot(
                 playerNbt,
-                root.getString("dimension"),
+                PvNbt.getString(root, "dimension"),
                 root.getDouble("x"), root.getDouble("y"), root.getDouble("z"),
                 root.getFloat("yaw"), root.getFloat("pitch"),
                 root.getString("gameMode"),
-                root.contains("team", Tag.TAG_STRING) ? root.getString("team") : null,
+                PvNbt.getStringOrNull(root, "team"),
                 root.getFloat("fallDistance"),
-                root.contains("maxHealthBase", Tag.TAG_FLOAT)
+                root.contains("maxHealthBase")
                         ? root.getFloat("maxHealthBase") : UNKNOWN_BASE,
-                root.contains("knockbackResistanceBase", Tag.TAG_FLOAT)
+                root.contains("knockbackResistanceBase")
                         ? root.getFloat("knockbackResistanceBase") : UNKNOWN_BASE,
                 root.getString("fingerprint")
         );
@@ -321,17 +320,17 @@ public final class PlayerSnapshot {
     private static ListTag canonicalAttributes(ListTag list) {
         List<CompoundTag> kept = new ArrayList<>();
         for (int i = 0; i < list.size(); i++) {
-            CompoundTag entry = list.getCompound(i);
-            boolean modified = entry.contains("modifiers", Tag.TAG_LIST)
-                    && !entry.getList("modifiers", Tag.TAG_COMPOUND).isEmpty();
+            CompoundTag entry = PvNbt.getCompound(list, i);
+            boolean modified = entry.contains("modifiers")
+                    && !PvNbt.getList(entry, "modifiers").isEmpty();
             // NaN (an attribute this build does not know) compares false, so unknown entries stay.
             boolean atDefault = Math.abs(entry.getDouble("base")
-                    - defaultBase(entry.getString("id"))) < 1.0E-4;
+                    - defaultBase(PvNbt.getString(entry, "id"))) < 1.0E-4;
             if (modified || !atDefault) {
                 kept.add(entry);
             }
         }
-        kept.sort(Comparator.comparing(entry -> entry.getString("id")));
+        kept.sort(Comparator.comparing(entry -> PvNbt.getString(entry, "id")));
         ListTag out = new ListTag();
         kept.forEach(out::add);
         return out;
