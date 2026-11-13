@@ -104,28 +104,194 @@ public final class MixinTargetCheck {
                 fail(where + "：@Mixin 的目标类加载不出来 " + target + "（类名写错，或类路径不全）");
                 continue;
             }
-            checkMethodTargets(where, source, targetClass);
+            checkMethodTargets(where, source, imports, targetClass);
             checkAtTargets(where, source);
             checkMemberAccessors(where, source, targetClass);
             checkShadowMembers(where, source, targetClass);
         }
     }
 
-    /** Looks up every {@code method = "..."} value on the target class. */
-    private static void checkMethodTargets(String where, String source, Class<?> targetClass) {
+    /**
+     * Looks up every {@code method = "..."} value on the target class.
+     *
+     * <p>Declared members only: Mixin resolves a handler against the target class's own method
+     * table, never the superclasses. Walking the hierarchy here would accept
+     * {@code @ModifyVariable(method = "hurt")} on {@code LivingEntity} just because
+     * {@code Entity} declares {@code hurt}, and the remap then fails with "does not exists in any
+     * of the targets".
+     */
+    private static void checkMethodTargets(String where, String source, Map<String, String> imports,
+                                           Class<?> targetClass) {
         for (Annotation annotation : allAnnotations(source)) {
             if (!METHOD_ANNOTATIONS.contains(annotation.name)) {
                 continue;
             }
             for (String spec : stringList(assignment(annotation.args, "method"))) {
                 referenceCount++;
-                String problem = problem(targetClass, spec);
+                String problem = problem(targetClass, spec, true);
                 if (problem != null) {
                     fail(where + "：@" + annotation.name + " 的 method = \"" + spec + "\" 在 "
                             + targetClass.getName() + " 上" + problem);
+                    continue;
                 }
+                checkHandlerArgs(where, source, imports, annotation, targetClass, spec);
             }
         }
+    }
+
+    /**
+     * Compares a handler's leading parameters with the target method's parameters.
+     *
+     * <p>A name alone does not prove the injection lands: when vanilla adds a parameter the name
+     * survives and only the descriptor moves, as {@code LivingEntity.actuallyHurt} did in 1.21.11.
+     * Mixin takes the handler parameters before the trailing callback or {@code Operation} as a
+     * prefix of the target's parameters and requires the types to be equal, so the same rule
+     * applies here.
+     *
+     * <p>Handlers carrying {@code @Local}, {@code @Share} or a type that cannot be resolved from
+     * the imports are skipped: guessing there would trade a real catch for false alarms.
+     */
+    private static void checkHandlerArgs(String where, String source, Map<String, String> imports,
+                                         Annotation annotation, Class<?> targetClass, String spec) {
+        String decl = declarationAfter(source, annotation.end);
+        if (decl == null || decl.indexOf('(') < 0) {
+            return;
+        }
+        Class<?>[] handlerParams = parseParamTypes(decl, imports);
+        if (handlerParams == null || handlerParams.length == 0) {
+            return;
+        }
+        Class<?> last = handlerParams[handlerParams.length - 1];
+        String lastSimple = last.getSimpleName();
+        if (!lastSimple.startsWith("CallbackInfo") && !lastSimple.equals("Operation")) {
+            // ModifyVariable, ModifyArg, ModifyConstant: the value comes first, not the args.
+            return;
+        }
+        Class<?>[] wanted = Arrays.copyOf(handlerParams, handlerParams.length - 1);
+        // A descriptor narrows the overload set to one; a bare name leaves every overload of that
+        // name, and the prefix then decides which one the handler can bind to.
+        int paren = spec.indexOf('(');
+        String bare = paren < 0 ? spec : spec.substring(0, paren);
+        Class<?>[] described = null;
+        if (paren >= 0 && spec.indexOf(')') > paren) {
+            try {
+                described = parseParameters(spec.substring(paren));
+            } catch (IllegalArgumentException e) {
+                return;
+            }
+        }
+        List<String> overloads = new ArrayList<>();
+        boolean matched = false;
+        for (Method method : declaredMethods(targetClass)) {
+            if (!method.getName().equals(bare)) {
+                continue;
+            }
+            overloads.add(signature(method));
+            if (described != null && !Arrays.equals(method.getParameterTypes(), described)) {
+                continue;
+            }
+            if (startsWith(method.getParameterTypes(), wanted)) {
+                matched = true;
+            }
+        }
+        if (matched) {
+            return;
+        }
+        referenceCount++;
+        fail(where + "：@" + annotation.name + " 的处理器参数 " + Arrays.toString(wanted)
+                + " 与 " + targetClass.getName() + " 上 " + bare + " 的重载都不匹配（现有："
+                + overloads + "）");
+    }
+
+    /** Formats a method as {@code name(Type, Type)}, for a readable message. */
+    private static String signature(Method method) {
+        StringBuilder out = new StringBuilder(method.getName()).append('(');
+        Class<?>[] params = method.getParameterTypes();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) {
+                out.append(", ");
+            }
+            out.append(params[i].getSimpleName());
+        }
+        return out.append(')').toString();
+    }
+
+    private static boolean startsWith(Class<?>[] actual, Class<?>[] prefix) {
+        if (actual.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (!actual[i].equals(prefix[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Resolves the parameter types of a handler declaration.
+     *
+     * <p>Returns {@code null} when any parameter carries an annotation or a type the file's
+     * imports cannot resolve, because a partial list would compare the wrong positions.
+     */
+    private static Class<?>[] parseParamTypes(String decl, Map<String, String> imports) {
+        int open = decl.indexOf('(');
+        int close = matching(decl, open);
+        if (close < 0) {
+            return null;
+        }
+        List<Class<?>> out = new ArrayList<>();
+        String inner = stripGenerics(decl.substring(open + 1, close).trim());
+        if (inner.isEmpty()) {
+            return new Class<?>[0];
+        }
+        for (String part : splitTopLevel(inner)) {
+            String param = part.trim();
+            if (param.indexOf('@') >= 0) {
+                return null;
+            }
+            param = param.replaceFirst("^final\\s+", "");
+            int space = param.lastIndexOf(' ');
+            String type = space >= 0 ? param.substring(0, space).trim() : param;
+            if (type.endsWith("...")) {
+                return null;
+            }
+            Class<?> resolved = resolveSimple(type, imports);
+            if (resolved == null) {
+                return null;
+            }
+            out.add(resolved);
+        }
+        return out.toArray(new Class<?>[0]);
+    }
+
+    /** Removes balanced {@code <...>} spans, so a generic comma does not split a parameter. */
+    private static String stripGenerics(String text) {
+        String out = text;
+        while (true) {
+            String next = out.replaceAll("<[^<>]*>", "");
+            if (next.equals(out)) {
+                return out;
+            }
+            out = next;
+        }
+    }
+
+    private static Class<?> resolveSimple(String type, Map<String, String> imports) {
+        switch (type) {
+            case "boolean": return boolean.class;
+            case "byte": return byte.class;
+            case "char": return char.class;
+            case "short": return short.class;
+            case "int": return int.class;
+            case "long": return long.class;
+            case "float": return float.class;
+            case "double": return double.class;
+            default:
+                break;
+        }
+        String qualified = imports.get(type);
+        return qualified == null ? null : load(qualified);
     }
 
     /** Resolves the class and member in {@code @At(target = "Lpkg/Cls;m(desc)ret")}. */
@@ -160,7 +326,7 @@ public final class MixinTargetCheck {
                     fail(where + "：@At target 里的字段 " + fieldName + " 在 " + className + " 上找不到");
                 }
             } else {
-                String problem = problem(owner, member);
+                String problem = problem(owner, member, false);
                 if (problem != null) {
                     fail(where + "：@At target 里的 " + member + " 在 " + className + " 上" + problem);
                 }
@@ -274,7 +440,7 @@ public final class MixinTargetCheck {
                 continue;
             }
             referenceCount++;
-            String problem = problem(targetClass, name);
+            String problem = problem(targetClass, name, true);
             if (problem != null) {
                 fail(where + "：@Invoker(\"" + name + "\") 在 " + targetClass.getName() + " 上" + problem);
             }
@@ -284,37 +450,55 @@ public final class MixinTargetCheck {
     // ------------------------------------------------------------------ reflection
 
     /**
-     * Checks a method descriptor ({@code name} or {@code name(desc)ret}) against a class and its
-     * hierarchy.
+     * Checks a method descriptor ({@code name} or {@code name(desc)ret}) against a class.
      *
      * <p>Returns {@code null} on success, otherwise the reason. A bare name passes when any
      * method of that name exists. A full descriptor also compares parameter types, where renames
      * tend to break. An unresolvable class in the descriptor is a failure, not a fallback to a
      * name-only check; only a truncated descriptor falls back.
+     *
+     * @param declaredOnly {@code true} for {@code method = }, which Mixin resolves against the
+     *     target class's own method table; {@code false} for {@code @At(target = )}, where javac
+     *     records the static type and an inherited method legitimately appears under the subclass
      */
-    private static String problem(Class<?> owner, String spec) {
+    private static String problem(Class<?> owner, String spec, boolean declaredOnly) {
         int paren = spec.indexOf('(');
         String name = paren < 0 ? spec : spec.substring(0, paren);
         if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf(';') >= 0) {
             return "不是合法的方法名";
         }
         if (paren < 0 || spec.indexOf(')') < 0) {
-            return findMethodByName(owner, name) != null ? null : "没有这个方法";
+            return findMethodByName(owner, name, declaredOnly) != null ? null : "没有这个方法";
         }
         Class<?>[] params;
+        Class<?> returns;
         try {
             params = parseParameters(spec.substring(paren));
+            int close = spec.indexOf(')');
+            returns = close + 1 < spec.length()
+                    ? resolveType(spec, close + 1) : null;
         } catch (IllegalArgumentException e) {
             return e.getMessage();
         }
-        if (findMethod(owner, name, params) == null) {
+        Method method = findMethod(owner, name, params, declaredOnly);
+        if (method == null) {
             return "没有这个签名（参数 " + Arrays.toString(params) + "）";
+        }
+        // The return type is part of the descriptor Mixin matches on: drop(Z)Z stops binding when
+        // vanilla changes it to drop(Z)V, and the name and parameters still line up.
+        if (returns != null && !method.getReturnType().equals(returns)) {
+            return "的返回类型是 " + method.getReturnType().getSimpleName() + "，不是 "
+                    + returns.getSimpleName();
         }
         return null;
     }
 
-    private static Method findMethodByName(Class<?> owner, String name) {
-        for (Class<?> type : hierarchy(owner)) {
+    private static List<Class<?>> candidates(Class<?> owner, boolean declaredOnly) {
+        return declaredOnly ? List.of(owner) : hierarchy(owner);
+    }
+
+    private static Method findMethodByName(Class<?> owner, String name, boolean declaredOnly) {
+        for (Class<?> type : candidates(owner, declaredOnly)) {
             Method method = anyDeclared(type, name);
             if (method != null) {
                 return method;
@@ -323,8 +507,9 @@ public final class MixinTargetCheck {
         return null;
     }
 
-    private static Method findMethod(Class<?> owner, String name, Class<?>[] params) {
-        for (Class<?> type : hierarchy(owner)) {
+    private static Method findMethod(Class<?> owner, String name, Class<?>[] params,
+                                     boolean declaredOnly) {
+        for (Class<?> type : candidates(owner, declaredOnly)) {
             for (Method method : declaredMethods(type)) {
                 if (method.getName().equals(name) && Arrays.equals(method.getParameterTypes(), params)) {
                     return method;
@@ -476,8 +661,8 @@ public final class MixinTargetCheck {
 
     // ------------------------------------------------------------------ source scanning
 
-    /** One annotation: its name and the raw text between its parentheses. */
-    private record Annotation(String name, String args) {
+    /** One annotation: its name, the raw text between its parentheses, and where it ends. */
+    private record Annotation(String name, String args, int end) {
     }
 
     private static List<Annotation> allAnnotations(String source) {
@@ -497,10 +682,12 @@ public final class MixinTargetCheck {
             if (open < source.length() && source.charAt(open) == '(') {
                 int close = matching(source, open);
                 if (close > 0) {
-                    out.add(new Annotation(name, source.substring(open + 1, close)));
+                    out.add(new Annotation(name, source.substring(open + 1, close), close + 1));
                     i = close + 1;
+                    continue;
                 }
             }
+            out.add(new Annotation(name, "", i));
         }
         return out;
     }

@@ -8,6 +8,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -38,14 +39,22 @@ public abstract class LivingEntityMixin {
     protected abstract void hurtArmor(DamageSource source, float amount);
 
     /**
-     * Applies 1.8 blocking damage reduction at HEAD of {@code hurt}, before armour runs.
+     * Applies 1.8 blocking damage reduction at HEAD of the hurt entry point, before armour runs.
      *
      * <p>1.8 also reduced blocking damage before {@code applyArmorCalculations}.
      * {@code DamageTypeTags.BYPASSES_ARMOR} stands in for 1.8's unblockable sources, which are the
      * same set.
+     *
+     * <p>1.21.11 renamed the entry point to {@code hurtServer} and moved it to the server-only
+     * side, so {@code ServerLevel} became the first parameter and the amount moved to slot 3.
      */
+    //? if >=1.21.11 {
+    @ModifyVariable(method = "hurtServer", at = @At("HEAD"), argsOnly = true, index = 3)
+    private float pvpocket$blockingDamage(float amount, ServerLevel level, DamageSource source) {
+    //?} else {
     @ModifyVariable(method = "hurt", at = @At("HEAD"), argsOnly = true, index = 2)
     private float pvpocket$blockingDamage(float amount, DamageSource source) {
+    //?}
         LivingEntity self = (LivingEntity) (Object) this;
         if (amount <= 0.0F
                 || source.is(DamageTypeTags.BYPASSES_ARMOR)
@@ -118,9 +127,18 @@ public abstract class LivingEntityMixin {
      * <p>That point is after armour and before absorption and the health subtraction. Restricted to
      * {@link ServerPlayerEntity} so the client's prediction never counts. Membership rules live in
      * {@code SessionManager#noteDamage}.
+     *
+     * <p>1.21.11 gave the method a leading {@code ServerLevel}, because damage is resolved on the
+     * server alone.
      */
+    //? if >=1.21.11 {
+    @Inject(method = "actuallyHurt", at = @At("HEAD"))
+    private void pvpocket$recordDuelDamage(ServerLevel level, DamageSource source, float amount,
+                                           CallbackInfo ci) {
+    //?} else {
     @Inject(method = "actuallyHurt", at = @At("HEAD"))
     private void pvpocket$recordDuelDamage(DamageSource source, float amount, CallbackInfo ci) {
+    //?}
         LivingEntity self = (LivingEntity) (Object) this;
         if (self instanceof ServerPlayer victim
                 && source.getEntity() instanceof ServerPlayer attacker) {
