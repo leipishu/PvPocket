@@ -32,7 +32,13 @@ import net.minecraft.client.player.AbstractClientPlayer;
 public abstract class PlayerEntityRendererMixin {
 
     //? if >=1.21.11 {
-    @Inject(method = "getArmPose", at = @At("RETURN"), cancellable = true)
+    // The full descriptor, not the bare name: 1.21.11 has a second getArmPose(Avatar, HumanoidArm)
+    // overload, and a bare name binds the handler to whichever one Mixin reaches first.
+    @Inject(method = "getArmPose(Lnet/minecraft/world/entity/Avatar;"
+                    + "Lnet/minecraft/world/item/ItemStack;"
+                    + "Lnet/minecraft/world/InteractionHand;)"
+                    + "Lnet/minecraft/client/model/HumanoidModel$ArmPose;",
+            at = @At("RETURN"), cancellable = true)
     private static void pvpocket$legacySwordBlock(Avatar player, ItemStack stack, InteractionHand hand,
                                                   CallbackInfoReturnable<HumanoidModel.ArmPose> cir) {
     //?} else {

@@ -163,7 +163,11 @@ public final class MixinTargetCheck {
         }
         Class<?> last = handlerParams[handlerParams.length - 1];
         String lastSimple = last.getSimpleName();
-        if (!lastSimple.startsWith("CallbackInfo") && !lastSimple.equals("Operation")) {
+        if (lastSimple.equals("Operation")) {
+            checkOperationArgs(where, annotation, handlerParams);
+            return;
+        }
+        if (!lastSimple.startsWith("CallbackInfo")) {
             // ModifyVariable, ModifyArg, ModifyConstant: the value comes first, not the args.
             return;
         }
@@ -181,7 +185,8 @@ public final class MixinTargetCheck {
             }
         }
         List<String> overloads = new ArrayList<>();
-        boolean matched = false;
+        int candidates = 0;
+        int matched = 0;
         for (Method method : declaredMethods(targetClass)) {
             if (!method.getName().equals(bare)) {
                 continue;
@@ -190,17 +195,77 @@ public final class MixinTargetCheck {
             if (described != null && !Arrays.equals(method.getParameterTypes(), described)) {
                 continue;
             }
+            candidates++;
             if (startsWith(method.getParameterTypes(), wanted)) {
-                matched = true;
+                matched++;
             }
+        }
+        if (matched == 0) {
+            referenceCount++;
+            fail(where + "：@" + annotation.name + " 的处理器参数 " + Arrays.toString(wanted)
+                    + " 与 " + targetClass.getName() + " 上 " + bare + " 的重载都不匹配（现有："
+                    + overloads + "）");
+            return;
+        }
+        // A bare name that leaves several overloads lets Mixin pick one by the handler descriptor
+        // and stop at the first candidate it cannot bind, so name-only has to match every overload.
+        if (described == null && candidates > 1 && matched != candidates) {
+            referenceCount++;
+            fail(where + "：@" + annotation.name + " 的 method = \"" + bare + "\" 有 " + candidates
+                    + " 个重载，处理器只匹配其中 " + matched + " 个；写完整描述符（现有：" + overloads + "）");
+        }
+    }
+
+    /**
+     * Compares an {@code Operation} handler with the method its {@code @At} target invokes.
+     *
+     * <p>{@code @Redirect} and {@code @WrapOperation} handlers mirror the <em>invoked</em> method,
+     * not the enclosing one: the receiver when the call is not static, then the arguments, then
+     * {@code Operation}. Comparing them against the enclosing method reports a false failure on
+     * every redirect that wraps a call rather than replacing a whole method body.
+     */
+    private static void checkOperationArgs(String where, Annotation annotation,
+                                           Class<?>[] handlerParams) {
+        List<Annotation> ats = annotations(annotation.args, "At");
+        if (ats.isEmpty()) {
+            return;
+        }
+        String target = join(assignment(ats.get(0).args, "target"));
+        if (target == null || target.isEmpty()) {
+            return;
+        }
+        int semicolon = target.indexOf(';');
+        int paren = semicolon < 0 ? -1 : target.indexOf('(', semicolon);
+        if (paren < 0) {
+            return;
+        }
+        String ownerName = target.substring(1, semicolon).replace('/', '.');
+        Class<?> owner = load(ownerName);
+        if (owner == null) {
+            return;
+        }
+        Class<?>[] invoked;
+        try {
+            invoked = parseParameters(target.substring(paren));
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        Class<?>[] wanted = Arrays.copyOf(handlerParams, handlerParams.length - 1);
+        boolean matched = false;
+        if (wanted.length == invoked.length) {
+            matched = Arrays.equals(wanted, invoked);
+        } else if (wanted.length == invoked.length + 1) {
+            // Leading receiver: Mixin accepts the declaring class or a supertype.
+            matched = Arrays.equals(Arrays.copyOfRange(wanted, 1, wanted.length), invoked)
+                    && wanted[0].isAssignableFrom(owner);
         }
         if (matched) {
             return;
         }
         referenceCount++;
         fail(where + "：@" + annotation.name + " 的处理器参数 " + Arrays.toString(wanted)
-                + " 与 " + targetClass.getName() + " 上 " + bare + " 的重载都不匹配（现有："
-                + overloads + "）");
+                + " 与被调方法 " + ownerName + "." + target.substring(semicolon + 1, paren)
+                + " 的参数 " + Arrays.toString(invoked) + " 不匹配（接收者可有可无）");
     }
 
     /** Formats a method as {@code name(Type, Type)}, for a readable message. */
@@ -291,7 +356,21 @@ public final class MixinTargetCheck {
                 break;
         }
         String qualified = imports.get(type);
-        return qualified == null ? null : load(qualified);
+        if (qualified != null) {
+            return load(qualified);
+        }
+        if (type.indexOf('.') < 0) {
+            return null;
+        }
+        // A nested type is written Outer.Inner while only Outer is imported, and the binary name
+        // uses '$'. Null here would drop the whole injection point instead of checking it.
+        Class<?> direct = load(type);
+        if (direct != null) {
+            return direct;
+        }
+        int dot = type.lastIndexOf('.');
+        Class<?> outer = resolveSimple(type.substring(0, dot), imports);
+        return outer == null ? null : load(outer.getName() + "$" + type.substring(dot + 1));
     }
 
     /** Resolves the class and member in {@code @At(target = "Lpkg/Cls;m(desc)ret")}. */

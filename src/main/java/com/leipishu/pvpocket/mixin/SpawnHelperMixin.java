@@ -3,6 +3,7 @@ package com.leipishu.pvpocket.mixin;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.NaturalSpawner;
@@ -13,6 +14,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.List;
 
 /**
  * Cancels natural mob spawning inside the duel dimension.
@@ -28,10 +31,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(NaturalSpawner.class)
 public class SpawnHelperMixin {
 
+    //? if >=1.21.11 {
     @Inject(method = "spawnForChunk", at = @At("HEAD"), cancellable = true)
-    private static void pvpocket$suppressNaturalSpawning(ServerLevel world, LevelChunk chunk, NaturalSpawner.SpawnState info,
-                                                         boolean spawnAnimals, boolean spawnMonsters, boolean rare,
+    private static void pvpocket$suppressNaturalSpawning(ServerLevel world, LevelChunk chunk,
+                                                         NaturalSpawner.SpawnState info,
+                                                         List<MobCategory> categories,
                                                          CallbackInfo ci) {
+    //?} else {
+    @Inject(method = "spawnForChunk", at = @At("HEAD"), cancellable = true)
+    private static void pvpocket$suppressNaturalSpawning(ServerLevel world, LevelChunk chunk,
+                                                         NaturalSpawner.SpawnState info,
+                                                         boolean spawnAnimals, boolean spawnMonsters,
+                                                         boolean rare, CallbackInfo ci) {
+    //?}
         if (ArenaManager.isArena(world)) {
             ci.cancel();
         }
