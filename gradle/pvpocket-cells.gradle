@@ -159,7 +159,7 @@ ext.pvpocketClientJvmArgs = {
     if (project.hasProperty('debugBlocking')) {
         args << '-Dpvpocket.debug.blocking=true'
     }
-    // -PuiAudit: walks every panel at two canvas sizes, reports overlaps, exits; see audit-ui.sh.
+    // -PuiAudit: walks every panel at two canvas sizes, reports overlaps, exits; see check-ui.sh.
     if (project.hasProperty('uiAudit')) {
         args << '-Dpvpocket.audit=true' << '-Dpvpocket.audit.exit=true'
     }

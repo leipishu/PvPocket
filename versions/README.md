@@ -97,8 +97,8 @@ javac -classpath "$(cat versions/1.21.1-fabric/build/compile-classpath.txt)" \
 
 ```bash
 CELL=1.21.11-neoforge scripts/dev-duel.sh        # 服务端 + 两个客户端，一键联调
-CELL=1.21.11-fabric  scripts/audit-ui.sh         # 82 个界面的遮挡检查
-CELL=1.21.11-fabric  scripts/dev-2clients.sh     # 只起客户端，服务端自己开
+CELL=1.21.11-fabric  scripts/check-ui.sh         # 82 个界面的遮挡检查
+CELL=1.21.11-fabric  scripts/dev-clients.sh     # 只起客户端，服务端自己开
 ```
 
 `scripts/check-logic.sh` 要两个变量，因为它一次核两格（Fabric 与 NeoForge 的 mixin 目标可能不同）：

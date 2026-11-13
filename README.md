@@ -102,5 +102,5 @@ LGPL-3.0 引用 GPL-3.0 的条款，其副本见 [`LICENSE-GPL-3.0.txt`](LICENSE
 是 jar，不是这个仓库。解压 jar 就能看到，许可证扫描器也读得到。
 
 **内置地图不受此影响**：五张地图中四张来自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)，按  
-**CC BY-SA 4.0** 分发；斗兽场由 `scripts/colosseum.py` 生成，无第三方义务。署名与改动声明见  
+**CC BY-SA 4.0** 分发；斗兽场由 `scripts/map/colosseum.py` 生成，无第三方义务。署名与改动声明见  
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。

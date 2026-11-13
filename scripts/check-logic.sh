@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline logic self-check: runs every check in scripts/agent/*Check.java.
+# Offline logic self-check: runs every check in scripts/checks/*Check.java.
 set -u
 
 # Usage: scripts/check-logic.sh. Exit codes: 0 pass, 1 failure, 2 incomplete environment.
@@ -60,9 +60,9 @@ mkdir -p "$OUT"
 
 # The compile step needs MC as well: ItemKind signatures mention net.minecraft.item.Item.
 CP="$FABRIC_BUILD/classes/java/main;$OUT;$FABRIC_CP"
-SOURCES=$(ls "$ROOT"/scripts/agent/*Check.java 2>/dev/null)
+SOURCES=$(ls "$ROOT"/scripts/checks/*Check.java 2>/dev/null)
 if [ -z "$SOURCES" ]; then
-    echo "[logic] scripts/agent/ 下没有 *Check.java" >&2
+    echo "[logic] scripts/checks/ 下没有 *Check.java" >&2
     exit 2
 fi
 # -proc:none skips annotation processing; the language flags keep javac messages ASCII.

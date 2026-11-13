@@ -7,15 +7,15 @@ Both mapping sets contain obfuscated names, so joining on those gives the corres
     Mojang client.txt     official(named) -> obf
 
 client.txt and server.txt each cover half the classes, so both are needed. The output is a TSV
-of names that actually changed, consumed by apply-mojmap.py:
+of names that actually changed, consumed by mojmap/apply-mojmap.py:
 
     class   <Yarn fqn>  <Mojmap fqn>
     method  <Yarn class>  <Yarn name>  <Yarn descriptor>  <Mojmap name>
     field   <Yarn class>  <Yarn name>  <Mojmap name>
 
 Usage:
-    scripts/mojmap-table.py --mc 1.21.1 --yarn 1.21.1+build.3
-    scripts/mojmap-table.py --mc 26.3            # 26.x needs no table: names are runtime names
+    scripts/mojmap/mojmap-table.py --mc 1.21.1 --yarn 1.21.1+build.3
+    scripts/mojmap/mojmap-table.py --mc 26.3            # 26.x needs no table: names are runtime names
 
 Official mappings are cached in <repo>/build/mojmap-cache/, so a rerun does not download.
 """

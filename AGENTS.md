@@ -50,7 +50,7 @@ PvPocket/
 | `runs/<cell>/` | 运行目录，`server` 与 `client1..4`，**由 `gradle/pvpocket-cells.gradle` 决定** |
 | `docs/zh/`、`docs/en/` | 六篇规范，平行且一一对应 |
 | `docs/archive/` | 历史存档，**非规范**，不追改 |
-| `scripts/` | 联调、地图转换、界面自动化、自检。多数脚本认 `CELL` 环境变量 |
+| `scripts/` | 联调、地图转换、界面自动化、自检。多数脚本认 `CELL` 环境变量，索引见 `scripts/README.md` |
 
 **放文件的判据**：这段代码要 import `net.fabricmc` / `net.neoforged` 吗？要 → `src/*-fabric` 或
 `src/*-neoforge`；不要 → 不带后缀的那一层。判据不是「跟谁关系近」，因为这一条决定了移植一格的
@@ -88,8 +88,8 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 
 ```bash
 ./gradlew :1.21.1-fabric:runServer                   # 终端 1
-PVP_CLIENTS=3 scripts/dev-2clients.sh                # 终端 2；三个才能测对局面板 + 观战
-CELL=1.21.1-neoforge PVP_CLIENTS=3 scripts/dev-2clients.sh   # 同一套脚本跑另一格
+PVP_CLIENTS=3 scripts/dev-clients.sh                # 终端 2；三个才能测对局面板 + 观战
+CELL=1.21.1-neoforge PVP_CLIENTS=3 scripts/dev-clients.sh   # 同一套脚本跑另一格
 ```
 
 **一条命令起全套**（服务端在后台，等到真的能连再起客户端）：
@@ -99,7 +99,7 @@ scripts/dev-duel.sh                        # NeoForge，Dev1 + Dev2，自动进�
 CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
 ```
 
-`dev-duel.sh` 与 `dev-2clients.sh` 的分工：前者自己管服务端（Ctrl+C 全停，服务端控制台不可交互），
+`dev-duel.sh` 与 `dev-clients.sh` 的分工：前者自己管服务端（Ctrl+C 全停，服务端控制台不可交互），
 后者假设服务端已在别处跑着（控制台还能敲命令）。`dev-duel.sh` 等的是服务端日志里的 `Done (`
 而不是端口——Minecraft 在初始化早期就 bind 了端口，那时连上去会被踢，而 `--quickPlayMultiplayer`
 被踢一次就停在标题界面，测试的人还得手工点。
@@ -368,7 +368,7 @@ python scripts/check-boundary.py --verbose  # 列出每一处违规的 file:line
 
 - **`.ps1` 一律 ASCII**，注释也一样。这些文件没有 BOM，Windows PowerShell 5.1 按 ANSI 代码页读，
   中文注释会让它解析失败，报的是**下一个 `}` 处的语法错误**——离真正的原因隔着十几行。
-- `scripts/agent/shot-window.ps1` 按 `--username` 认客户端。ModDevGradle 把程序参数写进
+- `scripts/ui/shot-window.ps1` 按 `--username` 认客户端。ModDevGradle 把程序参数写进
   `@clientRunProgramArgs.txt`，命令行里只有文件路径，所以脚本会把 argfile 展开再匹配。
 
 ### 6. 沙盒
@@ -426,10 +426,13 @@ python scripts/check-comments.py --summary  # 哪个文件最多
 （`runs/<cell>/server/world/pvpocket/journal/*.jsonl`）里有 `ROUND_STARTED`、`RULES_ACCEPTED` 等事件，
 能直接回答「这一局按哪版规则打的」。注意 journal 里的 `=` 是 `\u003d`，`grep 'c.maxHealth='` 匹配不到。
 
+脚本怎么选、每个认哪些环境变量，见 `scripts/README.md`。IDEA 里 `.run/` 下已经配好联调、自检、
+单跑三类入口，右上角下拉直接点；它们与下面的命令行等价。
+
 **改完界面先跑遮挡审计**，不要靠眼睛过六十个布局：
 
 ```bash
-scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审计没跑完
+scripts/check-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审计没跑完
 ```
 
 它让开发客户端自己遍历 6 个界面 × 全部页面/弹窗 × 2 种画布（426×240 与 320×180），在真实渲染帧里
@@ -452,26 +455,27 @@ scripts/audit-ui.sh          # 退出码 0 = 零发现，1 = 有遮挡，2 = 审
 规则层有两条命令，都不需要客户端：
 
 ```bash
-python scripts/audit-rules.py --docs                       # 静态：读取点 / 默认值 / 语言键 / 文档一致性
-python scripts/audit-rules.py --coverage runs/1.21.1-fabric/server/world
+python scripts/check-rules.py --docs                       # 静态：读取点 / 默认值 / 语言键 / 文档一致性
+python scripts/check-rules.py --coverage runs/1.21.1-fabric/server/world
                                                            # 历史：哪些规则从未以非默认值跑过
 scripts/check-logic.sh                                     # 运行时：规则切换 + 配装目录的版本可用性
 ```
 
-`audit-rules.py` 的判据是「规则 id 在 `RuleCatalog` 之外还有没有**非注释**读取点」。`--coverage`
+`check-rules.py` 的判据是「规则 id 在 `RuleCatalog` 之外还有没有**非注释**读取点」。`--coverage`
 读 journal 的 `RULES_ACCEPTED`，回答的是另一个问题——**这条规则有没有被真的验证过**：一份「全部
 OK」的静态报告只能说明线接上了，说明不了它会变。改规则默认值或语义之后先看这张表，别只看静态结果。
 
-`check-logic.sh` 会编译并运行 `scripts/agent/*Check.java` 里的每一个检查，跑的是编译出来的真实类，
-不是把公式抄一遍。目前两个：`RuleLogicCheck`（选项切换、步进、夹取、规范化）与 `LoadoutContentCheck`
-（配装目录的版本可用性）。加规则、改 `clamp` / `step` / `normalise`、增删物品或材质之后必须跑它。
-新增一个检查就是在 `scripts/agent/` 放一个带 `main` 的 `*Check.java`，退出码 0 表示通过。
+`check-logic.sh` 会编译并运行 `scripts/checks/*Check.java` 里的每一个检查，跑的是编译出来的真实类，
+不是把公式抄一遍。目前三个：`RuleLogicCheck`（选项切换、步进、夹取、规范化）、`LoadoutContentCheck`
+（配装目录的版本可用性）与 `MixinTargetCheck`（注入点的字符串目标，逐格用该格类路径核）。
+加规则、改 `clamp` / `step` / `normalise`、增删物品或材质、改 mixin 之后必须跑它。
+新增一个检查就是在 `scripts/checks/` 放一个带 `main` 的 `*Check.java`，退出码 0 表示通过。
 
 界面自动化两条铁律：
 
-- 抓图用 `scripts/agent/shot-window.ps1`（`PrintWindow` + `PW_RENDERFULLCONTENT`）。
+- 抓图用 `scripts/ui/shot-window.ps1`（`PrintWindow` + `PW_RENDERFULLCONTENT`）。
   `CopyFromScreen` 在窗口被遮挡或失焦时**静默返回桌面壁纸**，看起来像模组卡死。
-- 点击用 `scripts/agent/click-frac.ps1`（客户区比例），不要绝对像素——窗口最大化/还原后会点到别处，
+- 点击用 `scripts/ui/click-frac.ps1`（客户区比例），不要绝对像素——窗口最大化/还原后会点到别处，
   失败表现是「模组忽略了点击」，与真实 bug 无法区分。
 - 暂停的 Minecraft 不出新帧，重复抓同一画面会拿到相同 PNG，别据此判断「客户端卡住」。
 - **截图用完即删**（`find runs -name '*.png' -delete`），只有最终要展示的才保留。
@@ -491,5 +495,5 @@ OK」的静态报告只能说明线接上了，说明不了它会变。改规则
 一处来源。改文件名要同步 `legalFiles`，对不上时构建会直接失败。
 
 **内置地图不受此影响**：`data/pvpocket/structure/*.nbt` 中四张来自
-[zzuf-maps](https://github.com/zzufx/zzuf-maps)，按 CC BY-SA 4.0 分发；斗兽场由 `scripts/colosseum.py`
+[zzuf-maps](https://github.com/zzufx/zzuf-maps)，按 CC BY-SA 4.0 分发；斗兽场由 `scripts/map/colosseum.py`
 生成。署名与改动声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。

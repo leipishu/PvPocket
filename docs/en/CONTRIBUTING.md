@@ -112,9 +112,9 @@ client already connects to `localhost:25565` with a 1G heap, so it is playable a
 ./gradlew :1.21.1-fabric:runServer
 
 # Terminal 2: once "Done (...)" appears, launch clients that join automatically
-scripts/dev-2clients.sh                       # two clients
-PVP_CLIENTS=3 scripts/dev-2clients.sh         # three, the third one for spectating
-PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
+scripts/dev-clients.sh                       # two clients
+PVP_CLIENTS=3 scripts/dev-clients.sh         # three, the third one for spectating
+PVP_ADDR=192.168.1.10:25565 scripts/dev-clients.sh
 ```
 
 To bring up the whole set with one command (server in the background, clients start only once it accepts connections):
@@ -152,16 +152,18 @@ PvPocket/
 │   │                          CONTRIBUTING.md here are the English entry points
 │   ├── assets/                Documentation images; logo.png is the one at the top of the README
 │   └── archive/               Historical: proposals, phase logs, one-off research (not normative)
-├── scripts/
-│   ├── dev-2clients.sh        Development: launch N clients and join automatically
+├── scripts/                   Index in scripts/README.md
 │   ├── dev-duel.sh            One command for the whole set: server + two clients, auto-join
-│   ├── audit-ui.sh            UI occlusion audit: walks every screen, fails on any finding
-│   ├── world2struct.py        Map conversion: world save / .litematic / .schem → structure template
-│   ├── colosseum.py           Generates the colosseum (the only map not downloaded)
-│   ├── arena-verify.py        Conversion check: block-by-block against a third-party reader
-│   ├── arena-map.py           Renders an arena save top-down to confirm the cells really separate
-│   ├── rcon.py                Sends RCON commands to the dev server (scripted testing)
-│   └── agent/                 Screenshot and input scripts for AI agents; not needed for normal work
+│   ├── dev-clients.sh         Development: launch N clients and join automatically
+│   ├── dev.cmd                Windows entry for dev-duel.sh; takes a cell name
+│   ├── check-logic.sh         Offline self-check: rules / loadout content / mixin targets
+│   ├── check-*.py             Comments, lang keys, loadout manifest, layering, rule docs
+│   ├── check-ui.sh            UI occlusion audit: walks every screen, fails on any finding
+│   ├── checks/                Three *Check.java classes, compiled and run by check-logic.sh
+│   ├── map/                   Map conversion and checks (world2struct / colosseum / arena-* / rcon)
+│   ├── ui/                    Screenshot and input scripts for AI agents; not needed for normal work
+│   ├── mojmap/                Yarn→Mojmap migration tooling (one-off, finished)
+│   └── port/                  Version-difference generator and rename tables
 ├── settings.gradle            Cell list: one cell, one subproject
 ├── build.gradle               Only repositories + buildAll; applies no loader plugin
 ├── gradle.properties          JDK path, Loom download mirrors, mod identity (mod_id / mod_version / maven_group)
@@ -194,20 +196,23 @@ PvPocket/
 
 | Script | For | Purpose |
 | --- | --- | --- |
-| `scripts/dev-2clients.sh` | Development | Launch development clients that join the local server |
+| `scripts/dev-clients.sh` | Development | Launch development clients that join the local server |
 | `scripts/dev-duel.sh` | Development | Whole set in one command: background server + two clients, connecting only after `Done (` |
-| `scripts/audit-ui.sh` | Development / CI | UI occlusion audit: every screen and both canvas sizes, non-zero exit on a finding |
-| `scripts/world2struct.py` | Development / maps | World save, `.litematic`, `.schem` → structure template |
-| `scripts/colosseum.py` | Maps | Generate the colosseum template |
-| `scripts/arena-verify.py` | Maps | Compare block by block against a third-party reader |
-| `scripts/arena-map.py` | Diagnostics | Render a top-down view to check cell boundaries |
-| `scripts/rcon.py` | Scripted testing | Run commands as a player from a script |
-| `scripts/agent/*.ps1` | AI agents | Window screenshots, key presses, mouse clicks; Windows + PowerShell |
+| `scripts/dev.cmd` | Development | Windows entry for the line above; `scripts\dev.cmd 1.21.11-neoforge` picks a cell |
+| `scripts/check-logic.sh` | Development / CI | Compiles and runs `scripts/checks/*Check.java`, then the mixin targets |
+| `scripts/check-ui.sh` | Development / CI | UI occlusion audit: every screen and both canvas sizes, non-zero exit on a finding |
+| `scripts/map/world2struct.py` | Development / maps | World save, `.litematic`, `.schem` → structure template |
+| `scripts/map/colosseum.py` | Maps | Generate the colosseum template |
+| `scripts/map/arena-verify.py` | Maps | Compare block by block against a third-party reader |
+| `scripts/map/arena-map.py` | Diagnostics | Render a top-down view to check cell boundaries |
+| `scripts/map/rcon.py` | Scripted testing | Run commands as a player from a script |
+| `scripts/ui/*.ps1` | AI agents | Window screenshots, key presses, mouse clicks; Windows + PowerShell |
 
 The four map scripts have invocation examples in [`../zh/06-maps.md`](../zh/06-maps.md) section 3 and
-a list in section 6.
+a list in section 6. Every script, and which one to run for a given task, is indexed in
+[`scripts/README.md`](../../scripts/README.md).
 
-Scripts under `scripts/agent/` assume a development client is running on this machine with
+Scripts under `scripts/ui/` assume a development client is running on this machine with
 `Minecraft` in the window title. They are not meant to be run by hand; check for other automation
 before changing or deleting them.
 
@@ -221,7 +226,7 @@ before changing or deleting them.
    `RULES_ACCEPTED`, `ROUND_STARTED` and friends, which answers "which revision of the rules was this
    round actually played under". Note that `=` is escaped as `\u003d` in the journal, so
    `grep 'c.maxHealth='` finds nothing.
-3. **UI audit**: run `scripts/audit-ui.sh` after touching a GUI (about two minutes; exit code `0` is
+3. **UI audit**: run `scripts/check-ui.sh` after touching a GUI (about two minutes; exit code `0` is
    clean, `1` means occlusion, `2` means the audit did not finish). It makes the development client
    walk six screens × every page and dialog × two canvas sizes, recording widget boxes and text in
    real rendered frames. **When adding a screen or page, add a variant to
@@ -233,9 +238,9 @@ before changing or deleting them.
    check (the command is in [`AGENTS.md`](../../AGENTS.md) under "Localisation").
 
 Two rules for UI automation; breaking them produces false conclusions. Capture with
-`scripts/agent/shot-window.ps1` (`PrintWindow` + `PW_RENDERFULLCONTENT`; `CopyFromScreen` silently
+`scripts/ui/shot-window.ps1` (`PrintWindow` + `PW_RENDERFULLCONTENT`; `CopyFromScreen` silently
 returns the desktop wallpaper when the window is covered). Click with
-`scripts/agent/click-frac.ps1` using client-area fractions, never absolute pixels. The rest of the
+`scripts/ui/click-frac.ps1` using client-area fractions, never absolute pixels. The rest of the
 trap list is in `AGENTS.md`.
 
 **Delete screenshots once used** (`find runs -name '*.png' -delete`); keep only the ones meant for

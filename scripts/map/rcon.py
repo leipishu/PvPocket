@@ -5,7 +5,7 @@ The dev server runs as a background process, so RCON is the way to run a command
 (`execute as Dev1 run ...`) without a human at the keyboard.
 
 Usage:
-    python scripts/rcon.py "execute as Dev1 run pvpocket duel Dev2"
+    python scripts/map/rcon.py "execute as Dev1 run pvpocket duel Dev2"
 """
 import argparse
 import socket

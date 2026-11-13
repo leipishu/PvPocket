@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generates the amphitheatre arena template, the one map here that is not third-party art.
 
-    python scripts/colosseum.py --out data/pvpocket/structure/arena_colosseum.nbt
+    python scripts/map/colosseum.py --out data/pvpocket/structure/arena_colosseum.nbt
 
 Shape (y): -1 sandstone sub-floor, 0 arena sand, 1..3 podium wall with a gate at each end of the
 X axis, 4..13 ten seating rows, 13..27 outer wall with cornices and pilasters, 27 parapet walk.

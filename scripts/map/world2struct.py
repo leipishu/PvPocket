@@ -5,8 +5,8 @@ Inputs are picked by extension: a world save directory or .zip containing region
 .litematic, or a Sponge .schem (v2/v3). Vanilla's structure block caps at 48x48x48, which is why
 region files are read directly instead.
 
-    python scripts/world2struct.py probe <input> [--box x1 y1 z1 x2 y2 z2]
-    python scripts/world2struct.py convert <input> --out <file.nbt> [options]
+    python scripts/map/world2struct.py probe <input> [--box x1 y1 z1 x2 y2 z2]
+    python scripts/map/world2struct.py convert <input> --out <file.nbt> [options]
 
 The output holds blocks only: no entities and no block-entity NBT, since chests, hoppers and
 command blocks are either an item exploit or a way to run commands inside a duel.

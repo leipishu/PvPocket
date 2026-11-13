@@ -105,9 +105,9 @@ runClient` … `runServer`；换成 `1.21.1-neoforge` 是同一套名字），�
 ./gradlew :1.21.1-fabric:runServer
 
 # 终端 2：等看到 "Done (...)" 后，拉起客户端并自动连接
-scripts/dev-2clients.sh                       # 两个客户端
-PVP_CLIENTS=3 scripts/dev-2clients.sh         # 三个，第三个用来看观战
-PVP_ADDR=192.168.1.10:25565 scripts/dev-2clients.sh
+scripts/dev-clients.sh                       # 两个客户端
+PVP_CLIENTS=3 scripts/dev-clients.sh         # 三个，第三个用来看观战
+PVP_ADDR=192.168.1.10:25565 scripts/dev-clients.sh
 ```
 
 想一条命令起全套（服务端在后台、等到能连才起客户端）：
@@ -142,16 +142,18 @@ PvPocket/
 │   ├── en/                    规范文档（英文，与 zh 一一对应）；README.md 与 CONTRIBUTING.md 是英文入口
 │   ├── assets/                文档图片，logo.png 就是 README 顶部那张
 │   └── archive/               历史存档：方案草案、阶段记录、专项调研（非规范）
-├── scripts/
-│   ├── dev-2clients.sh        开发联调：拉起 N 个客户端并自动连接
+├── scripts/                   见 scripts/README.md 的索引
 │   ├── dev-duel.sh            一条命令起全套：服务端 + 两个客户端（自动进服）
-│   ├── audit-ui.sh            界面遮挡审计：跑完所有界面，有遮挡就失败
-│   ├── world2struct.py        地图转换：世界存档 / .litematic / .schem → 结构模板
-│   ├── colosseum.py           生成斗兽场（唯一一张不是下载来的图）
-│   ├── arena-verify.py        转换校验：以第三方读取器为参照逐块比对
-│   ├── arena-map.py           把场地存档渲染成俯视图，确认分区真的分开了
-│   ├── rcon.py                向开发服务端发 RCON 指令（脚本化测试用）
-│   └── agent/                 截图与按键脚本，供 AI Agent 做界面验证，普通开发不需要
+│   ├── dev-clients.sh         开发联调：只拉客户端，服务端自己开
+│   ├── dev.cmd                dev-duel.sh 的 Windows 双击入口，可传 cell 名
+│   ├── check-logic.sh         逻辑自检：规则 / 配装内容 / mixin 目标
+│   ├── check-*.py             注释、语言键、配装清单、分层、规则文档
+│   ├── check-ui.sh            界面遮挡审计：跑完所有界面，有遮挡就失败
+│   ├── checks/                三个 *Check.java，由 check-logic.sh 编译并运行
+│   ├── map/                   地图转换与校验（world2struct / colosseum / arena-* / rcon）
+│   ├── ui/                    截图与按键脚本，供 AI Agent 做界面验证，普通开发不需要
+│   ├── mojmap/                Yarn→Mojmap 迁移工具（一次性，已完成）
+│   └── port/                  版本差生成器与改名表
 ├── settings.gradle            cells 清单：一个 cell 一个子项目
 ├── build.gradle               只放仓库面 + buildAll，不应用任何加载器插件
 ├── gradle.properties          JDK 路径、Loom 下载源、模组身份（mod_id / mod_version / maven_group）
@@ -184,19 +186,22 @@ PvPocket/
 
 | 脚本 | 给谁用 | 作用 |
 | --- | --- | --- |
-| `scripts/dev-2clients.sh` | 开发 | 拉起开发客户端并自动加入本地服务端 |
 | `scripts/dev-duel.sh` | 开发 | 一条命令起全套：后台服务端 + 两个客户端，等 `Done (` 后才连 |
-| `scripts/audit-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
-| `scripts/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
-| `scripts/colosseum.py` | 加地图 | 生成斗兽场模板 |
-| `scripts/arena-verify.py` | 加地图 | 与第三方读取器逐块比对，验证转换正确 |
-| `scripts/arena-map.py` | 排查 | 渲染俯视图，检查分区边界 |
-| `scripts/rcon.py` | 自动化测试 | 从脚本以玩家身份执行指令 |
-| `scripts/agent/*.ps1` | AI Agent | 窗口截图、按键、鼠标点击；Windows + PowerShell |
+| `scripts/dev-clients.sh` | 开发 | 只拉起开发客户端并自动加入本地服务端 |
+| `scripts/dev.cmd` | 开发 | 上一行的 Windows 入口，双击即可，`scripts\dev.cmd 1.21.11-neoforge` 换格 |
+| `scripts/check-logic.sh` | 开发 / CI | 编译并运行 `scripts/checks/*Check.java`，再核 mixin 目标 |
+| `scripts/check-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
+| `scripts/map/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
+| `scripts/map/colosseum.py` | 加地图 | 生成斗兽场模板 |
+| `scripts/map/arena-verify.py` | 加地图 | 与第三方读取器逐块比对，验证转换正确 |
+| `scripts/map/arena-map.py` | 排查 | 渲染俯视图，检查分区边界 |
+| `scripts/map/rcon.py` | 自动化测试 | 从脚本以玩家身份执行指令 |
+| `scripts/ui/*.ps1` | AI Agent | 窗口截图、按键、鼠标点击；Windows + PowerShell |
 
 地图相关的四个脚本在 [`docs/zh/06-maps.md`](docs/zh/06-maps.md) 第 3 节有调用示例、第 6 节有清单。
+全部脚本的索引与「我想做 X 该跑哪个」在 [`scripts/README.md`](scripts/README.md)。
 
-`scripts/agent/` 下的脚本假定本机有正在运行的开发客户端，且窗口标题含 `Minecraft`。它们不是给人
+`scripts/ui/` 下的脚本假定本机有正在运行的开发客户端，且窗口标题含 `Minecraft`。它们不是给人
 手动执行的工具，删改前先确认没有别的自动化在引用。
 
 ## 验证
@@ -208,7 +213,7 @@ PvPocket/
    （`runs/server/world/pvpocket/journal/*.jsonl`）里有 `RULES_PROPOSED`、`RULES_ACCEPTED`、
    `ROUND_STARTED` 等事件，能直接回答「这一局按哪版规则打的」。
    注意 journal 里的 `=` 被转义成 `\u003d`，`grep 'c.maxHealth='` 匹配不到。
-3. **界面审计**：改过 GUI 就跑 `scripts/audit-ui.sh`（约两分钟，退出码 `0` 才算干净；`1` 是有遮挡，
+3. **界面审计**：改过 GUI 就跑 `scripts/check-ui.sh`（约两分钟，退出码 `0` 才算干净；`1` 是有遮挡，
    `2` 是没跑完）。它让开发客户端自己遍历 6 个界面 × 全部页面/弹窗 × 两种画布，在真实渲染帧里
    记录控件盒子和文字。**加新界面或新页面时给 `auditVariantCount()/auditVariant()` 补一个变体**，
    否则新页面不在审计范围内。
@@ -217,9 +222,9 @@ PvPocket/
 5. **语言文件**：改过 `zh_cn.json` / `en_us.json` 后跑一次键集与占位符校验（命令在
    [`AGENTS.md`](AGENTS.md) 的「本地化」一节）。
 
-界面自动化有两条铁律，违反了会得到假结论：抓图用 `scripts/agent/shot-window.ps1`
+界面自动化有两条铁律，违反了会得到假结论：抓图用 `scripts/ui/shot-window.ps1`
 （`PrintWindow` + `PW_RENDERFULLCONTENT`，`CopyFromScreen` 在窗口被遮挡时会静默返回桌面壁纸）；
-点击用 `scripts/agent/click-frac.ps1` 按客户区比例，不要用绝对像素。其余踩坑记录见 `AGENTS.md`。
+点击用 `scripts/ui/click-frac.ps1` 按客户区比例，不要用绝对像素。其余踩坑记录见 `AGENTS.md`。
 
 **截图用完即删**（`find runs -name '*.png' -delete`），只保留最终要展示的那几张。
 

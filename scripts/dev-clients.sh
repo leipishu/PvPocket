@@ -2,7 +2,7 @@
 # Starts dev clients that auto-join one room; the server must already be running.
 set -uo pipefail
 
-# Usage: scripts/dev-2clients.sh; PVP_CLIENTS=3 adds a spectator, CELL=... picks the cell.
+# Usage: scripts/dev-clients.sh; PVP_CLIENTS=3 adds a spectator, CELL=... picks the cell.
 # PVP_ADDR selects host:port, default localhost:25565.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CELL="${CELL:-1.21.1-fabric}"

@@ -12,10 +12,10 @@ Four verdicts: OK, LOG_ONLY (read only on a journal / LOGGER / sendMessage line)
 and FIXED (RuleKind.FIXED, display only, not a problem).
 
 Usage:
-    python scripts/audit-rules.py              # table + exit code
-    python scripts/audit-rules.py --verbose    # include file:line for each reader
-    python scripts/audit-rules.py --docs       # compare defaults with docs/zh/02-rules.md
-    python scripts/audit-rules.py --json out.json
+    python scripts/check-rules.py              # table + exit code
+    python scripts/check-rules.py --verbose    # include file:line for each reader
+    python scripts/check-rules.py --docs       # compare defaults with docs/zh/02-rules.md
+    python scripts/check-rules.py --json out.json
 
 Exit code: 0 all OK, 1 LOG_ONLY / NO_READER / bad default / dead getter, 2 script error.
 """

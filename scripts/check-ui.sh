@@ -2,7 +2,7 @@
 # UI overlap audit: the client renders every panel at two canvas sizes and reports [pvaudit] lines.
 set -uo pipefail
 
-# Exits non-zero on any finding, so it can gate CI. Usage: scripts/audit-ui.sh [-v], with CELL=...
+# Exits non-zero on any finding, so it can gate CI. Usage: scripts/check-ui.sh [-v], with CELL=...
 # to pick the cell. No server needed: the client stays on the title screen (-PquickJoin=off).
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CELL="${CELL:-1.21.1-fabric}"

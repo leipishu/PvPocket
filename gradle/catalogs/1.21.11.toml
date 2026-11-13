@@ -6,7 +6,7 @@ minecraft = "1.21.11"
 # Both of these carry the MC version inside their own version string.
 fabricApi = "0.141.6+1.21.11"
 neoforge = "21.11.48"
-# Read by scripts/mojmap-table.py only, never by the build.
+# Read by scripts/mojmap/mojmap-table.py only, never by the build.
 yarn = "1.21.11+build.6"
 # fabric-loader is shared with 1.21.1 but 1.21.11 needs a newer one, so this catalog overrides it.
 # pvpocket-cells.gradle reads `loader` here first and falls back to libs.fabricLoader.

@@ -15,7 +15,7 @@ Four passes, from fully reliable to possibly ambiguous:
 Lines starting with `//`, `/*` or `*` are skipped entirely.
 
 Usage:
-    scripts/apply-mojmap.py build/mojmap/yarn-mojmap-1.21.1.tsv [--dry-run]
+    scripts/mojmap/apply-mojmap.py build/mojmap/yarn-mojmap-1.21.1.tsv [--dry-run]
 """
 
 import argparse

@@ -28,7 +28,7 @@ repository.
 
 ### Changes made
 
-The files above are **adapted** versions of the originals, not copies. `scripts/world2struct.py`
+The files above are **adapted** versions of the originals, not copies. `scripts/map/world2struct.py`
 performs the following, and this list is the "indicate if changes were made" requirement of CC BY-SA:
 
 1. **Format conversion** — the source is a Minecraft world save (`region/*.mca`); the output is a
@@ -58,7 +58,7 @@ mod's Java source.
 ## `arena_colosseum.nbt`
 
 This one is **not** third-party artwork. It is generated from scratch by
-`scripts/colosseum.py` — an ellipse in a loop, not a converted download — so it carries no
+`scripts/map/colosseum.py` — an ellipse in a loop, not a converted download — so it carries no
 attribution requirement and no share-alike. It was written because a Roman amphitheatre was wanted
 and no redistributable one could be found: the PGM community repositories ship XML without world
 saves, and the builds on the usual map sites are all-rights-reserved by default, which is not

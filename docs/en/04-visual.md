@@ -418,7 +418,7 @@ This is the hard constraint added in this revision; it ranks with colour and rad
 
 ## 7. Acceptance checklist
 
-- [ ] `scripts/audit-ui.sh` passes: 82 layouts (6 screens × every page and dialog × 2 canvases) with
+- [ ] `scripts/check-ui.sh` passes: 82 layouts (6 screens × every page and dialog × 2 canvases) with
       zero findings
 - [ ] Screenshots at GUI scale 1 / 2 / 3 / 4: no truncation, no overlap, nothing out of bounds
 - [ ] No visible stair-stepping on corners at scale 2 and above; no darker stripes above or below a
@@ -454,5 +454,5 @@ layout is still visible to it.
 | v0.6.1 | Anti-pixelation: corner anti-aliasing and removal of overlapping draws; titles switched to bold at 1.0×; toggle reduced to 28×14; strokes removed from coloured components; row right-alignment and vertical centring rules; HUD selection changed to an enclosing thin ring |
 | v0.6.2 | Fixed v0.6.1's axis error: `roundRect` split by rows instead of columns, eliminating the undrawn side stripes on every component and the vanished middle of narrow shapes (2px markers, 6px scrollbars) |
 | v0.7 | Rasterisation moved to a signed distance field (`PvRaster`): coverage comes from the perpendicular distance rather than a single-axis inset, so arcs and small radii (dots, knobs, toggle tracks, scrollbars) stop stair-stepping; strokes became inset distance bands composited in one pass; panels became two surfaces — chrome and well — with the title band and sidebar continuous and stroke-free, the header cut to 30px and its second row removed, commit buttons stacked in the sidebar, and the footer band dropped |
-| v0.7.1 | The sidebar's selection marker is gone (selection is the fill alone); its width is derived from tab *and* button labels, ceiling raised to 100; when the vertical budget fails the buttons move to a row under the well; two-line row height is derived from the control, so the control no longer covers the label; the slider track reserves the knob's radius at both ends, so the knob at maximum no longer covers the read-out; slider hover animates the halo's alpha instead of the dot's radius; the overlap audit (`scripts/audit-ui.sh`) is now an acceptance item |
+| v0.7.1 | The sidebar's selection marker is gone (selection is the fill alone); its width is derived from tab *and* button labels, ceiling raised to 100; when the vertical budget fails the buttons move to a row under the well; two-line row height is derived from the control, so the control no longer covers the label; the slider track reserves the knob's radius at both ends, so the knob at maximum no longer covers the read-out; slider hover animates the halo's alpha instead of the dot's radius; the overlap audit (`scripts/check-ui.sh`) is now an acceptance item |
 | v0.7.2 | Bold removed everywhere: vanilla `§l` under a TrueType resource pack is "the same glyph drawn twice, one pixel apart", so title hierarchy now comes from colour and position and `PvDraw.title()` is gone; the match scoreboard scales in four steps (75/90/100/120%) |

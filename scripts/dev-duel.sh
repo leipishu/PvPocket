@@ -145,7 +145,7 @@ for i in $(seq 2 "$COUNT"); do
 done
 
 echo "[duel] 启动 $COUNT 个客户端，自动进入 $ADDR ..."
-CELL="$CELL" PVP_CLIENTS="$COUNT" PVP_ADDR="$ADDR" "$ROOT/scripts/dev-2clients.sh" &
+CELL="$CELL" PVP_CLIENTS="$COUNT" PVP_ADDR="$ADDR" "$ROOT/scripts/dev-clients.sh" &
 CLIENTS_PID=$!
 
 DEVS=""

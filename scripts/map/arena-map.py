@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render a top-down footprint of the duel dimension.
 
-    python scripts/arena-map.py [world_dir] [out.png]
+    python scripts/map/arena-map.py [world_dir] [out.png]
 
 `world_dir` defaults to runs/1.21.1-fabric/server/world. Reads
 `dimensions/pvpocket/arena/region/*.mca`, decodes the paletted block states, and writes a

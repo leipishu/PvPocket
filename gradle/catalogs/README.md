@@ -48,7 +48,7 @@ ext.minecraft_version = pickVersion(cellCatalogName, 'minecraft')
 
 ## `yarn` 键
 
-每个文件里还有一个 `yarn`，**构建不读它**。只有 `scripts/mojmap-table.py` 读：生成
+每个文件里还有一个 `yarn`，**构建不读它**。只有 `scripts/mojmap/mojmap-table.py` 读：生成
 Yarn→Mojmap 对照表要下载 Yarn 映射，坐标里带这个版本号。它和 `minecraft` 严格绑定，所以放在
 同一个文件里——分两处存必然不同步。日常构建用 `loom.officialMojangMappings()`，不碰 Yarn。
 

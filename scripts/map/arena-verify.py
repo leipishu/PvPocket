@@ -12,10 +12,10 @@ this repository:
 Two modes:
 
     # offline: compare the .nbt against the source, no server needed
-    python scripts/arena-verify.py --source <world dir> --nbt <file.nbt>
+    python scripts/map/arena-verify.py --source <world dir> --nbt <file.nbt>
 
     # in game: /place the template and probe it through RCON
-    python scripts/arena-verify.py --source <world dir> --template arena_thistle
+    python scripts/map/arena-verify.py --source <world dir> --template arena_thistle
 
 The in-game mode also proves the paste itself (palette resolution, rejected block states, gravity
 blocks that fall), which the offline comparison cannot.

@@ -11,7 +11,7 @@
 | `arena_earthborn` | 浮岛 | 45 × 34 × 60 | zzuf `maps/gs/gs_earthborn` | CC BY-SA 4.0 |
 | `arena_dark_nebula` | 暗星云 | 87 × 43 × 79 | zzuf `maps/arcade/bn_dark_nebula` | CC BY-SA 4.0 |
 | `arena_deadwood` | 枯木镇 | 88 × 36 × 87 | zzuf `maps/oitq/deadwood` | CC BY-SA 4.0 |
-| `arena_colosseum` | 斗兽场 | 147 × 29 × 119 | `scripts/colosseum.py` 生成 | 自有 |
+| `arena_colosseum` | 斗兽场 | 147 × 29 × 119 | `scripts/map/colosseum.py` 生成 | 自有 |
 
 四张第三方地图改编自 [zzuf-maps](https://github.com/zzufx/zzuf-maps)。改编后的 `.nbt`
 **仍然受 CC BY-SA 4.0 约束**，与模组代码的许可无关。把地图打进 jar 就是再分发，
@@ -56,17 +56,17 @@ gamarudos-gladiator-arena、pvp-castle），全部否决，投影文件已删除
 
 ```bash
 # 1. 探查：确认尺寸与调色板
-python scripts/world2struct.py probe arena-src/_zzuf/maps/tdm/fun_house --palette
+python scripts/map/world2struct.py probe arena-src/_zzuf/maps/tdm/fun_house --palette
 
 # 2. 转换：输出到资源目录
-python scripts/world2struct.py convert arena-src/_zzuf/maps/tdm/fun_house \
+python scripts/map/world2struct.py convert arena-src/_zzuf/maps/tdm/fun_house \
     --out src/main/resources/data/pvpocket/structure/arena_fun_house.nbt
 
 # 3. 校验：与第三方读取器逐块比对
-python scripts/arena-verify.py
+python scripts/map/arena-verify.py
 
 # 4. 可选：渲染俯视图，肉眼确认朝向
-python scripts/arena-map.py
+python scripts/map/arena-map.py
 ```
 
 转换做的六件事（也是 CC BY-SA 要求的「标明改动」清单）：
@@ -87,12 +87,12 @@ python scripts/arena-map.py
 
 ## 4. 斗兽场
 
-`scripts/colosseum.py` 是生成器，不是转换器：椭圆套椭圆、十排看台、15 格外墙、X 轴两个门。
+`scripts/map/colosseum.py` 是生成器，不是转换器：椭圆套椭圆、十排看台、15 格外墙、X 轴两个门。
 写它的原因是找不到可再分发的角斗场——PGM 社区仓库只发 XML 不发存档，常见地图站的作品默认
 保留所有权利，那种东西不能塞进 jar。
 
 ```bash
-python scripts/colosseum.py --out src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
+python scripts/map/colosseum.py --out src/main/resources/data/pvpocket/structure/arena_colosseum.nbt
 ```
 
 生成器的 `A_ARENA = 50`、`A_OUT` 决定战斗区与包围盒的比例，改这两个值就能改形状。
@@ -169,7 +169,7 @@ python scripts/colosseum.py --out src/main/resources/data/pvpocket/structure/are
 
 | 脚本 | 作用 |
 | --- | --- |
-| `scripts/world2struct.py` | 世界存档 / litematic / schem → 结构模板 |
-| `scripts/colosseum.py` | 生成斗兽场 |
-| `scripts/arena-verify.py` | 与第三方读取器逐块比对 |
-| `scripts/arena-map.py` | 读维度存档渲染俯视图 |
+| `scripts/map/world2struct.py` | 世界存档 / litematic / schem → 结构模板 |
+| `scripts/map/colosseum.py` | 生成斗兽场 |
+| `scripts/map/arena-verify.py` | 与第三方读取器逐块比对 |
+| `scripts/map/arena-map.py` | 读维度存档渲染俯视图 |
