@@ -39,7 +39,7 @@ import java.util.Set;
 /**
  * Minecraft API differences between the versions this mod builds for, kept in one file.
  *
- * <p>Every method here is a call the source used to make directly. Keeping the conditional blocks
+ * <p>Every method here is one call the rest of the tree makes without a version marker. Keeping
  * here rather than at the call sites means the session, arena and snapshot code stays free of
  * version markers, which is what makes a new Minecraft version a change to this file plus a rename
  * table entry instead of a sweep through the whole tree.

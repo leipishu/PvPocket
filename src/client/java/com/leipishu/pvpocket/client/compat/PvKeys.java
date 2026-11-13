@@ -10,9 +10,9 @@ import net.minecraft.client.KeyMapping;
 /**
  * Key bindings, whose category argument and match check both changed in 1.21.11.
  *
- * <p>The category used to be a translation key string; it is now a registered object with an id, and
- * its label comes from {@code key.category.<namespace>.<path>}. The bindings are built through
- * {@link #key} so the call sites never name either shape.
+ * <p>The category is a translation key string before 1.21.11 and a registered object after it,
+ * whose label comes from {@code key.category.<namespace>.<path>}. Bindings are built through
+ * {@link #key} so the call sites name neither shape.
  */
 public final class PvKeys {
 

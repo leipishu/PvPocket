@@ -31,17 +31,14 @@ import org.joml.Quaternionf;
 /**
  * First-person hand of the body a spectator is riding in.
  *
- * <p>Vanilla draws nothing in spectator mode, and would render {@code client.player} rather than
- * the watched fighter, so the hand is drawn here.
+ * <p>Vanilla draws nothing in spectator mode, and would render {@code client.player} rather
+ * than the watched fighter, so the hand is drawn here. The pose stack still holds the view
+ * rotation, so only the position-matrix inverse is supplied: {@code translate(0.56, -0.52,
+ * -0.72)} then means half a block right of the eye.
  *
- * <p>The pose stack at this hook still holds the view rotation, so only the position-matrix inverse
- * is supplied: {@code translate(0.56, -0.52, -0.72)} then means half a block right of the eye. On
- * 1.21.1 the depth buffer is cleared first, as vanilla does, so a nearby wall cannot slice the hand.
- *
- * <p>1.21.11 replaced immediate-mode drawing with a submit queue, so the hand is no longer written
- * into a {@code MultiBufferSource}: the entity renderers take a {@code SubmitNodeCollector} instead.
- * The two sinks are passed through as {@code Object} and unwrapped at the two leaves, because the
- * pose maths above them is identical.
+ * <p>The sink the geometry goes to is a {@code MultiBufferSource} before 1.21.11 and a
+ * {@code SubmitNodeCollector} after it; it travels as {@code Object} and is unwrapped at the
+ * two leaves, because the pose maths above them is identical.
  */
 public final class PossessedHandRenderer {
 
@@ -123,7 +120,7 @@ public final class PossessedHandRenderer {
     }
 
     /**
-     * Draws one hand, mirroring {@code ItemInHandRenderer.renderFirstPersonItem} for the two cases a
+     * Draws one hand, mirroring vanilla's first-person item renderer for the two cases a
      * spectator can observe: an empty hand (the arm) and a held item (equip offset plus swing arc).
      *
      * <p>The use-action branches (eating, drinking, drawing a bow, blocking with a shield) are not
@@ -176,7 +173,7 @@ public final class PossessedHandRenderer {
         matrices.mulPose(Axis.YP.rotationDegrees(side * -45.0F));
     }
 
-    /** Mirrors {@code ItemInHandRenderer.renderArmHoldingItem}, with the target as the arm owner. */
+    /** Mirrors vanilla's arm draw, with the target as the arm owner. */
     private static void renderArmHoldingItem(Minecraft client, PoseStack matrices, Object sink,
                                              int light, float equipProgress, float swingProgress,
                                              HumanoidArm arm, AbstractClientPlayer player) {
@@ -205,7 +202,7 @@ public final class PossessedHandRenderer {
             return;
         }
 //? if >=1.21.11 {
-        // The texture and the sleeve flag are arguments now: the renderer no longer holds a player.
+        // The texture and the sleeve flag are arguments: the renderer is not bound to a player.
         SubmitNodeCollector nodes = (SubmitNodeCollector) sink;
         ResourceLocation skin = player.getSkin().body().texturePath();
         PlayerModelPart part = right ? PlayerModelPart.RIGHT_SLEEVE : PlayerModelPart.LEFT_SLEEVE;

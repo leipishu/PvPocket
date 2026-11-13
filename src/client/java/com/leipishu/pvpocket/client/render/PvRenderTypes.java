@@ -10,9 +10,9 @@ import net.minecraft.client.renderer.RenderType;
 /**
  * The vanilla render types this mod draws with.
  *
- * <p>1.21.11 split the type itself (now {@code rendertype.RenderType}, a pipeline description) from
- * the static factories that used to live on it ({@code rendertype.RenderTypes}). Both the class and
- * the factory move, so the pair is wrapped rather than marked at each call site.
+ * <p>1.21.11 moved both the type (to {@code rendertype.RenderType}, a pipeline description) and the
+ * static factories (to {@code rendertype.RenderTypes}), so the pair is wrapped here instead of
+ * being marked at each call site.
  */
 public final class PvRenderTypes {
 

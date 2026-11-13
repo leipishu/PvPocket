@@ -134,6 +134,12 @@ def check_java(path, source, out, javadoc_rules=True):
             run = 0
             continue
 
+        if stripped.startswith("//?"):
+            # A version marker read by scripts/port/gen.py, not a comment: it is stripped from the
+            # generated tree and must not be linted as prose.
+            run = 0
+            continue
+
         if stripped.startswith("//"):
             run += 1
             text = stripped[2:].strip()

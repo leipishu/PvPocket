@@ -3,6 +3,9 @@
   "package": "com.leipishu.pvpocket.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+//? if >=1.21.11 {
+    "ClientExplosionMixin",
+//?}
     "ClientPlayerEntityMixin",
     "HandledScreenAccessor",
     "InGameHudMixin",

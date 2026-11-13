@@ -29,9 +29,8 @@ ext.loader_version = project.versionCatalogs.named(cellCatalogName)
 group = project.maven_group
 version = project.mod_version
 
-// Version port. src/ is written against one Minecraft version; a cell on another version compiles
-// a generated copy instead. Set ext.pvpocketPort before applying this file, then read source roots
-// through pvpocketSrc(...) rather than rootProject.file('src/...').
+// Version port: set ext.pvpocketPort before applying this file, then read source roots through
+// pvpocketSrc(...) rather than rootProject.file('src/...').
 def portVersion = project.findProperty('pvpocketPort')
 def portOutput = layout.buildDirectory.dir('gen-src')
 def portTask = null

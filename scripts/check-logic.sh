@@ -7,8 +7,8 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
 
-# Rule logic and the loadout catalog live in src/main, so one cell is enough for those. Mixin
-# targets are checked on both cells: NeoForge patches vanilla call sites.
+# Rule logic needs one cell; mixin targets are checked on both, since NeoForge patches vanilla
+# call sites. The checks read the generated tree, where a //? marker has already been resolved.
 FABRIC_CELL="${FABRIC_CELL:-1.21.1-fabric}"
 NEOFORGE_CELL="${NEOFORGE_CELL:-1.21.1-neoforge}"
 FABRIC_BUILD="versions/$FABRIC_CELL/build"
@@ -52,6 +52,8 @@ FABRIC_CP="$(tr -d '\r\n' < "$FABRIC_CP_FILE")"
 MC_CLIENT="$(tr ';' '\n' < "$FABRIC_CP_FILE" | grep -iE 'minecraft-clientOnly-.*\.jar$' \
     | grep -v sources | head -1)"
 
+GEN="$FABRIC_BUILD/gen-src"
+NEOFORGE_GEN="versions/$NEOFORGE_CELL/build/gen-src"
 OUT="$FABRIC_BUILD/logic-check"
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -80,8 +82,8 @@ for source in $SOURCES; do
     # them. stdout.encoding is separate from file.encoding since JDK 19.
     "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
         -classpath "$CP" "$CLASS" "${MCJAR_ARGS[@]}" \
-        --src src/main/java --src src/client/java \
-        --src src/fabric/java --src src/client-fabric/java || FAILED=1
+        --src "$GEN/main/java" --src "$GEN/client/java" \
+        --src "$GEN/fabric/java" --src "$GEN/client-fabric/java" || FAILED=1
 done
 
 # NeoForge mixin targets: the same @At target does not have to hold on both loaders. A missing
@@ -91,8 +93,9 @@ if NEOFORGE_CP_FILE="$(classpath_file "$NEOFORGE_CELL")"; then
     echo "[logic] NeoForge 的 mixin 目标（$NEOFORGE_CELL）"
     "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
         -classpath "$OUT;$NEOFORGE_CP" MixinTargetCheck \
-        --src src/main/java --src src/client/java \
-        --src src/neoforge/java --src src/client-neoforge/java || FAILED=1
+        --src "$NEOFORGE_GEN/main/java" --src "$NEOFORGE_GEN/client/java" \
+        --src "$NEOFORGE_GEN/neoforge/java" \
+        --src "$NEOFORGE_GEN/client-neoforge/java" || FAILED=1
 else
     echo "[logic] 跳过 NeoForge 的 mixin 核对（先跑一次 ./gradlew :$NEOFORGE_CELL:compileJava）"
 fi

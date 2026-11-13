@@ -364,9 +364,8 @@ public class SeriesResultScreen extends PvScreen {
         posterCapture = false;
         posterMode = false;
 //? if >=1.21.11 {
-        // 1.21.11 records GUI drawing and submits it after this returns, so the framebuffer read
-        // cannot happen here. One tick later runs before the next frame is drawn, and the target
-        // still holds the poster frame.
+        // Drawing is submitted after this returns, so the framebuffer cannot be read yet.
+        // one tick later runs before the next frame, target still holding the poster.
         Minecraft.getInstance().execute(this::savePoster);
 //?} else {
         // Flush first: fill batches its quads and the capture reads the framebuffer, so a read
