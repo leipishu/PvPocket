@@ -1,0 +1,27 @@
+# 1.21.1 -> 1.21.11 renames, applied by scripts/port/gen.py to the generated source tree.
+#
+# Format: `old<TAB>new`. Applied to every text file as a whole-word replacement, string literals
+# included, because a mixin target such as @Inject(method = "getServer") names a method in a
+# string. Only add a pair when the old name cannot mean anything else in this repository.
+#
+# Rows with a package path come first (the generator sorts longest-first): the import line has to
+# move to the new package, and the simple name is then fixed by the short row below it.
+#
+# Derived from the Loom mappings of both versions, joined on the intermediary name, and filtered to
+# the names this source tree actually uses. Regenerate the candidate list with scripts/port/candidates.py if a
+# future error looks like a rename that is missing here.
+
+# ---- package moves (1.21.9 reorganisation) ----
+net.minecraft.world.entity.monster.Stray	net.minecraft.world.entity.monster.skeleton.Stray
+net.minecraft.world.entity.projectile.Arrow	net.minecraft.world.entity.projectile.arrow.Arrow
+net.minecraft.world.level.GameRules	net.minecraft.world.level.gamerules.GameRules
+net.minecraft.client.renderer.RenderType	net.minecraft.client.renderer.rendertype.RenderType
+net.minecraft.client.resources.PlayerSkin	net.minecraft.world.entity.player.PlayerSkin
+net.minecraft.client.resources.model.BakedModel	net.minecraft.client.renderer.block.model.BlockStateModel
+net.minecraft.world.entity.projectile.windcharge.AbstractWindCharge	net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.AbstractWindCharge
+net.minecraft.client.renderer.entity.player.PlayerRenderer	net.minecraft.client.renderer.entity.player.AvatarRenderer
+net.minecraft.resources.ResourceLocation	net.minecraft.resources.Identifier
+
+# ---- renames ----
+ResourceLocation	Identifier
+PlayerRenderer	AvatarRenderer

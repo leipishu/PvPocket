@@ -1,0 +1,13 @@
+# Minecraft 1.21.11 catalog, registered as v1_21_11 by settings.gradle.
+# Key names are identical in every catalog file; the catalog name is what tells versions apart.
+
+[versions]
+minecraft = "1.21.11"
+# Both of these carry the MC version inside their own version string.
+fabricApi = "0.141.6+1.21.11"
+neoforge = "21.11.48"
+# Read by scripts/mojmap-table.py only, never by the build.
+yarn = "1.21.11+build.6"
+# fabric-loader is shared with 1.21.1 but 1.21.11 needs a newer one, so this catalog overrides it.
+# pvpocket-cells.gradle reads `loader` here first and falls back to libs.fabricLoader.
+loader = "0.20.1"

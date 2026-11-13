@@ -3,7 +3,7 @@
 
 [versions]
 fabricLoader = "0.16.9"
-fabricLoom = "1.11.8"
+fabricLoom = "1.13.6"
 neoforgeModdev = "2.0.148"
 
 [plugins]

@@ -1,0 +1,108 @@
+plugins {
+    // Plugin versions come from gradle/libs.versions.toml, so both cells can pick their own.
+    alias(libs.plugins.fabricLoom)
+    id 'maven-publish'
+}
+
+// src/ is written against 1.21.1, so this cell compiles the generated port for 1.21.11.
+ext.pvpocketPort = '1.21.11'
+
+// Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
+apply from: rootProject.file('gradle/pvpocket-cells.gradle')
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+// splitEnvironmentSourceSets() must run before the sourceSets block: it creates the `client`
+// source set, so declaring it earlier fails with "SourceSet with that name already exists".
+loom {
+    splitEnvironmentSourceSets()
+
+    mods {
+        "pvpocket" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+// Source roots: src/main + src/fabric are the server half, src/client + src/client-fabric the
+// client half. Paths need rootProject.file(...) because projectDir is versions/<cell>.
+sourceSets {
+    main {
+        java.srcDir pvpocketSrc('main/java')
+        resources.srcDir pvpocketSrc('main/resources')
+        java.srcDir pvpocketSrc('fabric/java')
+        resources.srcDir pvpocketSrc('fabric/resources')
+    }
+    client {
+        java.srcDir pvpocketSrc('client/java')
+        resources.srcDir pvpocketSrc('client/resources')
+        java.srcDir pvpocketSrc('client-fabric/java')
+        resources.srcDir pvpocketSrc('client-fabric/resources')
+    }
+}
+
+// Loom pre-registers the `client` and `server` runs, so creating one with those names fails.
+// This helper configures the run when it exists and creates it otherwise.
+def configureRun = { String name, Closure action ->
+    def run = loom.runs.findByName(name)
+    if (run == null) {
+        run = loom.runs.create(name)
+    }
+    action.call(run)
+}
+
+// Same run names and usernames as the NeoForge cell, so the dev scripts work on either loader.
+configureRun('server') { run ->
+    run.server()
+    run.configName = 'Minecraft Server (shared room)'
+    run.runDir(pvpocketRunDirRelative('server'))
+}
+
+pvpocketDevClients.each { spec ->
+    configureRun(spec.name) { run ->
+        run.client()
+        run.configName = "Minecraft Client (${spec.user})"
+        run.runDir(pvpocketRunDirRelative(spec.dir))
+        run.programArgs(pvpocketClientArgs(spec.user) as String[])
+        if (pvpocketQuickJoin != 'off' && !pvpocketQuickJoin.isEmpty()) {
+            run.programArgs(['--quickPlayMultiplayer', pvpocketQuickJoin] as String[])
+        }
+        pvpocketClientJvmArgs().each { run.vmArg(it) }
+    }
+}
+
+// Datagen is a client run for Loom but never opens a window and must not connect anywhere, so it
+// gets no username and no window size; the program args added above are cleared again.
+fabricApi {
+    configureDataGeneration {
+        client = true
+    }
+}
+loom.runs.named("datagen") { it.programArgs.clear() }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // Official Mojang mappings, not Yarn: NeoForge uses them too, and from 26.1 they are the names
+    // that exist at runtime, so one source tree feeds every loader.
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": inputs.properties.version
+    }
+}
+
+jar {
+    inputs.property "archivesName", project.base.archivesName
+}

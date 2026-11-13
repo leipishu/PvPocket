@@ -31,6 +31,8 @@ catalogsDir.listFiles()
 def cells = [
         '1.21.1-fabric',
         '1.21.1-neoforge',
+        '1.21.11-fabric',
+        '1.21.11-neoforge',
 ]
 
 cells.each { cell ->

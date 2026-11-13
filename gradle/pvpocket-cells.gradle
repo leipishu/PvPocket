@@ -19,11 +19,47 @@ def cellCatalogName = 'v' + project.name.split('-')[0].replaceAll('[^0-9A-Za-z]'
 ext.minecraft_version = pickVersion(cellCatalogName, 'minecraft')
 ext.fabric_version = pickVersion(cellCatalogName, 'fabricApi')
 ext.neoforge_version = pickVersion(cellCatalogName, 'neoforge')
-// fabric-loader is shared across MC versions, so it lives in the default catalog.
-ext.loader_version = pickVersion('libs', 'fabricLoader')
+// fabric-loader is shared across MC versions, so it normally lives in the default catalog. A newer
+// MC version can need a newer loader, so its own catalog may carry a `loader` key that wins here.
+ext.loader_version = project.versionCatalogs.named(cellCatalogName)
+        .findVersion('loader')
+        .map { it.requiredVersion }
+        .orElseGet { pickVersion('libs', 'fabricLoader') }
 
 group = project.maven_group
 version = project.mod_version
+
+// Version port. src/ is written against one Minecraft version; a cell on another version compiles
+// a generated copy instead. Set ext.pvpocketPort before applying this file, then read source roots
+// through pvpocketSrc(...) rather than rootProject.file('src/...').
+def portVersion = project.findProperty('pvpocketPort')
+def portOutput = layout.buildDirectory.dir('gen-src')
+def portTask = null
+if (portVersion) {
+    portTask = tasks.register('generatePortSources', Exec) {
+        group = 'build'
+        description = "Generates build/gen-src from src/ for Minecraft ${portVersion}."
+        inputs.dir(rootProject.file('src'))
+        inputs.file(rootProject.file('scripts/port/gen.py'))
+        inputs.file(rootProject.file("scripts/port/${portVersion}.tsv"))
+        outputs.dir(portOutput)
+        // PYTHON overrides the interpreter, same as the scripts/ entry points.
+        def pythonBin = System.getenv('PYTHON') ?: 'python'
+        commandLine pythonBin, rootProject.file('scripts/port/gen.py').absolutePath,
+                '--mc', portVersion,
+                '--src', rootProject.file('src').absolutePath,
+                '--out', portOutput.get().asFile.absolutePath,
+                '--table', rootProject.file("scripts/port/${portVersion}.tsv").absolutePath,
+                '--table', rootProject.file("scripts/port/${portVersion}.tsv").absolutePath
+    }
+    tasks.withType(JavaCompile).configureEach { dependsOn portTask }
+    tasks.named('processResources') { dependsOn portTask }
+}
+
+// Source root: src/<relative> for the canonical cell, build/gen-src/<relative> for a ported one.
+ext.pvpocketSrc = { String relative ->
+    portVersion ? new File(portOutput.get().asFile, relative) : rootProject.file("src/${relative}")
+}
 
 // Archive name is derived from the cell name: 1.21.1-fabric -> pvpocket-fabric-1.21.1.
 def cellParts = project.name.split('-')
@@ -41,6 +77,8 @@ java {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = javaLevel
+    // javac stops at 100 errors by default, which hides the size of a version port. Show them all.
+    options.compilerArgs += ['-Xmaxerrs', '10000']
 }
 
 // The licence files go into the jar root: LGPL-3.0 section 4 requires shipping a copy with the

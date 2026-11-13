@@ -1,0 +1,85 @@
+// NeoForge 1.21.11 cell. Parallel to the Fabric cell: shared src/, plus src/neoforge and
+// src/client-neoforge.
+
+plugins {
+    // Plugin versions come from gradle/libs.versions.toml, so both cells can pick their own.
+    alias(libs.plugins.neoforgeModdev)
+}
+
+// src/ is written against 1.21.1, so this cell compiles the generated port for 1.21.11.
+ext.pvpocketPort = '1.21.11'
+
+// Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
+apply from: rootProject.file('gradle/pvpocket-cells.gradle')
+
+// maven.neoforged.net resolves to unrelated addresses here and connections hang instead of failing,
+// so the plugin's repository list is cleared and rebuilt against the official CDN mirror.
+repositories.clear()
+
+repositories {
+    // Same layout as maven.neoforged.net, so only the host changes. Keep the plural /releases.
+    maven {
+        name = 'NeoForgedReleases'
+        url = 'https://neoforged.forgecdn.net/releases'
+    }
+    // Proxies the Mojang version manifest and the client/server jars; also has to be mirrored.
+    maven {
+        name = 'NeoForgedMojangMeta'
+        url = 'https://neoforged.forgecdn.net/mojang-meta'
+    }
+    maven {
+        name = 'MojangLibraries'
+        url = 'https://libraries.minecraft.net/'
+    }
+    mavenCentral()
+    // sponge-mixin is a NeoForge POM dependency and is published on the Fabric maven.
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+// One source set, four srcDir entries: NeoForge ships a single jar, so client classes go into main
+// and are kept off the dedicated server by never loading them rather than by source set isolation.
+sourceSets {
+    main {
+        java.srcDir pvpocketSrc('main/java')
+        java.srcDir pvpocketSrc('client/java')
+        java.srcDir pvpocketSrc('neoforge/java')
+        java.srcDir pvpocketSrc('client-neoforge/java')
+        resources.srcDir pvpocketSrc('main/resources')
+        resources.srcDir pvpocketSrc('client/resources')
+        resources.srcDir pvpocketSrc('neoforge/resources')
+        resources.srcDir pvpocketSrc('client-neoforge/resources')
+    }
+}
+
+neoForge {
+    version = project.neoforge_version
+
+    // Sources are already Mojmap, which is what NeoForge uses, so no mapping step is needed.
+    mods {
+        pvpocket {
+            sourceSet sourceSets.main
+        }
+    }
+
+    // Same client list and run dir rule as the Fabric cell; only the field names differ.
+    runs {
+        server {
+            server()
+            gameDirectory = pvpocketRunDir('server')
+        }
+        pvpocketDevClients.each { spec ->
+            create(spec.name) {
+                client()
+                gameDirectory = pvpocketRunDir(spec.dir)
+                programArguments = pvpocketClientArgs(spec.user)
+                if (pvpocketQuickJoin != 'off' && !pvpocketQuickJoin.isEmpty()) {
+                    programArguments.addAll(['--quickPlayMultiplayer', pvpocketQuickJoin])
+                }
+                jvmArguments.addAll(pvpocketClientJvmArgs())
+            }
+        }
+    }
+}
