@@ -14,7 +14,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 1.20.1 | — | — | `legacy/1.20.1/forge` | 17 | 未建，见 `legacy/README.md` |
 | 1.21.1 | `1.21.1-fabric` | `1.21.1-neoforge` | — | 21 | **已建** |
-| 1.21.11 | `1.21.11-fabric` | `1.21.11-neoforge` | — | 21 | 未建 |
+| 1.21.11 | `1.21.11-fabric` | `1.21.11-neoforge` | — | 21 | 已建，移植未完成（`scripts/port/README.md`） |
 | 26.1 | `26.1-fabric` | `26.1-neoforge` | — | 27（`release 25`） | 未建 |
 | 26.2 | `26.2-fabric` | `26.2-neoforge` | — | 27（`release 25`） | 未建 |
 | 26.3 | `26.3-fabric` | `26.3-neoforge` | — | 27（`release 25`） | 未建 |
