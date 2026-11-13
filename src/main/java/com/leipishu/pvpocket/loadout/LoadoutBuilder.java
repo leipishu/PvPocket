@@ -1,13 +1,13 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.PvPocket;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.item.component.Fireworks;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
-import net.minecraft.world.item.alchemy.PotionContents;
-import net.minecraft.world.item.component.Unbreakable;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -27,7 +27,6 @@ import net.minecraft.util.Unit;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Turns a {@link Loadout} into real items.
@@ -145,7 +144,8 @@ public final class LoadoutBuilder {
     private static Item resolveItem(LoadoutEntry entry, int teamIndex) {
         return switch (entry.kind) {
             case POTION -> Items.SPLASH_POTION;
-            case FOOD, BLOCK -> BuiltInRegistries.ITEM.get(teamAdjustedVariant(entry, teamIndex));
+            case FOOD, BLOCK -> PvCompat.value(BuiltInRegistries.ITEM,
+                    teamAdjustedVariant(entry, teamIndex));
             default -> entry.kind.resolve(entry.material);
         };
     }
@@ -203,7 +203,7 @@ public final class LoadoutBuilder {
             return;
         }
         if (entry.durability == LoadoutEntry.DURABILITY_UNBREAKABLE) {
-            stack.set(DataComponents.UNBREAKABLE, new Unbreakable(true));
+            PvCompat.makeUnbreakable(stack);
             return;
         }
         if (entry.durability > 0) {
@@ -267,21 +267,19 @@ public final class LoadoutBuilder {
 
     private static Holder<Enchantment> enchantment(RegistryAccess registries,
                                                           net.minecraft.resources.ResourceKey<Enchantment> key) {
-        return registries.registryOrThrow(Registries.ENCHANTMENT).getHolder(key).orElse(null);
+        return PvCompat.holder(registries.registryOrThrow(Registries.ENCHANTMENT), key);
     }
 
     private static void applyPotion(ItemStack stack, LoadoutEntry entry) {
-        Optional<Holder.Reference<MobEffect>> effect =
-                BuiltInRegistries.MOB_EFFECT.getHolder(ResourceLocation.tryParse(entry.variant));
-        if (effect.isEmpty()) {
+        Holder.Reference<MobEffect> effect = PvCompat.holder(BuiltInRegistries.MOB_EFFECT,
+                ResourceLocation.tryParse(entry.variant));
+        if (effect == null) {
             return;
         }
         // Duration is seconds in the editor and ticks in the game; instant effects ignore it.
         int ticks = Math.max(20, entry.durationSec * 20);
-        MobEffectInstance instance = new MobEffectInstance(effect.get(), ticks, entry.amplifier);
-        int color = PotionContents.getColor(List.of(instance));
-        stack.set(DataComponents.POTION_CONTENTS,
-                new PotionContents(Optional.empty(), Optional.of(color), List.of(instance)));
+        MobEffectInstance instance = new MobEffectInstance(effect, ticks, entry.amplifier);
+        stack.set(DataComponents.POTION_CONTENTS, PvCompat.potionContents(instance));
     }
 
     /**

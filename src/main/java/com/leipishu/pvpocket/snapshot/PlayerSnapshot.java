@@ -182,9 +182,8 @@ public final class PlayerSnapshot {
         if (id == null) {
             return Double.NaN;
         }
-        return BuiltInRegistries.ATTRIBUTE.getHolder(id)
-                .map(holder -> defaultBase((Holder<Attribute>) holder))
-                .orElse(Double.NaN);
+        Holder.Reference<Attribute> holder = PvCompat.holder(BuiltInRegistries.ATTRIBUTE, id);
+        return holder == null ? Double.NaN : defaultBase(holder);
     }
 
     /**
@@ -270,15 +269,15 @@ public final class PlayerSnapshot {
                 playerNbt,
                 PvNbt.getString(root, "dimension"),
                 PvNbt.getDouble(root, "x"), PvNbt.getDouble(root, "y"), PvNbt.getDouble(root, "z"),
-                root.getFloat("yaw"), root.getFloat("pitch"),
-                root.getString("gameMode"),
+                PvNbt.getFloat(root, "yaw"), PvNbt.getFloat(root, "pitch"),
+                PvNbt.getString(root, "gameMode"),
                 PvNbt.getStringOrNull(root, "team"),
-                root.getFloat("fallDistance"),
+                PvNbt.getFloat(root, "fallDistance"),
                 root.contains("maxHealthBase")
-                        ? root.getFloat("maxHealthBase") : UNKNOWN_BASE,
+                        ? PvNbt.getFloat(root, "maxHealthBase") : UNKNOWN_BASE,
                 root.contains("knockbackResistanceBase")
-                        ? root.getFloat("knockbackResistanceBase") : UNKNOWN_BASE,
-                root.getString("fingerprint")
+                        ? PvNbt.getFloat(root, "knockbackResistanceBase") : UNKNOWN_BASE,
+                PvNbt.getString(root, "fingerprint")
         );
     }
 
@@ -324,7 +323,7 @@ public final class PlayerSnapshot {
             boolean modified = entry.contains("modifiers")
                     && !PvNbt.getList(entry, "modifiers").isEmpty();
             // NaN (an attribute this build does not know) compares false, so unknown entries stay.
-            boolean atDefault = Math.abs(entry.getDouble("base")
+            boolean atDefault = Math.abs(PvNbt.getDouble(entry, "base")
                     - defaultBase(PvNbt.getString(entry, "id"))) < 1.0E-4;
             if (modified || !atDefault) {
                 kept.add(entry);

@@ -29,3 +29,7 @@ getMinBuildHeight	getMinY
 getMaxBuildHeight	getMaxY
 serverLevel	level
 RULE_DAYLIGHT	ADVANCE_TIME
+hasImpulse	hurtMarked
+registryOrThrow	lookupOrThrow
+hasImpulse	hurtMarked
+registryOrThrow	lookupOrThrow

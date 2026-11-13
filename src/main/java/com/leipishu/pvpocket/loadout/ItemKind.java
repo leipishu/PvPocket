@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.world.item.Item;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -116,7 +118,7 @@ public enum ItemKind {
     public Item resolve(Material material) {
         String path = itemPath(material);
         ResourceLocation identifier = ResourceLocation.fromNamespaceAndPath("minecraft", path);
-        return BuiltInRegistries.ITEM.containsKey(identifier) ? BuiltInRegistries.ITEM.get(identifier) : null;
+        return BuiltInRegistries.ITEM.containsKey(identifier) ? PvCompat.value(BuiltInRegistries.ITEM, identifier) : null;
     }
 
     /** The vanilla id this kind resolves to for {@code material}, without asking the registry. */

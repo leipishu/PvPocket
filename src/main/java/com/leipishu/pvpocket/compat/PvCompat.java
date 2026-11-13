@@ -2,6 +2,13 @@ package com.leipishu.pvpocket.compat;
 
 
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.food.FoodData;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -19,8 +26,14 @@ import net.minecraft.world.level.Level;
 //? if >=1.21.11 {
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.Permissions;
+import net.minecraft.world.level.gamerules.GameRules;
+//?} else {
+import net.minecraft.world.item.component.Unbreakable;
+import net.minecraft.world.level.GameRules;
 //?}
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -50,7 +63,84 @@ public final class PvCompat {
 //? if >=1.21.11 {
         return level.getRespawnData().pos();
 //?} else {
-        return PvCompat.sharedSpawn(level);
+        return level.getSharedSpawnPos();
+//?}
+    }
+
+    /** Looks a registry entry up as a holder, or null when the id names nothing. */
+    public static <T> Holder.Reference<T> holder(Registry<T> registry, ResourceKey<T> key) {
+//? if >=1.21.11 {
+        return registry.get(key).orElse(null);
+//?} else {
+        return registry.getHolder(key).orElse(null);
+//?}
+    }
+
+    /** Looks a registry entry up as a holder, or null when the id names nothing. */
+    public static <T> Holder.Reference<T> holder(Registry<T> registry, ResourceLocation id) {
+//? if >=1.21.11 {
+        return registry.get(id).orElse(null);
+//?} else {
+        return registry.getHolder(id).orElse(null);
+//?}
+    }
+
+    /** A splash potion carrying one custom effect, tinted the way vanilla tints effect colours. */
+    public static PotionContents potionContents(MobEffectInstance effect) {
+//? if >=1.21.11 {
+        int color = PotionContents.getColorOptional(List.of(effect))
+                .orElse(PotionContents.BASE_POTION_COLOR);
+        return new PotionContents(Optional.empty(), Optional.of(color), List.of(effect),
+                Optional.empty());
+//?} else {
+        int color = PotionContents.getColor(List.of(effect));
+        return new PotionContents(Optional.empty(), Optional.of(color), List.of(effect));
+//?}
+    }
+
+    /** Turns the daylight cycle of a level on or off. */
+    public static void setDaylightCycle(ServerLevel level, boolean running) {
+//? if >=1.21.11 {
+        level.getGameRules().set(GameRules.ADVANCE_TIME, running, level.getServer());
+//?} else {
+        level.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(running, level.getServer());
+//?}
+    }
+
+    /**
+     * Puts hunger back to a fresh-round state: full bar, five points of saturation, no exhaustion.
+     *
+     * <p>1.21.11 dropped {@code setExhaustion}, so the values are read in through the save format,
+     * whose absent-key defaults are exactly the values wanted here.
+     */
+    public static void resetFood(Player player) {
+        FoodData food = player.getFoodData();
+//? if >=1.21.11 {
+        food.readAdditionalSaveData(net.minecraft.world.level.storage.TagValueInput.create(
+                net.minecraft.util.ProblemReporter.DISCARDING,
+                player.level().registryAccess(), new net.minecraft.nbt.CompoundTag()));
+//?} else {
+        food.setFoodLevel(20);
+        food.setSaturation(5.0F);
+        food.setExhaustion(0.0F);
+//?}
+    }
+
+    /** Looks a value up in a registry by id. */
+    public static <T> T value(Registry<T> registry, ResourceLocation id) {
+//? if >=1.21.11 {
+        return registry.getValue(id);
+//?} else {
+        return registry.get(id);
+//?}
+    }
+
+    /** Marks an item stack as unbreakable. */
+    public static void makeUnbreakable(ItemStack stack) {
+//? if >=1.21.11 {
+        stack.set(DataComponents.UNBREAKABLE, net.minecraft.util.Unit.INSTANCE);
+//?} else {
+        stack.set(DataComponents.UNBREAKABLE, new Unbreakable(true));
 //?}
     }
 

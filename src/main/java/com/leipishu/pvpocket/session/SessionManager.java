@@ -52,7 +52,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
 
 import java.io.IOException;
@@ -3229,7 +3228,7 @@ public final class SessionManager {
         // 0 means natural; the rest are fixed ticks. 1000 is shortly after sunrise, 6000 noon,
         // 12000 dusk and 18000 midnight.
         boolean frozen = time > 0;
-        world.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(!frozen, server);
+        PvCompat.setDaylightCycle(world, !frozen);
         if (frozen) {
             world.setDayTime(switch (time) {
                 case 2 -> 6000L;
@@ -3268,7 +3267,7 @@ public final class SessionManager {
                 return;
             }
         }
-        world.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(true, server);
+        PvCompat.setDaylightCycle(world, true);
         world.setWeatherParameters(12_000, 0, false, false);
     }
 
@@ -4298,9 +4297,7 @@ public final class SessionManager {
         player.setRemainingFireTicks(0);
         player.setDeltaMovement(0, 0, 0);
         player.fallDistance = 0;
-        player.getFoodData().setFoodLevel(20);
-        player.getFoodData().setSaturation(5.0F);
-        player.getFoodData().setExhaustion(0.0F);
+        PvCompat.resetFood(player);
         player.setHealth(Math.min(maxHealth, player.getMaxHealth()));
     }
 

@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.loadout;
 
+import com.leipishu.pvpocket.compat.PvNbt;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.entity.player.Player;
@@ -46,7 +47,7 @@ public final class LoadoutLock {
             return "";
         }
         CustomData data = stack.get(DataComponents.CUSTOM_DATA);
-        return data == null ? "" : data.copyTag().getString(KEY);
+        return data == null ? "" : PvNbt.getString(data.copyTag(), KEY);
     }
 
     /**
