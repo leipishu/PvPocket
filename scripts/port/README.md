@@ -52,37 +52,47 @@ player.teleportTo(level, x, y, z, yaw, pitch);
 
 ## 1.21.11 现状（未完成）
 
-`1.21.11-fabric` 从 298 个错误降到 **174** 个，纯改名部分已清空。剩下的都是真实 API 差异，
-按文件分：
+错误数：**298 → 42**。`1.21.1-fabric` 与 `1.21.1-neoforge` 已编译通过。
 
 | 文件 | 数量 | 原因 |
 | --- | --- | --- |
-| `PlayerSnapshot` | ~34 | `CompoundTag` 取值改 `Optional`、`ValueInput`/`ValueOutput` 取代直接读写、`getList` 要类型参数 |
-| `ArenaManager` | 24 | `ServerPlayer.getServer()` 没了；`teleportTo` 换签名 |
-| `SessionManager` | 18 | 同上 |
-| `LoadoutBuilder` | 16 | `SwordItem` 被删、`PotionContents` 构造与 `getColor` 变了、`Unbreakable` 换组件 |
-| `HomePositions` | 14 | `getSharedSpawnPos` 没了；`teleportTo` |
-| `PvPocketCommands` / `Spectators` / `FabricPlatform` | 8+12+8 | `hasPermission(int)` 换签名、`Inventory.selected` 变私有、`InteractionResultHolder` 被删 |
-| 其余 6 个文件 | ~20 | `ArenaGuard` 的 `HoverEvent`/`ClickEvent` 变抽象、`ItemKind`/`LoadoutLock` 的条件表达式类型 |
+| `PlayerSnapshot` | 36 | `CompoundTag` 取值改 `Optional`、`ValueInput`/`ValueOutput` 取代直接读写、`getList` 要类型参数 |
+| `LoadoutBuilder` | 14 | `Unbreakable` 构造变了、`PotionContents.getColor` 签名变了、`registryOrThrow` 改名 |
+| `FabricPlatform` | 8 | `InteractionResultHolder` 被删，改用 `InteractionResult` |
+| `SessionManager` | 6 | 待查（多为 `GameRules` 取值） |
+| `ArenaGuard` | 4 | `ClickEvent`/`HoverEvent` 变抽象，要改用 `ClickEvent.RunCommand` 这类具体记录 |
+| `ExplosionMixin` | 4 | `getExplosionSound` 疑似改名 |
+| `Spectators` / `HomePositions` | 4+2 | 跨行的 6 参 `teleportTo` 没被脚本改到，手工换成 `PvCompat.teleport` |
+| `ItemKind` / `LoadoutLock` | 2+2 | 条件表达式类型错误 |
+| `LegacyKnockback` | 2 | `hasImpulse` 字段 |
 
-已核实的 1.21.11 API（省下重查）：
+已核实并**已经**落地的（不用再查）：
 
-- `Entity.teleportTo(ServerLevel, double, double, double, Set<Relative>, float, float, boolean)`
-  —— 原 6 参版没了；另有 `teleport(TeleportTransition)`。
-- `Entity.getServer()` 没了，改走 `level().getServer()`。
-- `hasPermission` 只剩一个重载（`method_71774`），`hasPermission(int)` 与 `hasPermissions(int)`
-  都不适用。
-- `getMinBuildHeight` / `getMaxBuildHeight` / `getSharedSpawnPos` / `serverLevel` 均已改名，
-  新名用 `javap` 查（见下）。
-- `Inventory.selected` 变私有。
+- `Entity.getServer()` → `PvCompat.server(entity)`
+- `getSharedSpawnPos()` → `PvCompat.sharedSpawn(level)`（`getRespawnData().pos()`）
+- 6 参 `teleportTo` → `PvCompat.teleport(...)`（8 参，多 `Set<Relative>` 与 boolean）
+- 权限体系重做：`hasPermission(int)` → `permissions().hasPermission(Permissions.COMMANDS_*)`，
+  数字等级 1 MODERATOR / 2 GAMEMASTER / 3 ADMIN / 4 OWNER
+- `ResourceKey.location()` → `identifier()`
+- `GameProfile.getName()` → `name()`
+- `Inventory.selected` → `getSelectedSlot()`
+- `getMinBuildHeight` / `getMaxBuildHeight` → `getMinY` / `getMaxY`（进表，不进 compat）
+- `SwordItem` 删除 → `ItemTags.SWORDS`；`MilkBucketItem` 删除 → `Items.MILK_BUCKET`
+- `ServerPlayer.server` 变私有 → `level().getServer()`
 
-查 API 的正确姿势（`javap` 要用 jdk-21，JDK 17 读不了 21 的 class 文件）：
+查 API 用 jdk-21 的 `javap`（17 读不了 21 的 class 文件）：
 
 ```bash
 ./gradlew :1.21.11-fabric:writeCompileClasspath
 CP=$(cat versions/1.21.11-fabric/build/compile-classpath.txt)
 "/c/Program Files/Java/jdk-21/bin/javap" -classpath "$CP" net.minecraft.world.entity.Entity | grep teleport
 ```
+
+## 改源码时的一个坑
+
+批量替换脚本必须先读后写。`open(path, 'w')` 会立刻截断文件，若在同一个表达式里再 `read()`，
+读到的是空文件——`SessionManager.java` 就这样被清过一次，靠 `git checkout` 救回。改完先
+`wc -l` 比对行数。
 
 ## 为什么不是 Stonecutter
 
