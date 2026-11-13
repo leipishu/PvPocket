@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.command;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.ItemKind;
@@ -66,12 +68,12 @@ public final class PvPocketCommands {
                 .executes(PvPocketCommands::arena)
                 // Operator-only: this destroys terrain and ends other people's matches.
                 .then(Commands.literal("reset")
-                        .requires(source -> source.hasPermission(3))
+                        .requires(source -> PvCompat.hasPermission(source, 3))
                         .executes(PvPocketCommands::arenaReset))
                 // Operator-only: it sets how many duels the server can run and writes the saved
                 // layout.
                 .then(Commands.literal("copy")
-                        .requires(source -> source.hasPermission(3))
+                        .requires(source -> PvCompat.hasPermission(source, 3))
                         .then(Commands.argument("map", StringArgumentType.word())
                                 .suggests(PvPocketCommands::suggestMaps)
                                 .executes(ctx -> arenaCopy(ctx, 1))
@@ -81,7 +83,7 @@ public final class PvPocketCommands {
                                                 IntegerArgumentType.getInteger(ctx, "count"))))))
                 // Operator-only, as copy: it writes the saved layout and erases a stamped arena.
                 .then(Commands.literal("remove")
-                        .requires(source -> source.hasPermission(3))
+                        .requires(source -> PvCompat.hasPermission(source, 3))
                         .then(Commands.argument("map", StringArgumentType.word())
                                 .suggests(PvPocketCommands::suggestMaps)
                                 .executes(ctx -> arenaRemove(ctx, 1))
@@ -91,7 +93,7 @@ public final class PvPocketCommands {
                                                 IntegerArgumentType.getInteger(ctx, "count")))))));
         root.then(Commands.literal("guard")
                 // Operator-only: the flag keeps a player in the sandbox.
-                .requires(source -> source.hasPermission(2))
+                .requires(source -> PvCompat.hasPermission(source, 2))
                 .then(Commands.argument("enabled", BoolArgumentType.bool())
                         .executes(ctx -> guard(ctx, BoolArgumentType.getBool(ctx, "enabled")))));
         root.then(Commands.literal("list").executes(PvPocketCommands::list));

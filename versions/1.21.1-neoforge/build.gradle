@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.neoforgeModdev)
 }
 
+// src/ is written against 1.21.1; every cell compiles a generated copy so the //? if blocks in it
+// resolve for this version too.
+ext.pvpocketPort = '1.21.1'
+
 // Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
 apply from: rootProject.file('gradle/pvpocket-cells.gradle')
 
@@ -40,14 +44,14 @@ repositories {
 // and are kept off the dedicated server by never loading them rather than by source set isolation.
 sourceSets {
     main {
-        java.srcDir rootProject.file('src/main/java')
-        java.srcDir rootProject.file('src/client/java')
-        java.srcDir rootProject.file('src/neoforge/java')
-        java.srcDir rootProject.file('src/client-neoforge/java')
-        resources.srcDir rootProject.file('src/main/resources')
-        resources.srcDir rootProject.file('src/client/resources')
-        resources.srcDir rootProject.file('src/neoforge/resources')
-        resources.srcDir rootProject.file('src/client-neoforge/resources')
+        java.srcDir pvpocketSrc('main/java')
+        java.srcDir pvpocketSrc('client/java')
+        java.srcDir pvpocketSrc('neoforge/java')
+        java.srcDir pvpocketSrc('client-neoforge/java')
+        resources.srcDir pvpocketSrc('main/resources')
+        resources.srcDir pvpocketSrc('client/resources')
+        resources.srcDir pvpocketSrc('neoforge/resources')
+        resources.srcDir pvpocketSrc('client-neoforge/resources')
     }
 }
 

@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.snapshot;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import net.minecraft.core.Holder;
@@ -89,7 +91,7 @@ public final class PlayerSnapshot {
         CompoundTag nbt = new CompoundTag();
         player.saveWithoutId(nbt);
 
-        MinecraftServer server = player.getServer();
+        MinecraftServer server = PvCompat.server(player);
         String dimension = player.level().dimension().location().toString();
 
         Scoreboard scoreboard = server.getScoreboard();
@@ -120,7 +122,7 @@ public final class PlayerSnapshot {
      * <p>Teleport first, then load the tag, then repair the fields the tag does not carry.
      */
     public void restore(ServerPlayer player) {
-        MinecraftServer server = player.getServer();
+        MinecraftServer server = PvCompat.server(player);
         ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dimensionId));
         ServerLevel world = server.getLevel(key);
         if (world == null) {
@@ -128,7 +130,7 @@ public final class PlayerSnapshot {
         }
 
         player.stopRiding();
-        player.teleportTo(world, x, y, z, yaw, pitch);
+        PvCompat.teleport(player, world, x, y, z, yaw, pitch);
         player.load(playerNbt.copy());
 
         // load() merges: an attribute absent from the tag keeps the value the arena wrote.

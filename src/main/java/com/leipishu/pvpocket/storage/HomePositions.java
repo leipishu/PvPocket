@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.storage;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
@@ -175,9 +177,9 @@ public final class HomePositions {
         ServerLevel target = home == null ? null : resolve(player, home.dimension);
         if (target == null) {
             // No record, or the record names a missing dimension. Spawn beats a plot in the void.
-            target = player.getServer().overworld();
-            player.teleportTo(target, target.getSharedSpawnPos().getX() + 0.5D,
-                    target.getSharedSpawnPos().getY(), target.getSharedSpawnPos().getZ() + 0.5D,
+            target = PvCompat.server(player).overworld();
+            player.teleportTo(target, PvCompat.sharedSpawn(target).getX() + 0.5D,
+                    PvCompat.sharedSpawn(target).getY(), PvCompat.sharedSpawn(target).getZ() + 0.5D,
                     player.getYRot(), player.getXRot());
             releaseSpectatorMode(player, null);
             PvPocket.LOGGER.warn("Moved {} out of the arena ({}, no usable home); sent to spawn",
@@ -186,7 +188,7 @@ public final class HomePositions {
                     .withStyle(ChatFormatting.YELLOW), false);
             return true;
         }
-        player.teleportTo(target, home.x, home.y, home.z, home.yaw, home.pitch);
+        PvCompat.teleport(player, target, home.x, home.y, home.z, home.yaw, home.pitch);
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         releaseSpectatorMode(player, home);
         PvPocket.LOGGER.info("Moved {} out of the arena ({}) to {} {} {} in {}",
@@ -216,7 +218,7 @@ public final class HomePositions {
         if (id == null) {
             return null;
         }
-        return player.getServer().getLevel(ResourceKey.create(Registries.DIMENSION, id));
+        return PvCompat.server(player).getLevel(ResourceKey.create(Registries.DIMENSION, id));
     }
 
     /** Writes the file if enough time has passed and anything actually changed. */

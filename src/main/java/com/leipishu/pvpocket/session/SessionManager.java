@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.session;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMaps;
@@ -863,7 +865,7 @@ public final class SessionManager {
         if (message == null) {
             return;
         }
-        MinecraftServer mc = player.getServer();
+        MinecraftServer mc = PvCompat.server(player);
         if (mc == null) {
             return;
         }
@@ -3527,7 +3529,7 @@ public final class SessionManager {
         if (s.matches > 0) {
             flags |= HomeStatePayload.FLAG_HAS_STATS;
         }
-        boolean operator = player.hasPermissions(3);
+        boolean operator = PvCompat.hasPermission(player, 3);
         if (operator) {
             flags |= HomeStatePayload.FLAG_OPERATOR;
         }
@@ -3652,7 +3654,7 @@ public final class SessionManager {
      * is the level the panel requires.
      */
     private boolean requireOperator(ServerPlayer player, String what) {
-        if (player.hasPermissions(3)) {
+        if (PvCompat.hasPermission(player, 3)) {
             return true;
         }
         PvPocket.LOGGER.warn("Refused home action '{}' from {} (not an operator)",
@@ -4355,7 +4357,7 @@ public final class SessionManager {
             // Persisted here, since the deferred restore path has no transition of its own.
             persist(session);
             // The snapshot reaches playerdata only at the next autosave or a clean disconnect.
-            ((PlayerManagerInvoker) player.getServer().getPlayerList())
+            ((PlayerManagerInvoker) PvCompat.server(player).getPlayerList())
                     .pvpocket$savePlayerData(player);
             sessionByPlayer.remove(player.getUUID());
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);

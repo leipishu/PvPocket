@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.session;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
@@ -192,7 +194,7 @@ final class ArenaGuard {
                 .append(PvLang.t("pvpocket.msg.guard.will_move", COUNTDOWN_SECONDS)
                         .withStyle(ChatFormatting.YELLOW)), false);
 
-        if (!player.hasPermissions(2)) {
+        if (!PvCompat.hasPermission(player, 2)) {
             return;
         }
         MutableComponent button = PvLang.t("pvpocket.msg.guard.button").setStyle(Style.EMPTY

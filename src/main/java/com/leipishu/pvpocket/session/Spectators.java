@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.session;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMap;
@@ -323,15 +325,15 @@ final class Spectators {
         pointCamera(player, null);
         ServerLevel back = server().getLevel(state.world);
         if (back != null) {
-            player.teleportTo(back, state.x, state.y, state.z, state.yaw, state.pitch);
+            PvCompat.teleport(player, back, state.x, state.y, state.z, state.yaw, state.pitch);
             player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         } else {
             // The origin dimension is unloaded, so fall back to the overworld spawn.
             PvPocket.LOGGER.warn("Spectator {} came from an unloaded dimension {}; sending to spawn",
                     player.getName().getString(), state.world.location());
             ServerLevel overworld = server().overworld();
-            player.teleportTo(overworld, overworld.getSharedSpawnPos().getX() + 0.5D,
-                    overworld.getSharedSpawnPos().getY(), overworld.getSharedSpawnPos().getZ() + 0.5D,
+            player.teleportTo(overworld, PvCompat.sharedSpawn(overworld).getX() + 0.5D,
+                    PvCompat.sharedSpawn(overworld).getY(), PvCompat.sharedSpawn(overworld).getZ() + 0.5D,
                     state.yaw, state.pitch);
         }
         if (player.gameMode.getGameModeForPlayer() != state.mode) {

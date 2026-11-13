@@ -1,5 +1,7 @@
 package com.leipishu.pvpocket.arena;
 
+import com.leipishu.pvpocket.compat.PvCompat;
+
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.google.gson.Gson;
@@ -1280,7 +1282,7 @@ public final class ArenaManager {
      */
     public static boolean teleportToSpawn(ServerPlayer player, ArenaRegion region, int spawnIndex,
                                           int member, int memberCount) {
-        ServerLevel world = world(player.getServer());
+        ServerLevel world = world(PvCompat.server(player));
         if (world == null || region == null) {
             return false;
         }
@@ -1309,7 +1311,7 @@ public final class ArenaManager {
             z -= Math.cos(rad) * depth;
         }
         player.stopRiding();
-        player.teleportTo(world, x, y, z, yaw, 0.0F);
+        PvCompat.teleport(player, world, x, y, z, yaw, 0.0F);
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }
@@ -1331,7 +1333,7 @@ public final class ArenaManager {
      * placed inside the boundary blocks.
      */
     public static boolean pullInside(ServerPlayer player, ArenaRegion region) {
-        ServerLevel world = world(player.getServer());
+        ServerLevel world = world(PvCompat.server(player));
         if (world == null || region == null) {
             return false;
         }
@@ -1349,7 +1351,7 @@ public final class ArenaManager {
             }
         }
         player.stopRiding();
-        player.teleportTo(world, x, y, z, player.getYRot(), player.getXRot());
+        PvCompat.teleport(player, world, x, y, z, player.getYRot(), player.getXRot());
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }
@@ -1400,7 +1402,7 @@ public final class ArenaManager {
      * @return true when the player was outside and has been moved back in.
      */
     public static boolean pullSpectatorInside(ServerPlayer player, ArenaRegion region) {
-        ServerLevel world = world(player.getServer());
+        ServerLevel world = world(PvCompat.server(player));
         if (world == null || region == null) {
             return false;
         }
@@ -1411,7 +1413,7 @@ public final class ArenaManager {
         if (x == player.getX() && y == player.getY() && z == player.getZ()) {
             return false;
         }
-        player.teleportTo(world, x, y, z, player.getYRot(), player.getXRot());
+        PvCompat.teleport(player, world, x, y, z, player.getYRot(), player.getXRot());
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         return true;
     }

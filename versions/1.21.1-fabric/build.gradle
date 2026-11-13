@@ -4,6 +4,10 @@ plugins {
     id 'maven-publish'
 }
 
+// src/ is written against 1.21.1; every cell compiles a generated copy so the //? if blocks in it
+// resolve for this version too.
+ext.pvpocketPort = '1.21.1'
+
 // Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
 apply from: rootProject.file('gradle/pvpocket-cells.gradle')
 
@@ -31,16 +35,16 @@ loom {
 // client half. Paths need rootProject.file(...) because projectDir is versions/<cell>.
 sourceSets {
     main {
-        java.srcDir rootProject.file('src/main/java')
-        resources.srcDir rootProject.file('src/main/resources')
-        java.srcDir rootProject.file('src/fabric/java')
-        resources.srcDir rootProject.file('src/fabric/resources')
+        java.srcDir pvpocketSrc('main/java')
+        resources.srcDir pvpocketSrc('main/resources')
+        java.srcDir pvpocketSrc('fabric/java')
+        resources.srcDir pvpocketSrc('fabric/resources')
     }
     client {
-        java.srcDir rootProject.file('src/client/java')
-        resources.srcDir rootProject.file('src/client/resources')
-        java.srcDir rootProject.file('src/client-fabric/java')
-        resources.srcDir rootProject.file('src/client-fabric/resources')
+        java.srcDir pvpocketSrc('client/java')
+        resources.srcDir pvpocketSrc('client/resources')
+        java.srcDir pvpocketSrc('client-fabric/java')
+        resources.srcDir pvpocketSrc('client-fabric/resources')
     }
 }
 
