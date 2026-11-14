@@ -1,15 +1,13 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="界面 遮挡审计 1.21.11" type="ShConfigurationType" folderName="PvPocket 界面">
     <option name="SCRIPT_TEXT" value="" />
-    <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="$PROJECT_DIR$/scripts/check-ui.sh" />
     <option name="SCRIPT_OPTIONS" value="" />
-    <option name="INDEPENDENT_SCRIPT_WORKING_DIRECTORY" value="true" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-    <option name="INDEPENDENT_INTERPRETER_PATH" value="true" />
     <option name="INTERPRETER_PATH" value="C:\Program Files\Git\bin\bash.exe" />
     <option name="INTERPRETER_OPTIONS" value="" />
-    <option name="PARENT_ENVS" value="true" />
+    <option name="EXECUTE_IN_TERMINAL" value="false" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
     <envs>
       <env name="CELL" value="1.21.11-fabric" />
     </envs>
