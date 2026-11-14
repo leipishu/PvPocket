@@ -544,7 +544,13 @@ public abstract class PvScreen extends Screen {
 //? if >=1.21.11 {
     @Override
     public boolean charTyped(CharacterEvent event) {
+//? if >=26.1 {
+        // CharacterEvent carries the codepoint and nothing else in 26.1; no widget reads the
+        // modifier bits of a typed character, so a zero is the honest stand-in.
+        return charTyped((char) event.codepoint(), 0);
+//?} else {
         return charTyped((char) event.codepoint(), event.modifiers());
+//?}
     }
 //?}
     public boolean charTyped(char chr, int modifiers) {

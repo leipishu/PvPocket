@@ -3,6 +3,9 @@ package com.leipishu.pvpocket.client.render;
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.network.PossessPayload;
+//? if <26.1 {
+import net.minecraft.client.renderer.LightTexture;
+//?}
 //? if >=1.21.11 {
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.resources.ResourceLocation;
@@ -104,11 +107,11 @@ public final class PossessedHandRenderer {
         RenderSystem.clear(GlConst.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
-        frame.lightmap().turnOnLightLayer();
+        ((LightTexture) frame.lightmap()).turnOnLightLayer();
         drawHand(client, matrices, consumers, target, tickDelta, InteractionHand.MAIN_HAND, main, light);
         drawHand(client, matrices, consumers, target, tickDelta, InteractionHand.OFF_HAND, off, light);
         consumers.endBatch();
-        frame.lightmap().turnOffLightLayer();
+        ((LightTexture) frame.lightmap()).turnOffLightLayer();
 //?}
         matrices.popPose();
 

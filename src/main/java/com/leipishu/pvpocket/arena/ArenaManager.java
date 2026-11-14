@@ -1255,11 +1255,11 @@ public final class ArenaManager {
         }
         boolean placedThisRound = region.isChanged(pos);
         if (region.protectTerrain && !placedThisRound) {
-            player.displayClientMessage(PvLang.t("pvpocket.msg.arena.protected").withStyle(ChatFormatting.GRAY), true);
+            PvCompat.overlay(player, PvLang.t("pvpocket.msg.arena.protected").withStyle(ChatFormatting.GRAY));
             return false;
         }
         if (!region.allowBreakOwn && placedThisRound) {
-            player.displayClientMessage(PvLang.t("pvpocket.msg.arena.no_break").withStyle(ChatFormatting.GRAY), true);
+            PvCompat.overlay(player, PvLang.t("pvpocket.msg.arena.no_break").withStyle(ChatFormatting.GRAY));
             return false;
         }
         return true;

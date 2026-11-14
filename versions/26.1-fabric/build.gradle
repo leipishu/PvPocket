@@ -1,0 +1,108 @@
+// Fabric 26.1 cell. Parallel to the 1.21.11 one, with two differences that come from the version
+// itself: the jar is unobfuscated (no mappings, no remapping) and the bytecode level is 25.
+
+plugins {
+    // Loom 1.19 split the plugin in two: `net.fabricmc.fabric-loom` is the no-remap variant, and
+    // applying it is what turns the whole remap pipeline off for an unobfuscated jar.
+    id 'net.fabricmc.fabric-loom' version '1.19.4'
+    id 'maven-publish'
+}
+
+// src/ is written against 1.21.1, so this cell compiles the generated port for 26.1.
+ext.pvpocketPort = '26.1'
+
+// Minecraft 26.1 is built for Java 25, so both the compiler and the game run on the 25 toolchain.
+ext.pvpocketJavaVersion = 25
+
+// Loader-independent half: archive name, Java level, encoding, licence, dev clients, statsCheck.
+apply from: rootProject.file('gradle/pvpocket-cells.gradle')
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+}
+
+// splitEnvironmentSourceSets() must run before the sourceSets block: it creates the `client`
+// source set, so declaring it earlier fails with "SourceSet with that name already exists".
+loom {
+    splitEnvironmentSourceSets()
+
+    mods {
+        "pvpocket" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+// Source roots: src/main + src/fabric are the server half, src/client + src/client-fabric the
+// client half. Paths need rootProject.file(...) because projectDir is versions/<cell>.
+sourceSets {
+    main {
+        java.srcDir pvpocketSrc('main/java')
+        resources.srcDir pvpocketSrc('main/resources')
+        java.srcDir pvpocketSrc('fabric/java')
+        resources.srcDir pvpocketSrc('fabric/resources')
+    }
+    client {
+        java.srcDir pvpocketSrc('client/java')
+        resources.srcDir pvpocketSrc('client/resources')
+        java.srcDir pvpocketSrc('client-fabric/java')
+        resources.srcDir pvpocketSrc('client-fabric/resources')
+    }
+}
+
+// Loom pre-registers the `client` and `server` runs, so creating one with those names fails.
+// This helper configures the run when it exists and creates it otherwise.
+def configureRun = { String name, Closure action ->
+    def run = loom.runs.findByName(name)
+    if (run == null) {
+        run = loom.runs.create(name)
+    }
+    action.call(run)
+}
+
+// Same run names and usernames as the NeoForge cell, so the dev scripts work on either loader.
+configureRun('server') { run ->
+    run.server()
+    run.configName = 'Minecraft Server (shared room)'
+    run.runDir(pvpocketRunDirRelative('server'))
+}
+
+pvpocketDevClients.each { spec ->
+    configureRun(spec.name) { run ->
+        run.client()
+        run.configName = "Minecraft Client (${spec.user})"
+        run.runDir(pvpocketRunDirRelative(spec.dir))
+        run.programArgs(pvpocketClientArgs(spec.user) as String[])
+        if (pvpocketQuickJoin != 'off' && !pvpocketQuickJoin.isEmpty()) {
+            run.programArgs(['--quickPlayMultiplayer', pvpocketQuickJoin] as String[])
+        }
+        pvpocketClientJvmArgs().each { run.vmArg(it) }
+    }
+}
+
+// No datagen run: the mod ships its resources by hand, and Loom 1.19 made the program-arg list
+// read-only, so leaving the block out is cheaper than clearing it.
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // Plain implementation, not modImplementation: a no-remap cell has no remap configurations to
+    // put them in, and nothing downstream needs remapping because the jar is already named.
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": inputs.properties.version
+    }
+}
+
+jar {
+    inputs.property "archivesName", project.base.archivesName
+}

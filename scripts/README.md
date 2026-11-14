@@ -25,10 +25,11 @@
 | 给服务端发指令 | `python scripts/map/rcon.py "execute as Dev1 run ..."` |
 | 加一个新版本格子 | 见 [`port/README.md`](port/README.md) |
 
-## 1.21.11 怎么跑
+## 换版本怎么跑
 
-1.21.11 没有专用脚本——**所有脚本都用 `CELL=` 选格子**，和 1.21.1 是同一套。四格的名字是
-`1.21.1-fabric`、`1.21.1-neoforge`、`1.21.11-fabric`、`1.21.11-neoforge`。
+1.21.11 与 26.1 都没有专用脚本——**所有脚本都用 `CELL=` 选格子**，和 1.21.1 是同一套。六格的名字
+是 `1.21.1-fabric`、`1.21.1-neoforge`、`1.21.11-fabric`、`1.21.11-neoforge`、`26.1-fabric`、
+`26.1-neoforge`。
 
 ```bash
 # 联调：服务端在后台，Dev1 + Dev2 自动进服，Ctrl+C 全停
@@ -42,7 +43,7 @@ CELL=1.21.11-neoforge PVP_CLIENTS=3 scripts/dev-duel.sh
 CELL=1.21.11-fabric scripts/dev-clients.sh   # 终端 2
 
 # 自检：格子由 FABRIC_CELL / NEOFORGE_CELL 指定，默认是 1.21.1
-FABRIC_CELL=1.21.11-fabric NEOFORGE_CELL=1.21.11-neoforge scripts/check-logic.sh
+FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge scripts/check-logic.sh
 
 # 界面遮挡审计（约两分钟，不需要服务端）
 CELL=1.21.11-fabric scripts/check-ui.sh
@@ -58,7 +59,7 @@ CELL=1.21.11-fabric scripts/check-ui.sh
 - **联调 / 自检 / 构建**：脚本类的入口，点绿三角就跑，输出在 Run 窗口。
 - 联调配置已经带好 `CELL` 环境变量，换格就选另一条。
 - 构建用 Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`；产物归到 `dist/<cell>/`。
-- **单跑**：四格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
+- **单跑**：六格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
   `runClient` / `runClient2..4` / `runServer`，全部收在 `PvPocket 单跑` 文件夹里。NeoForge 的
   ModDevGradle 本来会另写一套同名配置到 `.idea/workspace.xml`（文件夹外），已由
   `gradle/pvpocket-cells.gradle` 关掉 `neoForgeIdeSync` 阻止，否则每条都会出现两份。
@@ -79,7 +80,7 @@ Run → Edit Configurations 里改 Interpreter path。
 
 ## 约定
 
-- **`CELL`** 选格子，四格通吃。少数脚本用两个变量（`check-logic.sh` 同时核 Fabric 与 NeoForge）。
+- **`CELL`** 选格子，六格通吃。少数脚本用两个变量（`check-logic.sh` 同时核 Fabric 与 NeoForge）。
 - **`PVP_CLIENTS`** 1–4，对应 `runClient` / `runClient2` / `runClient3` / `runClient4` 四个 run 任务。
 - **退出码**：0 通过，1 有发现，2 环境不全（没编译、找不到 JDK、审计没跑完）。CI 只需要看 0/非 0。
 - **日志**落在 `versions/<cell>/build/devlogs/`，不在仓库根的 `logs/`。

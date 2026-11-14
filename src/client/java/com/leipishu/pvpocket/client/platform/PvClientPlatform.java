@@ -8,7 +8,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
@@ -123,10 +122,16 @@ public interface PvClientPlatform {
         void init(Minecraft client, Screen screen);
     }
 
-    /** One HUD layer. */
+    /**
+     * One HUD layer.
+     *
+     * <p>Named {@code draw} and not {@code render}: the port rename table renames a vanilla
+     * widget's render method to {@code extractRenderState} by its whole signature, and this
+     * interface has that same signature, so the table would rename it too.
+     */
     @FunctionalInterface
     interface HudLayer {
-        void render(GuiGraphics graphics, DeltaTracker delta);
+        void draw(GuiGraphics graphics, DeltaTracker delta);
     }
 
     /** One world render pass. */
@@ -139,12 +144,10 @@ public interface PvClientPlatform {
      * The values available during one world render pass.
      *
      * <p>A record rather than a loader type: every field exists on both loaders' render events, so
-     * renderers never name a loader class.
-     *
-     * <p>{@code nodes} is the exception. 1.21.11 replaced immediate-mode drawing with a submit
-     * queue that is collected during the pass and drawn afterwards, and nothing else exposes it, so
-     * a renderer that draws entities needs it. It is typed {@code Object} because the class does
-     * not exist before 1.21.11; it is null there, and only the 1.21.11 code path reads it.
+     * renderers never name a loader class. {@code nodes} and {@code lightmap} are typed
+     * {@code Object} because the classes they hold do not exist on every version: the submit queue
+     * arrived in 1.21.11 and {@code LightTexture} left in 26.1, so each is null on the versions
+     * that lack it, and only the matching code path reads it.
      */
     record WorldFrame(
             ClientLevel level,
@@ -152,7 +155,7 @@ public interface PvClientPlatform {
             MultiBufferSource buffers,
             Camera camera,
             DeltaTracker delta,
-            LightTexture lightmap,
+            Object lightmap,
             Object nodes) {
     }
 

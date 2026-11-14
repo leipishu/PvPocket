@@ -24,24 +24,39 @@
 
 | 工具 | 版本 |
 | --- | --- |
-| JDK | 21（1.21.1 强制要求，**JDK 17 跑不起客户端**） |
-| Gradle | 8.14.3（wrapper 自带，不用单独装） |
-| Fabric Loom | 1.11.8 |
-| Yarn mappings | 1.21.1+build.3 |
-| Fabric Loader | 0.16.9 |
-| Fabric API | 0.116.17+1.21.1 |
+| JDK | 17 / 21 / 25 / 27，四份都要装，按 cell 分工见下 |
+| Gradle | 9.9.1（wrapper 自带，不用单独装） |
+| Fabric Loom | 1.13.6（1.21.x）/ 1.19.4（26.x，`net.fabricmc.fabric-loom` 不混淆变体） |
+| ModDevGradle | 2.0.148 |
+| 映射 | Mojmap（`loom.officialMojangMappings()`）；26.1 起不混淆，不需要映射 |
+| Fabric Loader | 0.16.9（1.21.x）/ 0.20.1（26.x） |
 
-`gradle.properties` 固定了 Gradle 守护进程使用的 JDK 路径（Loom 1.11 要求 JVM 21+）。换机器或接入
-CI 时改这一行，或删掉它改用环境变量：
+**JDK 不能只装一个**，四个版本各有各的用处：
 
-```bash
-JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
+| JDK | 谁用 |
+| --- | --- |
+| 27 | Gradle 守护进程（Loom 1.19 要求 JVM 25+，且不能低于它要配置的 MC 版本） |
+| 25 | 26.x 两个 cell 的 toolchain：编译和运行都是它 |
+| 21 | 1.21.1 与 1.21.11 的 toolchain |
+| 17 | `legacy/1.20.1`（FG6） |
+
+26.x 的 toolchain **不能**用 27：NeoForge 26.1 自带的 ASM 9.9.1 拒绝 level 27 的 class 文件，
+服务端在第一个 tick 之前就 `Unsupported class file major version 71` 退出。Fabric 那格跑 27 是能
+跑的，但两格用同一个 JDK 才不会出现「一个能跑一个不能」。
+
+`gradle.properties` 固定了守护进程用的 JDK 和 toolchain 的搜索路径（Gradle 的注册表探测在这台
+机器上找不到 jdk-17）。换机器时改这两行：
+
+```properties
+org.gradle.java.home=C:\\Program Files\\Java\\jdk-27
+org.gradle.java.installations.paths=...jdk-17,...jdk-21,...jdk-25,...jdk-27
 ```
 
 ## 构建
 
 **仓库根就是 Gradle 根。** 一个 **cell** = 一个 Minecraft 版本 × 一个加载器，是一个子项目，
-命令写成 `./gradlew :<cell>:<task>`。现在有两格：`1.21.1-fabric` 与 `1.21.1-neoforge`。
+命令写成 `./gradlew :<cell>:<task>`。现在有六格：`1.21.1` / `1.21.11` / `26.1` 各 fabric 与
+neoforge 一份。
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # 只编译一格，最快反馈
@@ -49,7 +64,7 @@ JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 ./gradlew buildAll                        # 全部 cell，产物按格子分放在 dist/ 下
 ```
 
-**产物只有一个去处：仓库根的 `dist/<cell>/`。** 每个格子两份 jar（本体 + sources），四格就是八份，
+**产物只有一个去处：仓库根的 `dist/<cell>/`。** 每个格子两份 jar（本体 + sources），六格就是十二份，
 `buildAll` 结束时会把清单打出来。`versions/<cell>/build/libs/` 里还有中间产物（Fabric 的 dev jar 在
 `devlibs/`），那些不是拿去装的，别从那里取。`dist/` 在 `.gitignore` 里，构建产物不入库。
 

@@ -11,7 +11,7 @@
 Minecraft 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生存完全隔离的决斗口袋，
 自定义配装、多局对抗、打完不留痕迹。目标形态是 **6 个 Minecraft 版本 × 2 个加载器 = 12 格**
 （1.20.1 / 1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3，每版 fabric + neoforge；1.20.1 用 forge）。
-目前只有 1.21.1 的两个 cell 建好了。
+已建 6 格：1.21.1、1.21.11、26.1，各 fabric 与 neoforge 一份。
 
 **服务端与客户端必须同版本。** 两端协议是自定义 payload，版本不一致时表现为面板不出现或规则不生效，
 而不是一个明确的报错。
@@ -28,8 +28,9 @@ PvPocket/
 ├── gradle/pvpocket-cells.gradle   # 两个 cell 共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
 ├── gradle/catalogs/<mc>.toml      # 每个 MC 版本一份版本号，注册成 catalog `v<mc>`
 ├── gradle/libs.versions.toml      # 加载器工具链版本 + 插件坐标，catalog `libs`
-├── src/                      # 共享源码，所有 cell 编译同一份
+├── src/                      # 手写源，只有 1.21.1 那两格直接编译它
 ├── versions/<cell>/build.gradle   # 每格约 100 行：加载器插件 + 依赖 + run
+├── versions/<cell>/gen-src/  # 其余格子编译的生成树，由 scripts/port/gen.py 写出，不入库
 ├── runs/<cell>/{server,client1..4}   # 运行目录，按 cell 分开
 ├── legacy/1.20.1/            # 1.20.1 的独立 Gradle 根（FG6 要 Gradle 8）
 └── scripts/ docs/ arena-src/
@@ -43,7 +44,7 @@ PvPocket/
 | `src/client/java/` | 客户端里**与加载器无关**的部分：`client/gui`、`client/hud`、`client/render`、`client/platform/PvClientPlatform` |
 | `src/client-fabric/java/` | 客户端加载器接线：`client/platform/fabric/` 的入口与平台实现。NeoForge 那一格对应 `src/client-neoforge/java/` |
 | `src/main/resources/assets/pvpocket/lang/` | `zh_cn.json` / `en_us.json` |
-| `versions/<cell>/` | 一格一个：`build.gradle` + 该格自己的 `build/` |
+| `versions/<cell>/` | 一格一个：`build.gradle` + `build/` + `gen-src/`（只有设了 `ext.pvpocketPort` 的格子才有后者） |
 | `gradle/catalogs/<mc>.toml` | 一个 MC 版本一份：`minecraft` / `fabricApi` / `neoforge`。**加版本 = 加文件** |
 | `gradle/libs.versions.toml` | 跨版本共享：`fabric-loader` / Loom / ModDevGradle，以及 `[plugins]` 的插件坐标 |
 | `gradle.properties` | 只剩 `org.gradle.*`、Loom 下载源、`mod_id` / `mod_name` / `mod_version` / `maven_group` |
@@ -59,6 +60,17 @@ PvPocket/
 **为什么加载器这一维落在子项目边界上**：Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与
 remap，一个 project 只能应用其中一个。塞进同一个 project 就是让两个插件互相覆盖。
 
+**26.x 的 Fabric 插件 id 不是 `fabric-loom`。** Loom 1.19 把插件拆成两个，26.1 用的是
+`net.fabricmc.fabric-loom`：它是「不混淆」变体，apply 时自己把 remap 流水线整个关掉。用
+`fabric-loom` + `fabric.loom.disableObfuscation` 这个开关在 1.19 上不生效，报的是
+`Configuration 'mappings' has no dependencies`——看起来像缺依赖，其实是没关掉混淆。顺带一提，那个
+开关只认 String，写成 Boolean 会被静默当成没设置。
+
+**版本差异不进业务代码。** `src/` 里只有一层手写源，其余版本编译的是
+`versions/<cell>/gen-src/`——`scripts/port/gen.py` 复制 `src/` 时按表改名、按 `//? if` 剔分支。
+所以 `src/` 里那 200 多个 `//?` 标记**两支代码同时存在**，直接拿某格的类路径编 `src/` 会报几十个
+错，这是正常的。规则与踩坑记录见 `scripts/port/README.md`。
+
 **为什么版本号按 MC 版本分文件**：`gradle/catalogs/<mc>.toml` 里的键名在每个文件里完全一样
 （`minecraft` / `fabricApi` / `neoforge`），区分靠 catalog 名。catalog 名由 cell 名派生
 （`1.21.1-fabric` → `v1_21_1`，见 `gradle/pvpocket-cells.gradle`），所以 cell 的 `build.gradle`
@@ -73,14 +85,30 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 ./gradlew buildAll                                                     # 全部 cell
 ```
 
+**工具链版本不是随便挑的，四个 JDK 各管一段：**
+
+| JDK | 用途 | 为什么不能换 |
+| --- | --- | --- |
+| 27 | Gradle 守护进程（`org.gradle.java.home`） | Loom 1.19 要求 JVM 25+，且不低于它要配置的 MC 版本 |
+| 25 | 26.x 两格的 toolchain（编译与运行） | NeoForge 26.1 的 ASM 9.9.1 拒绝 level 27 的 class 文件，服务端起不来 |
+| 21 | 1.21.1 / 1.21.11 两版的 toolchain | 那两版就是 21 |
+| 17 | `legacy/1.20.1`（FG6） | ForgeGradle 6 只认 17 |
+
+路径写在 `gradle.properties` 的 `org.gradle.java.installations.paths`，**不要靠 Gradle 自动探测**：
+这台机器上它找不到 jdk-17。
+
+**Gradle 是 9.9.1**，不是 8.x：Loom 1.19（26.x 用的不混淆变体）要求 ≥9.8。1.21.x 那几格用 Loom
+1.13.6，在 9.9.1 上照常工作。`./gradlew wrapper --gradle-version` 在配置阶段就会失败（26.x 的
+cell 需要新 Gradle 才能配置），要升级只能直接改 `gradle/wrapper/gradle-wrapper.properties`。
+
 **产物只有一个出口：仓库根的 `dist/<cell>/`。** `assemble` 结束时 `collectDist` 会把 `build/libs`
-里的 jar 同步过去（Fabric 的 dev jar 在 `devlibs/`，不会进去），所以一格两份、四格八份，`buildAll`
+里的 jar 同步过去（Fabric 的 dev jar 在 `devlibs/`，不会进去），所以一格两份、六格十二份，`buildAll`
 末尾会把清单打出来。`dist/` 在 `.gitignore` 里。**不要去 `versions/<cell>/build/libs/` 找发行用的
 jar**，那里还有中间产物。
 
 **五个 run 任务两个加载器完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
 `runClient4`，换成另一格是同一套名字、同一批用户名（Dev1..Dev4）。IDEA 里这五条在 `.run/` 下，
-四格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
+六格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
 Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>:<task>`。
 
 ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型配置（引用
@@ -92,8 +120,9 @@ ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型�
 - `-PquickJoin=off` 停在标题界面；`-PclientHeap=<size>` 改堆上限。
 - 用户名、窗口尺寸、run 目录**只写在 `gradle/pvpocket-cells.gradle` 一处**。两个 cell 各写一遍的
   下场是联调脚本按 Dev1..Dev4 找人，另一边叫 NeoDev1，永远对不上。
-- datagen 只有 Fabric 有（`fabricApi.configureDataGeneration`），是 client 环境的子 run，
-  `1.21.1-fabric/build.gradle` 里已清空它的 `programArgs`。
+- datagen 只有 1.21.x 的 Fabric 格有（`fabricApi.configureDataGeneration`），是 client 环境的子
+  run，`1.21.1-fabric/build.gradle` 里已清空它的 `programArgs`。26.1-fabric 没有这一段：Loom 1.19
+  把 program-arg 列表改成了只读，清不掉，而模组的资源是手写的，本来也没有 provider 要跑。
 
 联调（服务端独占终端，客户端另起）：
 

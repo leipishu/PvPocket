@@ -3230,7 +3230,7 @@ public final class SessionManager {
         boolean frozen = time > 0;
         PvCompat.setDaylightCycle(world, !frozen);
         if (frozen) {
-            world.setDayTime(switch (time) {
+            PvCompat.setDayTime(world, switch (time) {
                 case 2 -> 6000L;
                 case 3 -> 12000L;
                 case 4 -> 18000L;
@@ -3239,11 +3239,11 @@ public final class SessionManager {
         }
         int weather = rules.get("e.weather");
         if (weather == 1) {
-            world.setWeatherParameters(0, 12_000, true, false);
+            PvCompat.setWeather(world, 0, 12_000, true, false);
         } else if (weather == 2) {
-            world.setWeatherParameters(0, 12_000, true, true);
+            PvCompat.setWeather(world, 0, 12_000, true, true);
         } else {
-            world.setWeatherParameters(12_000, 0, false, false);
+            PvCompat.setWeather(world, 12_000, 0, false, false);
         }
     }
 
@@ -3268,7 +3268,7 @@ public final class SessionManager {
             }
         }
         PvCompat.setDaylightCycle(world, true);
-        world.setWeatherParameters(12_000, 0, false, false);
+        PvCompat.setWeather(world, 12_000, 0, false, false);
     }
 
     /**

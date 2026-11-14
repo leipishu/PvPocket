@@ -15,11 +15,16 @@
 | 1.20.1 | — | — | `legacy/1.20.1/forge` | 17 | 未建，见 `legacy/README.md` |
 | 1.21.1 | `1.21.1-fabric` | `1.21.1-neoforge` | — | 21 | **已建** |
 | 1.21.11 | `1.21.11-fabric` | `1.21.11-neoforge` | — | 21 | **已建，编译通过**；未连服实测 |
-| 26.1 | `26.1-fabric` | `26.1-neoforge` | — | 27（`release 25`） | 未建 |
-| 26.2 | `26.2-fabric` | `26.2-neoforge` | — | 27（`release 25`） | 未建 |
-| 26.3 | `26.3-fabric` | `26.3-neoforge` | — | 27（`release 25`） | 未建 |
+| 26.1 | `26.1-fabric` | `26.1-neoforge` | — | 25 | **已建**，两格都连服实测过 |
+| 26.2 | `26.2-fabric` | `26.2-neoforge` | — | 25 | 未建 |
+| 26.3 | `26.3-fabric` | `26.3-neoforge` | — | 25 | 未建 |
 
 1.20.1 用 Forge 而不是 NeoForge，因为 NeoForge 从 1.20.2 才有。
+
+**26.x 的 JDK 是 25，不是 27。** 编译用 27 也能过（`--release 25`），但 NeoForge 26.1 的运行时
+跑不动：它自带的 ASM 9.9.1 在读类层次时拒绝 level 27 的 class 文件，服务端在第一 tick 之前就
+`Unsupported class file major version 71` 退出。所以 26.x 的 toolchain 直接钉在 25，编译与运行同一个
+JDK。Gradle 守护进程本身仍跑在 27 上，那是 Loom 1.19 的要求。
 
 ## 加一格
 
@@ -31,7 +36,7 @@
 4. 跑 `./gradlew :<cell>:compileJava`。
 
 产物名从 cell 名派生，不用写：`1.21.1-fabric` → `pvpocket-fabric-1.21.1-<mod_version>.jar`。
-`./gradlew :<cell>:build` 之后它落在仓库根的 `dist/<cell>/`，四格共用这一个出口。
+`./gradlew :<cell>:build` 之后它落在仓库根的 `dist/<cell>/`，六格共用这一个出口。
 
 ## 为什么加载器是子项目，不是源集
 

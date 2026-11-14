@@ -43,6 +43,11 @@ if (portVersion) {
         inputs.dir(rootProject.file('src'))
         inputs.file(rootProject.file('scripts/port/gen.py'))
         inputs.file(rootProject.file("scripts/port/${portVersion}.tsv"))
+        // Data files whose schema changed shape rather than name; see scripts/port/README.md.
+        def overlay = rootProject.file("scripts/port/${portVersion}")
+        if (overlay.isDirectory()) {
+            inputs.dir(overlay)
+        }
         outputs.dir(portOutput)
         // PYTHON overrides the interpreter, same as the scripts/ entry points.
         def pythonBin = System.getenv('PYTHON') ?: 'python'

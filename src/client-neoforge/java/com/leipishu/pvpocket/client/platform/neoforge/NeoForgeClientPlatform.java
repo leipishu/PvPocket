@@ -6,7 +6,9 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+//? if <26.1 {
 import net.minecraft.client.renderer.LightTexture;
+//?}
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.bus.api.IEventBus;
@@ -66,7 +68,7 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
                 event -> screenActions.forEach(action -> action.init(
                         Minecraft.getInstance(), event.getScreen())));
         gameBus.addListener(RenderGuiEvent.Post.class,
-                event -> hudLayers.forEach(layer -> layer.render(
+                event -> hudLayers.forEach(layer -> layer.draw(
                         event.getGuiGraphics(), event.getPartialTick())));
         // The two stages are subscribed separately: after translucent blocks and after the level.
         // Fabric names them AFTER_TRANSLUCENT and LAST, at the same positions.
@@ -223,7 +225,12 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         Minecraft client = Minecraft.getInstance();
         PoseStack poses = event.getPoseStack();
         MultiBufferSource buffers = client.renderBuffers().bufferSource();
+//? if >=26.1 {
+        // 26.1 deleted LightTexture and hands out the lightmap as a bare texture view instead.
+        Object lightmap = client.gameRenderer.lightmap();
+//?} else {
         LightTexture lightmap = client.gameRenderer.lightTexture();
+//?}
         ClientLevel level = client.level;
 //? if >=1.21.11 {
         // The event lost world / camera / tick in the 1.21.9 render-state rework, and it has no

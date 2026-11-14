@@ -1,0 +1,74 @@
+# 1.21.1 -> 26.1 renames, applied by scripts/port/gen.py to the generated source tree.
+#
+# Format: `old<TAB>new`. Whole-word replacement, string literals included.
+#
+# The 26.1 rows are cumulative on top of the 1.21.11 ones: 26.1 is the first unobfuscated release,
+# so there is no Yarn mapping to diff against any more and every row has to come from a compile
+# error. Keeping the 1.21.11 block below means a rename that landed in 1.21.9 still applies.
+#
+# Rows with a package path come first (the generator sorts longest-first).
+
+# ======== carried over from 1.21.11 ========
+#
+# Derived from the Loom mappings of both versions, joined on the intermediary name, and filtered to
+# the names this source tree actually uses. Regenerate the candidate list with scripts/port/candidates.py if a
+# future error looks like a rename that is missing here.
+
+# ---- package moves (1.21.9 reorganisation) ----
+net.minecraft.world.entity.monster.Stray	net.minecraft.world.entity.monster.skeleton.Stray
+net.minecraft.world.entity.projectile.Arrow	net.minecraft.world.entity.projectile.arrow.Arrow
+net.minecraft.world.level.GameRules	net.minecraft.world.level.gamerules.GameRules
+net.minecraft.client.renderer.RenderType	net.minecraft.client.renderer.rendertype.RenderType
+net.minecraft.client.resources.PlayerSkin	net.minecraft.world.entity.player.PlayerSkin
+net.minecraft.client.resources.model.BakedModel	net.minecraft.client.renderer.block.model.BlockStateModel
+net.minecraft.world.entity.projectile.windcharge.AbstractWindCharge	net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.AbstractWindCharge
+net.minecraft.client.renderer.entity.player.PlayerRenderer	net.minecraft.client.renderer.entity.player.AvatarRenderer
+net.minecraft.resources.ResourceLocation	net.minecraft.resources.Identifier
+net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext	net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
+net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents	net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents
+
+# ---- renames ----
+ResourceLocation	Identifier
+PlayerRenderer	AvatarRenderer
+getMinBuildHeight	getMinY
+getMaxBuildHeight	getMaxY
+serverLevel	level
+RULE_DAYLIGHT	ADVANCE_TIME
+hasImpulse	hurtMarked
+registryOrThrow	lookupOrThrow
+
+# ======== new in 26.1 ========
+# The GUI render layer was renamed to the "extract" model: a screen no longer draws, it extracts a
+# render state, and the whole drawing surface moved to GuiGraphicsExtractor with shorter names.
+# The two phrase rows are what makes that a table entry instead of a 33-file edit; they must be
+# longer than the bare type row below, which the generator's longest-first ordering guarantees.
+void render(GuiGraphics	void extractRenderState(GuiGraphics
+.render(ctx	.extractRenderState(ctx
+GuiGraphics	GuiGraphicsExtractor
+ctx.drawString	ctx.text
+ctx.renderItemDecorations	ctx.itemDecorations
+ctx.renderItem	ctx.item
+PlayerFaceRenderer	PlayerFaceExtractor
+net.minecraft.client.renderer.item.BlockModelWrapper	net.minecraft.client.renderer.item.CuboidItemModelWrapper
+BlockModelWrapper	CuboidItemModelWrapper
+net.minecraft.client.renderer.block.model.ItemTransform	net.minecraft.client.resources.model.cuboid.ItemTransform
+ClickType	ContainerInput
+playC2S	serverboundPlay
+playS2C	clientboundPlay
+displayClientMessage	sendSystemMessage
+
+# ---- member renames ----
+#
+# Every row here is qualified by its receiver or by the call that produced it: the bare names are
+# generic enough that a future caller could mean something else entirely.
+getChat().addMessage	getChat().addClientSystemMessage
+PlayerFaceRenderer.draw	PlayerFaceRenderer.extractRenderState
+layer.setTransform	layer.setItemTransform
+
+# ---- mod metadata ----
+#
+# The declared version ranges have to be rewritten too: `~1.21.1` means "below 1.22", which 26.1
+# falls outside, so both loaders refuse to load the mod before any class runs. Each pattern is
+# anchored on word characters at both ends, which is what the generator's whole-word match needs.
+minecraft": "~1.21.1	minecraft": "~26.1-
+1.21.1,1.22	26.1,27

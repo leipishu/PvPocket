@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.home;
 
+import com.leipishu.pvpocket.client.compat.PvChat;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvWidget;
@@ -82,11 +83,8 @@ public class KeyBindRow extends PvWidget {
         KeyMapping conflict = conflicting(keyCode, scanCode);
         if (conflict != null && conflict != binding) {
             // A key held by another binding is refused and reported in the action bar.
-            Minecraft client = Minecraft.getInstance();
-            if (client.player != null) {
-                client.player.displayClientMessage(PvLang.t("pvpocket.msg.home.key_conflict",
-                        conflict.getTranslatedKeyMessage()), true);
-            }
+            PvChat.actionBar(PvLang.t("pvpocket.msg.home.key_conflict",
+                    conflict.getTranslatedKeyMessage()));
             return;
         }
         binding.setKey(PvKeys.keyOf(keyCode, scanCode));

@@ -61,7 +61,7 @@ public final class SpectatorHud implements PvClientPlatform.HudLayer {
     }
 
     @Override
-    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void draw(GuiGraphics ctx, DeltaTracker tickCounter) {
         SpectateStatePayload payload = state;
         if (payload == null) {
             return;

@@ -13,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * First-person half of the 1.8 block feedback: four corner brackets around the crosshair.
  *
- * <p>Hooks {@code Gui.renderCrosshair} at TAIL and draws the brackets when the local player is
- * blocking. Drawn in the mod's warm accent.
+ * <p>Hooks the crosshair pass of {@code Gui} at TAIL and draws the brackets when the local player
+ * is blocking. Drawn in the mod's warm accent.
  */
 @Mixin(Gui.class)
 public abstract class InGameHudMixin {
@@ -28,7 +28,11 @@ public abstract class InGameHudMixin {
     /** The accent {@code #F5A524} at 72% alpha, dimmed against the crosshair. */
     private static final int GUARD_COLOR = 0xB8F5A524;
 
+//? if >=26.1 {
+    @Inject(method = "extractCrosshair", at = @At("TAIL"))
+//?} else {
     @Inject(method = "renderCrosshair", at = @At("TAIL"))
+//?}
     private void pvpocket$blockingGuard(GuiGraphics context, DeltaTracker tickCounter,
                                         CallbackInfo ci) {
         Minecraft client = Minecraft.getInstance();

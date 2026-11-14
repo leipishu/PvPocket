@@ -48,13 +48,22 @@ ext.minecraft_version = pickVersion(cellCatalogName, 'minecraft')
 
 ## `yarn` 键
 
-每个文件里还有一个 `yarn`，**构建不读它**。只有 `scripts/mojmap/mojmap-table.py` 读：生成
+1.21.x 的文件里还有一个 `yarn`，**构建不读它**。只有 `scripts/mojmap/mojmap-table.py` 读：生成
 Yarn→Mojmap 对照表要下载 Yarn 映射，坐标里带这个版本号。它和 `minecraft` 严格绑定，所以放在
 同一个文件里——分两处存必然不同步。日常构建用 `loom.officialMojangMappings()`，不碰 Yarn。
 
+**26.x 的文件没有这个键**，也没有别的映射键：26.1 起 Minecraft 不混淆，jar 里直接是官方名，
+没有 Yarn 表可下载。
+
+## `loader` 键
+
+可选。`fabric-loader` 通常跨 MC 版本共用一个，放在 `gradle/libs.versions.toml`；某个 MC 版本需要
+更新的 loader 时，在这个文件里写 `loader`，它会盖掉默认值（`26.1.toml` 就是这么做的，因为不混淆
+的 jar 需要认识它的 loader）。
+
 ## 加一个版本的步骤
 
-1. 复制一个现有的 `.toml`，改文件名与三个版本号。
+1. 复制一个现有的 `.toml`，改文件名与三个版本号；26.x 去掉 `yarn` 键。
 2. 在 `settings.gradle` 的 `cells` 列表里加上对应的两个 cell 名。
 3. 建 `versions/<mc>-fabric/build.gradle` 与 `versions/<mc>-neoforge/build.gradle`
    （见 `versions/README.md`）。

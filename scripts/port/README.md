@@ -67,6 +67,23 @@ player.teleportTo(level, x, y, z, yaw, pitch);
 补表用 `scripts/port/candidates.py`：它读两版 Loom 缓存里的映射，按 intermediary 求交集，列出
 本仓库真正用到的改名。**Loom 缓存要先各编译一次**，否则没有映射文件。
 
+**26.1 起这个工具没用了。** 它是第一个不混淆的版本，jar 里直接是官方名（`Identifier`、`Avatar`、
+`AvatarRenderer` 都在），没有 Yarn 表可以对比，也就没有「候选改名」可算。26.1 的每一行都来自
+编译错误，只能一条一条加。
+
+## 覆盖目录
+
+`scripts/port/<mc>/` 下的文件在改名之后原样覆盖到生成树，路径相对生成树根。它解决的是**形状变了
+而不是名字变了**的那类文件：
+
+```
+scripts/port/26.1/main/resources/data/pvpocket/dimension_type/arena.json
+```
+
+JSON 里写不了 `//?`（`src/` 必须能直接被 1.21.1 那格编译，注释一进去就不是合法 JSON 了），
+所以 26.1 的维度类型整份放在这里。`gen.py` 会先写生成树、再铺覆盖、最后按差集删掉陈旧文件，
+打印里那个 `N replaced` 就是铺了几份。
+
 ## 1.21.11 现状（编译已通过）
 
 四个 cell 全部过 `buildAll`，错误数 **298 → 0**。`1.21.11` 的两格**没有连服实测**，只有编译与
@@ -129,6 +146,58 @@ python scripts/check-content.py 1.21.11-fabric --verify-jar <client jar>
 `--verify-jar` 只报差异、不改清单；核对干净后手工把对应的行从 `declared` 改成 `verified`。
 `since` 等于核对版本的那些行可以转，因为更早的版本已经被上一格的 jar 否掉了；`since` 夹在两个
 已核对版本之间的（例如铜制品的 `1.21.9`）仍然只能算 `declared`。
+
+## 26.1 现状（两格都连服实测过）
+
+`26.1-fabric` 与 `26.1-neoforge` 都过 `buildAll`，服务端 `Done (...)`、客户端进服、规则面板与配装
+编辑器都打开过，零 mixin 失败。错误数 **246 → 0**（服务端源集），客户端再 **38 → 0**。
+
+26.1 的改动比 1.21.11 深，但类型只有四类，全部收进 `PvCompat` 与改名表，业务代码里没有新增
+`//?`：
+
+| 变了什么 | 26.1 之前 | 26.1 |
+| --- | --- | --- |
+| GUI 渲染 | `render(GuiGraphics,...)` 直接画 | `extractRenderState(GuiGraphicsExtractor,...)` 只采集 |
+| 时钟 | `level.setDayTime(long)` | `clockManager().setTotalTicks(Holder<WorldClock>, long)` |
+| 天气 | `level.setWeatherParameters(...)` | `getServer().setWeatherParameters(...)` |
+| 消息 | `player.displayClientMessage(..., 覆盖栏?)` | `sendSystemMessage(Component[, 覆盖栏])` |
+
+GUI 那条是最大的一处：`GuiGraphics` 整个类改叫 `GuiGraphicsExtractor`，`drawString` → `text`、
+`renderItem` → `item`、`renderItemDecorations` → `itemDecorations`。所以改名表里有两行是**整句**
+而不是标识符：
+
+```
+void render(GuiGraphics	void extractRenderState(GuiGraphics
+.render(ctx	.extractRenderState(ctx
+```
+
+第一行让 33 个界面类的 `render` 覆写一次改完，第二行让调用点跟着走。副作用是 `PvClientPlatform`
+自己的 `HudLayer.render(GuiGraphics, DeltaTracker)` 也被这两行命中——它的签名和原版控件一模一样，
+表分不出来。所以那个接口方法叫 `draw`，避开整句规则。
+
+### 元数据里的版本区间也要改
+
+`fabric.mod.json` 的 `"minecraft": "~1.21.1"` 与 `neoforge.mods.toml` 的 `[1.21.1,1.22)` 会把
+26.1 排除在外，加载器在跑任何 mod 代码之前就拒绝加载，日志里只有一句「不兼容」。这两行同样走
+改名表，因为 `//?` 进不了 JSON/TOML。**改表时注意整词匹配要求两端都是单词字符**：
+`~1.21.1` 以 `~` 开头，前面又是引号，`\b` 不成立，所以写成 `minecraft": "~1.21.1`。
+
+### mixin 目标的方法名会变
+
+`Gui.renderCrosshair` 在 26.1 叫 `extractCrosshair`，而 `@Inject(method = ...)` 里是字符串，
+编译器不管。`MixinTargetCheck` 就是为这一类存在的，加完一格必须跑：
+
+```bash
+FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge bash scripts/check-logic.sh
+```
+
+### Fabric API 也跟着改了包
+
+`PayloadTypeRegistry.playC2S/playS2C` → `serverboundPlay/clientboundPlay`；
+`KeyBindingHelper`（`keybinding.v1`）→ `KeyMappingHelper`（`keymapping.v1`）；
+`HudRenderCallback` 整个没了，换成 `HudElementRegistry.addLast(Identifier, HudElement)`，**id 不能
+重复**，所以每层 HUD 要自己编号；`WorldRenderEvents`（`rendering.v1.world`）→ `LevelRenderEvents`
+（`rendering.v1.level`），`WorldRenderContext` → `LevelRenderContext`。
 
 ## 改源码时的一个坑
 

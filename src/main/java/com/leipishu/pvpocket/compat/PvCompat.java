@@ -23,6 +23,11 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+//? if >=26.1 {
+import net.minecraft.core.registries.Registries;
+import net.minecraft.world.clock.WorldClock;
+import net.minecraft.world.clock.WorldClocks;
+//?}
 //? if >=1.21.11 {
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.Permissions;
@@ -104,6 +109,40 @@ public final class PvCompat {
         level.getGameRules().set(GameRules.ADVANCE_TIME, running, level.getServer());
 //?} else {
         level.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(running, level.getServer());
+//?}
+    }
+
+    /** Freezes the overworld clock at one tick of the day. */
+    public static void setDayTime(ServerLevel level, long ticks) {
+//? if >=26.1 {
+        Holder<WorldClock> clock = holder(level.registryAccess().lookupOrThrow(Registries.WORLD_CLOCK),
+                WorldClocks.OVERWORLD);
+        if (clock != null) {
+            level.clockManager().setTotalTicks(clock, ticks);
+        }
+//?} else {
+        level.setDayTime(ticks);
+//?}
+    }
+
+    /** Sets weather for a fixed number of ticks; a zero rain time means "clear for that long". */
+    public static void setWeather(ServerLevel level, int clearTime, int rainTime,
+                                  boolean raining, boolean thundering) {
+//? if >=26.1 {
+        level.getServer().setWeatherParameters(clearTime, rainTime, raining, thundering);
+//?} else {
+        level.setWeatherParameters(clearTime, rainTime, raining, thundering);
+//?}
+    }
+
+    /** Shows a message above the hotbar, for a receiver that is only known as a player. */
+    public static void overlay(Player player, Component message) {
+//? if >=26.1 {
+        if (player instanceof ServerPlayer server) {
+            server.sendSystemMessage(message, true);
+        }
+//?} else {
+        player.displayClientMessage(message, true);
 //?}
     }
 

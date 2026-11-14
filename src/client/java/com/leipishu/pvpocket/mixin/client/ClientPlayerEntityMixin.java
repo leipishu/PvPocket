@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.mixin.client;
 
+import com.leipishu.pvpocket.client.compat.PvChat;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.LoadoutLock;
 import net.minecraft.client.player.LocalPlayer;
@@ -22,7 +23,7 @@ public abstract class ClientPlayerEntityMixin {
     private void pvpocket$noDropLocked(boolean entireStack, CallbackInfoReturnable<Boolean> cir) {
         LocalPlayer self = (LocalPlayer) (Object) this;
         if (LoadoutLock.isLocked(self.getMainHandItem())) {
-            self.displayClientMessage(PvLang.t("pvpocket.msg.loadout.no_drop"), false);
+            PvChat.chat(PvLang.t("pvpocket.msg.loadout.no_drop"));
             cir.setReturnValue(false);
         }
     }

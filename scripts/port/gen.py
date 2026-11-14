@@ -27,6 +27,12 @@ Renames are applied to the whole file, string literals included: a mixin target 
 @Inject(method = "getServer") names a method in a string, and it has to follow the rename. Only
 put a pair in the table when the old name cannot mean anything else.
 
+  scripts/port/<mc>/      files copied over the generated tree, byte for byte
+
+The overlay is for data files that changed shape rather than name. A JSON file cannot carry a
+`//?` marker, because src/ has to stay parseable for the cell that compiles it directly, so a
+version whose JSON schema differs gets its own copy here under the same relative path.
+
 Usage:
     python scripts/port/gen.py --mc 1.21.11 --src src --out versions/<cell>/gen-src
 
@@ -157,14 +163,12 @@ def main():
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--table", default=None)
+    parser.add_argument("--overlay", default=None)
     args = parser.parse_args()
 
     table_path = args.table or os.path.join("scripts", "port", "%s.tsv" % args.mc)
     table = load_table(table_path)
-    # A deleted source file has to disappear from the generated tree too, so start from empty.
-    if os.path.abspath(args.out) != os.path.abspath(args.src) and os.path.isdir(args.out):
-        shutil.rmtree(args.out)
-    written = 0
+    written = set()
     for root, _, names in os.walk(args.src):
         for name in names:
             source = os.path.join(root, name)
@@ -182,10 +186,55 @@ def main():
                     data = handle.read()
                 with open(destination, "wb") as handle:
                     handle.write(data)
-            written += 1
-    print("[port] %d file(s) -> %s (%d rename(s), target %s)"
-          % (written, args.out, len(table), args.mc))
+            written.add(os.path.normpath(relative))
+    overlay = args.overlay or os.path.join(os.path.dirname(os.path.abspath(table_path)), args.mc)
+    replaced, overlay_files = apply_overlay(overlay, args.out)
+    written.update(overlay_files)
+    removed = prune(args.out, written)
+    print("[port] %d file(s) -> %s (%d rename(s), %d replaced, %d stale, target %s)"
+          % (len(written), args.out, len(table), replaced, removed, args.mc))
     return 0
+
+
+def apply_overlay(directory, out):
+    """Copies a version's own files over the generated tree.
+
+    Returns the number of files copied together with their relative paths, so the caller can tell
+    the pruning step that they belong to this tree.
+
+    Some data files change shape rather than name: a dimension type in 26.1 is a different record,
+    so no rename can turn one version's JSON into the other's, and a JSON file cannot carry a
+    //? marker because src/ has to stay parseable for the cell that uses it directly.
+    """
+    if not os.path.isdir(directory):
+        return 0, set()
+    copied = set()
+    for root, _, names in os.walk(directory):
+        for name in names:
+            source = os.path.join(root, name)
+            relative = os.path.relpath(source, directory)
+            destination = os.path.join(out, relative)
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copyfile(source, destination)
+            copied.add(os.path.normpath(relative))
+    return len(copied), copied
+
+
+def prune(out, expected):
+    """Deletes generated files that this run did not write, and returns how many went.
+
+    The tree has to mirror src/ exactly, so a file deleted or renamed upstream has to disappear
+    here too. Pruning beats wiping the directory: a wipe rewrites every file on every run, and the
+    file watchers that sit on this tree treat that as a full rebuild.
+    """
+    removed = 0
+    for root, _, names in os.walk(out):
+        for name in names:
+            path = os.path.join(root, name)
+            if os.path.normpath(os.path.relpath(path, out)) not in expected:
+                os.remove(path)
+                removed += 1
+    return removed
 
 
 if __name__ == "__main__":

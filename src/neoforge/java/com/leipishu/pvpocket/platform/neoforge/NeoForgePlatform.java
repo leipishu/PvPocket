@@ -18,7 +18,11 @@ import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+//? if >=26.1 {
+import net.neoforged.neoforge.event.level.block.BreakBlockEvent;
+//?} else {
 import net.neoforged.neoforge.event.level.BlockEvent;
+//?}
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -219,12 +223,22 @@ public final class NeoForgePlatform implements PvPlatform {
 
     @Override
     public void onAllowBlockBreak(BlockBreakVeto veto) {
+//? if >=26.1 {
+        // 26.1 moved the block events out of BlockEvent's nested classes into event.level.block,
+        // which also gives each one its own file and its own import.
+        gameBus.addListener(BreakBlockEvent.class, event -> {
+            if (!veto.allow(event.getPlayer(), (Level) event.getLevel(), event.getPos())) {
+                event.setCanceled(true);
+            }
+        });
+//?} else {
         gameBus.addListener(BlockEvent.BreakEvent.class, event -> {
             // getLevel() is declared LevelAccessor; on the server path it is always a Level.
             if (!veto.allow(event.getPlayer(), (Level) event.getLevel(), event.getPos())) {
                 event.setCanceled(true);
             }
         });
+//?}
     }
 
     @Override

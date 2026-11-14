@@ -128,7 +128,7 @@ public final class PossessionHud implements PvClientPlatform.HudLayer {
     }
 
     @Override
-    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void draw(GuiGraphics ctx, DeltaTracker tickCounter) {
         if (state == null) {
             return;
         }

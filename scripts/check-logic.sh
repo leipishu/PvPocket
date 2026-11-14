@@ -13,19 +13,23 @@ FABRIC_CELL="${FABRIC_CELL:-1.21.1-fabric}"
 NEOFORGE_CELL="${NEOFORGE_CELL:-1.21.1-neoforge}"
 FABRIC_BUILD="versions/$FABRIC_CELL/build"
 
-# JDK 21: the project targets 21, and a 17 javac rejects class file version 65.0.
+# The probes compile against the cell's class files, and no javac reads a class file newer than
+# itself, so use the newest JDK: 1.21.1 cells emit level 21, 26.1 cells emit level 25.
 find_jdk() {
-    for candidate in "${JAVA_HOME:-}" "/c/Program Files/Java/jdk-21" "/usr/lib/jvm/java-21-openjdk-amd64"; do
+    local candidate
+    # Read line by line: the paths contain spaces, so word splitting a $(...) would cut them up.
+    while IFS= read -r candidate; do
         if [ -n "$candidate" ] && [ -x "$candidate/bin/javac" ]; then
-            if "$candidate/bin/javac" -version 2>&1 | grep -q '^javac 21'; then
+            if "$candidate/bin/javac" -version 2>&1 | grep -qE '^javac (2[1-9]|[3-9][0-9])'; then
                 echo "$candidate/bin"
                 return 0
             fi
         fi
-    done
+    done < <(printf '%s\n' "/c/Program Files/Java"/jdk-* "${JAVA_HOME:-}" \
+            /usr/lib/jvm/java-2*-openjdk-amd64 2>/dev/null | sort -Vr)
     return 1
 }
-JDK="$(find_jdk)" || { echo "[logic] 找不到 JDK 21（设 JAVA_HOME 或装到默认路径）" >&2; exit 2; }
+JDK="$(find_jdk)" || { echo "[logic] 找不到 JDK 21 或更新（设 JAVA_HOME 或装到默认路径）" >&2; exit 2; }
 
 if [ ! -f "$FABRIC_BUILD/classes/java/main/com/leipishu/pvpocket/rules/RuleDefinition.class" ]; then
     echo "[logic] 先编译主源码…"

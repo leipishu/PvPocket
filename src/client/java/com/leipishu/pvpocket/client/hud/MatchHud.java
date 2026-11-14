@@ -92,7 +92,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     }
 
     @Override
-    public void render(GuiGraphics ctx, DeltaTracker tickCounter) {
+    public void draw(GuiGraphics ctx, DeltaTracker tickCounter) {
         MatchHudPayload payload = state;
         if (payload == null) {
             return;
