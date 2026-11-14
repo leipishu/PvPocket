@@ -19,7 +19,8 @@ legacy/
 ```
 
 共享源码通过目录而不是项目依赖引用（`sourceSets.main.java.srcDirs += "../../../src/main/java"`），
-这样 `src/` 只有一份。它自己的 Stonecutter 会让共享源码里的 `//?` 条件在这个根里同样生效。
+这样 `src/` 只有一份。这个根还需要自己的预处理，让共享源码里的 `//?` 条件同样生效
+（主根用的是 `scripts/port/gen.py`，见那里的 README）。
 
 ## 还没建
 

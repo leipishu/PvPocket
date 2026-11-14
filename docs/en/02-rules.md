@@ -139,13 +139,13 @@ sets that behave identically cannot produce two different digests.
 
 ## 3. Enforcement status (important)
 
-**All 38 rules exist, 37 of them are configurable** (`c.modeConflict` is `fixed` and only prints the
-conflict note), **and every one of those currently affects a duel.** This is the section that matters. Do
-not look at the panel and assume the whole set is in effect.
-
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-### In effect (39)
+**38 rules exist, 37 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
+note). All 37 configurable rules are written to the session and the journal and affect a duel; none
+is "record only".
+
+### In effect (37)
 
 | Group | Rules |
 | --- | --- |

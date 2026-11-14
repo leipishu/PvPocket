@@ -4,7 +4,8 @@
 
 ## 1. 分层
 
-工程用 Loom 的 `splitEnvironmentSourceSets()` 分成两套源集：
+源码按环境分两层（Fabric 格由 Loom 的 `splitEnvironmentSourceSets()` 落实为两个源集，NeoForge 格
+是单 source set 多 srcDir，客户端类也进 main）：
 
 | 源集 | 内容 | 说明 |
 | --- | --- | --- |

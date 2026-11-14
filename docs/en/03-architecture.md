@@ -4,7 +4,9 @@
 
 ## 1. Layers
 
-Loom's `splitEnvironmentSourceSets()` splits the build into two source sets:
+Sources split into two halves by environment (Fabric cells use Loom's
+`splitEnvironmentSourceSets()` for two source sets; NeoForge cells use one source set with several
+srcDirs, so client classes go into main):
 
 | Source set | Contents | Notes |
 | --- | --- | --- |

@@ -16,8 +16,8 @@ the [README](../../README.md); deployment and player flow are in [`05-usage.md`]
 | How built-in maps are converted, how to add one | [`06-maps.md`](06-maps.md) |
 | Which conventions are hard, and where the traps are | [`AGENTS.md`](../../AGENTS.md) |
 
-`AGENTS.md` is the condensed version written for coding agents (AI included) and reads the same for
-humans: it only covers things you cannot read off the code and that cost a rewrite when missed —
+`AGENTS.md` is the condensed version written for coding agents (AI included); humans get the same
+value from it. It covers only what you cannot read off the code and what costs a rewrite when missed:
 localisation, command surface, UI dimensions, sandbox rules, documentation sync. **This file covers
 environment, build, testing and submission.** Design rationale is not repeated here.
 
@@ -25,25 +25,39 @@ environment, build, testing and submission.** Design rationale is not repeated h
 
 | Tool | Version |
 | --- | --- |
-| JDK | 21 (required by 1.21.1; **JDK 17 cannot run the client**) |
-| Gradle | 8.14.3 (bundled with the wrapper, no separate install) |
-| Fabric Loom | 1.11.8 |
-| Yarn mappings | 1.21.1+build.3 |
-| Fabric Loader | 0.16.9 |
-| Fabric API | 0.116.17+1.21.1 |
+| JDK | 17 / 21 / 25 / 27, all four installed; which one each cell uses is below |
+| Gradle | 9.9.1 (bundled with the wrapper, no separate install) |
+| Fabric Loom | 1.13.6 (1.21.x) / 1.19.4 (26.x, the `net.fabricmc.fabric-loom` unobfuscated variant) |
+| ModDevGradle | 2.0.148 |
+| Mappings | Mojmap (`loom.officialMojangMappings()`); 26.1 ships unobfuscated and needs no mappings |
+| Fabric Loader | 0.16.9 (1.21.1) / 0.20.1 (1.21.11 and 26.1) |
 
-`gradle.properties` pins the JDK path used by the Gradle daemon (Loom 1.11 requires JVM 21 or
-newer). On another machine or in CI, change that line or delete it and use the environment variable:
+**One JDK is not enough.** All four have a job:
 
-```bash
-JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
+| JDK | Used by |
+| --- | --- |
+| 27 | Gradle daemon (Loom 1.19 needs JVM 25+, and no lower than the MC version it configures) |
+| 25 | Toolchain for both 26.x cells, for compiling and running |
+| 21 | Toolchain for 1.21.1 and 1.21.11 |
+| 17 | `legacy/1.20.1` (ForgeGradle 6) |
+
+The 26.x toolchain **cannot** be 27: NeoForge 26.1 bundles ASM 9.9.1, which rejects level 27 class
+files, so the server exits with `Unsupported class file major version 71` before tick one. The Fabric
+cell does run on 27, but both cells use the same JDK so that one of them is not silently different.
+
+`gradle.properties` pins the daemon JDK and the toolchain search paths (Gradle's registry probe cannot
+find jdk-17 on this machine). On another machine, change these two lines:
+
+```properties
+org.gradle.java.home=C:\\Program Files\\Java\\jdk-27
+org.gradle.java.installations.paths=...jdk-17,...jdk-21,...jdk-25,...jdk-27
 ```
 
 ## Build
 
 **The repository root is the Gradle root.** A **cell** is one Minecraft version x one loader, and it
-is a subproject, so commands read `./gradlew :<cell>:<task>`. There are two cells today:
-`1.21.1-fabric` and `1.21.1-neoforge`.
+is a subproject, so commands read `./gradlew :<cell>:<task>`. Six cells exist today: 1.21.1, 1.21.11
+and 26.1, one Fabric and one NeoForge each.
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # one cell, fastest feedback
@@ -52,36 +66,41 @@ is a subproject, so commands read `./gradlew :<cell>:<task>`. There are two cell
 ```
 
 **There is one place for a finished jar: `dist/<cell>/` at the repository root.** Two jars per cell
-(the mod and its sources), eight for the four cells; `buildAll` prints the list when it finishes.
+(the mod and its sources), twelve for six cells; `buildAll` prints the list when it finishes.
 `versions/<cell>/build/libs/` also holds intermediates (Fabric's dev jar sits in `devlibs/`), which
 are not what gets installed. `dist/` is in `.gitignore`; build output is never committed.
 
-The two loaders are **parallel**, with no primary one: `versions/1.21.1-fabric/` and
-`versions/1.21.1-neoforge/` each have a `build.gradle` and share the `src/` at the root. Everything
-that does not depend on the loader (archive name, Java level, licence files, dev client list) lives
-in `gradle/pvpocket-cells.gradle`, which both cells `apply from:`.
+The loader dimension is **parallel**, with no primary one: all six cells have their own `build.gradle`
+and share the `src/` at the root. Everything that does not depend on the loader (archive name, Java
+level, licence files, dev client list) lives in `gradle/pvpocket-cells.gradle`, which every cell
+`apply from:`.
 
 > Why a loader has to be a subproject rather than a second configuration on one project: Loom and
 > ModDevGradle both take over the minecraft dependency, the run tasks and remapping, and a project
 > can only apply one of them.
 
 **The jar root carries three legal files**: `LICENSE`, `LICENSE-GPL-3.0.txt` and
-`THIRD-PARTY-NOTICES.md`. They are not in `src/main/resources`; `processResources` in `build.gradle`
-copies them in from the repository root, because a licence should exist in exactly one place — the
-root copy — and copies drift. LGPL-3.0 §4 requires that whoever receives the object code also receives
-the licence, and what gets distributed is the jar, not the repository. Renaming any of them means
-updating `legalFiles` in `build.gradle`: a name that no longer matches fails the build instead of
-quietly producing a jar without a licence.
+`THIRD-PARTY-NOTICES.md`. They are not in `src/main/resources`; `processResources` in
+`gradle/pvpocket-cells.gradle` copies them in from the repository root. The licence text has exactly
+one source — the root copy — because copies drift. LGPL-3.0 §4 requires that whoever receives the
+object code also receives the licence, and what gets distributed is the jar, not the repository.
+Renaming any of them means updating `legalFiles` in `gradle/pvpocket-cells.gradle`: a name that no
+longer matches fails the build instead of quietly producing a jar without a licence.
 
-Sources are split across two source sets, and the boundary must hold:
+Sources have two boundaries, and neither may be crossed:
 
 | Directory | Contents | Constraint |
 | --- | --- | --- |
-| `src/main/java/` | Shared by both sides: `session`, `rules`, `loadout`, `preset`, `network`, `arena` | **Loaded by the dedicated server**, so no client classes |
-| `src/client/java/` | Client only: `client/gui`, `client/hud`, `client/preset` | May reference `src/main`, never the reverse |
+| `src/main/java/` | Shared by both sides: `session`, `rules`, `loadout`, `preset`, `network`, `platform` | **Loaded by the dedicated server**; no client classes and no loader imports |
+| `src/client/java/` | Client only, loader-agnostic: `client/gui`, `client/hud`, `client/render`, `client/platform` | May reference `src/main`, never the reverse |
+| `src/fabric/`, `src/neoforge/`, `src/client-fabric/`, `src/client-neoforge/` | Entrypoints and platform implementations for each loader | Compiled only by the matching cell; the full test is in `AGENTS.md` |
 
-Open the repository root in IDEA and import it as a Gradle project; `1.21.1-fabric` and
-`1.21.1-neoforge` show up as two projects.
+Fabric cells use Loom's `splitEnvironmentSourceSets()` to split main and client. NeoForge cells use a
+single source set with several srcDirs, so client classes go into main. Both layouts obey the same
+directory boundary above.
+
+Open the repository root in IDEA and import it as a Gradle project; six cells show up, each with five
+run tasks.
 
 ## Development testing
 
@@ -101,16 +120,16 @@ decided by `gradle/pvpocket-cells.gradle` and all live under `runs/<cell>/` (not
 Usernames must differ too: a development client logs in with the operating-system username by
 default, so two clients become the same player and the later join kicks the earlier one out.
 
-All five are Gradle tasks, **double-click them in IDEA's Gradle tool window** (`Tasks > 1.21.1-fabric >
-runClient` … `runServer`; `1.21.1-neoforge` exposes the same names) — no terminal, no run configurations to maintain. The
-client already connects to `localhost:25565` with a 1G heap, so it is playable as soon as it opens:
+All five are Gradle tasks, **double-click them in IDEA's Gradle tool window** (`Tasks > <cell> >
+runClient` … `runServer`; the same names work in all six cells) — no terminal, no run configurations
+to maintain. The client connects to `localhost:25565` with a 1G heap by default:
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
 | `-PquickJoin=<host:port>` | `localhost:25565` | Connect somewhere else |
 | `-PquickJoin=off` | — | Stay on the title screen (server down, UI-only work) |
 | `-PclientHeap=<size>` | `1G` | Raise the client heap |
-| `-PdebugBlocking` | — | Force the local player into sword blocking to inspect the pose (first and third person) without starting a Legacy duel |
+| `-PdebugBlocking` | — | Force the local player into sword blocking to inspect the pose (first and third person) without starting a Classic duel |
 
 ```bash
 # Terminal 1: shared server, keep it in the foreground (so the console still accepts stop / op / pvpocket)
@@ -133,21 +152,22 @@ The trade-off is that the server console is no longer interactive (`stop` / `op`
 you get is "edit, run, look" without babysitting two terminals. Ctrl+C stops the clients and the server.
 
 The script is only a batch wrapper around `runClient` / `runClient2` / …; to start one on its own use
-the task name (`./gradlew runClient3`), or double-click it in IDEA's Gradle panel.
+the task name (`./gradlew :1.21.1-fabric:runClient3`), or double-click it in IDEA's Gradle panel.
 
 Three JVMs are heavy for one development machine, and the third client sometimes stalls on the title
 screen without joining (`quickPlay` did not fire) — close and reopen it. With no server running the
 client stops at "connection failed"; click back to the title screen and connect by hand. Day-to-day
 testing should prefer the dedicated server above.
 
-Logs: server `runs/server/logs/latest.log`, clients `build/devlogs/client{1,2,3}.out`.
+Logs: server `runs/<cell>/server/logs/latest.log`, clients
+`versions/<cell>/build/devlogs/client{1,2,3}.out`.
 **When a panel does not appear, read the `canSend=` line in the client log first.**
 
 ## Repository layout
 
-The repository root holds documentation and one directory per platform; **each loader + game-version
-pair gets its own subdirectory** with its own Gradle build, so adding Forge / NeoForge or another
-1.21.x later does not contaminate the others.
+The repository root is the Gradle root, and **one MC version x one loader is one subproject**: six
+cells, each with a `build.gradle`. Adding a cell means one directory, one name in the cell list and
+one version catalog; the existing cells stay untouched.
 
 ```
 PvPocket/
@@ -171,9 +191,9 @@ PvPocket/
 │   └── port/                  Version-difference generator and rename tables
 ├── settings.gradle            Cell list: one cell, one subproject
 ├── build.gradle               Only repositories + buildAll; applies no loader plugin
-├── gradle.properties          JDK path, Loom download mirrors, mod identity (mod_id / mod_version / maven_group)
+├── gradle.properties          JDK paths, Loom download mirrors, mod identity (mod_id / mod_version / maven_group)
 ├── gradle/
-│   ├── pvpocket-cells.gradle  The half both cells share: archive name, Java level, licence, dev clients
+│   ├── pvpocket-cells.gradle  The half all six cells share: archive name, Java level, licence, dev clients
 │   ├── libs.versions.toml     Loader toolchain versions (fabric-loader / Loom / ModDevGradle) + plugin coordinates
 │   ├── catalogs/<mc>.toml     One file per MC version: minecraft / fabricApi / neoforge
 │   └── wrapper/
@@ -182,14 +202,12 @@ PvPocket/
 │   ├── client/                Client only, loader-agnostic
 │   ├── fabric/ client-fabric/ Fabric wiring
 │   └── neoforge/ client-neoforge/   NeoForge wiring
-├── versions/
-│   ├── 1.21.1-fabric/         The Fabric cell: loader plugin + dependencies + runs
-│   └── 1.21.1-neoforge/       The NeoForge cell, parallel to the line above
+├── versions/<cell>/           Six cells: loader plugin + dependencies + runs; matrix in versions/README.md
 ├── legacy/1.20.1/             Separate Gradle root for 1.20.1 (FG6 needs Gradle 8; not built yet)
 ├── runs/<cell>/               Run directories (clients 1–4 + server, not in version control)
-├── arena-src/                 Map sources (not in version control, see docs/zh/06-maps.md)
+├── arena-src/                 Map sources (not in version control, see ../zh/06-maps.md)
 ├── CHANGELOG.md
-├── CONTRIBUTING.md            This file's Chinese original
+├── CONTRIBUTING.md            Chinese original of this file
 ├── AGENTS.md                  Notes for coding agents: commands, hard rules, traps
 ├── LICENSE                    LGPL-3.0
 ├── LICENSE-GPL-3.0.txt        Copy of GPL-3.0, which LGPL-3.0 incorporates
@@ -225,20 +243,21 @@ before changing or deleting them.
 
 **Compiling is not the same as working.** Pick from these five by the scope of the change:
 
-1. **Compile**: `./gradlew compileJava compileClientJava`.
+1. **Compile**: `./gradlew :<cell>:compileJava :<cell>:compileClientJava`.
 2. **Play a match**: changes to rules, sessions, loadouts or networking need a full match on both
-   sides. The server journal (`runs/server/world/pvpocket/journal/*.jsonl`) records `RULES_PROPOSED`,
-   `RULES_ACCEPTED`, `ROUND_STARTED` and friends, which answers "which revision of the rules was this
-   round actually played under". Note that `=` is escaped as `\u003d` in the journal, so
+   sides. The server journal (`runs/<cell>/server/world/pvpocket/journal/*.jsonl`) records
+   `RULES_PROPOSED`, `RULES_ACCEPTED`, `ROUND_STARTED` and friends, which answers "which revision of
+   the rules was this round actually played under". `=` is escaped as `\u003d` in the journal, so
    `grep 'c.maxHealth='` finds nothing.
 3. **UI audit**: run `scripts/check-ui.sh` after touching a GUI (about two minutes; exit code `0` is
    clean, `1` means occlusion, `2` means the audit did not finish). It makes the development client
    walk six screens × every page and dialog × two canvas sizes, recording widget boxes and text in
    real rendered frames. **When adding a screen or page, add a variant to
    `auditVariantCount()/auditVariant()`**, otherwise the new page is not covered.
-4. **Data self-check**: run `./gradlew statsCheck` after touching `stats/DuelStats`. The stats files
-   are the one place where a bug is permanent — a duplicated history row, a cap that drops the wrong
-   end — and neither fails anything visibly; it just leaves one player's record wrong forever.
+4. **Data self-check**: run `./gradlew :<cell>:statsCheck` after touching `stats/DuelStats`. The
+   stats files are the one place where a bug is permanent — a duplicated history row, a cap that
+   drops the wrong end — and neither fails anything visibly; it just leaves one player's record
+   wrong forever.
 5. **Language files**: after editing `zh_cn.json` / `en_us.json`, run the key-set and placeholder
    check (the command is in [`AGENTS.md`](../../AGENTS.md) under "Localisation").
 
@@ -250,6 +269,73 @@ trap list is in `AGENTS.md`.
 
 **Delete screenshots once used** (`find runs -name '*.png' -delete`); keep only the ones meant for
 showing someone.
+
+## Comments
+
+Comments say **what the code is and how to use it**, not how it ended up this way. The history of a
+change belongs in the commit message and `CHANGELOG.md`; in a comment it rots, and nobody can tell
+which sentence still holds.
+
+Three kinds of content are allowed:
+
+1. What a type or method does, the contract for parameters and return values, boundary conditions.
+2. How to call it, especially where order matters or callers commonly get it wrong.
+3. Markers: `TODO:`, `FIXME:`, `NOTE:`, each followed by one concrete line.
+
+Two kinds are not: **change history** ("used to be…", "no longer…") and **argument** ("we did this
+because…"). Arguments belong in `docs/`; keep one concluding sentence in the comment and point at
+it with `// see docs/zh/...` if needed.
+
+```java
+// Don't
+// This used to read remapClasspath.txt directly, but that was a side effect of the annotation
+// processor and disappeared with a Loom upgrade, so Gradle now writes a stable file instead and
+// both loaders take the same path without a fork.
+
+// Do
+// Written by the cell's writeCompileClasspath task; stable across Loom versions.
+```
+
+```java
+/**
+ * Restores the snapshot onto the player and verifies the result.
+ *
+ * @param player an online, living player; a corpse is rejected by the caller
+ * @return true when the state digest matches the snapshot
+ */
+```
+
+### What the script checks (CI runs it)
+
+```bash
+python scripts/check-comments.py            # whole repository
+python scripts/check-comments.py --summary  # violations per file
+```
+
+| Rule | Test |
+| --- | --- |
+| `cjk` / `non-ascii` | No Chinese or any non-ASCII character in comments (dashes, arrows, curly quotes count) |
+| `first-person` | No I / me / my / we / us / our |
+| `narrative` | No `used to`, `no longer`, `the old code`, `this fix` and similar change narration |
+| `javadoc-form` | Summary sentence starts with a capital and ends with a period |
+| `javadoc-p` | One empty `*` line before `<p>` and before tags such as `@param` / `@return` |
+| `javadoc-long` | A single Javadoc is at most 12 lines |
+| `javadoc-tag` | No `@author` / `@since` / `@version` |
+| `type-doc` | Every public top-level type has Javadoc |
+| `code-run` | No more than 2 consecutive `//` lines; a paragraph of explanation uses Javadoc |
+| `commented-out` | No commented-out code; delete it or restore it |
+| `width` | Comment lines at most 100 columns |
+
+### What a person has to judge
+
+- **One sentence where one will do.** Add a second only when it says something else.
+- **Do not restate the signature.** `getName()` needs no comment saying "returns the name".
+- **No rhetoric.** Delete "this is exactly why…" and "the key is…"; state the fact.
+- **No slang** ("hack together", "a bunch of"), and no stiff formalisms (`hereby`,
+  `it is worth noting that`).
+- **Use the code's terms**: call it `session` in a comment if the code calls it `session`.
+- In configuration and scripts (`*.gradle`, `*.sh`, `*.py`, `*.toml`), keep **only comments that
+  explain non-obvious behaviour**. If the code says it, delete the comment.
 
 ## Committing
 

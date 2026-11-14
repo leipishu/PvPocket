@@ -4,9 +4,10 @@
 
 ## What this is
 
-PvPocket is a Minecraft Fabric 1.21.1 mod that gives a survival server **a duel you can start on the
-spot**: the players agree on terms, drop into a dedicated dimension, fight under faithfully
-reproduced vanilla mechanics, and leave with nothing changed.
+PvPocket is a Minecraft mod that gives a survival server **a duel you can start on the spot**: the
+players agree on terms, drop into a dedicated dimension, fight under faithfully reproduced vanilla
+mechanics, and leave with nothing changed. It currently builds for 1.21.1, 1.21.11 and 26.1, one
+Fabric and one NeoForge cell each; the matrix is in [`versions/README.md`](../../versions/README.md).
 
 It is not a server's core gameplay and not a matchmaking lobby. The pitch is one sentence:
 **two people want a fight, they get one in thirty seconds, and nothing is left behind.**
@@ -21,7 +22,7 @@ separate game mode; it is the same rule set with a different roster.
 ### 1. Terms first, then the fight
 
 The challenger opens a rule panel, sets the terms and sends them to everyone else. Each of them can
-accept, edit and re-send, or decline. What everyone agrees to is a **versioned snapshot of 39
+accept, edit and re-send, or decline. What everyone agrees to is a **versioned snapshot of 38
 rules**, not a list of toggles. Any edit bumps the revision, and agreement to the old one stops
 counting.
 
@@ -50,9 +51,9 @@ use their own storage under `<world>/pvpocket/` and are reconciled at startup.
 
 ### 4. One dimension, many cells
 
-Every map sits side by side in its own cell of the duel dimension, 16 blocks apart. Choosing a map
-is a teleport to fixed coordinates, not a paste at the origin. That is what makes several duels
-genuinely simultaneous and mutually invisible.
+Every map sits side by side in its own cell of the duel dimension, 256 blocks between cell centres
+(a 160-block cell with a 96-block gap). Choosing a map is a teleport to fixed coordinates, not a
+paste at the origin. That is what makes several duels genuinely simultaneous and mutually invisible.
 
 ## Scope
 

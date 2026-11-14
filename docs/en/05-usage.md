@@ -6,8 +6,11 @@
 
 ### Server
 
-1. Fabric Loader 0.16.9+, Minecraft 1.21.1, Java 21.
-2. Put `pvpocket-*.jar` and [Fabric API](https://modrinth.com/mod/fabric-api) in `mods/`.
+1. Pick a cell: 1.21.1, 1.21.11 and 26.1 each have a Fabric and a NeoForge build, on Java 21
+   (1.21.x) or 25 (26.1). Coordinates are in `gradle/catalogs/<mc>.toml`; the matrix is in
+   `versions/README.md`.
+2. Put that cell's `pvpocket-*.jar` in `mods/`. Fabric cells also need
+   [Fabric API](https://modrinth.com/mod/fabric-api); NeoForge cells do not.
 3. The first start creates a `pvpocket/` directory in the world save (`journal`, `homes.json`,
    `guard.json`, `stats`, `history`).
 4. The duel dimension loads and pre-stamps at server start; five maps take about 10 seconds, one per

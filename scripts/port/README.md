@@ -80,13 +80,13 @@ player.teleportTo(level, x, y, z, yaw, pitch);
 scripts/port/26.1/main/resources/data/pvpocket/dimension_type/arena.json
 ```
 
-JSON 里写不了 `//?`（`src/` 必须能直接被 1.21.1 那格编译，注释一进去就不是合法 JSON 了），
+JSON 里写不了 `//?`（`src/` 里的资源必须是合法 JSON，注释一进去就不是了），
 所以 26.1 的维度类型整份放在这里。`gen.py` 会先写生成树、再铺覆盖、最后按差集删掉陈旧文件，
 打印里那个 `N replaced` 就是铺了几份。
 
 ## 1.21.11 现状（编译已通过）
 
-四个 cell 全部过 `buildAll`，错误数 **298 → 0**。`1.21.11` 的两格**没有连服实测**，只有编译与
+当时四个 cell 全部过 `buildAll`，错误数 **298 → 0**。`1.21.11` 的两格**没有连服实测**，只有编译与
 `check-logic.sh` 的保证。
 
 移植里踩到的、加下一个版本还会再踩的坑，按症状记：
@@ -207,6 +207,6 @@ FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge bash scripts/check-logic.sh
 
 ## 为什么不是 Stonecutter
 
-原计划用它，但它以 Kotlin DSL 为主：接进来要把根构建与四个 cell 全改成 `.kts`，`cells.gradle`
-也要重写，现有两格全部要回归。`gen.py` 不到 200 行，`//? if` 语法与它一致，将来真要换，
+原计划用它，但它以 Kotlin DSL 为主：接进来要把根构建与所有 cell 全改成 `.kts`，`cells.gradle`
+也要重写，现有六格全部要回归。`gen.py` 不到 200 行，`//? if` 语法与它一致，将来真要换，
 把 `gen.py` 换成 Stonecutter 的预处理即可，源码里的条件块不用动。

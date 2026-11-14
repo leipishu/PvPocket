@@ -6,8 +6,10 @@
 
 ### 服务端
 
-1. Fabric Loader 0.16.9+，Minecraft 1.21.1，Java 21。
-2. 把 `pvpocket-*.jar` 与 [Fabric API](https://modrinth.com/mod/fabric-api) 放进 `mods/`。
+1. 选一格：1.21.1 / 1.21.11 / 26.1 各有 Fabric 与 NeoForge 一份，Java 21（1.21.x）或 25（26.1）。
+   版本坐标在 `gradle/catalogs/<mc>.toml`，矩阵见 `versions/README.md`。
+2. 把该格的 `pvpocket-*.jar` 放进 `mods/`；Fabric 格再放一份
+   [Fabric API](https://modrinth.com/mod/fabric-api)，NeoForge 格不需要。
 3. 首次启动会在存档下生成 `pvpocket/` 目录（`journal`、`homes.json`、`guard.json`、
    `stats`、`history`）。
 4. 决斗维度在服务端启动时自动加载并预热，5 张内置图逐 tick 贴好约需 10 秒。

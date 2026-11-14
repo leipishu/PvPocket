@@ -25,12 +25,12 @@ Minecraft 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生�
 PvPocket/
 ├── settings.gradle           # cells 清单，一个 cell 一个子项目
 ├── build.gradle              # 只放仓库面 + buildAll，不应用任何加载器插件
-├── gradle/pvpocket-cells.gradle   # 两个 cell 共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
+├── gradle/pvpocket-cells.gradle   # 六格共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
 ├── gradle/catalogs/<mc>.toml      # 每个 MC 版本一份版本号，注册成 catalog `v<mc>`
 ├── gradle/libs.versions.toml      # 加载器工具链版本 + 插件坐标，catalog `libs`
-├── src/                      # 手写源，只有 1.21.1 那两格直接编译它
+├── src/                      # 手写源，不直接编译
 ├── versions/<cell>/build.gradle   # 每格约 100 行：加载器插件 + 依赖 + run
-├── versions/<cell>/gen-src/  # 其余格子编译的生成树，由 scripts/port/gen.py 写出，不入库
+├── versions/<cell>/gen-src/  # 六格各自编译的生成树，由 scripts/port/gen.py 写出，不入库
 ├── runs/<cell>/{server,client1..4}   # 运行目录，按 cell 分开
 ├── legacy/1.20.1/            # 1.20.1 的独立 Gradle 根（FG6 要 Gradle 8）
 └── scripts/ docs/ arena-src/
@@ -66,8 +66,9 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 `Configuration 'mappings' has no dependencies`——看起来像缺依赖，其实是没关掉混淆。顺带一提，那个
 开关只认 String，写成 Boolean 会被静默当成没设置。
 
-**版本差异不进业务代码。** `src/` 里只有一层手写源，其余版本编译的是
-`versions/<cell>/gen-src/`——`scripts/port/gen.py` 复制 `src/` 时按表改名、按 `//? if` 剔分支。
+**版本差异不进业务代码。** `src/` 里只有一层手写源，六格编译的都是
+`versions/<cell>/gen-src/`——`scripts/port/gen.py` 复制 `src/` 时按表改名、按 `//? if` 剔分支
+（1.21.1 那两格也走这一步，只是改名 0 条）。
 所以 `src/` 里那 200 多个 `//?` 标记**两支代码同时存在**，直接拿某格的类路径编 `src/` 会报几十个
 错，这是正常的。规则与踩坑记录见 `scripts/port/README.md`。
 
@@ -106,7 +107,7 @@ cell 需要新 Gradle 才能配置），要升级只能直接改 `gradle/wrapper
 末尾会把清单打出来。`dist/` 在 `.gitignore` 里。**不要去 `versions/<cell>/build/libs/` 找发行用的
 jar**，那里还有中间产物。
 
-**五个 run 任务两个加载器完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
+**五个 run 任务六格完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
 `runClient4`，换成另一格是同一套名字、同一批用户名（Dev1..Dev4）。IDEA 里这五条在 `.run/` 下，
 六格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
 Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>:<task>`。
@@ -121,7 +122,7 @@ ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型�
 - 用户名、窗口尺寸、run 目录**只写在 `gradle/pvpocket-cells.gradle` 一处**。两个 cell 各写一遍的
   下场是联调脚本按 Dev1..Dev4 找人，另一边叫 NeoDev1，永远对不上。
 - datagen 只有 1.21.x 的 Fabric 格有（`fabricApi.configureDataGeneration`），是 client 环境的子
-  run，`1.21.1-fabric/build.gradle` 里已清空它的 `programArgs`。26.1-fabric 没有这一段：Loom 1.19
+  run，那两格的 `build.gradle` 里都清空了它的 `programArgs`。26.1-fabric 没有这一段：Loom 1.19
   把 program-arg 列表改成了只读，清不掉，而模组的资源是手写的，本来也没有 provider 要跑。
 
 联调（服务端独占终端，客户端另起）：

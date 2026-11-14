@@ -29,7 +29,7 @@
 | Fabric Loom | 1.13.6（1.21.x）/ 1.19.4（26.x，`net.fabricmc.fabric-loom` 不混淆变体） |
 | ModDevGradle | 2.0.148 |
 | 映射 | Mojmap（`loom.officialMojangMappings()`）；26.1 起不混淆，不需要映射 |
-| Fabric Loader | 0.16.9（1.21.x）/ 0.20.1（26.x） |
+| Fabric Loader | 0.16.9（1.21.1）/ 0.20.1（1.21.11 与 26.1） |
 
 **JDK 不能只装一个**，四个版本各有各的用处：
 
@@ -68,9 +68,9 @@ neoforge 一份。
 `buildAll` 结束时会把清单打出来。`versions/<cell>/build/libs/` 里还有中间产物（Fabric 的 dev jar 在
 `devlibs/`），那些不是拿去装的，别从那里取。`dist/` 在 `.gitignore` 里，构建产物不入库。
 
-两个加载器是**平行的**，没有主次：`versions/1.21.1-fabric/` 与 `versions/1.21.1-neoforge/` 各一个
-`build.gradle`，共享根下的 `src/`。与加载器无关的那一半配置（产物名、Java 级别、许可、dev 客户端
-清单）在 `gradle/pvpocket-cells.gradle`，两个 cell 都 `apply from:` 它。
+加载器这一维是**平行的**，没有主次：六格各有自己的 `build.gradle`，共享根下的 `src/`。与加载器
+无关的那半配置（产物名、Java 级别、许可、dev 客户端清单）在 `gradle/pvpocket-cells.gradle`，
+六个 cell 都 `apply from:` 它。
 
 > 为什么加载器必须是子项目而不是同一个 project 的两套配置：Loom 与 ModDevGradle 都要接管 minecraft
 > 依赖、run 任务与 remap，一个 project 只能应用其中一个。
@@ -82,14 +82,18 @@ neoforge 一份。
 许可副本，而分发的是 jar 不是仓库。改这几个文件名时要同步 `gradle/pvpocket-cells.gradle` 里的 `legalFiles`，
 文件名对不上会直接让构建失败，不会悄悄打出一个没有许可的 jar。
 
-源码分两个 source set，边界不能破：
+源码按两层边界分，边界不能破：
 
 | 目录 | 内容 | 约束 |
 | --- | --- | --- |
-| `src/main/java/` | 两端共用：`session`、`rules`、`loadout`、`preset`、`network`、`arena` | **会被专用服务端加载**，不许引用客户端类 |
-| `src/client/java/` | 只在客户端：`client/gui`、`client/hud`、`client/preset` | 可以引用 `src/main`，反之不行 |
+| `src/main/java/` | 两端共用：`session`、`rules`、`loadout`、`preset`、`network`、`platform` | **会被专用服务端加载**，不许引用客户端类，也不许出现加载器 import |
+| `src/client/java/` | 客户端专用、与加载器无关：`client/gui`、`client/hud`、`client/render`、`client/platform` | 可以引用 `src/main`，反之不行 |
+| `src/fabric/`、`src/neoforge/`、`src/client-fabric/`、`src/client-neoforge/` | 各加载器的入口与平台实现 | 只在对应 cell 编译；详细判据见 `AGENTS.md` |
 
-IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现 `1.21.1-fabric` 与 `1.21.1-neoforge` 两个。
+Fabric 格用 Loom 的 `splitEnvironmentSourceSets()` 分成 main / client 两个 source set；NeoForge 格是
+单 source set 多 srcDir，客户端类也进 main。两种排布共用上面这条目录边界。
+
+IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现六个 cell，各五条 run 任务。
 
 ## 开发联调
 
@@ -108,9 +112,9 @@ IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现 `1.
 用户名也必须不同：开发客户端默认用操作系统用户名登录，两个客户端会变成同一个玩家，后加入的会把
 先加入的顶掉。
 
-五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`Tasks > 1.21.1-fabric >
-runClient` … `runServer`；换成 `1.21.1-neoforge` 是同一套名字），不用开终端，也不用维护运行配置。客户端默认已经连到
-`localhost:25565` 且堆上限 1G，点开就是可玩状态：
+五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`Tasks > <cell> >
+runClient` … `runServer`；六格是同一套名字），不用开终端，也不用维护运行配置。客户端默认连到
+`localhost:25565`，堆上限 1G：
 
 | 参数 | 默认 | 用途 |
 | --- | --- | --- |
@@ -146,13 +150,14 @@ Ctrl+C 会把客户端和服务端一起停掉。
 关掉重开即可。服务端没起时客户端会停在「连接失败」，点「返回标题界面」再手动连——日常测试优先用
 上面的专用服务端。
 
-日志：服务端 `runs/server/logs/latest.log`，客户端 `build/devlogs/client{1,2,3}.out`。
+日志：服务端 `runs/<cell>/server/logs/latest.log`，客户端
+`versions/<cell>/build/devlogs/client{1,2,3}.out`。
 **「面板没出来」先看客户端日志里 `canSend=` 那一行。**
 
 ## 仓库结构
 
-仓库根目录只放文档与各平台工程，**每个「加载器 + 游戏版本」组合一个独立子目录**，各自拥有独立的
-Gradle 构建。这样后续增加 Forge / NeoForge 或 1.21.x 其他版本时不会互相污染。
+仓库根就是 Gradle 根，**「一个 MC 版本 × 一个加载器」是一个子项目**，六格各有一份 `build.gradle`。
+加一格就是加一个目录、一个 cell 名和一份版本目录，不会动到已有的格子。
 
 ```
 PvPocket/
@@ -177,7 +182,7 @@ PvPocket/
 ├── build.gradle               只放仓库面 + buildAll，不应用任何加载器插件
 ├── gradle.properties          JDK 路径、Loom 下载源、模组身份（mod_id / mod_version / maven_group）
 ├── gradle/
-│   ├── pvpocket-cells.gradle  两个 cell 共用的那一半：产物名、Java 级别、许可、dev 客户端清单
+│   ├── pvpocket-cells.gradle  六格共用的那一半：产物名、Java 级别、许可、dev 客户端清单
 │   ├── libs.versions.toml     加载器工具链版本（fabric-loader / Loom / ModDevGradle）+ 插件坐标
 │   ├── catalogs/<mc>.toml     每个 MC 版本一份版本号：minecraft / fabricApi / neoforge
 │   └── wrapper/
@@ -186,9 +191,7 @@ PvPocket/
 │   ├── client/                客户端专用，与加载器无关
 │   ├── fabric/ client-fabric/ Fabric 接线
 │   └── neoforge/ client-neoforge/   NeoForge 接线
-├── versions/
-│   ├── 1.21.1-fabric/         Fabric 那一格：加载器插件 + 依赖 + run
-│   └── 1.21.1-neoforge/       NeoForge 那一格，与上一行平行
+├── versions/<cell>/           六格各一个：加载器插件 + 依赖 + run；矩阵见 versions/README.md
 ├── legacy/1.20.1/             1.20.1 的独立 Gradle 根（FG6 要 Gradle 8，未建）
 ├── runs/<cell>/               运行目录（客户端 1–4 + 服务端，不进版本库）
 ├── arena-src/                 地图源素材（不进版本库，见 docs/zh/06-maps.md）
@@ -227,16 +230,16 @@ PvPocket/
 
 **编译通过不等于可用。** 下面五项按改动范围选：
 
-1. **编译**：`./gradlew compileJava compileClientJava`。
+1. **编译**：`./gradlew :<cell>:compileJava :<cell>:compileClientJava`。
 2. **跑一局**：规则、会话、配装、网络的改动至少要在两端跑完一整局。服务端 journal
-   （`runs/server/world/pvpocket/journal/*.jsonl`）里有 `RULES_PROPOSED`、`RULES_ACCEPTED`、
+   （`runs/<cell>/server/world/pvpocket/journal/*.jsonl`）里有 `RULES_PROPOSED`、`RULES_ACCEPTED`、
    `ROUND_STARTED` 等事件，能直接回答「这一局按哪版规则打的」。
    注意 journal 里的 `=` 被转义成 `\u003d`，`grep 'c.maxHealth='` 匹配不到。
 3. **界面审计**：改过 GUI 就跑 `scripts/check-ui.sh`（约两分钟，退出码 `0` 才算干净；`1` 是有遮挡，
    `2` 是没跑完）。它让开发客户端自己遍历 6 个界面 × 全部页面/弹窗 × 两种画布，在真实渲染帧里
    记录控件盒子和文字。**加新界面或新页面时给 `auditVariantCount()/auditVariant()` 补一个变体**，
    否则新页面不在审计范围内。
-4. **数据自检**：改过 `stats/DuelStats` 就跑 `./gradlew statsCheck`。统计文件是唯一一类 bug 会
+4. **数据自检**：改过 `stats/DuelStats` 就跑 `./gradlew :<cell>:statsCheck`。统计文件是唯一一类 bug 会
    永久留下的东西——重复的历史行、丢错端的上限，都不会当场报错，只会让某个玩家的记录永远错下去。
 5. **语言文件**：改过 `zh_cn.json` / `en_us.json` 后跑一次键集与占位符校验（命令在
    [`AGENTS.md`](AGENTS.md) 的「本地化」一节）。
@@ -305,7 +308,7 @@ python scripts/check-comments.py --summary  # 每个文件的违规数
 - **一句话说完**。需要第二句才写第二句，不要为了显得完整而铺开。
 - **不复述签名**。`getName()` 不需要注释说「返回名字」。
 - **不写修辞**。「这正是……的原因」「关键在于」这类结构一律删掉，直接陈述事实。
-- **不用口语**（「搞」「弄」「一堆」），也不用过度书面语（「 hereby 」「it is worth noting that」）。
+- **不用口语**（「搞」「弄」「一堆」），也不用过度书面语（`hereby`、`it is worth noting that`）。
 - **术语与代码一致**：代码里叫 `session`，注释就不要写「对局对象」。
 - 配置与脚本文件（`*.gradle`、`*.sh`、`*.py`、`*.toml`）里的注释**只保留解释非显然行为的**，
   能用代码说清的一律删掉。

@@ -41,9 +41,10 @@ JDK。Gradle 守护进程本身仍跑在 27 上，那是 Loom 1.19 的要求。
 ## 为什么加载器是子项目，不是源集
 
 Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与 remap，**一个 project 只能应用其中一个**。
-所以「加载器」这一维必然落在 project 边界上。而「版本」这一维不落在 project 边界上——它由
-Stonecutter 的 `//? if` 预处理在共享的 `src/` 里表达，一个版本一个子项目只是为了让每个版本有自己的
-依赖坐标和 run 目录。
+所以「加载器」这一维必然落在 project 边界上。而「版本」这一维不落在 project 边界上——它用
+`scripts/port/gen.py` 的 `//? if` 条件块在共享的 `src/` 里表达（语法与 Stonecutter 相同，但没有引入
+那个插件，理由见 `scripts/port/README.md`）。一个版本一个子项目只是为了让每个版本有自己的依赖坐标
+和 run 目录。
 
 ## 版本号放哪
 
