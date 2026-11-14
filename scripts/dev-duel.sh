@@ -2,10 +2,10 @@
 # Full duel in one command: server in the background, then clients that auto-join it.
 set -uo pipefail
 
-# Usage: scripts/dev-duel.sh. CELL picks the cell, PVP_CLIENTS=3 adds a spectator,
-# PVP_READY_TIMEOUT widens the wait when the world still has to be generated.
+# Usage: scripts/dev-duel.sh [cell]; the cell also comes from the CELL env var.
+# PVP_CLIENTS raises the client count, PVP_READY_TIMEOUT widens the wait for world generation.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CELL="${CELL:-1.21.1-neoforge}"
+CELL="${1:-${CELL:-1.21.1-neoforge}}"
 COUNT="${PVP_CLIENTS:-2}"
 ADDR="${PVP_ADDR:-localhost:25565}"
 PORT="${ADDR##*:}"

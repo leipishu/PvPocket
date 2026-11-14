@@ -35,6 +35,10 @@
 # 联调：服务端在后台，Dev1 + Dev2 自动进服，Ctrl+C 全停
 CELL=1.21.11-neoforge scripts/dev-duel.sh
 
+# 格子也可以作为第一个参数，这样 PowerShell 里同样能跑（PowerShell 不认 CELL=xxx 前缀）
+scripts/dev-duel.sh 1.21.11-neoforge
+scripts/dev-clients.sh 1.21.11-fabric
+
 # 三个客户端（第三个用来看观战面板）
 CELL=1.21.11-neoforge PVP_CLIENTS=3 scripts/dev-duel.sh
 
@@ -47,6 +51,21 @@ FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge scripts/check-logic.sh
 
 # 界面遮挡审计（约两分钟，不需要服务端）
 CELL=1.21.11-fabric scripts/check-ui.sh
+```
+
+### PowerShell / cmd 里怎么跑
+
+`CELL=xxx command` 是 POSIX 语法，PowerShell 会把它当成要执行的程序名而报
+`无法将"CELL=..."项识别为 cmdlet`。Windows 下用 `scripts\dev.cmd`，它自己找 Git Bash：
+
+```
+scripts\dev.cmd 26.1-fabric
+```
+
+`dev.cmd` 只包装了 `dev-duel.sh`。要单独跑 `dev-clients.sh`，用位置参数形式：
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" scripts/dev-clients.sh 26.1-fabric
 ```
 
 `dev-duel.sh` 会先 `./gradlew :<cell>:classes`，再起服务端，等日志里出现 `Done (` 才拉客户端——
