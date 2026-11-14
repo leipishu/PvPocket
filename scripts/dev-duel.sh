@@ -103,11 +103,23 @@ else
             exit 1
         fi
     fi
-    exec 3<> "$FIFO"
+    # A stopped run can leave a child holding the FIFO, and the next open then fails with EBUSY.
+    # Recreating it once covers that; a second failure means something is still alive.
+    if ! exec 3<> "$FIFO" 2>/dev/null; then
+        rm -f "$FIFO" 2>/dev/null
+        mkfifo "$FIFO" 2>/dev/null
+        if ! exec 3<> "$FIFO" 2>/dev/null; then
+            echo "[duel] $FIFO 打不开：上一次的服务端可能还没退干净"
+            echo "        关掉残留的 runServer 进程，或删掉这个文件后重试"
+            exit 1
+        fi
+    fi
     FIFO_OPEN=1
 
     echo "[duel] 启动服务端（日志 $SERVER_LOG）..."
     printf '%s\n' "$CELL" > "$LOGS/.server-cell"
+    # Truncate first: a leftover `Done (` from an earlier run would look like a ready server.
+    : > "$SERVER_LOG"
     ./gradlew ":$CELL:runServer" --console=plain < "$FIFO" > "$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
 
