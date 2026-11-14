@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="单跑 服务端 1.21.11 NeoForge" type="GradleRunConfiguration" folderName="PvPocket 单跑">
+  <configuration default="false" name="1.21.1-fabric - Client2" type="GradleRunConfiguration" folderName="PvPocket 单跑">
     <ExternalSystemSettings>
       <option name="executionName" />
       <option name="externalProjectPath" value="$PROJECT_DIR$" />
@@ -10,7 +10,7 @@
       </option>
       <option name="taskNames">
         <list>
-          <option value=":1.21.11-neoforge:runServer" />
+          <option value=":1.21.1-fabric:runClient2" />
         </list>
       </option>
       <option name="vmOptions" />

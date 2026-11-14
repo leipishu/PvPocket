@@ -3,6 +3,9 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Collected jars, one folder per cell (see collectDist in gradle/pvpocket-cells.gradle)
+dist/
+
 # Per-cell generated source tree (scripts/port/gen.py). Outside build/ so the IDE can index it,
 # but it is still derived from src/ and never edited by hand.
 versions/*/gen-src/

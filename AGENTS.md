@@ -73,9 +73,20 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 ./gradlew buildAll                                                     # 全部 cell
 ```
 
-**五个 run 任务两个加载器完全一致**，在 IDEA 右侧 Gradle 面板 `Tasks > 1.21.1-fabric` 里双击即可：
-`runServer`、`runClient`、`runClient2`、`runClient3`、`runClient4`。换成 `1.21.1-neoforge` 是同一套
-名字、同一批用户名（Dev1..Dev4）。
+**产物只有一个出口：仓库根的 `dist/<cell>/`。** `assemble` 结束时 `collectDist` 会把 `build/libs`
+里的 jar 同步过去（Fabric 的 dev jar 在 `devlibs/`，不会进去），所以一格两份、四格八份，`buildAll`
+末尾会把清单打出来。`dist/` 在 `.gitignore` 里。**不要去 `versions/<cell>/build/libs/` 找发行用的
+jar**，那里还有中间产物。
+
+**五个 run 任务两个加载器完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
+`runClient4`，换成另一格是同一套名字、同一批用户名（Dev1..Dev4）。IDEA 里这五条在 `.run/` 下，
+四格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
+Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>:<task>`。
+
+ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型配置（引用
+`build/moddev/*RunVmArgs.txt`），但那套落在文件夹外面、与 `.run/` 逐条重复，所以
+`gradle/pvpocket-cells.gradle` 把 `neoForgeIdeSync` 关掉了。**不要再开回来**：两套同名配置会让
+下拉里出现两份，其中一份不在文件夹里。
 
 - 客户端默认 `--quickPlayMultiplayer localhost:25565` 直接进服，堆上限 1G。
 - `-PquickJoin=off` 停在标题界面；`-PclientHeap=<size>` 改堆上限。

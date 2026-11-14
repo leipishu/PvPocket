@@ -57,7 +57,11 @@ CELL=1.21.11-fabric scripts/check-ui.sh
 
 - **联调 / 自检 / 构建**：脚本类的入口，点绿三角就跑，输出在 Run 窗口。
 - 联调配置已经带好 `CELL` 环境变量，换格就选另一条。
-- 构建用 Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`。
+- 构建用 Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`；产物归到 `dist/<cell>/`。
+- **单跑**：四格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
+  `runClient` / `runClient2..4` / `runServer`，全部收在 `PvPocket 单跑` 文件夹里。NeoForge 的
+  ModDevGradle 本来会另写一套同名配置到 `.idea/workspace.xml`（文件夹外），已由
+  `gradle/pvpocket-cells.gradle` 关掉 `neoForgeIdeSync` 阻止，否则每条都会出现两份。
 
 脚本类配置的解释器固定为 `C:\Program Files\Git\bin\bash.exe`（只有 Git Bash 能看见
 `netstat` / `taskkill`，PATH 上的 `bash` 常常是 WSL 启动器）。换机器后如果路径不同，在

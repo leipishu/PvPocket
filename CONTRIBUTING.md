@@ -45,9 +45,13 @@ JAVA_HOME="/c/Program Files/Java/jdk-21" ./gradlew build
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # 只编译一格，最快反馈
-./gradlew :1.21.1-fabric:build            # 产物在 versions/1.21.1-fabric/build/libs/
-./gradlew buildAll                        # 全部 cell
+./gradlew :1.21.1-fabric:build            # 产物归到 dist/1.21.1-fabric/
+./gradlew buildAll                        # 全部 cell，产物按格子分放在 dist/ 下
 ```
+
+**产物只有一个去处：仓库根的 `dist/<cell>/`。** 每个格子两份 jar（本体 + sources），四格就是八份，
+`buildAll` 结束时会把清单打出来。`versions/<cell>/build/libs/` 里还有中间产物（Fabric 的 dev jar 在
+`devlibs/`），那些不是拿去装的，别从那里取。`dist/` 在 `.gitignore` 里，构建产物不入库。
 
 两个加载器是**平行的**，没有主次：`versions/1.21.1-fabric/` 与 `versions/1.21.1-neoforge/` 各一个
 `build.gradle`，共享根下的 `src/`。与加载器无关的那一半配置（产物名、Java 级别、许可、dev 客户端

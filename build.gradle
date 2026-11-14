@@ -9,6 +9,17 @@ allprojects {
 
 tasks.register('buildAll') {
     group = 'build'
-    description = 'Builds every cell (versions/<cell>).'
+    description = 'Builds every cell (versions/<cell>) and collects the jars into dist/.'
     dependsOn subprojects.collect { "${it.path}:build" }
+    doLast {
+        def dist = rootProject.file('dist')
+        println "产物（dist/）："
+        subprojects.sort { it.name }.each { cell ->
+            def dir = new File(dist, cell.name)
+            def jars = dir.isDirectory() ? (dir.listFiles() ?: new File[0]) : new File[0]
+            jars.findAll { it.name.endsWith('.jar') }.sort { it.name }.each {
+                println "  ${cell.name}/${it.name}"
+            }
+        }
+    }
 }

@@ -31,6 +31,7 @@
 4. 跑 `./gradlew :<cell>:compileJava`。
 
 产物名从 cell 名派生，不用写：`1.21.1-fabric` → `pvpocket-fabric-1.21.1-<mod_version>.jar`。
+`./gradlew :<cell>:build` 之后它落在仓库根的 `dist/<cell>/`，四格共用这一个出口。
 
 ## 为什么加载器是子项目，不是源集
 

@@ -47,9 +47,14 @@ is a subproject, so commands read `./gradlew :<cell>:<task>`. There are two cell
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # one cell, fastest feedback
-./gradlew :1.21.1-fabric:build            # output in versions/1.21.1-fabric/build/libs/
-./gradlew buildAll                        # every cell
+./gradlew :1.21.1-fabric:build            # output collected into dist/1.21.1-fabric/
+./gradlew buildAll                        # every cell, one folder per cell under dist/
 ```
+
+**There is one place for a finished jar: `dist/<cell>/` at the repository root.** Two jars per cell
+(the mod and its sources), eight for the four cells; `buildAll` prints the list when it finishes.
+`versions/<cell>/build/libs/` also holds intermediates (Fabric's dev jar sits in `devlibs/`), which
+are not what gets installed. `dist/` is in `.gitignore`; build output is never committed.
 
 The two loaders are **parallel**, with no primary one: `versions/1.21.1-fabric/` and
 `versions/1.21.1-neoforge/` each have a `build.gradle` and share the `src/` at the root. Everything

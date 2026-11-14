@@ -91,6 +91,23 @@ base {
     archivesName = "pvpocket-${cellParts[1]}-${cellParts[0]}"
 }
 
+// One place to look for a finished jar: dist/<cell>/ at the repository root. Sync, not Copy, so a
+// jar that disappears from build/libs disappears here too; Fabric keeps its dev jar in devlibs/.
+def collectDist = tasks.register('collectDist', Sync) {
+    group = 'build'
+    description = "Copies the redistributable jars into dist/${project.name}/."
+    into rootProject.layout.projectDirectory.dir("dist/${project.name}")
+    from(layout.buildDirectory.dir('libs')) {
+        include '*.jar'
+    }
+}
+tasks.named('assemble') { finalizedBy collectDist }
+// clean removes buildDir only, so the collected jars would survive it and the next build would
+// leave a stale one behind.
+tasks.matching { it.name == 'clean' }.configureEach {
+    delete rootProject.file("dist/${project.name}")
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(javaLevel)
@@ -187,6 +204,10 @@ tasks.register('writeCompileClasspath') {
         file.text = classpath.files.join(File.pathSeparator)
     }
 }
+
+// IDEA run configurations live in .run/ (versioned, one folder). ModDevGradle writes a duplicate
+// Application copy into .idea/workspace.xml, outside that folder, so its writer is turned off.
+tasks.matching { it.name == 'neoForgeIdeSync' }.configureEach { enabled = false }
 
 // Self-check that needs no Minecraft runtime: ./gradlew :<cell>:statsCheck
 tasks.register('statsCheck', JavaExec) {
