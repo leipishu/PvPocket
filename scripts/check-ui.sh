@@ -10,6 +10,10 @@ LOGS="$ROOT/versions/$CELL/build/devlogs"
 OUT="$LOGS/ui-audit.out"
 VERBOSE="${1:-}"
 
+# The NeoForge cells resolve their artifacts through NeoFormRuntime, which honours http_proxy, and
+# the local proxy never answers piston-meta.mojang.com: the run stalls with no error at all.
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+
 cd "$ROOT" || { echo "[audit] 找不到 $ROOT"; exit 1; }
 mkdir -p "$LOGS"
 

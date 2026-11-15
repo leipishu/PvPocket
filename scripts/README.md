@@ -73,15 +73,23 @@ scripts\dev.cmd 26.1-fabric
 
 ## 在 IDEA 里点着跑
 
-`.run/` 下是提交进仓库的运行配置，IDEA 打开工程后直接出现在右上角的运行下拉里，分三组：
+`.run/` 下是提交进仓库的运行配置，IDEA 打开工程后直接出现在右上角的运行下拉里，分五组：
 
-- **联调 / 自检 / 构建**：脚本类的入口，点绿三角就跑，输出在 Run 窗口。
-- 联调配置已经带好 `CELL` 环境变量，换格就选另一条。
-- 构建用 Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`；产物归到 `dist/<cell>/`。
+- **联调**：十格各两条——`联调 <版本> <加载器>` 起两客户端，`… 三人` 加一个观战位
+  （`PVP_CLIENTS=3`）。环境变量里带好 `CELL`，换格就选另一条。
+- **界面**：十格各一条 `界面 遮挡审计 <版本> <加载器>`，跑 `check-ui.sh`，不需要服务端。
+- **自检**：`检查 *` 是静态检查，`自检 <版本>` 是 `check-logic.sh`，一个版本一条，
+  同时核该版本的 Fabric 与 NeoForge 两格。
+- **构建**：Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`；产物归到 `dist/<cell>/`。
 - **单跑**：十格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
   `runClient` / `runClient2..4` / `runServer`，全部收在 `PvPocket 单跑` 文件夹里。NeoForge 的
   ModDevGradle 本来会另写一套同名配置到 `.idea/workspace.xml`（文件夹外），已由
   `gradle/pvpocket-cells.gradle` 关掉 `neoForgeIdeSync` 阻止，否则每条都会出现两份。
+  **关闭之前生成的那批副本仍留在 `workspace.xml` 里**，需要在 Edit Configurations 里手工删一次，
+  它们不会再自动回来。
+
+矩阵的完整性由 `python scripts/check-run-configs.py` 守：十格 ×（单跑 5 + 联调 + 审计）一条不缺，
+`Application` 类型、双斜杠解释器路径、指向不存在的脚本都判失败。加一格之后先跑它。
 
 脚本类配置的解释器固定为 `C:\Program Files\Git\bin\bash.exe`（只有 Git Bash 能看见
 `netstat` / `taskkill`，PATH 上的 `bash` 常常是 WSL 启动器）。换机器后如果路径不同，在

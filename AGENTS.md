@@ -115,7 +115,13 @@ Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>
 ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型配置（引用
 `build/moddev/*RunVmArgs.txt`），但那套落在文件夹外面、与 `.run/` 逐条重复，所以
 `gradle/pvpocket-cells.gradle` 把 `neoForgeIdeSync` 关掉了。**不要再开回来**：两套同名配置会让
-下拉里出现两份，其中一份不在文件夹里。
+下拉里出现两份，其中一份不在文件夹里。关掉之前已经写进 `workspace.xml` 的副本不会自己消失，
+要在 Edit Configurations 里手工删一次；`.run/` 里一条 Application 型配置都不该有。
+
+**`.run/` 的矩阵是完整的，加一格就要补齐。** 每个 cell 需要 5 条单跑 + 1 条联调 + 1 条三人联调
++ 1 条界面审计，每个版本还需要 1 条自检（一个条目同时带 `FABRIC_CELL` 与 `NEOFORGE_CELL`）。
+漏一条不会报错，只是下拉里找不到——`python scripts/check-run-configs.py` 就是查这个的，
+它同时会揪出 Application 型副本、双斜杠解释器路径和指向不存在脚本的条目。
 
 - 客户端默认 `--quickPlayMultiplayer localhost:25565` 直接进服，堆上限 1G。
 - `-PquickJoin=off` 停在标题界面；`-PclientHeap=<size>` 改堆上限。
