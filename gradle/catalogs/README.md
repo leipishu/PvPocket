@@ -44,7 +44,7 @@ ext.minecraft_version = pickVersion(cellCatalogName, 'minecraft')
 | 内容 | 位置 | 理由 |
 |---|---|---|
 | fabric-loader / Loom / ModDevGradle | `gradle/libs.versions.toml` | 跨 MC 版本共享，一个 Loom 版本能构建整个 1.21.x |
-| `mod_id` / `mod_name` / `mod_version` / `maven_group` | `gradle.properties` | 模组自身的身份，12 格必须一致，不属于任何一格 |
+| `mod_id` / `mod_name` / `mod_version` / `maven_group` | `gradle.properties` | 模组自身的身份，所有格必须一致，不属于任何一格 |
 
 ## `yarn` 键
 
@@ -63,7 +63,10 @@ Yarn→Mojmap 对照表要下载 Yarn 映射，坐标里带这个版本号。它
 
 ## 加一个版本的步骤
 
-1. 复制一个现有的 `.toml`，改文件名与三个版本号；26.x 去掉 `yarn` 键。
+1. 复制一个现有的 `.toml`，改文件名与三个版本号；26.x 去掉 `yarn` 键，并把 `loader` 写进文件
+   （不混淆的 jar 需要认识它的 loader，跨版本共享的那份太旧）。
 2. 在 `settings.gradle` 的 `cells` 列表里加上对应的两个 cell 名。
 3. 建 `versions/<mc>-fabric/build.gradle` 与 `versions/<mc>-neoforge/build.gradle`
    （见 `versions/README.md`）。
+4. 写 `scripts/port/<mc>.tsv` 改名表，否则新格编译的是 `src/` 写的那版 API
+   （见 `scripts/port/README.md`）。

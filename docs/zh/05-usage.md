@@ -6,7 +6,8 @@
 
 ### 服务端
 
-1. 选一格：1.21.1 / 1.21.11 / 26.1 各有 Fabric 与 NeoForge 一份，Java 21（1.21.x）或 25（26.1）。
+1. 选一格：1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3 各有 Fabric 与 NeoForge 一份，
+   Java 21（1.21.x）或 25（26.x）。
    版本坐标在 `gradle/catalogs/<mc>.toml`，矩阵见 `versions/README.md`。
 2. 把该格的 `pvpocket-*.jar` 放进 `mods/`；Fabric 格再放一份
    [Fabric API](https://modrinth.com/mod/fabric-api)，NeoForge 格不需要。

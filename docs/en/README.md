@@ -28,7 +28,7 @@
 | Players | Up to 4 sides x 5 players each = 20 people |
 | Arenas | Five built-in maps plus a runtime flat plot, in separate cells of a dedicated dimension; copies can be added |
 | Loadouts | Configured item by item, saved as presets; share codes last five minutes and land on disk once imported |
-| Builds | Six cells: 1.21.1 / 1.21.11 / 26.1, one Fabric and one NeoForge each |
+| Builds | Ten cells: 1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3, one Fabric and one NeoForge each |
 | Licence | Code under LGPL-3.0; four third-party maps under CC BY-SA 4.0 |
 
 > [!TIP]
@@ -75,12 +75,14 @@ Full meanings, and what each one actually changes, are in [`02-rules.md`](02-rul
 | 1.21.1 | Fabric / NeoForge | 21 | Fabric API for the Fabric cell |
 | 1.21.11 | Fabric / NeoForge | 21 | Same as above |
 | 26.1 (built against 26.1.2) | Fabric / NeoForge | 25 | Same as above |
+| 26.2 | Fabric / NeoForge | 25 | Same as above |
+| 26.3 | Fabric / NeoForge | 25 | Same as above |
 
 Exact coordinates for each version live in [`gradle/catalogs/`](../../gradle/catalogs/), one `.toml` per Minecraft version.
 
 **Server and client must run the same build of the mod.** The protocol is custom payloads; a version mismatch shows up as a panel that never appears or rules that never apply, not as a clear error.
 
-All six cells build, but they are not equally exercised: the Fabric and NeoForge cells for 26.1 were connected to a live server (join, rule panel, loadout editor), while 1.21.11 has only been compile-checked. 1.20.1, 26.2 and 26.3 are planned. The matrix is in [`versions/README.md`](../../versions/README.md).
+All ten cells build, but they are not equally exercised: the Fabric and NeoForge cells for 26.1 were connected to a live server (join, rule panel, loadout editor), while 1.21.11, 26.2 and 26.3 have only been compile-checked. 1.20.1 is still planned. The matrix is in [`versions/README.md`](../../versions/README.md).
 
 ## Installation
 

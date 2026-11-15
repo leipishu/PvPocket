@@ -55,8 +55,8 @@ org.gradle.java.installations.paths=...jdk-17,...jdk-21,...jdk-25,...jdk-27
 ## 构建
 
 **仓库根就是 Gradle 根。** 一个 **cell** = 一个 Minecraft 版本 × 一个加载器，是一个子项目，
-命令写成 `./gradlew :<cell>:<task>`。现在有六格：`1.21.1` / `1.21.11` / `26.1` 各 fabric 与
-neoforge 一份。
+命令写成 `./gradlew :<cell>:<task>`。现在有十格：`1.21.1` / `1.21.11` / `26.1` / `26.2` / `26.3`
+各 fabric 与 neoforge 一份（`1.20.1` 用 forge，还没建）。
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # 只编译一格，最快反馈
@@ -64,13 +64,13 @@ neoforge 一份。
 ./gradlew buildAll                        # 全部 cell，产物按格子分放在 dist/ 下
 ```
 
-**产物只有一个去处：仓库根的 `dist/<cell>/`。** 每个格子两份 jar（本体 + sources），六格就是十二份，
+**产物只有一个去处：仓库根的 `dist/<cell>/`。** 每个格子两份 jar（本体 + sources），十格就是二十份，
 `buildAll` 结束时会把清单打出来。`versions/<cell>/build/libs/` 里还有中间产物（Fabric 的 dev jar 在
 `devlibs/`），那些不是拿去装的，别从那里取。`dist/` 在 `.gitignore` 里，构建产物不入库。
 
-加载器这一维是**平行的**，没有主次：六格各有自己的 `build.gradle`，共享根下的 `src/`。与加载器
+加载器这一维是**平行的**，没有主次：十格各有自己的 `build.gradle`，共享根下的 `src/`。与加载器
 无关的那半配置（产物名、Java 级别、许可、dev 客户端清单）在 `gradle/pvpocket-cells.gradle`，
-六个 cell 都 `apply from:` 它。
+十个 cell 都 `apply from:` 它。
 
 > 为什么加载器必须是子项目而不是同一个 project 的两套配置：Loom 与 ModDevGradle 都要接管 minecraft
 > 依赖、run 任务与 remap，一个 project 只能应用其中一个。
@@ -93,7 +93,7 @@ neoforge 一份。
 Fabric 格用 Loom 的 `splitEnvironmentSourceSets()` 分成 main / client 两个 source set；NeoForge 格是
 单 source set 多 srcDir，客户端类也进 main。两种排布共用上面这条目录边界。
 
-IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现六个 cell，各五条 run 任务。
+IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现十个 cell，各五条 run 任务。
 
 ## 开发联调
 
@@ -113,7 +113,7 @@ IDEA 直接打开仓库根并导入 Gradle 项目，工程列表里会出现六�
 先加入的顶掉。
 
 五个都是 Gradle 任务，**在 IDEA 右侧的 Gradle 工具窗口里直接双击就能跑**（`Tasks > <cell> >
-runClient` … `runServer`；六格是同一套名字），不用开终端，也不用维护运行配置。客户端默认连到
+runClient` … `runServer`；十格是同一套名字），不用开终端，也不用维护运行配置。客户端默认连到
 `localhost:25565`，堆上限 1G：
 
 | 参数 | 默认 | 用途 |
@@ -156,7 +156,7 @@ Ctrl+C 会把客户端和服务端一起停掉。
 
 ## 仓库结构
 
-仓库根就是 Gradle 根，**「一个 MC 版本 × 一个加载器」是一个子项目**，六格各有一份 `build.gradle`。
+仓库根就是 Gradle 根，**「一个 MC 版本 × 一个加载器」是一个子项目**，十格各有一份 `build.gradle`。
 加一格就是加一个目录、一个 cell 名和一份版本目录，不会动到已有的格子。
 
 ```
@@ -182,7 +182,7 @@ PvPocket/
 ├── build.gradle               只放仓库面 + buildAll，不应用任何加载器插件
 ├── gradle.properties          JDK 路径、Loom 下载源、模组身份（mod_id / mod_version / maven_group）
 ├── gradle/
-│   ├── pvpocket-cells.gradle  六格共用的那一半：产物名、Java 级别、许可、dev 客户端清单
+│   ├── pvpocket-cells.gradle  十格共用的那一半：产物名、Java 级别、许可、dev 客户端清单
 │   ├── libs.versions.toml     加载器工具链版本（fabric-loader / Loom / ModDevGradle）+ 插件坐标
 │   ├── catalogs/<mc>.toml     每个 MC 版本一份版本号：minecraft / fabricApi / neoforge
 │   └── wrapper/
@@ -191,7 +191,7 @@ PvPocket/
 │   ├── client/                客户端专用，与加载器无关
 │   ├── fabric/ client-fabric/ Fabric 接线
 │   └── neoforge/ client-neoforge/   NeoForge 接线
-├── versions/<cell>/           六格各一个：加载器插件 + 依赖 + run；矩阵见 versions/README.md
+├── versions/<cell>/           十格各一个：加载器插件 + 依赖 + run；矩阵见 versions/README.md
 ├── legacy/1.20.1/             1.20.1 的独立 Gradle 根（FG6 要 Gradle 8，未建）
 ├── runs/<cell>/               运行目录（客户端 1–4 + 服务端，不进版本库）
 ├── arena-src/                 地图源素材（不进版本库，见 docs/zh/06-maps.md）

@@ -6,8 +6,8 @@
 
 ### Server
 
-1. Pick a cell: 1.21.1, 1.21.11 and 26.1 each have a Fabric and a NeoForge build, on Java 21
-   (1.21.x) or 25 (26.1). Coordinates are in `gradle/catalogs/<mc>.toml`; the matrix is in
+1. Pick a cell: 1.21.1, 1.21.11, 26.1, 26.2 and 26.3 each have a Fabric and a NeoForge build, on
+   Java 21 (1.21.x) or 25 (26.x). Coordinates are in `gradle/catalogs/<mc>.toml`; the matrix is in
    `versions/README.md`.
 2. Put that cell's `pvpocket-*.jar` in `mods/`. Fabric cells also need
    [Fabric API](https://modrinth.com/mod/fabric-api); NeoForge cells do not.

@@ -30,7 +30,7 @@ environment, build, testing and submission.** Design rationale is not repeated h
 | Fabric Loom | 1.13.6 (1.21.x) / 1.19.4 (26.x, the `net.fabricmc.fabric-loom` unobfuscated variant) |
 | ModDevGradle | 2.0.148 |
 | Mappings | Mojmap (`loom.officialMojangMappings()`); 26.1 ships unobfuscated and needs no mappings |
-| Fabric Loader | 0.16.9 (1.21.1) / 0.20.1 (1.21.11 and 26.1) |
+| Fabric Loader | 0.16.9 (1.21.1) / 0.20.1 (1.21.11 and 26.x) |
 
 **One JDK is not enough.** All four have a job:
 
@@ -56,8 +56,8 @@ org.gradle.java.installations.paths=...jdk-17,...jdk-21,...jdk-25,...jdk-27
 ## Build
 
 **The repository root is the Gradle root.** A **cell** is one Minecraft version x one loader, and it
-is a subproject, so commands read `./gradlew :<cell>:<task>`. Six cells exist today: 1.21.1, 1.21.11
-and 26.1, one Fabric and one NeoForge each.
+is a subproject, so commands read `./gradlew :<cell>:<task>`. Ten cells exist today: 1.21.1, 1.21.11, 26.1, 26.2 and 26.3, one Fabric
+and one NeoForge each (1.20.1 uses Forge and is not built yet).
 
 ```bash
 ./gradlew :1.21.1-fabric:compileJava :1.21.1-fabric:compileClientJava   # one cell, fastest feedback
@@ -66,11 +66,11 @@ and 26.1, one Fabric and one NeoForge each.
 ```
 
 **There is one place for a finished jar: `dist/<cell>/` at the repository root.** Two jars per cell
-(the mod and its sources), twelve for six cells; `buildAll` prints the list when it finishes.
+(the mod and its sources), twenty for ten cells; `buildAll` prints the list when it finishes.
 `versions/<cell>/build/libs/` also holds intermediates (Fabric's dev jar sits in `devlibs/`), which
 are not what gets installed. `dist/` is in `.gitignore`; build output is never committed.
 
-The loader dimension is **parallel**, with no primary one: all six cells have their own `build.gradle`
+The loader dimension is **parallel**, with no primary one: all ten cells have their own `build.gradle`
 and share the `src/` at the root. Everything that does not depend on the loader (archive name, Java
 level, licence files, dev client list) lives in `gradle/pvpocket-cells.gradle`, which every cell
 `apply from:`.
@@ -99,7 +99,7 @@ Fabric cells use Loom's `splitEnvironmentSourceSets()` to split main and client.
 single source set with several srcDirs, so client classes go into main. Both layouts obey the same
 directory boundary above.
 
-Open the repository root in IDEA and import it as a Gradle project; six cells show up, each with five
+Open the repository root in IDEA and import it as a Gradle project; ten cells show up, each with five
 run tasks.
 
 ## Development testing
@@ -121,7 +121,7 @@ Usernames must differ too: a development client logs in with the operating-syste
 default, so two clients become the same player and the later join kicks the earlier one out.
 
 All five are Gradle tasks, **double-click them in IDEA's Gradle tool window** (`Tasks > <cell> >
-runClient` … `runServer`; the same names work in all six cells) — no terminal, no run configurations
+runClient` … `runServer`; the same names work in all ten cells) — no terminal, no run configurations
 to maintain. The client connects to `localhost:25565` with a 1G heap by default:
 
 | Parameter | Default | Purpose |
@@ -165,7 +165,7 @@ Logs: server `runs/<cell>/server/logs/latest.log`, clients
 
 ## Repository layout
 
-The repository root is the Gradle root, and **one MC version x one loader is one subproject**: six
+The repository root is the Gradle root, and **one MC version x one loader is one subproject**: ten
 cells, each with a `build.gradle`. Adding a cell means one directory, one name in the cell list and
 one version catalog; the existing cells stay untouched.
 
@@ -193,7 +193,7 @@ PvPocket/
 ├── build.gradle               Only repositories + buildAll; applies no loader plugin
 ├── gradle.properties          JDK paths, Loom download mirrors, mod identity (mod_id / mod_version / maven_group)
 ├── gradle/
-│   ├── pvpocket-cells.gradle  The half all six cells share: archive name, Java level, licence, dev clients
+│   ├── pvpocket-cells.gradle  The half all ten cells share: archive name, Java level, licence, dev clients
 │   ├── libs.versions.toml     Loader toolchain versions (fabric-loader / Loom / ModDevGradle) + plugin coordinates
 │   ├── catalogs/<mc>.toml     One file per MC version: minecraft / fabricApi / neoforge
 │   └── wrapper/
@@ -202,7 +202,7 @@ PvPocket/
 │   ├── client/                Client only, loader-agnostic
 │   ├── fabric/ client-fabric/ Fabric wiring
 │   └── neoforge/ client-neoforge/   NeoForge wiring
-├── versions/<cell>/           Six cells: loader plugin + dependencies + runs; matrix in versions/README.md
+├── versions/<cell>/           Ten cells: loader plugin + dependencies + runs; matrix in versions/README.md
 ├── legacy/1.20.1/             Separate Gradle root for 1.20.1 (FG6 needs Gradle 8; not built yet)
 ├── runs/<cell>/               Run directories (clients 1–4 + server, not in version control)
 ├── arena-src/                 Map sources (not in version control, see ../zh/06-maps.md)

@@ -27,9 +27,9 @@
 
 ## 换版本怎么跑
 
-1.21.11 与 26.1 都没有专用脚本——**所有脚本都用 `CELL=` 选格子**，和 1.21.1 是同一套。六格的名字
-是 `1.21.1-fabric`、`1.21.1-neoforge`、`1.21.11-fabric`、`1.21.11-neoforge`、`26.1-fabric`、
-`26.1-neoforge`。
+1.21.11 与 26.x 都没有专用脚本——**所有脚本都用 `CELL=` 选格子**，和 1.21.1 是同一套。十格的名字
+是 `<版本>-<加载器>`，版本取 `1.21.1` / `1.21.11` / `26.1` / `26.2` / `26.3`，加载器取 `fabric` /
+`neoforge`。
 
 ```bash
 # 联调：服务端在后台，Dev1 + Dev2 自动进服，Ctrl+C 全停
@@ -78,7 +78,7 @@ scripts\dev.cmd 26.1-fabric
 - **联调 / 自检 / 构建**：脚本类的入口，点绿三角就跑，输出在 Run 窗口。
 - 联调配置已经带好 `CELL` 环境变量，换格就选另一条。
 - 构建用 Gradle 配置跑 `buildAll`，等价于命令行的 `./gradlew buildAll`；产物归到 `dist/<cell>/`。
-- **单跑**：六格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
+- **单跑**：十格各五条 `<cell> - Client / Client2 / Client3 / Client4 / Server`，对应
   `runClient` / `runClient2..4` / `runServer`，全部收在 `PvPocket 单跑` 文件夹里。NeoForge 的
   ModDevGradle 本来会另写一套同名配置到 `.idea/workspace.xml`（文件夹外），已由
   `gradle/pvpocket-cells.gradle` 关掉 `neoForgeIdeSync` 阻止，否则每条都会出现两份。
@@ -99,7 +99,7 @@ Run → Edit Configurations 里改 Interpreter path。
 
 ## 约定
 
-- **`CELL`** 选格子，六格通吃。少数脚本用两个变量（`check-logic.sh` 同时核 Fabric 与 NeoForge）。
+- **`CELL`** 选格子，十格通吃。少数脚本用两个变量（`check-logic.sh` 同时核 Fabric 与 NeoForge）。
 - **`PVP_CLIENTS`** 1–4，对应 `runClient` / `runClient2` / `runClient3` / `runClient4` 四个 run 任务。
 - **退出码**：0 通过，1 有发现，2 环境不全（没编译、找不到 JDK、审计没跑完）。CI 只需要看 0/非 0。
 - **日志**落在 `versions/<cell>/build/devlogs/`，不在仓库根的 `logs/`。

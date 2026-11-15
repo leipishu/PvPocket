@@ -6,8 +6,8 @@
 
 PvPocket is a Minecraft mod that gives a survival server **a duel you can start on the spot**: the
 players agree on terms, drop into a dedicated dimension, fight under faithfully reproduced vanilla
-mechanics, and leave with nothing changed. It currently builds for 1.21.1, 1.21.11 and 26.1, one
-Fabric and one NeoForge cell each; the matrix is in [`versions/README.md`](../../versions/README.md).
+mechanics, and leave with nothing changed. It currently builds for 1.21.1, 1.21.11, 26.1, 26.2 and
+26.3, one Fabric and one NeoForge cell each; the matrix is in [`versions/README.md`](../../versions/README.md).
 
 It is not a server's core gameplay and not a matchmaking lobby. The pitch is one sentence:
 **two people want a fight, they get one in thirty seconds, and nothing is left behind.**

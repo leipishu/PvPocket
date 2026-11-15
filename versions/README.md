@@ -16,8 +16,8 @@
 | 1.21.1 | `1.21.1-fabric` | `1.21.1-neoforge` | — | 21 | **已建** |
 | 1.21.11 | `1.21.11-fabric` | `1.21.11-neoforge` | — | 21 | **已建，编译通过**；未连服实测 |
 | 26.1 | `26.1-fabric` | `26.1-neoforge` | — | 25 | **已建**，两格都连服实测过 |
-| 26.2 | `26.2-fabric` | `26.2-neoforge` | — | 25 | 未建 |
-| 26.3 | `26.3-fabric` | `26.3-neoforge` | — | 25 | 未建 |
+| 26.2 | `26.2-fabric` | `26.2-neoforge` | — | 25 | **已建，编译通过**；未连服实测 |
+| 26.3 | `26.3-fabric` | `26.3-neoforge` | — | 25 | **已建，编译通过**；未连服实测 |
 
 1.20.1 用 Forge 而不是 NeoForge，因为 NeoForge 从 1.20.2 才有。
 
@@ -31,12 +31,18 @@ JDK。Gradle 守护进程本身仍跑在 27 上，那是 Loom 1.19 的要求。
 1. **版本号**：这个 MC 版本还没有 `gradle/catalogs/<mc>.toml` 的话，复制一份现有的改三个版本号
    （`minecraft` / `fabricApi` / `neoforge`）。catalog 名由文件名派生，不用注册，见
    `gradle/catalogs/README.md`。
-2. 建目录 `versions/<mc>-<loader>/`，放一个 `build.gradle`（照抄同名加载器现有的那一份）。
-3. 把 cell 名加进 `settings.gradle` 的 `cells` 列表。
-4. 跑 `./gradlew :<cell>:compileJava`。
+2. **改名表**：`scripts/port/<mc>.tsv`。这个版本和现有源码写的那个版本差多少，就抄多少行；
+   版本区间那两行（`fabric.mod.json` 的 `"minecraft"` 与 `neoforge.mods.toml` 的版本区间）
+   也在表里，因为 `//?` 进不了 JSON/TOML。**没有这一步就只建了个空壳**，编译会在
+   `src/` 写的那版 API 上直接报错。
+3. 建目录 `versions/<mc>-<loader>/`，放一个 `build.gradle`（照抄同名加载器现有的那一份）。
+4. 把 cell 名加进 `settings.gradle` 的 `cells` 列表。
+5. 跑 `./gradlew :<cell>:compileJava`，剩下的错误逐个进改名表或 `PvCompat`。
+
+顺序不能换：2 在 3 之前，因为 `build.gradle` 里的 `ext.pvpocketPort` 决定生成树用哪张表。
 
 产物名从 cell 名派生，不用写：`1.21.1-fabric` → `pvpocket-fabric-1.21.1-<mod_version>.jar`。
-`./gradlew :<cell>:build` 之后它落在仓库根的 `dist/<cell>/`，六格共用这一个出口。
+`./gradlew :<cell>:build` 之后它落在仓库根的 `dist/<cell>/`，十格共用这一个出口。
 
 ## 为什么加载器是子项目，不是源集
 
@@ -54,7 +60,7 @@ Loom 与 ModDevGradle 都要接管 minecraft 依赖、run 任务与 remap，**�
 | --- | --- | --- |
 | `gradle/catalogs/<mc>.toml` | `minecraft` / `fabricApi` / `neoforge` | 同版本的两个 cell |
 | `gradle/libs.versions.toml` | `fabric-loader` / `fabricLoom` / `neoforgeModdev` | 全部 cell |
-| `gradle.properties` | `mod_id` / `mod_name` / `mod_version` / `maven_group` | 全部 cell，12 格必须一致 |
+| `gradle.properties` | `mod_id` / `mod_name` / `mod_version` / `maven_group` | 全部 cell，所有格必须一致 |
 
 cell 的 `build.gradle` 不直接读这些文件：`gradle/pvpocket-cells.gradle` 按 cell 名派生 catalog 名
 （`1.21.1-fabric` → `v1_21_1`），取出来挂成 `project.minecraft_version` 这类属性。所以

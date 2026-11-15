@@ -199,6 +199,89 @@ FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge bash scripts/check-logic.sh
 重复**，所以每层 HUD 要自己编号；`WorldRenderEvents`（`rendering.v1.world`）→ `LevelRenderEvents`
 （`rendering.v1.level`），`WorldRenderContext` → `LevelRenderContext`。
 
+## 26.2 现状（两格编译通过）
+
+改名表直接以 26.1 那份为底，末尾追加一段「new in 26.2」。两格编译到 0，**没有连服实测**。
+
+改动只有四类，但第一类改了渲染的写法，不是改名能解决的：
+
+| 变了什么 | 26.1 | 26.2 |
+| --- | --- | --- |
+| 世界渲染提交 | `MultiBufferSource` + `RenderBuffers.bufferSource()` | `SubmitNodeCollector.submitCustomGeometry(PoseStack, RenderType, CustomGeometryRenderer)` |
+| 屏幕栈 | `client.screen` / `client.setScreen(x)` | `client.gui.screen()` / `client.gui.setScreen(x)` |
+| 实体类型常量 | `EntityType.PLAYER` | `EntityTypes.PLAYER`（跟着 `BlockEntityType(s)` 的分裂走） |
+| 方块物品 | `Items.WHITE_WOOL` | `Items.WOOL.white()`（方块物品改成 holder 上的方法） |
+
+NeoForge 侧对应地把 `RenderLevelStageEvent` 换成 `SubmitCustomGeometryEvent`，一个事件跑完原来
+两组图层。元数据那两行（`fabric.mod.json` 的 `"minecraft"` 与 `neoforge.mods.toml` 的版本区间）
+照 26.1 的办法改成 `~26.2` 与 `[26.2,27)`——`//?` 进不了 JSON/TOML，只能走表。
+
+### 几何要自己提，`PoseStack` 要拷贝
+
+26.2 之前渲染是「拿到 buffer 就往里写」，现在是「交给收集器，由它决定什么时候画」。回调里的
+`PoseStack` 是**复用对象**，提交时不留副本，所以只能拿 `pose.pose().copy()` 的快照：
+
+```java
+collector.submitCustomGeometry(poses, type, (pose, buffer) -> batch.draw(buffer, pose.pose()));
+```
+
+这一处收进 `PvWorldGeometry.draw(...)`，`BoundaryRenderer` 这类画线框的地方只调它，不再碰
+`MultiBufferSource`。`PvClientPlatform.WorldFrame` 的 `buffers` 字段用 `//? if <26.2` 包起来——
+26.2 起那一格没有它。
+
+### 整词替换会误伤 Fabric API 的包名
+
+`client.screen` → `client.gui.screen()` 这条**不能进改名表**。Fabric API 里有个包叫
+`net.fabricmc.fabric.api.client.screen.v1`，整词匹配照样命中，`ScreenEvents` 的 import 会被改成
+一句毫无意义的方法调用。同类还有 `Minecraft.getInstance().gui.setOverlayMessage(`：它前面是
+`)`，`\b` 不成立，`.gui.setOverlayMessage(` 写进表里也匹配不上，得去掉开头的点。
+
+结论：**凡是「同一串字符在别处另有含义」的替换，交给 `src/client` 的兼容层**。这次因此新增了
+`PvScreens`（`current` / `open` 两个方法），所有 `setScreen` 调用点改调它。
+
+## 26.3 现状（两格编译通过）
+
+以 26.2 那份为底。差异集中在窗口层：**GLFW 换成 SDL**，`org.lwjgl.glfw` 整个包不在 classpath 上。
+两格编译到 0，**没有连服实测**。
+
+| 变了什么 | 26.2 | 26.3 |
+| --- | --- | --- |
+| 键常量 | `org.lwjgl.glfw.GLFW.GLFW_KEY_W` | `com.mojang.blaze3d.platform.InputConstants.KEY_W` |
+| 按键事件取值 | `key()` 是 keysym | `key()` 是 scancode，`keycode()` 是布局码 |
+| 挥动进度 | `LivingEntity.getAttackAnim(float)` | `getSwingAnimation(float)`，状态挪进 `SwingState` |
+| 背包放置 / 掉落 | `placeItemBackInInventory(stack)` | 多一个 `Prediction` 参数 |
+| 床 | `BedItem` | 类被删，用 `ItemTags.BEDS` 判 |
+| 第一人称手持物 | `gameRenderer.itemInHandRenderer.renderItem(...)` | `ItemStackRenderState` + `getItemModelResolver().updateForLiving` |
+
+元数据同样是表里的两行（`~26.3` 与 `[26.3,27)`）。**改名表是从上一版派生的，所以元数据行也要
+跟着改**——照抄 26.2 的表却忘了改这两行，表现是加载器在跑任何 mod 代码之前就拒绝加载，日志里
+只有一句「不兼容」。
+
+### 改名表是单遍的，不能写链
+
+26.2 的表里有一行 `hasImpulse → hurtMarked`（1.21.11 的击退方法名）。26.3 里它又叫
+`syncVelocity`。表是**一趟扫过去**的，写 `hasImpulse → hurtMarked` 加 `hurtMarked → syncVelocity`
+只会得到 `hurtMarked`，第二行匹配不到第一行的产物。所以 26.3 表里直接写 `hasImpulse →
+syncVelocity`，跳过中间那个名字。
+
+### `event.scancode → event.keycode`，不是反过来
+
+看着像笔误，其实不是：SDL 的 `KeyEvent` 把两个取值方法的名字**对调**了——`key()` 现在给
+scancode（与布局无关，`KEY_W` 是 26），`keycode()` 给布局相关的码。原先按 keysym 比较的代码
+要改成按 scancode 比较，于是表里那一行是 `event.scancode` → `event.keycode`。
+
+### 换包只改后缀是不够的
+
+`GLFW.GLFW_KEY_ENTER` 这类常量进了表，替换后变成 `InputConstants.KEY_RETURN`，但源码里原本写的是
+**全限定名** `org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER`，前缀没人管，于是报「找不到符号
+`InputConstants`」。表里还得有一行管 import：
+
+```
+import org.lwjgl.glfw.GLFW	import com.mojang.blaze3d.platform.InputConstants
+```
+
+漏了这一行的表现是「常量都改对了，但整个文件编译不过」，很容易以为是规则写错。
+
 ## 改源码时的一个坑
 
 批量替换脚本必须先读后写。`open(path, 'w')` 会立刻截断文件，若在同一个表达式里再 `read()`，
@@ -208,5 +291,5 @@ FABRIC_CELL=26.1-fabric NEOFORGE_CELL=26.1-neoforge bash scripts/check-logic.sh
 ## 为什么不是 Stonecutter
 
 原计划用它，但它以 Kotlin DSL 为主：接进来要把根构建与所有 cell 全改成 `.kts`，`cells.gradle`
-也要重写，现有六格全部要回归。`gen.py` 不到 200 行，`//? if` 语法与它一致，将来真要换，
+也要重写，现有十格全部要回归。`gen.py` 不到 200 行，`//? if` 语法与它一致，将来真要换，
 把 `gen.py` 换成 Stonecutter 的预处理即可，源码里的条件块不用动。

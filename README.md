@@ -27,7 +27,7 @@
 | 人数 | 最多 4 方 × 每方 5 人 = 20 人 |
 | 场地 | 5 张内置地图 + 一张运行时平坦图，独立维度分格，可加副本 |
 | 配装 | 逐项配置，能存预设；分享码 5 分钟有效，导入后落盘到本机 |
-| 构建 | 6 个 cell：1.21.1 / 1.21.11 / 26.1，各一份 Fabric 与 NeoForge |
+| 构建 | 10 个 cell：1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3，各一份 Fabric 与 NeoForge |
 | 许可 | 代码 LGPL-3.0；四张第三方地图 CC BY-SA 4.0 |
 
 > [!TIP]
@@ -74,12 +74,14 @@
 | 1.21.1 | Fabric / NeoForge | 21 | Fabric 格需要 Fabric API |
 | 1.21.11 | Fabric / NeoForge | 21 | 同上 |
 | 26.1（构建用的是 26.1.2） | Fabric / NeoForge | 25 | 同上 |
+| 26.2 | Fabric / NeoForge | 25 | 同上 |
+| 26.3 | Fabric / NeoForge | 25 | 同上 |
 
 每个版本的确切坐标在 [`gradle/catalogs/`](gradle/catalogs/)，一个 MC 版本一份 `.toml`。
 
 **服务端与客户端必须装同一个模组、同一个版本。** 两端协议是自定义 payload，版本不一致时表现为面板不出现或规则不生效，而不是一条明确的报错。
 
-六格都能构建，联调程度不一样：26.1 的 Fabric 与 NeoForge 两格连服实测过（进服、规则面板、配装编辑器），1.21.11 两格目前只做到编译通过。1.20.1 与 26.2 / 26.3 还在规划里，矩阵见 [`versions/README.md`](versions/README.md)。
+十格都能构建，联调程度不一样：26.1 的 Fabric 与 NeoForge 两格连服实测过（进服、规则面板、配装编辑器），1.21.11 / 26.2 / 26.3 六格目前只做到编译通过。1.20.1 还在规划里，矩阵见 [`versions/README.md`](versions/README.md)。
 
 ## 安装
 

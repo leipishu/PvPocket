@@ -11,7 +11,7 @@
 Minecraft 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生存完全隔离的决斗口袋，
 自定义配装、多局对抗、打完不留痕迹。目标形态是 **6 个 Minecraft 版本 × 2 个加载器 = 12 格**
 （1.20.1 / 1.21.1 / 1.21.11 / 26.1 / 26.2 / 26.3，每版 fabric + neoforge；1.20.1 用 forge）。
-已建 6 格：1.21.1、1.21.11、26.1，各 fabric 与 neoforge 一份。
+已建 10 格：1.21.1、1.21.11、26.1、26.2、26.3，各 fabric 与 neoforge 一份；1.20.1 未建。
 
 **服务端与客户端必须同版本。** 两端协议是自定义 payload，版本不一致时表现为面板不出现或规则不生效，
 而不是一个明确的报错。
@@ -25,12 +25,12 @@ Minecraft 模组「口袋决斗」（`pvpocket`）：在 SMP 里开一个与生�
 PvPocket/
 ├── settings.gradle           # cells 清单，一个 cell 一个子项目
 ├── build.gradle              # 只放仓库面 + buildAll，不应用任何加载器插件
-├── gradle/pvpocket-cells.gradle   # 六格共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
+├── gradle/pvpocket-cells.gradle   # 十格共用的那一半（产物名/Java 级别/许可/dev 客户端清单）
 ├── gradle/catalogs/<mc>.toml      # 每个 MC 版本一份版本号，注册成 catalog `v<mc>`
 ├── gradle/libs.versions.toml      # 加载器工具链版本 + 插件坐标，catalog `libs`
 ├── src/                      # 手写源，不直接编译
 ├── versions/<cell>/build.gradle   # 每格约 100 行：加载器插件 + 依赖 + run
-├── versions/<cell>/gen-src/  # 六格各自编译的生成树，由 scripts/port/gen.py 写出，不入库
+├── versions/<cell>/gen-src/  # 十格各自编译的生成树，由 scripts/port/gen.py 写出，不入库
 ├── runs/<cell>/{server,client1..4}   # 运行目录，按 cell 分开
 ├── legacy/1.20.1/            # 1.20.1 的独立 Gradle 根（FG6 要 Gradle 8）
 └── scripts/ docs/ arena-src/
@@ -66,7 +66,7 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 `Configuration 'mappings' has no dependencies`——看起来像缺依赖，其实是没关掉混淆。顺带一提，那个
 开关只认 String，写成 Boolean 会被静默当成没设置。
 
-**版本差异不进业务代码。** `src/` 里只有一层手写源，六格编译的都是
+**版本差异不进业务代码。** `src/` 里只有一层手写源，十格编译的都是
 `versions/<cell>/gen-src/`——`scripts/port/gen.py` 复制 `src/` 时按表改名、按 `//? if` 剔分支
 （1.21.1 那两格也走这一步，只是改名 0 条）。
 所以 `src/` 里那 200 多个 `//?` 标记**两支代码同时存在**，直接拿某格的类路径编 `src/` 会报几十个
@@ -91,7 +91,7 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 | JDK | 用途 | 为什么不能换 |
 | --- | --- | --- |
 | 27 | Gradle 守护进程（`org.gradle.java.home`） | Loom 1.19 要求 JVM 25+，且不低于它要配置的 MC 版本 |
-| 25 | 26.x 两格的 toolchain（编译与运行） | NeoForge 26.1 的 ASM 9.9.1 拒绝 level 27 的 class 文件，服务端起不来 |
+| 25 | 26.x 六格的 toolchain（编译与运行） | NeoForge 26.1 的 ASM 9.9.1 拒绝 level 27 的 class 文件，服务端起不来 |
 | 21 | 1.21.1 / 1.21.11 两版的 toolchain | 那两版就是 21 |
 | 17 | `legacy/1.20.1`（FG6） | ForgeGradle 6 只认 17 |
 
@@ -103,13 +103,13 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 cell 需要新 Gradle 才能配置），要升级只能直接改 `gradle/wrapper/gradle-wrapper.properties`。
 
 **产物只有一个出口：仓库根的 `dist/<cell>/`。** `assemble` 结束时 `collectDist` 会把 `build/libs`
-里的 jar 同步过去（Fabric 的 dev jar 在 `devlibs/`，不会进去），所以一格两份、六格十二份，`buildAll`
+里的 jar 同步过去（Fabric 的 dev jar 在 `devlibs/`，不会进去），所以一格两份、十格二十份，`buildAll`
 末尾会把清单打出来。`dist/` 在 `.gitignore` 里。**不要去 `versions/<cell>/build/libs/` 找发行用的
 jar**，那里还有中间产物。
 
-**五个 run 任务六格完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
+**五个 run 任务十格完全一致**：`runServer`、`runClient`、`runClient2`、`runClient3`、
 `runClient4`，换成另一格是同一套名字、同一批用户名（Dev1..Dev4）。IDEA 里这五条在 `.run/` 下，
-六格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
+十格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
 Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>:<task>`。
 
 ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型配置（引用
@@ -200,7 +200,7 @@ python scripts/check-lang.py
 
 ```bash
 python scripts/check-content.py 1.21.11-neoforge            # 这一格能给出哪些物品
-python scripts/check-content.py --all                       # 12 格总表
+python scripts/check-content.py --all                       # 六个版本的总表
 python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # 对着真实 jar 对账
 ```
 
@@ -358,7 +358,7 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 - **校验要分两句**：`item_missing`（这个版本没有这类物品，只能删掉这一行）与 `no_such_item`
   （这个材质建不出这个物品，换一个材质就好）。混成一句会让玩家不知道该怎么修。
 - 新增物品或材质之后跑 `scripts/check-logic.sh`（`LoadoutContentCheck` 用三份手写的版本清单断言
-  每个版本应当看到什么），再跑 `python scripts/check-content.py --all` 看 12 格总表——后者把版本
+  每个版本应当看到什么），再跑 `python scripts/check-content.py --all` 看六个版本的总表——后者把版本
   门槛放在 `scripts/content-manifest.tsv` 里，新增一格时用 `--verify-jar <该格客户端 jar>` 对账。
 
 ### 5c. 加载器边界

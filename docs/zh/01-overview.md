@@ -6,7 +6,7 @@
 
 PvPocket（口袋决斗）是一个 Minecraft 模组，为生存服提供**随时可开的一场决斗**：
 各方协商规则、进入独立维度、在复刻的原版机制下对局、结束后一切复原。目前构建 1.21.1 / 1.21.11 /
-26.1 三档，每档各一份 Fabric 与 NeoForge；矩阵见 [`versions/README.md`](../../versions/README.md)。
+26.1 / 26.2 / 26.3 五档，每档各一份 Fabric 与 NeoForge；矩阵见 [`versions/README.md`](../../versions/README.md)。
 
 它不追求做服务器核心玩法，也不做匹配大厅。定位是一句话：**两个人想打一场，三十秒内能开打，
 打完什么痕迹都不留。**
