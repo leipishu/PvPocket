@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.ArrayList;
@@ -190,7 +191,7 @@ public class PvScrollPane extends PvWidget {
         if (!visible || !contains(mx, my)) {
             return false;
         }
-        if (button == 0 && overBar(mx)) {
+        if (button == PvInput.LEFT && overBar(mx)) {
             draggingThumb = true;
             jumpTo(my);
             return true;

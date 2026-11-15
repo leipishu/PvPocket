@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
@@ -74,7 +75,7 @@ public class PvToggle extends PvValueControl {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0 || !contains(mx, my)) {
+        if (!visible || !enabled || button != PvInput.LEFT || !contains(mx, my)) {
             return false;
         }
         value = value == 0 ? 1 : 0;

@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -175,7 +176,7 @@ public class PlayerPicker extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || button != 0) {
+        if (!visible || button != PvInput.LEFT) {
             return false;
         }
         int px = panelX();

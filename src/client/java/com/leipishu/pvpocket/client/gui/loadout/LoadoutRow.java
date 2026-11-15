@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.loadout;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -212,7 +213,7 @@ public class LoadoutRow extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0 || !contains(mx, my)) {
+        if (!visible || !enabled || button != PvInput.LEFT || !contains(mx, my)) {
             return false;
         }
         pressed = true;
@@ -225,7 +226,7 @@ public class LoadoutRow extends PvWidget {
             return false;
         }
         pressed = false;
-        if (button != 0 || !contains(mx, my)) {
+        if (button != PvInput.LEFT || !contains(mx, my)) {
             return true;
         }
         Font tr = Minecraft.getInstance().font;

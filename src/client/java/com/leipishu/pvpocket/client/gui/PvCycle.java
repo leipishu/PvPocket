@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import net.minecraft.client.Minecraft;
@@ -121,11 +122,11 @@ public class PvCycle extends PvValueControl {
         if (!visible || !enabled || !contains(mx, my)) {
             return false;
         }
-        if (button == 0) {
+        if (button == PvInput.LEFT) {
             step(mx < x + ARROW ? -1 : 1);
             return true;
         }
-        if (button == 1) {
+        if (button == PvInput.RIGHT) {
             step(-1);
             return true;
         }

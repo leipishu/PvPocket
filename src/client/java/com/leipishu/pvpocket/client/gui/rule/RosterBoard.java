@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -406,7 +407,7 @@ public class RosterBoard extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0 || !editable) {
+        if (!visible || !enabled || button != PvInput.LEFT || !editable) {
             return false;
         }
         for (int team = 0; team < teams.size(); team++) {

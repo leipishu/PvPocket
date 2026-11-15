@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.rules.RuleGroup;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -228,7 +229,7 @@ public class PvTabs extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0 || !contains(mx, my)) {
+        if (!visible || !enabled || button != PvInput.LEFT || !contains(mx, my)) {
             return false;
         }
         int index = tabAt(my);

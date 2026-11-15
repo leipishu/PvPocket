@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -224,7 +225,7 @@ public class PvTextField extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0 || !contains(mx, my)) {
+        if (!visible || !enabled || button != PvInput.LEFT || !contains(mx, my)) {
             return false;
         }
         // Caret placement by click is not implemented: the field is at most 24 characters, and

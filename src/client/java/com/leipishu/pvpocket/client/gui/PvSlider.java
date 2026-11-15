@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -142,7 +143,7 @@ public class PvSlider extends PvValueControl {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || !enabled || button != 0) {
+        if (!visible || !enabled || button != PvInput.LEFT) {
             return false;
         }
         // The whole widget is a hit target, not just the 4px track: a thin track is unusable at

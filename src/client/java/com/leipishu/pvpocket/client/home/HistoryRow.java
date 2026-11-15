@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.home;
 
+import com.leipishu.pvpocket.client.compat.PvInput;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -175,7 +176,7 @@ public class HistoryRow extends PvWidget {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (!visible || button != 0 || !contains(mx, my)) {
+        if (!visible || button != PvInput.LEFT || !contains(mx, my)) {
             return false;
         }
         Minecraft.getInstance().getSoundManager()
