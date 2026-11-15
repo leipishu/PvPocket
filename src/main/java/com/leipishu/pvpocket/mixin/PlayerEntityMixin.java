@@ -11,6 +11,9 @@ import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
+//? if >=26.2 {
+import net.minecraft.world.damagesource.DamageSource;
+//?}
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +36,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * {@code causeExtraKnockback} and {@code doSweepAttack}, the sweep gate to {@code isSweepAttack},
  * the crit gate to {@code canCriticalAttack}, the indicator to {@code damageStatsAndHearts}, and
  * every attack sound to {@code playServerSideSound}.
+ *
+ * <p>26.2 changed the knockback signature again: it now takes the {@code DamageSource} and the
+ * damage amount, and the two call sites no longer agree on the descriptor, so that hook is a pair
+ * of redirects instead of one.
  */
 @Mixin(Player.class)
 public abstract class PlayerEntityMixin {
@@ -53,23 +60,67 @@ public abstract class PlayerEntityMixin {
      * velocity a second time. The sweep site stays unreachable for a legacy attacker because the
      * sweep is disabled below; every other caller forwards to vanilla.
      */
-    //? if >=1.21.11 {
+    //? if >=26.2 {
+    // 26.2 gave knockback a DamageSource and a damage amount, and the two call sites stopped
+    // sharing a descriptor: causeExtraKnockback also passes the "already knocked back" flag. One
+    // redirect cannot cover both, so the sweep site gets its own handler.
+    @Redirect(method = "causeExtraKnockback",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/entity/LivingEntity;knockback"
+                            + "(DDDLnet/minecraft/world/damagesource/DamageSource;FZ)V"))
+    private void pvpocket$legacyExtraKnockback(LivingEntity victim, double strength, double x,
+                                               double z, DamageSource source, float amount,
+                                               boolean flag) {
+        if (!pvpocket$legacyImpulse(victim, strength, x, z)) {
+            victim.knockback(strength, x, z, source, amount, flag);
+        }
+    }
+
+    @Redirect(method = "doSweepAttack",
+            at = @At(value = "INVOKE",
+                    target = "Lnet/minecraft/world/entity/LivingEntity;knockback"
+                            + "(DDDLnet/minecraft/world/damagesource/DamageSource;F)V"))
+    private void pvpocket$legacySweepKnockback(LivingEntity victim, double strength, double x,
+                                               double z, DamageSource source, float amount) {
+        if (!pvpocket$legacyImpulse(victim, strength, x, z)) {
+            victim.knockback(strength, x, z, source, amount);
+        }
+    }
+    //?} elif >=1.21.11 {
     @Redirect(method = {"causeExtraKnockback", "doSweepAttack"},
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/LivingEntity;knockback(DDD)V"))
+    private void pvpocket$legacyAttackKnockback(LivingEntity victim, double strength,
+                                                double x, double z) {
+        if (!pvpocket$legacyImpulse(victim, strength, x, z)) {
+            victim.knockback(strength, x, z);
+        }
+    }
     //?} else {
     @Redirect(method = "attack",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/LivingEntity;knockback(DDD)V"))
-    //?}
     private void pvpocket$legacyAttackKnockback(LivingEntity victim, double strength,
                                                 double x, double z) {
-        Player self = (Player) (Object) this;
-        if (CombatState.isLegacy(self.getUUID())) {
-            LegacyKnockback.applyAttack(victim, x, z, strength);
-        } else {
+        if (!pvpocket$legacyImpulse(victim, strength, x, z)) {
             victim.knockback(strength, x, z);
         }
+    }
+    //?}
+
+    /**
+     * Applies the 1.8 impulse when the attacker is legacy.
+     *
+     * @return true when it did, so the caller skips the vanilla knockback call it replaced
+     */
+    private boolean pvpocket$legacyImpulse(LivingEntity victim, double strength,
+                                           double x, double z) {
+        Player self = (Player) (Object) this;
+        if (!CombatState.isLegacy(self.getUUID())) {
+            return false;
+        }
+        LegacyKnockback.applyAttack(victim, x, z, strength);
+        return true;
     }
 
     /**

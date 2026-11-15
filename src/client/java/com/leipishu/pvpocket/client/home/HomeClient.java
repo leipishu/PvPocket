@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeRequestPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.client.compat.PvKeys;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.KeyMapping;
 import org.lwjgl.glfw.GLFW;
@@ -33,8 +34,8 @@ public final class HomeClient {
             Minecraft client = Minecraft.getInstance();
             // Drained in a loop, so two presses in one tick count as two intents.
             while (home.consumeClick()) {
-                if (client.screen == null && client.player != null) {
-                    client.setScreen(new HomeScreen());
+                if (PvScreens.current(client) == null && client.player != null) {
+                    PvScreens.open(client, new HomeScreen());
                 }
             }
         });
@@ -87,8 +88,8 @@ public final class HomeClient {
     /** Opens the screen if it is legal to, for the inventory button and for command aliases. */
     public static void open() {
         Minecraft client = Minecraft.getInstance();
-        if (client.screen == null && client.player != null) {
-            client.setScreen(new HomeScreen());
+        if (PvScreens.current(client) == null && client.player != null) {
+            PvScreens.open(client, new HomeScreen());
         }
     }
 }

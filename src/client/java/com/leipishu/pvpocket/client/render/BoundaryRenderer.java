@@ -5,7 +5,6 @@ import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import net.minecraft.client.Minecraft;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.renderer.MultiBufferSource;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.ResourceKey;
@@ -96,8 +95,7 @@ public final class BoundaryRenderer {
             return;
         }
         PoseStack matrices = frame.poses();
-        MultiBufferSource consumers = frame.buffers();
-        if (matrices == null || consumers == null) {
+        if (matrices == null) {
             return;
         }
 
@@ -109,15 +107,15 @@ public final class BoundaryRenderer {
         matrices.pushPose();
         // Vertices are sent in world coordinates, so the camera offset is cancelled here.
         matrices.translate(-cam.x, -cam.y, -cam.z);
-        Matrix4f matrix = matrices.last().pose();
-        VertexConsumer vc = consumers.getBuffer(PvRenderTypes.debugQuads());
 
-        if (ArenaBounds.active()) {
-            drawBoundary(vc, matrix, cam, ArenaBounds.get());
-        }
-        // Drawn independently of the bounds: a client with screens but no outline still sees the
-        // wall it is standing behind.
-        drawScreens(vc, matrix, cam);
+        PvWorldGeometry.draw(frame, matrices, PvRenderTypes.debugQuads(), (vc, matrix) -> {
+            if (ArenaBounds.active()) {
+                drawBoundary(vc, matrix, cam, ArenaBounds.get());
+            }
+            // Drawn independently of the bounds: a client with screens but no outline still sees
+            // the wall it is standing behind.
+            drawScreens(vc, matrix, cam);
+        });
 
         matrices.popPose();
     }

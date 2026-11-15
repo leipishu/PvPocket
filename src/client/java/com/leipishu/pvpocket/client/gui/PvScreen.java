@@ -1,5 +1,6 @@
 package com.leipishu.pvpocket.client.gui;
 
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -113,7 +114,7 @@ public abstract class PvScreen extends Screen {
     @Override
     public void onClose() {
         modalPointer = false;
-        Minecraft.getInstance().setScreen(parent);
+        PvScreens.open(Minecraft.getInstance(), parent);
     }
 
     /**

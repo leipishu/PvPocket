@@ -9,6 +9,7 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchListPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -338,7 +339,7 @@ public class MatchListScreen extends PvScreen {
         send(SpectateRequestPayload.join(sessionId));
         // Closed immediately: the server switches this player into spectator mode and teleports
         // them, and a modal panel over that transition would be the last thing they see.
-        Minecraft.getInstance().setScreen(null);
+        PvScreens.open(Minecraft.getInstance(), null);
     }
 
     private void leave() {
@@ -358,6 +359,6 @@ public class MatchListScreen extends PvScreen {
 
     @Override
     public void onClose() {
-        Minecraft.getInstance().setScreen(null);
+        PvScreens.open(Minecraft.getInstance(), null);
     }
 }

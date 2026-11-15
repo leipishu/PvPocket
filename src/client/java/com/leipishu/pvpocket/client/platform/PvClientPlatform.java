@@ -8,7 +8,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientLevel;
+//? if <26.2 {
 import net.minecraft.client.renderer.MultiBufferSource;
+//?}
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.nio.file.Path;
@@ -148,11 +150,17 @@ public interface PvClientPlatform {
      * {@code Object} because the classes they hold do not exist on every version: the submit queue
      * arrived in 1.21.11 and {@code LightTexture} left in 26.1, so each is null on the versions
      * that lack it, and only the matching code path reads it.
+     *
+     * <p>{@code buffers} disappears in 26.2, which deleted {@code MultiBufferSource} and the client
+     * {@code RenderBuffers} with it. From there the submit queue is the only way to draw, so
+     * {@code PvWorldGeometry} is what renderers call instead of reading either field.
      */
     record WorldFrame(
             ClientLevel level,
             PoseStack poses,
+//? if <26.2 {
             MultiBufferSource buffers,
+//?}
             Camera camera,
             DeltaTracker delta,
             Object lightmap,

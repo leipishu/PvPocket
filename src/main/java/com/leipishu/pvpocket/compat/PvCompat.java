@@ -14,6 +14,13 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+//? if >=26.2 {
+import net.minecraft.world.entity.EntityTypes;
+//?} else {
+import net.minecraft.world.entity.EntityType;
+//?}
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -269,6 +276,21 @@ public final class PvCompat {
         player.teleportTo(level, x, y, z, Set.of(), yaw, pitch, false);
 //?} else {
         player.teleportTo(level, x, y, z, yaw, pitch);
+//?}
+    }
+
+    /**
+     * The base value an attribute has on a player before any modifier is applied.
+     *
+     * <p>26.2 moved the entity type constants off {@code EntityType} and onto {@code EntityTypes},
+     * following the split {@code BlockEntityType} / {@code BlockEntityTypes} already had. The call
+     * itself did not change, so only the holder of {@code PLAYER} moves.
+     */
+    public static double playerAttributeBase(Holder<Attribute> attribute) {
+//? if >=26.2 {
+        return DefaultAttributes.getSupplier(EntityTypes.PLAYER).getValue(attribute);
+//?} else {
+        return DefaultAttributes.getSupplier(EntityType.PLAYER).getValue(attribute);
 //?}
     }
 }

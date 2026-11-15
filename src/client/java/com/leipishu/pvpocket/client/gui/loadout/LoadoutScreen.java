@@ -23,6 +23,7 @@ import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.LoadoutSubmitPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -619,7 +620,7 @@ public class LoadoutScreen extends PvScreen {
 
     /** Returns to the rule panel. It never cancels the negotiation. */
     private void back() {
-        Minecraft.getInstance().setScreen(parent);
+        PvScreens.open(Minecraft.getInstance(), parent);
     }
 
     /** Routes Esc through {@link #requestBack}, so only a clean panel leaves immediately. */

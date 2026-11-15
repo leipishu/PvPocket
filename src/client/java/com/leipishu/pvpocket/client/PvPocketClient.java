@@ -36,6 +36,7 @@ import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -70,23 +71,23 @@ public final class PvPocketClient {
         platform.onServerPacket(RulesOpenPayload.ID, payload -> {
             PvPocket.LOGGER.info("Received rules_open for session {} role {}",
                     payload.sessionId(), payload.role());
-            Minecraft.getInstance().setScreen(new RuleScreen(payload));
+            PvScreens.open(Minecraft.getInstance(), new RuleScreen(payload));
         });
 
         platform.onServerPacket(RulesClosePayload.ID, payload -> {
             Minecraft client = Minecraft.getInstance();
-            boolean showing = client.screen instanceof RuleScreen screen
+            boolean showing = PvScreens.current(client) instanceof RuleScreen screen
                     && screen.sessionId().equals(payload.sessionId());
             PvPocket.LOGGER.info("Rules close for session {} (panel open: {})",
                     payload.sessionId(), showing);
             if (showing) {
-                ((RuleScreen) client.screen).closeSilently();
+                ((RuleScreen) PvScreens.current(client)).closeSilently();
                 return;
             }
             // The loadout editor is a child of the rule panel, so it closes with it.
-            if (client.screen instanceof LoadoutScreen editor
+            if (PvScreens.current(client) instanceof LoadoutScreen editor
                     && editor.sessionId().equals(payload.sessionId())) {
-                client.setScreen(null);
+                PvScreens.open(client, null);
             }
         });
 
@@ -94,8 +95,8 @@ public final class PvPocketClient {
             PvPocket.LOGGER.info("Received loadout_open for session {}", payload.sessionId());
             Minecraft client = Minecraft.getInstance();
             // Carries the panel instance across so unsent rule edits survive.
-            RuleScreen parent = client.screen instanceof RuleScreen screen ? screen : null;
-            client.setScreen(new LoadoutScreen(payload, parent));
+            RuleScreen parent = PvScreens.current(client) instanceof RuleScreen screen ? screen : null;
+            PvScreens.open(client, new LoadoutScreen(payload, parent));
         });
 
         // No log line for the HUD payload; it arrives at every round boundary for every player.
@@ -105,7 +106,7 @@ public final class PvPocketClient {
 
         // Opens a fresh screen so the row buttons match the new rows.
         platform.onServerPacket(MatchListPayload.ID,
-                payload -> Minecraft.getInstance().setScreen(new MatchListScreen(payload)));
+                payload -> PvScreens.open(Minecraft.getInstance(), new MatchListScreen(payload)));
 
         platform.onServerPacket(SpectateStatePayload.ID, SpectatorHud::update);
 
@@ -125,7 +126,7 @@ public final class PvPocketClient {
                 return;
             }
             lastResultSession = result.sessionId();
-            Minecraft.getInstance().setScreen(new SeriesResultScreen(result));
+            PvScreens.open(Minecraft.getInstance(), new SeriesResultScreen(result));
         });
 
         // Drops every mirror so the next join starts clean.

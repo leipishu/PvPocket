@@ -153,7 +153,22 @@ public final class FabricClientPlatform implements PvClientPlatform {
      * Reading a field here requires the NeoForge side to supply it too, and
      * {@code RenderLevelStageEvent} has no {@code LightTexture}.
      */
-//? if >=26.1 {
+//? if >=26.2 {
+    private static WorldFrame frame(LevelRenderContext context) {
+        // 26.2 dropped bufferSource() from the context, and MultiBufferSource with it: the submit
+        // queue is the only sink left, so the frame no longer carries a buffer source. Level,
+        // camera, tick and lightmap still come from the client singletons, and the lightmap is a
+        // bare texture view.
+        Minecraft client = Minecraft.getInstance();
+        return new WorldFrame(
+                client.level,
+                context.poseStack(),
+                client.gameRenderer.mainCamera(),
+                client.getDeltaTracker(),
+                client.gameRenderer.lightmap(),
+                context.submitNodeCollector());
+    }
+//?} elif >=26.1 {
     private static WorldFrame frame(LevelRenderContext context) {
         // The context kept the stack, the buffers and the submit queue; level, camera, tick and
         // lightmap come from the client singletons, and the lightmap is a bare texture view now.

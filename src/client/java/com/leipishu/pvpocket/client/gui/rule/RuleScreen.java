@@ -28,6 +28,7 @@ import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
 import com.leipishu.pvpocket.rules.Rulebook;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -969,7 +970,7 @@ public class RuleScreen extends PvScreen {
             submitted = true;
             send(RulesSubmitPayload.ACTION_DISMISS);
         }
-        Minecraft.getInstance().setScreen(null);
+        PvScreens.open(Minecraft.getInstance(), null);
     }
 
     public String sessionId() {
@@ -981,7 +982,7 @@ public class RuleScreen extends PvScreen {
      */
     public void closeSilently() {
         submitted = true;
-        Minecraft.getInstance().setScreen(null);
+        PvScreens.open(Minecraft.getInstance(), null);
     }
 
     // ------------------------------------------------------------------ audit

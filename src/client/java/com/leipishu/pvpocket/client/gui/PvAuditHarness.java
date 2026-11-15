@@ -15,6 +15,7 @@ import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 
 import java.util.ArrayList;
@@ -94,7 +95,7 @@ public final class PvAuditHarness {
             current = step.factory.get();
             // setScreen() runs init() at the window's real size; the second call overrides it so
             // the same screen can be measured at a canvas it was not opened at.
-            client.setScreen(current);
+            PvScreens.open(client, current);
 //? if >=1.21.11 {
             current.init(step.width(), step.height());
 //?} else {
@@ -119,7 +120,7 @@ public final class PvAuditHarness {
         int total = PvAudit.summary("layout audit");
         System.out.println("[pvaudit] " + (total == 0 ? "CLEAN" : "FOUND " + total + " overlap(s)"));
         if (Boolean.getBoolean("pvpocket.audit.exit")) {
-            client.setScreen(null);
+            PvScreens.open(client, null);
             client.stop();
         }
     }

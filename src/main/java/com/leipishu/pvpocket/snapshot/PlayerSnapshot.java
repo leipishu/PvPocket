@@ -15,11 +15,9 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
 import net.minecraft.world.scores.Scoreboard;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.server.MinecraftServer;
@@ -174,7 +172,7 @@ public final class PlayerSnapshot {
     }
 
     private static double defaultBase(Holder<Attribute> attribute) {
-        return DefaultAttributes.getSupplier(EntityType.PLAYER).getValue(attribute);
+        return PvCompat.playerAttributeBase(attribute);
     }
 
     private static double defaultBase(String attributeId) {

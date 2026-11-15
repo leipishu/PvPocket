@@ -8,6 +8,7 @@ import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -102,7 +103,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             return;
         }
         // F1 hides the HUD; the scoreboard respects it so a clean screenshot is possible.
-        if (client.options.hideGui || client.screen != null) {
+        if (client.options.hideGui || PvScreens.current(client) != null) {
             return;
         }
 
