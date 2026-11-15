@@ -29,12 +29,20 @@
 收集），26.3 把窗口层从 GLFW 换到 SDL（键常量搬到 `InputConstants`，按键事件的两个取值方法名
 对调）。
 
-两版的 Fabric 构建都已连服实测（进服、规则面板、配装编辑器、胜负判定）；NeoForge 两格还没跑。
+四个构建都跑起来了：26.2 与 26.3 的 Fabric 格、26.2 的 NeoForge 格连服玩过（进服、规则面板、
+配装编辑器、胜负判定），26.3 的 NeoForge 格验到进服为止。
 
 **26.3 有一处编译器抓不到的改动**：鼠标按钮编号从 GLFW 的「左 0 / 中 2 / 右 1」变成 SDL 的
 「左 1 / 中 2 / 右 3」，`InputConstants.MOUSE_BUTTON_LEFT` 的名字和类型都没变。界面里 21 处
 `button == 0` 因此全部落空，表现是整个界面所有按钮点了没反应。现在按钮比较统一走 `PvInput`
 常量，字面量不再出现在界面代码里。
+
+**加载器也会拆方法**：NeoForge 26.2 把 `Player.doSweepAttack` 拆成两个重载，Mixin 的
+`method = "doSweepAttack"` 只认第一个，服务端在启动阶段就崩。注入点写成 `doSweepAttack*`
+（尾部星号匹配所有同前缀重载），`MixinTargetCheck` 跟着认识星号并禁止 `@Inject` 使用。
+
+NeoForge 26.2 起 `logoFile` 被 `bannerFile` / `iconFile` 取代，元数据里三个键都写：旧加载器只读
+第一个，新加载器读后两个，不再报弃用告警。
 
 ---
 

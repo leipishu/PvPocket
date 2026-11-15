@@ -82,7 +82,7 @@ Exact coordinates for each version live in [`gradle/catalogs/`](../../gradle/cat
 
 **Server and client must run the same build of the mod.** The protocol is custom payloads; a version mismatch shows up as a panel that never appears or rules that never apply, not as a clear error.
 
-All ten cells build, but they are not equally exercised: the Fabric and NeoForge cells for 26.1 and the Fabric cells for 26.2 and 26.3 were connected to a live server (join, rule panel, loadout editor), while 1.21.11 and the NeoForge cells for 26.2 and 26.3 have only been compile-checked. 1.20.1 is still planned. The matrix is in [`versions/README.md`](../../versions/README.md).
+All ten cells build, but they are not equally exercised: the four cells for 26.1 and 26.2 were connected to a live server and played through (join, rule panel, loadout editor), and so was the 26.3 Fabric cell; the 26.3 NeoForge cell is verified as far as joining a server. The two 1.21.11 cells have only been compile-checked. 1.20.1 is still planned. The matrix is in [`versions/README.md`](../../versions/README.md).
 
 ## Installation
 
