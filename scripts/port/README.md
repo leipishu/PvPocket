@@ -242,12 +242,13 @@ collector.submitCustomGeometry(poses, type, (pose, buffer) -> batch.draw(buffer,
 ## 26.3 现状（两格编译通过）
 
 以 26.2 那份为底。差异集中在窗口层：**GLFW 换成 SDL**，`org.lwjgl.glfw` 整个包不在 classpath 上。
-两格编译到 0，**没有连服实测**。
+两格编译到 0，**Fabric 两格已连服实测**（进服 / 规则面板 / 配装编辑器），NeoForge 两格还没跑。
 
 | 变了什么 | 26.2 | 26.3 |
 | --- | --- | --- |
 | 键常量 | `org.lwjgl.glfw.GLFW.GLFW_KEY_W` | `com.mojang.blaze3d.platform.InputConstants.KEY_W` |
 | 按键事件取值 | `key()` 是 keysym | `key()` 是 scancode，`keycode()` 是布局码 |
+| 鼠标按钮编号 | 左 0 / 中 2 / 右 1 | 左 1 / 中 2 / 右 3 |
 | 挥动进度 | `LivingEntity.getAttackAnim(float)` | `getSwingAnimation(float)`，状态挪进 `SwingState` |
 | 背包放置 / 掉落 | `placeItemBackInInventory(stack)` | 多一个 `Prediction` 参数 |
 | 床 | `BedItem` | 类被删，用 `ItemTags.BEDS` 判 |
@@ -256,6 +257,16 @@ collector.submitCustomGeometry(poses, type, (pose, buffer) -> batch.draw(buffer,
 元数据同样是表里的两行（`~26.3` 与 `[26.3,27)`）。**改名表是从上一版派生的，所以元数据行也要
 跟着改**——照抄 26.2 的表却忘了改这两行，表现是加载器在跑任何 mod 代码之前就拒绝加载，日志里
 只有一句「不兼容」。
+
+### 鼠标按钮编号也变了，而编译器抓不到
+
+`InputConstants.MOUSE_BUTTON_LEFT` 的**类型和名字都没变，值从 0 变成了 1**（SDL 是左 1 / 中 2 /
+右 3）。于是 `button == 0` 这种写法编译照过、`check-logic.sh` 也照过，只是永远不成立——表现是
+**整个界面所有按钮点了没反应**，键盘还能用，看上去像事件没送到。
+
+这一处只能靠实测发现，所以所有按钮比较都改成比 `PvInput.LEFT` / `RIGHT` / `MIDDLE`（`client/compat`），
+不让字面量出现在界面代码里。移植到新版本时，凡是「常量还在、语义变了」的改动都要走这种常量类，
+别指望类型检查。
 
 ### 改名表是单遍的，不能写链
 
