@@ -9,7 +9,9 @@ import net.minecraft.client.multiplayer.ClientLevel;
 //? if <26.1 {
 import net.minecraft.client.renderer.LightTexture;
 //?}
+//? if <26.2 {
 import net.minecraft.client.renderer.MultiBufferSource;
+//?}
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.loading.FMLPaths;
@@ -19,6 +21,9 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+//? if >=26.2 {
+import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
+//?}
 //? if >=1.21.11 {
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 //?} else {
@@ -72,7 +77,15 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
                         event.getGuiGraphics(), event.getPartialTick())));
         // The two stages are subscribed separately: after translucent blocks and after the level.
         // Fabric names them AFTER_TRANSLUCENT and LAST, at the same positions.
-//? if >=1.21.11 {
+//? if >=26.2 {
+        // 26.2 replaced the per-stage events with one submit event: the level no longer draws as it
+        // walks the stages, it collects geometry and the queue assembles it afterwards. Both layers
+        // land on that single event in registration order, which is the order the two stages gave.
+        gameBus.addListener(SubmitCustomGeometryEvent.class, event -> {
+            renderWorld(translucentLayers, event);
+            renderWorld(lastLayers, event);
+        });
+//?} elif >=1.21.11 {
         // The stage enum became one event subclass per stage, so the switch moves into the bus.
         gameBus.addListener(RenderLevelStageEvent.AfterTranslucentBlocks.class,
                 event -> renderWorld(translucentLayers, event));
@@ -193,12 +206,23 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         lastLayers.add(layer);
     }
 
+//? if >=26.2 {
+    private static void renderWorld(List<WorldLayer> layers, SubmitCustomGeometryEvent event) {
+        WorldFrame frame = frame(event);
+        for (WorldLayer layer : layers) {
+            layer.render(frame);
+        }
+    }
+
+//?}
+//? if <26.2 {
     private static void renderWorld(List<WorldLayer> layers, RenderLevelStageEvent event) {
         WorldFrame frame = frame(event);
         for (WorldLayer layer : layers) {
             layer.render(frame);
         }
     }
+//?}
 
     // ------------------------------------------------------------------ environment
 
@@ -217,10 +241,26 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
     /**
      * Converts a NeoForge render event into the platform-neutral {@link WorldFrame}.
      *
-     * <p>The event carries neither {@code MultiBufferSource} nor {@code LightTexture}, so both
-     * come from {@link Minecraft}, where they are global singletons. That makes the six
-     * {@code WorldFrame} fields an intersection rather than the Fabric shape.
+     * <p>Before 26.2 the event carries neither {@code MultiBufferSource} nor {@code LightTexture},
+     * so both come from {@link Minecraft}, where they are global singletons. That makes the six
+     * {@code WorldFrame} fields an intersection rather than the Fabric shape. From 26.2 the event
+     * carries the submit queue, and the buffer source no longer exists to be fetched.
      */
+//? if >=26.2 {
+    private static WorldFrame frame(SubmitCustomGeometryEvent event) {
+        // The event carries the stack and the submit queue; level, camera, tick and lightmap are
+        // client singletons, and 26.1 hands the lightmap out as a bare texture view.
+        Minecraft client = Minecraft.getInstance();
+        return new WorldFrame(
+                client.level,
+                event.getPoseStack(),
+                client.gameRenderer.mainCamera(),
+                client.getDeltaTracker(),
+                client.gameRenderer.lightmap(),
+                event.getSubmitNodeCollector());
+    }
+
+//?} else {
     private static WorldFrame frame(RenderLevelStageEvent event) {
         Minecraft client = Minecraft.getInstance();
         PoseStack poses = event.getPoseStack();
@@ -243,4 +283,5 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         return new WorldFrame(level, poses, buffers, camera, delta, lightmap, null);
 //?}
     }
+//?}
 }
