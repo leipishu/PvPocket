@@ -8,9 +8,18 @@
 //?} else {
     "ItemRendererMixin",
 //?}
+//? if <26.3 {
     "ClientPlayerEntityMixin",
+//?}
+//? if >=26.2 {
+    "GuiScreenMixin",
+//?}
     "HandledScreenAccessor",
+//? if >=26.2 {
+    "HudCrosshairMixin",
+//?} else {
     "InGameHudMixin",
+//?}
     "MinecraftClientMixin",
     "PlayerEntityRendererMixin",
     "ScreenInvoker"

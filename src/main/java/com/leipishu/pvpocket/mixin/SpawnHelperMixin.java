@@ -1,14 +1,20 @@
 package com.leipishu.pvpocket.mixin;
 
 import com.leipishu.pvpocket.arena.ArenaManager;
+//? if >=26.3 {
+import net.minecraft.core.BlockPos;
+//?} else {
 import net.minecraft.core.Holder;
+//?}
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.NaturalSpawner;
 import net.minecraft.world.level.ServerLevelAccessor;
+//? if <26.3 {
 import net.minecraft.world.level.biome.Biome;
+//?}
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -56,9 +62,17 @@ public class SpawnHelperMixin {
      * spawn list rather than by {@code spawnForChunk}, so a freshly generated plot would otherwise
      * arrive with animals on it; a 48x48 plot measured seven.
      */
+//? if >=26.3 {
     @Inject(method = "spawnMobsForChunkGeneration", at = @At("HEAD"), cancellable = true)
-    private static void pvpocket$suppressChunkPopulation(ServerLevelAccessor world, Holder<Biome> biome,
-                                                         ChunkPos chunkPos, RandomSource random, CallbackInfo ci) {
+    private static void pvpocket$suppressChunkPopulation(ServerLevelAccessor world, BlockPos pos,
+                                                         ChunkPos chunkPos, RandomSource random,
+                                                         CallbackInfo ci) {
+//?} else {
+    @Inject(method = "spawnMobsForChunkGeneration", at = @At("HEAD"), cancellable = true)
+    private static void pvpocket$suppressChunkPopulation(ServerLevelAccessor world,
+                                                         Holder<Biome> biome, ChunkPos chunkPos,
+                                                         RandomSource random, CallbackInfo ci) {
+//?}
         if (world instanceof ServerLevel serverWorld && ArenaManager.isArena(serverWorld)) {
             ci.cancel();
         }

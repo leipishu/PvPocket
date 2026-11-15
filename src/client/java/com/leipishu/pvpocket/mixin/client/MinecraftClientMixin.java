@@ -49,11 +49,13 @@ public abstract class MinecraftClientMixin {
      * Suppresses the death screen during a match and respawns immediately.
      *
      * <p>Hooks {@code Minecraft.setScreen}: a {@link DeathScreen} is cancelled and a respawn
-     * request is sent instead.
+     * request is sent instead. 26.2 moved the screen stack to {@code Gui}, which is what
+     * {@code GuiScreenMixin} hooks on those versions.
      *
      * <p>Gated on the match HUD rather than the arena dimension, because spectators also stand in
      * that dimension and should still see the screen.
      */
+//? if <26.2 {
     @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
     private void pvpocket$skipArenaDeathScreen(Screen screen, CallbackInfo ci) {
         if (!(screen instanceof DeathScreen)) {
@@ -67,6 +69,7 @@ public abstract class MinecraftClientMixin {
                 ServerboundClientCommandPacket.Action.PERFORM_RESPAWN));
         ci.cancel();
     }
+//?}
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void pvpocket$blockingInput(CallbackInfo ci) {

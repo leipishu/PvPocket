@@ -1,5 +1,8 @@
 package com.leipishu.pvpocket.mixin.client;
 
+// 26.3 dropped LocalPlayer.drop: the client does not decide, and ServerPlayerEntityMixin vetoes the
+// drop on the server. Below 26.3 this file generates empty.
+//? if <26.3 {
 import com.leipishu.pvpocket.client.compat.PvChat;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.LoadoutLock;
@@ -28,3 +31,4 @@ public abstract class ClientPlayerEntityMixin {
         }
     }
 }
+//?}
