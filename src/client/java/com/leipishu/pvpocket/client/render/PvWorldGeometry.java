@@ -18,11 +18,10 @@ import net.minecraft.client.renderer.MultiBufferSource;
 /**
  * Hands immediate-mode geometry to one world render pass.
  *
- * <p>26.2 removed {@code MultiBufferSource} and the client-wide {@code RenderBuffers} together: a
- * pass no longer draws into a buffer that is flushed afterwards, it registers a callback with the
- * frame's submit queue and the geometry is built when the frame is assembled. The callback receives
- * the resolved {@code PoseStack.Pose}, which is the same matrix {@code getBuffer()} used to be
- * paired with, so the drawing code itself does not change.
+ * <p>From 26.2 a pass registers a callback with the frame's submit queue instead of drawing into
+ * a buffer that is flushed afterwards, and the geometry is built when the frame is assembled. The
+ * callback receives the resolved {@code PoseStack.Pose}, the same matrix {@code getBuffer()} pairs
+ * with on older versions, so the drawing code is identical.
  *
  * <p>The submit queue arrived in 1.21.11, but only 26.2 dropped the buffer source, so both branches
  * exist: before 26.2 the frame carries the buffer source, from 26.2 the queue is the only way in.

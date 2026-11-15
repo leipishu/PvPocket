@@ -155,10 +155,8 @@ public final class FabricClientPlatform implements PvClientPlatform {
      */
 //? if >=26.2 {
     private static WorldFrame frame(LevelRenderContext context) {
-        // 26.2 dropped bufferSource() from the context, and MultiBufferSource with it: the submit
-        // queue is the only sink left, so the frame no longer carries a buffer source. Level,
-        // camera, tick and lightmap still come from the client singletons, and the lightmap is a
-        // bare texture view.
+        // 26.2+ has no buffer source: the submit queue is the only sink. Level, camera, tick and
+        // lightmap come from the client singletons.
         Minecraft client = Minecraft.getInstance();
         return new WorldFrame(
                 client.level,

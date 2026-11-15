@@ -36,10 +36,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * {@code causeExtraKnockback} and {@code doSweepAttack}, the sweep gate to {@code isSweepAttack},
  * the crit gate to {@code canCriticalAttack}, the indicator to {@code damageStatsAndHearts}, and
  * every attack sound to {@code playServerSideSound}.
- *
- * <p>26.2 changed the knockback signature again: it now takes the {@code DamageSource} and the
- * damage amount, and the two call sites no longer agree on the descriptor, so that hook is a pair
- * of redirects instead of one.
  */
 @Mixin(Player.class)
 public abstract class PlayerEntityMixin {
@@ -61,9 +57,8 @@ public abstract class PlayerEntityMixin {
      * sweep is disabled below; every other caller forwards to vanilla.
      */
     //? if >=26.2 {
-    // 26.2 gave knockback a DamageSource and a damage amount, and the two call sites stopped
-    // sharing a descriptor: causeExtraKnockback also passes the "already knocked back" flag. One
-    // redirect cannot cover both, so the sweep site gets its own handler.
+    // 26.2+ passes a DamageSource and a damage amount, and the two call sites differ on the
+    // descriptor, so the sweep site needs its own handler.
     @Redirect(method = "causeExtraKnockback",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/LivingEntity;knockback"

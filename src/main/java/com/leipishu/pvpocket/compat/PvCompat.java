@@ -286,7 +286,8 @@ public final class PvCompat {
      * Drops one stack at the player's feet without the "drop everything" semantics of the
      * no-argument form.
      *
-     * <p>26.3 added the same prediction argument to {@code drop} as to {@code placeItemBackInInventory}.
+     * <p>26.3 added the same prediction argument to {@code drop} as to
+     * {@code placeItemBackInInventory}.
      */
     public static void dropItem(ServerPlayer player, ItemStack stack) {
 //? if >=26.3 {

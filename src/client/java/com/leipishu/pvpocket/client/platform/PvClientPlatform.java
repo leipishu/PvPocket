@@ -151,9 +151,8 @@ public interface PvClientPlatform {
      * arrived in 1.21.11 and {@code LightTexture} left in 26.1, so each is null on the versions
      * that lack it, and only the matching code path reads it.
      *
-     * <p>{@code buffers} disappears in 26.2, which deleted {@code MultiBufferSource} and the client
-     * {@code RenderBuffers} with it. From there the submit queue is the only way to draw, so
-     * {@code PvWorldGeometry} is what renderers call instead of reading either field.
+     * <p>{@code buffers} disappears in 26.2 along with {@code MultiBufferSource} and the client
+     * {@code RenderBuffers}; from there renderers call {@code PvWorldGeometry} instead.
      */
     record WorldFrame(
             ClientLevel level,

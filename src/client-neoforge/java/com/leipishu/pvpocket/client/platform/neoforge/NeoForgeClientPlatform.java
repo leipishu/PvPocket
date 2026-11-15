@@ -78,9 +78,8 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
         // The two stages are subscribed separately: after translucent blocks and after the level.
         // Fabric names them AFTER_TRANSLUCENT and LAST, at the same positions.
 //? if >=26.2 {
-        // 26.2 replaced the per-stage events with one submit event: the level no longer draws as it
-        // walks the stages, it collects geometry and the queue assembles it afterwards. Both layers
-        // land on that single event in registration order, which is the order the two stages gave.
+        // 26.2+ collects geometry instead of drawing as it walks the stages: both layers land on
+        // one submit event, in registration order, which is the order the two stages gave.
         gameBus.addListener(SubmitCustomGeometryEvent.class, event -> {
             renderWorld(translucentLayers, event);
             renderWorld(lastLayers, event);
@@ -241,10 +240,10 @@ public final class NeoForgeClientPlatform implements PvClientPlatform {
     /**
      * Converts a NeoForge render event into the platform-neutral {@link WorldFrame}.
      *
-     * <p>Before 26.2 the event carries neither {@code MultiBufferSource} nor {@code LightTexture},
+     * <p>Up to 26.1 the event carries neither {@code MultiBufferSource} nor {@code LightTexture},
      * so both come from {@link Minecraft}, where they are global singletons. That makes the six
-     * {@code WorldFrame} fields an intersection rather than the Fabric shape. From 26.2 the event
-     * carries the submit queue, and the buffer source no longer exists to be fetched.
+     * {@code WorldFrame} fields an intersection rather than the Fabric shape. From 26.2 on the
+     * event carries the submit queue and no buffer source.
      */
 //? if >=26.2 {
     private static WorldFrame frame(SubmitCustomGeometryEvent event) {

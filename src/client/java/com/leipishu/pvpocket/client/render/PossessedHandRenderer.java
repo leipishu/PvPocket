@@ -243,9 +243,8 @@ public final class PossessedHandRenderer {
                 ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
                 : ItemDisplayContext.FIRST_PERSON_LEFT_HAND;
 //? if >=26.3 {
-        // 26.3 removed the per-item call from the first-person renderer: the model is resolved into
-        // an ItemStackRenderState first, and the state submits itself. The lightmap and overlay are
-        // the same two packed values the old call took.
+        // 26.3+ resolves the model into an ItemStackRenderState and lets the state submit itself.
+        // The lightmap and overlay are the same two packed values the item renderer takes.
         ItemStackRenderState state = new ItemStackRenderState();
         client.getItemModelResolver().updateForLiving(state, stack, mode, player);
         state.submit(matrices, (SubmitNodeCollector) sink, light, OverlayTexture.NO_OVERLAY, 0);
