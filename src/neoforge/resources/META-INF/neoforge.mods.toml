@@ -10,7 +10,10 @@ displayTest = "MATCH_VERSION"
 description = '''
 Isolated duel sessions for SMP servers: custom loadouts, best-of-N rounds, per-round Legacy 1.8 combat, and a full restore of survival state afterwards.
 '''
+# 26.1 and earlier read logoFile; 26.2 and later read the two below and warn without them.
 logoFile = "assets/pvpocket/icon.png"
+bannerFile = "assets/pvpocket/banner.png"
+iconFile = "assets/pvpocket/icon.png"
 authors = "leipishu"
 
 # Two mixin configs: one shared by server and client, one client only. NeoForge has no per-config
