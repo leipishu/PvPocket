@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="界面 遮挡审计 1.21.1" type="ShConfigurationType" folderName="PvPocket 界面">
+  <configuration default="false" name="联调 26.1 NeoForge 三人" type="ShConfigurationType" folderName="PvPocket 联调">
     <option name="SCRIPT_TEXT" value="" />
-    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/scripts/check-ui.sh" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/scripts/dev-duel.sh" />
     <option name="SCRIPT_OPTIONS" value="" />
     <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="INTERPRETER_PATH" value="C:\Program Files\Git\bin\bash.exe" />
@@ -9,7 +9,8 @@
     <option name="EXECUTE_IN_TERMINAL" value="false" />
     <option name="EXECUTE_SCRIPT_FILE" value="true" />
     <envs>
-      <env name="CELL" value="1.21.1-fabric" />
+      <env name="CELL" value="26.1-neoforge" />
+      <env name="PVP_CLIENTS" value="3" />
     </envs>
     <method v="2" />
   </configuration>
