@@ -71,7 +71,7 @@ public abstract class PlayerEntityMixin {
         }
     }
 
-    @Redirect(method = "doSweepAttack",
+    @Redirect(method = "doSweepAttack*",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/LivingEntity;knockback"
                             + "(DDDLnet/minecraft/world/damagesource/DamageSource;F)V"))
@@ -82,7 +82,7 @@ public abstract class PlayerEntityMixin {
         }
     }
     //?} elif >=1.21.11 {
-    @Redirect(method = {"causeExtraKnockback", "doSweepAttack"},
+    @Redirect(method = {"causeExtraKnockback", "doSweepAttack*"},
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/LivingEntity;knockback(DDD)V"))
     private void pvpocket$legacyAttackKnockback(LivingEntity victim, double strength,
@@ -174,7 +174,7 @@ public abstract class PlayerEntityMixin {
      * both the "no damage" overload and the volume-and-pitch one.
      */
     //? if >=1.21.11 {
-    @WrapOperation(method = {"attack", "attackVisualEffects", "doSweepAttack"},
+    @WrapOperation(method = {"attack", "attackVisualEffects", "doSweepAttack*"},
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/world/entity/player/Player;playServerSideSound"
                             + "(Lnet/minecraft/sounds/SoundEvent;)V"))

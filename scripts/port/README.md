@@ -268,6 +268,16 @@ collector.submitCustomGeometry(poses, type, (pose, buffer) -> batch.draw(buffer,
 不让字面量出现在界面代码里。移植到新版本时，凡是「常量还在、语义变了」的改动都要走这种常量类，
 别指望类型检查。
 
+### 同名重载：加载器把方法拆成两个，`method = "名字"` 只认第一个
+
+NeoForge 26.2 把 `Player.doSweepAttack` 拆成两个重载：4 参的那个只做委派，5 参的（多一个 `AABB`）
+才是干活的。Mixin 的 `method = "doSweepAttack"` **只取第一个同名方法**，而第一个里没有要注入的调用点，
+于是报 `Scanned 0 target(s)`，服务端在 `Bootstrap` 就崩——Fabric 那一格只有一个重载，完全看不出问题。
+
+写法改成 `method = "doSweepAttack*"`：尾部星号让 Mixin 匹配所有同前缀方法，注入点落在哪个重载都行。
+`MixinTargetCheck` 现在认识这个星号，并且**禁止 `@Inject` 用它**——`@Inject` 从处理器参数推导描述符，
+套到另一个重载上必然报 Invalid descriptor。
+
 ### 改名表是单遍的，不能写链
 
 26.2 的表里有一行 `hasImpulse → hurtMarked`（1.21.11 的击退方法名）。26.3 里它又叫

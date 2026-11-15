@@ -169,14 +169,24 @@ public final class MixinTargetCheck {
             return;
         }
         Class<?>[] wanted = Arrays.copyOf(handlerParams, handlerParams.length - 1);
+        // A trailing star selects every overload of the prefix, and Mixin needs only the one that
+        // holds the instruction, so the all-overloads rule below does not apply.
+        boolean wildcard = spec.endsWith("*");
+        if (wildcard && annotation.name.equals("Inject")) {
+            referenceCount++;
+            fail(where + "：@Inject 的 method = \"" + spec + "\" 不能用通配符，Mixin 会拿处理器"
+                    + "推导描述符并对每个重载都校验");
+            return;
+        }
+        String selector = wildcard ? spec.substring(0, spec.length() - 1) : spec;
         // A descriptor narrows the overload set to one; a bare name leaves every overload of that
         // name, and the prefix then decides which one the handler can bind to.
-        int paren = spec.indexOf('(');
-        String bare = paren < 0 ? spec : spec.substring(0, paren);
+        int paren = selector.indexOf('(');
+        String bare = paren < 0 ? selector : selector.substring(0, paren);
         Class<?>[] described = null;
-        if (paren >= 0 && spec.indexOf(')') > paren) {
+        if (paren >= 0 && selector.indexOf(')') > paren) {
             try {
-                described = parseParameters(spec.substring(paren));
+                described = parseParameters(selector.substring(paren));
             } catch (IllegalArgumentException e) {
                 return;
             }
@@ -185,7 +195,9 @@ public final class MixinTargetCheck {
         int candidates = 0;
         int matched = 0;
         for (Method method : declaredMethods(targetClass)) {
-            if (!method.getName().equals(bare)) {
+            boolean nameFits = wildcard
+                    ? method.getName().startsWith(bare) : method.getName().equals(bare);
+            if (!nameFits) {
                 continue;
             }
             overloads.add(signature(method));
@@ -209,7 +221,7 @@ public final class MixinTargetCheck {
         }
         // A bare name that leaves several overloads lets Mixin pick one by the handler descriptor
         // and stop at the first candidate it cannot bind, so name-only has to match every overload.
-        if (described == null && candidates > 1 && matched != candidates) {
+        if (described == null && !wildcard && candidates > 1 && matched != candidates) {
             referenceCount++;
             fail(where + "：@" + annotation.name + " 的 method = \"" + bare + "\" 有 " + candidates
                     + " 个重载，处理器只匹配其中 " + matched + " 个；写完整描述符（现有：" + overloads + "）");
@@ -541,6 +553,22 @@ public final class MixinTargetCheck {
      *     records the static type and an inherited method legitimately appears under the subclass
      */
     private static String problem(Class<?> owner, String spec, boolean declaredOnly) {
+        // A trailing star is Mixin's own wildcard: it selects every method whose name starts with
+        // the prefix, so any one of them is enough for the selector to resolve.
+        if (spec.endsWith("*") && spec.indexOf('(') < 0) {
+            String prefix = spec.substring(0, spec.length() - 1);
+            if (prefix.isEmpty()) {
+                return null;
+            }
+            for (Class<?> type : candidates(owner, declaredOnly)) {
+                for (Method method : declaredMethods(type)) {
+                    if (method.getName().startsWith(prefix)) {
+                        return null;
+                    }
+                }
+            }
+            return "没有以 " + prefix + " 开头的方法";
+        }
         int paren = spec.indexOf('(');
         String name = paren < 0 ? spec : spec.substring(0, paren);
         if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf(';') >= 0) {
