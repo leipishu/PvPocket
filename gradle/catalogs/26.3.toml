@@ -1,0 +1,11 @@
+# Minecraft 26.3 catalog, registered as v26_3 by settings.gradle.
+# Key names are identical in every catalog file; the catalog name is what tells versions apart.
+
+[versions]
+minecraft = "26.3"
+# Both of these carry the MC version inside their own version string.
+fabricApi = "0.166.2+26.3"
+neoforge = "26.3.0.103"
+# 26.x ships unobfuscated: no `yarn` key, no mappings, and the mojmap table script never runs.
+# fabric-loader is shared with 1.21.x but must know about such jars.
+loader = "0.20.1"
