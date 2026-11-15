@@ -13,11 +13,9 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  * scaling, the attack indicator, block placement and explosions agree with the server.
  *
  * <p>{@code useGate} and {@code bans} are the two masks
- * {@link com.leipishu.pvpocket.combat.UsePolicy} takes. {@code explosives} tells the client whether
- * an explosion may destroy blocks, so it cannot punch holes the server never confirms.
+ * {@link com.leipishu.pvpocket.combat.UsePolicy} takes.
  */
-public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans,
-                                 boolean explosives)
+public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans)
         implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CombatStatePayload> ID =
@@ -28,7 +26,6 @@ public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, 
             ByteBufCodecs.BOOL, CombatStatePayload::blocking,
             ByteBufCodecs.VAR_INT, CombatStatePayload::useGate,
             ByteBufCodecs.VAR_INT, CombatStatePayload::bans,
-            ByteBufCodecs.BOOL, CombatStatePayload::explosives,
             CombatStatePayload::new);
 
     @Override

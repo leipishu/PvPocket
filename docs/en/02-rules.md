@@ -14,7 +14,7 @@ informational entry, in seven groups.
 | C | Combat (mode, survival stats) | 6 |
 | D | Loadout (items, pickups, crafting) | 4 |
 | E | Arena (size, map, boundary, environment) | 8 |
-| F | Blocks (placing, breaking, explosives) | 5 |
+| F | Blocks (placing, breaking) | 4 |
 | G | Other (pearls, surrender, display, chat) | 4 |
 
 Rules are declared in `RuleCatalog`; their text lives in the language files
@@ -105,13 +105,12 @@ what the panel shows.
 - **Weather** — `e.weather` · choice · default Clear · Clear / Rain / Thunder. Set at the start of every round. Weather is a dimension-wide property, so with several duels running at once the last one to start wins.
 - **Environmental hazards** — `e.hazard` · multi · None / Fall damage / Lava / Void. Extra sources of damage that apply inside the arena. **None excludes the other three**: checking it clears them, checking any of them clears None. This is the **only** fall-damage switch — `c.fallDamage` is gone, because two switches for one question always means one of them is lying.
 
-**Blocks** — Placing, breaking, explosives
+**Blocks** — Placing, breaking
 
 - **Allow placing blocks** — `f.allowPlace` · toggle · default On. When off, no blocks can be placed inside the arena. Entries ticked under Block restrictions stay banned either way.
 - **Terrain protection** — `f.protectTerrain` · toggle · default On. When on, the map's own blocks cannot be broken and only blocks placed this round can be removed. When off the plot can be dug through, and the terrain is still restored when the round ends.
 - **Allow breaking your own blocks** — `f.allowBreakOwn` · toggle · default On. Applies only to blocks placed during this duel; whether the map itself can be broken is up to Terrain protection.
 - **Block restrictions** — `f.blockFilter` · multi · Beds / Respawn anchors / TNT / Fluid buckets / End crystals. Selected entries are banned. Beds, respawn anchors, TNT and fluid buckets are banned by default.
-- **Allow explosives** — `f.allowExplosives` · toggle · default Off. When off, TNT, creepers and end crystals produce no explosion.
 
 **Other** — Pearls, surrender, display
 
@@ -154,7 +153,7 @@ is "record only".
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.knockbackResistance` |
 | D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
-| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter`, `f.allowExplosives` |
+| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
@@ -164,8 +163,8 @@ is not wired up.
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
 the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
-with the interaction slice, the last two in G with the display slice, `f.allowExplosives` with the explosion slice, and
-`d.allowSwapBetweenRounds` with the between-round swap slice.
+with the interaction slice, the last two in G with the display slice, and `d.allowSwapBetweenRounds`
+with the between-round swap slice.
 Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
@@ -268,15 +267,6 @@ Where each one is read:
   Scoped to `ROUND_ACTIVE` like the damage veto: a rule that outlives the round would silently mute
   the lobby for anybody who shares a session. A spectator (in the session but on no side) gets their
   own line echoed back to themselves.
-
-- **`f.allowExplosives`** — injected into two methods of `Explosion`, because a detonation is two
-  steps: `collectBlocksAndDamageEntities` finds the blocks and hurts the entities, `affectWorld`
-  removes the blocks, drops the items, sets the fire and plays the sound. Cancelling only the first
-  leaves a bang with nothing behind it; cancelling only the second leaves the damage. Both are the
-  rule. Both sides run it, and that is not redundant: `affectWorld` is exactly where the client
-  destroys blocks in its own copy of the world, so a client that had not been told would dig a
-  crater the server never confirms. The server looks the plot up by position — an explosion has no
-  owner, a creeper is nobody's — and the client uses the boolean its payload carried.
 
 - **`d.allowSwapBetweenRounds`** — off, a mid-series submission is refused by `onLoadoutSubmit`;
   on, the change goes into `Participant.pendingLoadout`, `DuelSession.loadoutRevision` is bumped,

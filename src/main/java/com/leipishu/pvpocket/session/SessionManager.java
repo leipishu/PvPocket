@@ -50,9 +50,7 @@ import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.level.Level;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -702,44 +700,6 @@ public final class SessionManager {
     public static boolean craftingAllowed(UUID uuid) {
         DuelSession session = activeSessionOf(uuid);
         return session == null || session.rulebook().allowCrafting();
-    }
-
-    /**
-     * {@code f.allowExplosives}, asked from {@code Explosion#collectBlocksAndDamageEntities} and
-     * {@code Explosion#affectWorld}.
-     *
-     * <p>The server looks the plot up by position, since an explosion has no owner. The client has
-     * no sessions and uses the flag its own payload carried.
-     *
-     * <p>{@code affectWorld} destroys blocks on whichever side runs it, so a client that was not
-     * told would carve holes the server never confirms.
-     *
-     * @return false when the explosion must not run
-     */
-    public static boolean explosivesAllowed(Level world, Vec3 pos) {
-        if (world == null) {
-            return true;
-        }
-        if (world.isClientSide()) {
-            return CombatState.clientExplosivesAllowed();
-        }
-        SessionManager manager = instance;
-        if (manager == null || !ArenaManager.isArena(world)) {
-            return true;
-        }
-        ArenaRegion region = ArenaManager.regionAt(pos.x, pos.z);
-        if (region == null) {
-            return true;
-        }
-        DuelSession session = manager.sessions.get(region.id);
-        return session == null || session.stage != SessionStage.ROUND_ACTIVE
-                || session.rulebook().explosives();
-    }
-
-    /** The same answer for one player, which is what the client mirror is built from. */
-    public static boolean explosivesAllowedFor(ServerPlayer player) {
-        DuelSession session = activeSessionOf(player.getUUID());
-        return session == null || session.rulebook().explosives();
     }
 
     /** The session whose round this player is currently fighting, or null. */

@@ -13,7 +13,7 @@
 | C | 战斗（模式、生存参数） | 6 |
 | D | 配装（进场物品、拾取、合成） | 4 |
 | E | 场地（尺寸、模板、边界、环境） | 8 |
-| F | 方块（放置、破坏、爆炸） | 5 |
+| F | 方块（放置、破坏） | 4 |
 | G | 其他（珍珠、投降、显示、聊天） | 4 |
 
 规则定义在 `RuleCatalog`，文本在语言文件（`pvpocket.rule.<id>.label` / `.hint` / `.c<N>` / `.unit`）。
@@ -88,13 +88,12 @@
 - **天气** — `e.weather` · 单选 · 默认 晴朗 · 晴朗 / 降雨 / 雷暴。每局开始时设定。天气是维度级属性，多场同时进行时以最后一局为准。
 - **环境危害** — `e.hazard` · 多选 · 无 / 掉落伤害 / 岩浆 / 虚空。场地内生效的额外伤害来源。**「无」与其余三项互斥**：勾「无」会清空它们，勾任意一项会取消「无」。这是**坠落伤害唯一的开关**——`c.fallDamage` 已删，两个开关管一件事必然有一个在说谎。
 
-**方块** — 放置、破坏与爆炸
+**方块** — 放置与破坏
 
 - **允许放置方块** — `f.allowPlace` · 开关 · 默认 开。关闭后场地内不能放置任何方块。「方块限制」里勾选的仍然禁止。
 - **地形保护** — `f.protectTerrain` · 开关 · 默认 开。开启后地图本身的方块不可破坏，只有本局放置的方块能拆。关闭后可以挖穿场地，本局结束时地形仍会复原。
 - **允许拆除自己放置的方块** — `f.allowBreakOwn` · 开关 · 默认 开。只对本次对局中放置的方块生效，场地本体是否可破坏由「地形保护」决定。
 - **方块限制** — `f.blockFilter` · 多选 · 床 / 重生锚 / TNT / 流体桶 / 末地水晶。选中的项目会被禁止使用。默认禁掉床、重生锚、TNT 与流体桶。
-- **允许爆炸物** — `f.allowExplosives` · 开关 · 默认 关。关闭后 TNT、苦力怕与末地水晶不产生爆炸。
 
 **其他** — 珍珠、投降与显示
 
@@ -135,7 +134,7 @@
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.knockbackResistance` |
 | D | `d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
-| F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter`、`f.allowExplosives` |
+| F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
 | G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
@@ -143,7 +142,7 @@
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`f.allowExplosives` 是「爆炸」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
+D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -220,13 +219,6 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
   每句话都没有署名，所以这里调了同一个 `applyChatDecoration`。
   范围同样锁在 `ROUND_ACTIVE`：一条比回合活得更久的规则，会把大厅静音给任何一个共用会话的人。
   观众（在会话里但不在任何一队）发的话只回显给自己。
-
-- **`f.allowExplosives`** — 混入 `Explosion` 的两个方法，因为一次爆炸是两步：
-  `collectBlocksAndDamageEntities` 找方块、伤实体，`affectWorld` 拆方块、掉物品、点火、放音效。
-  只取消前者会留下「炸了但什么都没发生」，只取消后者会留下伤害——两者都算这条规则。
-  两边都要拦，而且不是重复劳动：`affectWorld` 就是客户端在自己世界里拆方块的那一步，
-  不知道这条规则的客户端会挖出一个服务端从没确认过的坑。
-  服务端按**位置**查归属地块（爆炸没有主人，苦力怕不属于任何人），客户端用自己载荷里那个布尔。
 
 - **`d.allowSwapBetweenRounds`** — 关掉时中途提交配装会被 `onLoadoutSubmit` 拒掉；开着时改动进入
   `Participant.pendingLoadout`，`DuelSession.loadoutRevision` 加一，提出者自己记作已同意，

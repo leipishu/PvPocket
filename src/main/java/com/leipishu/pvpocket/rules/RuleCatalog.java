@@ -76,7 +76,6 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("f.protectTerrain", RuleGroup.F, true));
         add(RuleDefinition.toggle("f.allowBreakOwn", RuleGroup.F, true));
         add(RuleDefinition.multi("f.blockFilter", RuleGroup.F, 0b1111, choices("f.blockFilter", 5)));
-        add(RuleDefinition.toggle("f.allowExplosives", RuleGroup.F, false));
 
         // G. other
         add(RuleDefinition.toggle("g.enderPearl", RuleGroup.G, false));

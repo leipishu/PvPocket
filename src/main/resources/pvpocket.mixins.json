@@ -5,15 +5,6 @@
   "mixins": [
     "CommandManagerMixin",
     "EntityMixin",
-//? if >=1.21.11 {
-    "ServerExplosionMixin",
-//?} else {
-//? if >=1.21.11 {
-    "ServerExplosionMixin",
-//?} else {
-    "ExplosionMixin",
-//?}
-//?}
     "ItemEntityMixin",
     "ItemStackMixin",
     "LivingEntityMixin",

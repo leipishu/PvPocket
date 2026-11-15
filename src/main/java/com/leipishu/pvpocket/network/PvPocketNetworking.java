@@ -6,7 +6,6 @@ import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.preset.PresetShareRegistry;
 import com.leipishu.pvpocket.platform.PvPlatform;
-import com.leipishu.pvpocket.session.SessionManager;
 
 
 import net.minecraft.tags.ItemTags;
@@ -296,7 +295,6 @@ public final class PvPocketNetworking {
                 CombatState.isLegacy(player.getUUID()),
                 CombatState.isBlocking(player.getUUID()),
                 CombatState.useGate(player.getUUID()),
-                CombatState.useBans(player.getUUID()),
-                SessionManager.explosivesAllowedFor(player)));
+                CombatState.useBans(player.getUUID())));
     }
 }

@@ -187,8 +187,6 @@ public final class PvPocketClient {
         CombatState.setBlocking(client.player.getUUID(), payload.blocking());
         // Same gate as the server, so both sides predict the same placement.
         CombatState.setUseGate(client.player.getUUID(), payload.useGate(), payload.bans());
-        // Explosions run on both sides, so the client needs the same allowance.
-        CombatState.setClientExplosivesAllowed(payload.explosives());
     }
 
     /** Applies a state payload that waited for the player. Called from the client tick. */

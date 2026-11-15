@@ -21,15 +21,6 @@ public final class CombatState {
     private static final Map<UUID, Integer> USE_GATES = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> USE_BANS = new ConcurrentHashMap<>();
 
-    /**
-     * Client-only: does the round this client is watching allow explosions?
-     *
-     * <p>Not per player, because an explosion has no owner. The client only renders its own
-     * surroundings, so one flag covers it. The server answers from the plot the explosion happened
-     * in instead.
-     */
-    private static volatile boolean clientExplosivesAllowed = true;
-
     private CombatState() {
     }
 
@@ -90,14 +81,6 @@ public final class CombatState {
 
     public static int useBans(UUID player) {
         return USE_BANS.getOrDefault(player, 0);
-    }
-
-    public static void setClientExplosivesAllowed(boolean allowed) {
-        clientExplosivesAllowed = allowed;
-    }
-
-    public static boolean clientExplosivesAllowed() {
-        return clientExplosivesAllowed;
     }
 
     /** Drops every trace of a player. Called on settle, disconnect and shutdown. */

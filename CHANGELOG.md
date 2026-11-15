@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-11-15
+
+### 移除「允许爆炸物」规则
+
+`f.allowExplosives` 与配装重复：要爆炸物就在配装里放，不要就不放。留着它等于让同一件事有两个
+开关，而两个开关总有一个在说谎——`c.fallDamage` 当初就是因此删掉的。
+
+删掉的范围：规则定义、`Rulebook.explosives()`、`SessionManager` 的两个查询、`CombatStatePayload`
+的 `explosives` 字段、`CombatState` 的客户端镜像，以及 `ExplosionMixin` / `ServerExplosionMixin` /
+`ClientExplosionMixin` 三个混入——它们除了这条规则没有别的作用。语言键同步删除，F 组的分组提示
+改为「放置与破坏」。
+
+**协议变了**：`combat_state` 载荷少一个布尔，服务端与客户端必须同版本。
+
+---
+
 ## 2026-11-13
 
 ### 注释统一成「说明代码做什么」，并由脚本守住

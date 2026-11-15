@@ -5,7 +5,6 @@
   "client": [
 //? if >=1.21.11 {
     "BlockModelWrapperMixin",
-    "ClientExplosionMixin",
 //?} else {
     "ItemRendererMixin",
 //?}
