@@ -434,8 +434,7 @@ public class LoadoutScreen extends PvScreen {
     }
 
     private static ItemStack iconOf(LoadoutEntry entry) {
-        Item item = itemOf(entry.kind, entry);
-        return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
+        return stackOf(itemOf(entry.kind, entry));
     }
 
     /**
@@ -457,7 +456,26 @@ public class LoadoutScreen extends PvScreen {
                 yield kind.resolve(materials.isEmpty() ? null : materials.get(0));
             }
         };
-        return item == null || item == Items.AIR ? ItemStack.EMPTY : new ItemStack(item);
+        return stackOf(item);
+    }
+
+    /**
+     * Wraps an item into an icon stack, or {@link ItemStack#EMPTY} when there is nothing to draw.
+     *
+     * <p>26.1 keeps item components on the holder and binds them once datapacks are loaded, so a
+     * stack built earlier throws; the UI audit walks these panels on the title screen. 1.21.x reads
+     * the components off {@code Item} and has no such state, hence the version split.
+     */
+    private static ItemStack stackOf(Item item) {
+        if (item == null || item == Items.AIR) {
+            return ItemStack.EMPTY;
+        }
+        //? if >=26.1 {
+        if (!item.builtInRegistryHolder().areComponentsBound()) {
+            return ItemStack.EMPTY;
+        }
+        //?}
+        return new ItemStack(item);
     }
 
     private static String entryLabel(LoadoutEntry entry) {

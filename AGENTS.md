@@ -284,6 +284,10 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
   不少控件是在 `render()` 里用坐标自己算悬停的（卡片行、步进器端帽、chip、输入框光标）。
 - **物品图标盖不住，只能不画。** `ctx.drawItem` 送到 `z=150` 的深度测试层，任何顺序的半透明遮罩
   都盖不住；弹窗存在时置 `PvDraw.itemsVisible = false`。
+- **标题界面构造 `ItemStack` 在 26.1 起会抛异常。** 组件挂在 `Holder` 上，要等数据包加载才绑定，
+  `new ItemStack(item)` 抛 `Components not bound yet`；1.21.x 从 `Item` 上读组件，没有这个状态。
+  界面审计正是在标题界面遍历全部面板，所以 `LoadoutScreen.stackOf` 先用 `areComponentsBound()`
+  挡一层（`//? if >=26.1`）。**任何「无世界也能打开」的界面，画物品图标都要走这一层。**
 - **框定控件里的文本走 `PvDraw.textFit*` / `textWrap*`，不要直接 `ctx.drawText`。** 阶梯是
   原样 → 缩小（地板 `MIN_TEXT_SCALE = 0.75`）→ 换行 → 截断，差 2px 以内算放得下。任何写死宽度的
   框（按钮、chip、cycle、步进器、行标签列）都必须过它，否则英文一定溢出——中文放得下不代表英文
