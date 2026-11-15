@@ -294,7 +294,7 @@ public final class LoadoutBuilder {
             if (stack.isEmpty()) {
                 continue;
             }
-            player.getInventory().placeItemBackInInventory(stack);
+            PvCompat.placeInInventory(player, stack);
             given++;
         }
         player.containerMenu.broadcastChanges();
@@ -330,7 +330,7 @@ public final class LoadoutBuilder {
                 continue;
             }
             if (!inventory.add(companion)) {
-                player.drop(companion, false);
+                PvCompat.dropItem(player, companion);
             }
         }
         player.containerMenu.broadcastChanges();

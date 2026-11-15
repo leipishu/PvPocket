@@ -1,0 +1,163 @@
+# 1.21.1 -> 26.3 renames, applied by scripts/port/gen.py to the generated source tree.
+#
+# Cumulative: the 26.1 and 26.2 blocks are kept verbatim, because a rename that landed in 1.21.9 or 26.1 still
+# applies here and there is no mapping file to diff against any more (26.x is unobfuscated, so every
+# row comes from a compile error). New 26.3 rows go in the last section.
+#
+# Format: `old<TAB>new`. Whole-word replacement, string literals included.
+#
+# The 26.1 rows are cumulative on top of the 1.21.11 ones: 26.1 is the first unobfuscated release,
+# so there is no Yarn mapping to diff against any more and every row has to come from a compile
+# error. Keeping the 1.21.11 block below means a rename that landed in 1.21.9 still applies.
+#
+# Rows with a package path come first (the generator sorts longest-first).
+
+# ======== carried over from 1.21.11 ========
+#
+# Derived from the Loom mappings of both versions, joined on the intermediary name, and filtered to
+# the names this source tree actually uses. Regenerate the candidate list with scripts/port/candidates.py if a
+# future error looks like a rename that is missing here.
+
+# ---- package moves (1.21.9 reorganisation) ----
+net.minecraft.world.entity.monster.Stray	net.minecraft.world.entity.monster.skeleton.Stray
+net.minecraft.world.entity.projectile.Arrow	net.minecraft.world.entity.projectile.arrow.Arrow
+net.minecraft.world.level.GameRules	net.minecraft.world.level.gamerules.GameRules
+net.minecraft.client.renderer.RenderType	net.minecraft.client.renderer.rendertype.RenderType
+net.minecraft.client.resources.PlayerSkin	net.minecraft.world.entity.player.PlayerSkin
+net.minecraft.client.resources.model.BakedModel	net.minecraft.client.renderer.block.model.BlockStateModel
+net.minecraft.world.entity.projectile.windcharge.AbstractWindCharge	net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.AbstractWindCharge
+net.minecraft.client.renderer.entity.player.PlayerRenderer	net.minecraft.client.renderer.entity.player.AvatarRenderer
+net.minecraft.resources.ResourceLocation	net.minecraft.resources.Identifier
+net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext	net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
+net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents	net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents
+
+# ---- renames ----
+ResourceLocation	Identifier
+PlayerRenderer	AvatarRenderer
+getMinBuildHeight	getMinY
+getMaxBuildHeight	getMaxY
+serverLevel	level
+RULE_DAYLIGHT	ADVANCE_TIME
+# 26.3 renamed the flag a second time (1.21.1 `hasImpulse` -> 1.21.9 `hurtMarked` -> 26.3
+# `syncVelocity`), and this table is applied in one pass ordered by pattern length, so the inherited
+# `hasImpulse -> hurtMarked` row would win and leave the intermediate name behind. The row is
+# rewritten here instead of added to: the intermediate name is unreachable in a single pass.
+hasImpulse	syncVelocity
+registryOrThrow	lookupOrThrow
+
+# ======== new in 26.1 ========
+# The GUI render layer was renamed to the "extract" model: a screen no longer draws, it extracts a
+# render state, and the whole drawing surface moved to GuiGraphicsExtractor with shorter names.
+# The two phrase rows are what makes that a table entry instead of a 33-file edit; they must be
+# longer than the bare type row below, which the generator's longest-first ordering guarantees.
+void render(GuiGraphics	void extractRenderState(GuiGraphics
+.render(ctx	.extractRenderState(ctx
+GuiGraphics	GuiGraphicsExtractor
+ctx.drawString	ctx.text
+ctx.renderItemDecorations	ctx.itemDecorations
+ctx.renderItem	ctx.item
+PlayerFaceRenderer	PlayerFaceExtractor
+net.minecraft.client.renderer.item.BlockModelWrapper	net.minecraft.client.renderer.item.CuboidItemModelWrapper
+BlockModelWrapper	CuboidItemModelWrapper
+net.minecraft.client.renderer.block.model.ItemTransform	net.minecraft.client.resources.model.cuboid.ItemTransform
+ClickType	ContainerInput
+playC2S	serverboundPlay
+playS2C	clientboundPlay
+displayClientMessage	sendSystemMessage
+
+# ---- member renames ----
+#
+# Every row here is qualified by its receiver or by the call that produced it: the bare names are
+# generic enough that a future caller could mean something else entirely.
+getChat().addMessage	getChat().addClientSystemMessage
+PlayerFaceRenderer.draw	PlayerFaceRenderer.extractRenderState
+layer.setTransform	layer.setItemTransform
+
+# ---- mod metadata ----
+#
+# The declared version ranges have to be rewritten too: `~1.21.1` means "below 1.22", which 26.1
+# falls outside, so both loaders refuse to load the mod before any class runs. Each pattern is
+# anchored on word characters at both ends, which is what the generator's whole-word match needs.
+minecraft": "~1.21.1	minecraft": "~26.3
+1.21.1,1.22	26.3,27
+
+# ======== new in 26.2 (still applies) ========
+#
+# 26.2 moved the whole screen stack onto Gui: Minecraft no longer has a `screen` field or a
+# setScreen method, Gui does. That pair is not a table row, because the Fabric package
+# `net.fabricmc.fabric.api.client.screen.v1` contains the same `client.screen` text: it lives in
+# PvScreens instead. The chat and the overlay message moved one level further, onto the Hud that
+# Gui now owns, and the "hide the HUD" flag became Hud.isHidden(). Rows that would end in a closing
+# parenthesis drop it, because the generator's whole-word match needs a word character at both ends
+# and `)` is not one.
+.gui.getChat	.gui.hud.getChat
+gui.setOverlayMessage(	gui.hud.setOverlayMessage(
+options.hideGui	gui.hud.isHidden()
+
+# 26.2 deleted MultiBufferSource and RenderBuffers: geometry goes through the submit queue, which
+# PvWorldGeometry wraps. Only the two camera/target accessors that moved are left here.
+.getMainRenderTarget	.gameRenderer.mainRenderTarget
+.getMainCamera	.mainCamera
+
+# The sixteen separate *_WOOL items became one ColorCollection, indexed by DyeColor.
+Items.WHITE_WOOL	Items.WOOL.white()
+
+# ======== new in 26.3 ========
+#
+# Three pure renames. The two that also changed arity are in PvCompat instead, because a table row
+# cannot add an argument.
+getStructureManager	getStructureTemplateManager
+setInvulnerable	setPermanentlyInvulnerable
+
+# ---- 26.3: GLFW is gone, the window layer is SDL ----
+#
+# 26.3 dropped lwjgl-glfw for lwjgl-sdl, so `org.lwjgl.glfw.GLFW` is not on the classpath at all.
+# The key constants moved to `com.mojang.blaze3d.platform.InputConstants`, and they are SDL *scancodes*
+# now: `KEY_W` is 26, not GLFW's 87. That is also what a KeyMapping default holds in 26.3 (vanilla's
+# `key.forward` is constructed with 26), and what `KeyEvent.key()` returns, so every comparison in the
+# screens keeps its shape and only the constant changes. Names that differ from the GLFW spelling:
+# ENTER -> RETURN, KP_ENTER -> NUMPADENTER, CAPS_LOCK -> CAPSLOCK, LEFT_/RIGHT_ modifiers lose the
+# underscore (LSHIFT / RCONTROL / LALT), and SUPER -> GUI.
+import org.lwjgl.glfw.GLFW	import com.mojang.blaze3d.platform.InputConstants
+org.lwjgl.glfw.GLFW.GLFW_KEY_TAB	InputConstants.KEY_TAB
+org.lwjgl.glfw.GLFW.GLFW_MOD_SHIFT	InputConstants.MOD_SHIFT
+org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER	InputConstants.KEY_RETURN
+org.lwjgl.glfw.GLFW.GLFW_KEY_KP_ENTER	InputConstants.KEY_NUMPADENTER
+GLFW.GLFW_KEY_ESCAPE	InputConstants.KEY_ESCAPE
+GLFW.GLFW_KEY_F2	InputConstants.KEY_F2
+GLFW.GLFW_KEY_TAB	InputConstants.KEY_TAB
+GLFW.GLFW_KEY_SPACE	InputConstants.KEY_SPACE
+GLFW.GLFW_KEY_LEFT	InputConstants.KEY_LEFT
+GLFW.GLFW_KEY_RIGHT	InputConstants.KEY_RIGHT
+GLFW.GLFW_KEY_ENTER	InputConstants.KEY_RETURN
+GLFW.GLFW_KEY_KP_ENTER	InputConstants.KEY_NUMPADENTER
+GLFW.GLFW_KEY_BACKSPACE	InputConstants.KEY_BACKSPACE
+GLFW.GLFW_KEY_DELETE	InputConstants.KEY_DELETE
+GLFW.GLFW_KEY_HOME	InputConstants.KEY_HOME
+GLFW.GLFW_KEY_END	InputConstants.KEY_END
+GLFW.GLFW_KEY_C	InputConstants.KEY_C
+GLFW.GLFW_KEY_V	InputConstants.KEY_V
+GLFW.GLFW_KEY_B	InputConstants.KEY_B
+GLFW.GLFW_KEY_G	InputConstants.KEY_G
+GLFW.GLFW_KEY_LEFT_SHIFT	InputConstants.KEY_LSHIFT
+GLFW.GLFW_KEY_RIGHT_SHIFT	InputConstants.KEY_RSHIFT
+GLFW.GLFW_KEY_LEFT_CONTROL	InputConstants.KEY_LCONTROL
+GLFW.GLFW_KEY_RIGHT_CONTROL	InputConstants.KEY_RCONTROL
+GLFW.GLFW_KEY_LEFT_ALT	InputConstants.KEY_LALT
+GLFW.GLFW_KEY_RIGHT_ALT	InputConstants.KEY_RALT
+GLFW.GLFW_KEY_LEFT_SUPER	InputConstants.KEY_LGUI
+GLFW.GLFW_KEY_RIGHT_SUPER	InputConstants.KEY_RGUI
+GLFW.GLFW_KEY_CAPS_LOCK	InputConstants.KEY_CAPSLOCK
+GLFW.GLFW_MOD_SHIFT	InputConstants.MOD_SHIFT
+GLFW.GLFW_MOD_CONTROL	InputConstants.MOD_CONTROL
+
+# The two fields of a key event swapped roles with the window layer: `key()` is the scancode now and
+# `keycode()` the layout code, so the screens keep comparing `key()` and pass `keycode()` along.
+event.scancode	event.keycode
+
+# The input type enum lost the KEYSYM/SCANCODE split: one keyboard type covers both.
+Type.KEYSYM	Type.KEYBOARD
+
+# PoseStack lost the quaternion overload of mulPose; the same rotation is now `rotate`. The Matrix4f
+# overload stayed, which is why this row is anchored on the argument instead of the method name.
+mulPose(Axis	rotate(Axis

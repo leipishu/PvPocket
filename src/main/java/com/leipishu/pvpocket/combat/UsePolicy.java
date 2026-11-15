@@ -1,7 +1,7 @@
 package com.leipishu.pvpocket.combat;
 
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.world.item.BedItem;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.BucketItem;
 import net.minecraft.world.item.EndCrystalItem;
@@ -64,7 +64,9 @@ public final class UsePolicy {
      */
     public static int banOf(ItemStack stack) {
         Item item = stack.getItem();
-        if (item instanceof BedItem) {
+        // A bed is named by its tag, not by a class: 26.3 deleted BedItem and made the bed item a
+        // plain BlockItem, and the tag is the same set on every version this mod builds for.
+        if (stack.is(ItemTags.BEDS)) {
             return BAN_BED;
         }
         // No RespawnAnchorItem exists: the anchor is a plain BlockItem, so it is named by item.

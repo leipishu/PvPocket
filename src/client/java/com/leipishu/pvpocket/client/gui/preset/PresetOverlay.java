@@ -12,6 +12,9 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.preset.Preset;
 import com.leipishu.pvpocket.preset.PresetKind;
+//? if >=26.3 {
+import com.mojang.blaze3d.platform.InputConstants;
+//?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;

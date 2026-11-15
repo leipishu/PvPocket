@@ -2,11 +2,18 @@ package com.leipishu.pvpocket.client.render;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
+import com.leipishu.pvpocket.compat.PvCompat;
 import com.leipishu.pvpocket.network.PossessPayload;
 //? if <26.1 {
 import net.minecraft.client.renderer.LightTexture;
 //?}
-//? if >=1.21.11 {
+//? if >=26.3 {
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.PlayerModelPart;
+//?} elif >=1.21.11 {
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.PlayerModelPart;
@@ -137,7 +144,7 @@ public final class PossessedHandRenderer {
         boolean mainHand = hand == InteractionHand.MAIN_HAND;
         HumanoidArm arm = mainHand ? player.getMainArm() : player.getMainArm().getOpposite();
         // Vanilla passes the swing progress to the main hand only; the off hand is drawn flat.
-        float swing = mainHand ? player.getAttackAnim(tickDelta) : 0.0F;
+        float swing = mainHand ? PvCompat.swingAnimation(player, tickDelta) : 0.0F;
 
         matrices.pushPose();
         if (stack.isEmpty()) {
@@ -235,7 +242,14 @@ public final class PossessedHandRenderer {
         ItemDisplayContext mode = right
                 ? ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
                 : ItemDisplayContext.FIRST_PERSON_LEFT_HAND;
-//? if >=1.21.11 {
+//? if >=26.3 {
+        // 26.3 removed the per-item call from the first-person renderer: the model is resolved into
+        // an ItemStackRenderState first, and the state submits itself. The lightmap and overlay are
+        // the same two packed values the old call took.
+        ItemStackRenderState state = new ItemStackRenderState();
+        client.getItemModelResolver().updateForLiving(state, stack, mode, player);
+        state.submit(matrices, (SubmitNodeCollector) sink, light, OverlayTexture.NO_OVERLAY, 0);
+//?} elif >=1.21.11 {
         // Vanilla's own first-person renderer, which resolves the model and submits the geometry.
         client.gameRenderer.itemInHandRenderer.renderItem(player, stack, mode, matrices,
                 (SubmitNodeCollector) sink, light);

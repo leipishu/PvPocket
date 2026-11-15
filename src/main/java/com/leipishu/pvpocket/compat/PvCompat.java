@@ -19,6 +19,7 @@ import net.minecraft.world.entity.EntityTypes;
 //?} else {
 import net.minecraft.world.entity.EntityType;
 //?}
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.DefaultAttributes;
 import com.mojang.authlib.GameProfile;
@@ -29,6 +30,9 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
+//? if >=26.3 {
+import net.minecraft.util.Prediction;
+//?}
 import net.minecraft.world.level.Level;
 //? if >=26.1 {
 import net.minecraft.core.registries.Registries;
@@ -265,6 +269,34 @@ public final class PvCompat {
 //?}
 
     /**
+     * Puts one stack into the first free inventory slot, or drops it when there is none.
+     *
+     * <p>26.3 moved the call off the player and onto the inventory, and made the caller say whether
+     * this is a client prediction or a server decision. This mod only ever runs it on the server.
+     */
+    public static void placeInInventory(Player player, ItemStack stack) {
+//? if >=26.3 {
+        player.getInventory().placeItemBackInInventory(stack, Prediction.SERVER_ONLY);
+//?} else {
+        player.getInventory().placeItemBackInInventory(stack);
+//?}
+    }
+
+    /**
+     * Drops one stack at the player's feet without the "drop everything" semantics of the
+     * no-argument form.
+     *
+     * <p>26.3 added the same prediction argument to {@code drop} as to {@code placeItemBackInInventory}.
+     */
+    public static void dropItem(ServerPlayer player, ItemStack stack) {
+//? if >=26.3 {
+        player.drop(stack, false, Prediction.SERVER_ONLY);
+//?} else {
+        player.drop(stack, false);
+//?}
+    }
+
+    /**
      * Moves a player to an absolute position in another level.
      *
      * <p>The rotation is absolute: relative flags are not set. Callers that want to keep the
@@ -291,6 +323,21 @@ public final class PvCompat {
         return DefaultAttributes.getSupplier(EntityTypes.PLAYER).getValue(attribute);
 //?} else {
         return DefaultAttributes.getSupplier(EntityType.PLAYER).getValue(attribute);
+//?}
+    }
+
+    /**
+     * How far through its swing an entity is, as the partial-tick fraction used by the renderers.
+     *
+     * <p>26.3 renamed {@code getAttackAnim} to {@code getSwingAnimation} and, in the same pass,
+     * turned the swing into a {@code SwingState} so that items can carry their own animation
+     * timing. The renderer only wants the interpolated fraction, which both versions return.
+     */
+    public static float swingAnimation(LivingEntity entity, float tickDelta) {
+//? if >=26.3 {
+        return entity.getSwingAnimation(tickDelta);
+//?} else {
+        return entity.getAttackAnim(tickDelta);
 //?}
     }
 }
