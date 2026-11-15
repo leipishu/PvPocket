@@ -93,8 +93,16 @@ public abstract class LivingEntityMixin {
      * belongs to the victim's rule set. The attacker's impulse is redirected in
      * {@code PlayerEntityMixin}, so it never reaches this hook.
      */
+//? if >=26.2 {
+    @Inject(method = "knockback(DDDLnet/minecraft/world/damagesource/DamageSource;FZ)V",
+            at = @At("HEAD"), cancellable = true)
+    private void pvpocket$legacyHurtKnockback(double strength, double x, double z,
+                                              DamageSource source, float amount, boolean flag,
+                                              CallbackInfo ci) {
+//?} else {
     @Inject(method = "knockback", at = @At("HEAD"), cancellable = true)
     private void pvpocket$legacyHurtKnockback(double strength, double x, double z, CallbackInfo ci) {
+//?}
         LivingEntity self = (LivingEntity) (Object) this;
         if (self instanceof Player player && CombatState.isLegacy(player.getUUID())) {
             LegacyKnockback.applyHurt(self, x, z);

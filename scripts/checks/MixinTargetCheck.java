@@ -140,16 +140,13 @@ public final class MixinTargetCheck {
     }
 
     /**
-     * Compares a handler's leading parameters with the target method's parameters.
+     * Compares a handler's parameters with the target method's parameters.
      *
      * <p>A name alone does not prove the injection lands: when vanilla adds a parameter the name
      * survives and only the descriptor moves, as {@code LivingEntity.actuallyHurt} did in 1.21.11.
-     * Mixin takes the handler parameters before the trailing callback or {@code Operation} as a
-     * prefix of the target's parameters and requires the types to be equal, so the same rule
-     * applies here.
-     *
-     * <p>Handlers carrying {@code @Local}, {@code @Share} or a type that cannot be resolved from
-     * the imports are skipped: guessing there would trade a real catch for false alarms.
+     * {@code @Inject} is strict, because Mixin derives the target descriptor from the handler, so
+     * every parameter has to be present; the other injectors match a prefix. Handlers carrying
+     * {@code @Local}, {@code @Share} or an unresolvable type are skipped.
      */
     private static void checkHandlerArgs(String where, String source, Map<String, String> imports,
                                          Annotation annotation, Class<?> targetClass, String spec) {
@@ -196,7 +193,10 @@ public final class MixinTargetCheck {
                 continue;
             }
             candidates++;
-            if (startsWith(method.getParameterTypes(), wanted)) {
+            boolean binds = annotation.name.equals("Inject")
+                    ? Arrays.equals(method.getParameterTypes(), wanted)
+                    : startsWith(method.getParameterTypes(), wanted);
+            if (binds) {
                 matched++;
             }
         }
