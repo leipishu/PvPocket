@@ -118,6 +118,17 @@ else
 
     echo "[duel] 启动服务端（日志 $SERVER_LOG）..."
     printf '%s\n' "$CELL" > "$LOGS/.server-cell"
+    # Dev clients log in offline as Dev1..Dev4, so a fresh run directory must not start with
+    # online-mode or white-list on: the client is rejected before it reaches the mod.
+    SERVER_PROPS="$ROOT/runs/$CELL/server/server.properties"
+    mkdir -p "$(dirname "$SERVER_PROPS")"
+    if [ -f "$SERVER_PROPS" ]; then
+        sed -i -e 's/^online-mode=.*/online-mode=false/' \
+               -e 's/^white-list=.*/white-list=false/' \
+               -e 's/^enforce-whitelist=.*/enforce-whitelist=false/' "$SERVER_PROPS"
+    else
+        printf 'online-mode=false\nwhite-list=false\nenforce-whitelist=false\n' > "$SERVER_PROPS"
+    fi
     # Truncate first: a leftover `Done (` from an earlier run would look like a ready server.
     : > "$SERVER_LOG"
     ./gradlew ":$CELL:runServer" --console=plain < "$FIFO" > "$SERVER_LOG" 2>&1 &
