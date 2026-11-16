@@ -4,7 +4,7 @@
 
 ## 1. The model
 
-A duel's rules are an **ordered key/value snapshot**: 37 configurable rules plus one read-only
+A duel's rules are an **ordered key/value snapshot**: 39 configurable rules plus one read-only
 informational entry, in seven groups.
 
 | Group | Subject | Count |
@@ -15,7 +15,7 @@ informational entry, in seven groups.
 | D | Loadout (items, pickups, crafting) | 4 |
 | E | Arena (size, map, boundary, environment) | 8 |
 | F | Blocks (placing, breaking) | 4 |
-| G | Other (pearls, surrender, display, chat) | 4 |
+| G | Other (pearls, surrender, display, chat, death particles) | 6 |
 
 Rules are declared in `RuleCatalog`; their text lives in the language files
 (`pvpocket.rule.<id>.label` / `.hint` / `.c<N>` / `.unit`). **The rule id is the wire format** —
@@ -118,10 +118,12 @@ what the panel shows.
 - **Allow surrender** — `g.allowSurrender` · toggle · default On. When off, a round can only end by a kill or by the clock.
 - **Show opponent health** — `g.showOpponentHealth` · toggle · default On. Show the opponent's health at the top of the screen.
 - **Chat during the duel** — `g.chatScope` · choice · default Server-wide · Server-wide / Team only / Muted. Restricts who can see chat during the match.
+- **Death particles** — `g.deathParticles` · toggle · default On. A duel death drops no items; a burst of particles appears where the player fell instead. Off still drops nothing, only without the effect.
+- **Particle intensity** — `g.deathParticleIntensity` · choice · default Standard · Subtle / Standard / Grand. Sets the number of layers and particles; has no effect while death particles are off.
 
 ### Dependencies between rules
 
-Three groups are meaningless on their own: they only apply while another rule is in a particular
+Four groups are meaningless on their own: they only apply while another rule is in a particular
 state. The panel greys out the rows that do not apply and the hint says why. Greying is the only
 honest rendering — hiding the rows makes the panel look like it lost something, and leaving them
 clickable means letting the player edit a number nobody reads.
@@ -131,6 +133,7 @@ clickable means letting the player edit a number nobody reads.
 | `a.roundLimit`, `a.timeoutVerdict` | Timeout checked in `a.winConditions` | the round has no clock and the verdict is never used |
 | `e.sizeX`, `e.sizeY`, `e.sizeZ` | `e.template` being the flat plot | the map's bounding box decides the size; these three are ignored |
 | the "None" chip of `e.hazard` | mutually exclusive with the other three | checking None clears them, checking any of them clears None |
+| `g.deathParticleIntensity` | `g.deathParticles` being on | there is no effect, so the intensity is never read |
 
 The third is not a dependency but two spellings of one state, so it is collapsed in the data layer:
 `DuelRules` normalisation turns both `e.hazard=0` and `e.hazard=15` into `1` ("None"), so two rule
@@ -140,11 +143,11 @@ sets that behave identically cannot produce two different digests.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-**38 rules exist, 37 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
-note). All 37 configurable rules are written to the session and the journal and affect a duel; none
+**40 rules exist, 39 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
+note). All 39 configurable rules are written to the session and the journal and affect a duel; none
 is "record only".
 
-### In effect (37)
+### In effect (39)
 
 | Group | Rules |
 | --- | --- |
@@ -154,7 +157,7 @@ is "record only".
 | D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
-| G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope` |
+| G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope`, `g.deathParticles`, `g.deathParticleIntensity` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
 there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
@@ -163,8 +166,9 @@ is not wired up.
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
 the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
-with the interaction slice, the last two in G with the display slice, and `d.allowSwapBetweenRounds`
-with the between-round swap slice.
+with the interaction slice, `g.showOpponentHealth` and `g.chatScope` in G with the display slice,
+`g.deathParticles` and `g.deathParticleIntensity` with the death-presentation slice, and
+`d.allowSwapBetweenRounds` with the between-round swap slice.
 Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
@@ -267,6 +271,17 @@ Where each one is read:
   Scoped to `ROUND_ACTIVE` like the damage veto: a rule that outlives the round would silently mute
   the lobby for anybody who shares a session. A spectator (in the session but on no side) gets their
   own line echoed back to themselves.
+- **`g.deathParticles` / `g.deathParticleIntensity`** — mixed into the head of
+  `LivingEntity#dropAllDeathLoot`: a death in a live round always cancels the drop (items and
+  experience alike), then paints a burst where the player fell according to the intensity. The
+  particles go through the server's `ServerLevel#sendParticles` broadcast, so no new packet or
+  client hook is needed and everybody nearby sees the same burst. Intensity only sets the layer and
+  particle count; with the switch off the drop is still cancelled, just without the effect. The
+  intensity row is greyed out in the panel when the switch is off.
+  A fixed 2.5-second hold (`DEATH_BEAT_MS`) separates the death from the spectator hand-off or the
+  settle, so the effect can finish and the winning side can see who fell. Mid-series rounds queue
+  the settle from `onDeath`; deciding rounds and the spectator hand-off queue from `onRespawn`. All
+  three share one wall-clock delay queue.
 
 - **`d.allowSwapBetweenRounds`** — off, a mid-series submission is refused by `onLoadoutSubmit`;
   on, the change goes into `Participant.pendingLoadout`, `DuelSession.loadoutRevision` is bumped,
@@ -292,7 +307,7 @@ Where each one is read:
 
 ### There is no "recorded only" left
 
-**All 37 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+**All 39 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
 `fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
 
 This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line

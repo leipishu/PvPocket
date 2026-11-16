@@ -9,6 +9,7 @@ import com.leipishu.pvpocket.arena.ArenaRegion;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
+import com.leipishu.pvpocket.combat.DeathFx;
 import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
@@ -128,6 +129,14 @@ public final class SessionManager {
     private static final long BOUNDARY_COUNTDOWN_MS = 5_000L;
 
     /**
+     * Hold between a duel death and the round's reaction to it, in milliseconds.
+     *
+     * <p>Long enough for the death particles to play out and for the other side to see who fell.
+     * Both the spectator hand-off and the settle wait this out instead of firing on the next tick.
+     */
+    private static final long DEATH_BEAT_MS = 2_500L;
+
+    /**
      * Hard ceiling on one session's roster.
      *
      * <p>Four sides of five is the largest shape the roster panel can draw. Enforced when the
@@ -149,6 +158,10 @@ public final class SessionManager {
     private record Prepare(long at, int announced) {
     }
 
+    /** One reaction held until its wall-clock deadline. */
+    private record DelayedReaction(long dueAt, Runnable body) {
+    }
+
     private final MinecraftServer server;
     private final PvPocketStorage storage;
     private final Map<String, DuelSession> sessions = new LinkedHashMap<>();
@@ -160,6 +173,8 @@ public final class SessionManager {
     /** Per-player saved loadouts, usable with or without an open session. */
     private final LoadoutBook loadouts;
     private final List<Runnable> deferred = new ArrayList<>();
+    /** Post-death reactions waiting out the particle beat, due at a wall-clock deadline. */
+    private final List<DelayedReaction> delayedReactions = new ArrayList<>();
     /** Session id -> wall-clock start of the current round, for the opening grace window. */
     private final Map<String, Long> roundStartedAt = new HashMap<>();
     /** Session id -> wall-clock time the next round may begin, for the intermission. */
@@ -702,6 +717,31 @@ public final class SessionManager {
         return session == null || session.rulebook().allowCrafting();
     }
 
+    /**
+     * Sentinel returned by {@link #deathBurstTier(ServerPlayer)} when the player is not duelling.
+     */
+    public static final int NO_DUEL = -2;
+
+    /**
+     * Decides what a death should do, asked from the death-loot mixin in one lookup.
+     *
+     * <p>{@link #NO_DUEL} keeps vanilla drops for anyone outside a live round. Inside a duel the
+     * drops are always cancelled; the return value is then a {@link DeathFx} tier, which may be
+     * {@link DeathFx#OFF} when the particle rule is disabled. Callers cancel the drop for every
+     * value except {@link #NO_DUEL} and pass the tier straight to {@link DeathFx#spawn}.
+     */
+    public static int deathBurstTier(ServerPlayer player) {
+        DuelSession session = activeSessionOf(player.getUUID());
+        if (session == null) {
+            return NO_DUEL;
+        }
+        Rulebook book = session.rulebook();
+        if (!book.deathParticles()) {
+            return DeathFx.OFF;
+        }
+        return book.deathParticleIntensity();
+    }
+
     /** The session whose round this player is currently fighting, or null. */
     private static DuelSession activeSessionOf(UUID uuid) {
         SessionManager manager = instance;
@@ -965,10 +1005,10 @@ public final class SessionManager {
                 "alive", survivorsOf(session));
         persist(session);
 
-        // A mid-series round settles immediately, without waiting for the respawn. Only the
-        // deciding round waits, because finishSeries restores the snapshot onto a live entity.
+        // A mid-series round settles after the death beat, without waiting for the respawn. Only
+        // the deciding round waits, because finishSeries restores the snapshot onto a live entity.
         if (winner >= 0 && !decidesSeries(session, winner)) {
-            deferred.add(() -> settle(session, "DEATH", winner));
+            afterDeathBeat(() -> settle(session, "DEATH", winner));
         }
     }
 
@@ -1016,10 +1056,10 @@ public final class SessionManager {
         if (session.pendingWinnerTeam >= 0) {
             int team = session.pendingWinnerTeam;
             String reason = session.pendingReason;
-            deferred.add(() -> settle(session, reason, team));
+            afterDeathBeat(() -> settle(session, reason, team));
             return;
         }
-        deferred.add(() -> watchRestOfRound(session, player));
+        afterDeathBeat(() -> watchRestOfRound(session, player));
     }
 
     /**
@@ -1081,11 +1121,36 @@ public final class SessionManager {
         homes.flushIfDue();
     }
 
+    /**
+     * Holds a post-death reaction until the particle beat has elapsed.
+     *
+     * <p>Both callers check the round stage when they run, so a series that ended some other way
+     * during the hold makes the queued action a no-op.
+     *
+     * @param body the reaction to run after the hold
+     */
+    private void afterDeathBeat(Runnable body) {
+        delayedReactions.add(new DelayedReaction(
+                System.currentTimeMillis() + DEATH_BEAT_MS, body));
+    }
+
     public void tick() {
         if (!deferred.isEmpty()) {
             List<Runnable> copy = new ArrayList<>(deferred);
             deferred.clear();
             copy.forEach(Runnable::run);
+        }
+        if (!delayedReactions.isEmpty()) {
+            long now = System.currentTimeMillis();
+            List<Runnable> due = new ArrayList<>();
+            delayedReactions.removeIf(reaction -> {
+                if (reaction.dueAt > now) {
+                    return false;
+                }
+                due.add(reaction.body);
+                return true;
+            });
+            due.forEach(Runnable::run);
         }
         flushPendingRestores();
         startDueRounds();

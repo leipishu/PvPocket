@@ -215,6 +215,21 @@ public final class Rulebook {
         };
     }
 
+    /** Whether a duel death paints a particle burst at the fall spot ({@code g.deathParticles}). */
+    public boolean deathParticles() {
+        return rules.flag("g.deathParticles");
+    }
+
+    /**
+     * Burst size ({@code g.deathParticleIntensity}): 0 subtle, 1 normal, 2 grand.
+     *
+     * <p>A layer count rather than a particle count. Each layer is a different vanilla effect, so
+     * raising it changes the shape of the burst rather than only drawing more of the same dot.
+     */
+    public int deathParticleIntensity() {
+        return rules.get("g.deathParticleIntensity");
+    }
+
     private boolean hazard(int bit) {
         int mask = rules.get("e.hazard");
         if ((mask & HAZARD_NONE) != 0) {

@@ -237,7 +237,7 @@ public class RuleScreen extends PvScreen {
      *
      * <p>{@code a.roundLimit} and {@code a.timeoutVerdict} need a timeout win condition, otherwise
      * the clock never runs. {@code e.sizeX/Y/Z} apply to the flat plot only; every other map
-     * carries its own bounding box.
+     * carries its own bounding box. {@code g.deathParticleIntensity} needs the particle switch on.
      *
      * <p>A disabled row is greyed, not hidden: its value is still part of the rule set and still
      * appears in the summary. The row's hint explains the dependency.
@@ -252,6 +252,8 @@ public class RuleScreen extends PvScreen {
             case "e.sizeY":
             case "e.sizeZ":
                 return ArenaMaps.byIndex(edited.get("e.template")).isFlat();
+            case "g.deathParticleIntensity":
+                return edited.get("g.deathParticles") != 0;
             default:
                 return true;
         }
@@ -417,7 +419,8 @@ public class RuleScreen extends PvScreen {
                 }
                 // Rows depending on this one are rebuilt, not patched, since their enabled state is
                 // fixed at construction. Deferred a tick so the pane is not rebuilt mid-click.
-                if ("a.winConditions".equals(def.id)) {
+                if ("a.winConditions".equals(def.id)
+                        || "g.deathParticles".equals(def.id)) {
                     Minecraft.getInstance().execute(this::buildRows);
                 }
             });

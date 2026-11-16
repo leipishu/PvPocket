@@ -4,7 +4,7 @@
 
 ## 1. 规则模型
 
-一场决斗的规则是一份**有序的键值快照**，由 37 条可配置规则加 1 条只读提示项组成，分七组：
+一场决斗的规则是一份**有序的键值快照**，由 39 条可配置规则加 1 条只读提示项组成，分七组：
 
 | 组 | 主题 | 条数 |
 | --- | --- | --- |
@@ -14,7 +14,7 @@
 | D | 配装（进场物品、拾取、合成） | 4 |
 | E | 场地（尺寸、模板、边界、环境） | 8 |
 | F | 方块（放置、破坏） | 4 |
-| G | 其他（珍珠、投降、显示、聊天） | 4 |
+| G | 其他（珍珠、投降、显示、聊天、死亡粒子） | 6 |
 
 规则定义在 `RuleCatalog`，文本在语言文件（`pvpocket.rule.<id>.label` / `.hint` / `.c<N>` / `.unit`）。
 **规则 id 就是线格式**，改名等于改协议；新增规则只能追加，不能重排既有 id。
@@ -101,10 +101,12 @@
 - **允许投降** — `g.allowSurrender` · 开关 · 默认 开。关闭后只能通过击杀或超时结束这一局。
 - **显示对手血量** — `g.showOpponentHealth` · 开关 · 默认 开。在界面上方显示对手的生命值。
 - **决斗中聊天** — `g.chatScope` · 单选 · 默认 全服 / 仅队友 / 禁言。限制对局期间的聊天可见范围。
+- **死亡粒子特效** — `g.deathParticles` · 开关 · 默认 开。决斗中阵亡时物品一律不掉落，改为在倒地处迸发一团粒子；关闭后依然不掉落，只是没有特效。
+- **粒子强度** — `g.deathParticleIntensity` · 单选 · 默认 标准 / 简约 / 华丽。决定特效叠加的粒子层数与数量；关闭死亡粒子时此行不生效。
 
 ### 规则之间的依赖
 
-有三组规则单独看没有意义，它们只在另一条规则处于某个状态时才生效。面板会把不生效的那几行置灰，
+有四组规则单独看没有意义，它们只在另一条规则处于某个状态时才生效。面板会把不生效的那几行置灰，
 `hint` 里也写着原因——「置灰」是唯一诚实的表达方式：把它们藏起来会让面板像丢了东西，让它们保持
 可点则等于让玩家改一个没人读的数字。
 
@@ -113,6 +115,7 @@
 | `a.roundLimit`、`a.timeoutVerdict` | `a.winConditions` 勾了「超时」 | 本局没有时钟，超时判定永远用不到 |
 | `e.sizeX`、`e.sizeY`、`e.sizeZ` | `e.template` 是「平坦」 | 场地尺寸由地图包围盒决定，这三个数被忽略 |
 | `e.hazard` 的「无」 | 与其余三项互斥 | 勾「无」会清空三项，勾任意一项会取消「无」 |
+| `g.deathParticleIntensity` | `g.deathParticles` 开启 | 没有粒子特效，强度值不会被读取 |
 
 第三条不是「依赖」而是「同一个状态的两种写法」，所以它在数据层就收敛掉了：`DuelRules` 的规范化
 会把 `e.hazard=0` 和 `e.hazard=15` 都变成 `1`（「无」），这样两份行为完全相同的规则集不会算出
@@ -122,10 +125,10 @@
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
-**共 38 条，其中 37 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
-37 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
+**共 40 条，其中 39 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
+39 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
 
-### 已生效（37 条）
+### 已生效（39 条）
 
 | 组 | 规则 |
 | --- | --- |
@@ -135,14 +138,15 @@
 | D | `d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn`、`f.blockFilter` |
-| G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope` |
+| G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope`、`g.deathParticles`、`g.deathParticleIntensity` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
 调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
 
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后三条是「计时与胜负」切片接上的，D/F/G 组的四条是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，G 组最后两条是「界面」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
+D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHealth` 与 `chatScope` 是「界面」切片接上的，
+`g.deathParticles` 与 `g.deathParticleIntensity` 是「死亡表现」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -219,6 +223,12 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
   每句话都没有署名，所以这里调了同一个 `applyChatDecoration`。
   范围同样锁在 `ROUND_ACTIVE`：一条比回合活得更久的规则，会把大厅静音给任何一个共用会话的人。
   观众（在会话里但不在任何一队）发的话只回显给自己。
+- **`g.deathParticles` / `g.deathParticleIntensity`** — 混入 `LivingEntity#dropAllDeathLoot` 头部：
+  活跃回合里的死亡一律取消掉落（物品与经验都不掉），再按强度在倒地处放一团粒子。粒子走
+  服务端 `ServerLevel#sendParticles` 广播，不需要新封包或客户端钩子，附近的每个人看到同一团。
+   强度只决定层数与数量，开关关掉时掉落依旧取消、只是不放特效。强度行在面板上依赖开关置灰。
+   死亡到旁观/结算之间有固定的 2.5 秒停顿（`DEATH_BEAT_MS`），让特效播完、让胜方看清谁倒下：
+   非决胜局在 `onDeath` 排期结算，决胜局与旁观切换在 `onRespawn` 排期，三者共用一条墙钟延迟队列。
 
 - **`d.allowSwapBetweenRounds`** — 关掉时中途提交配装会被 `onLoadoutSubmit` 拒掉；开着时改动进入
   `Participant.pendingLoadout`，`DuelSession.loadoutRevision` 加一，提出者自己记作已同意，
@@ -238,7 +248,7 @@ D 组另外两条是「交互限制」切片接上的，G 组最后两条是「�
 
 ### 现在没有"仅记录"了
 
-**37 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
+**39 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
 只用来在面板上说明「1.8 模式与某些规则冲突」，没有取值可言。
 
 这一节保留下来是因为它记的是一条纪律：**加规则时先问「谁读它」**。写进 `RuleCatalog` 只说明
