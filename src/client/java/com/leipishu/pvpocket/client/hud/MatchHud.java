@@ -167,7 +167,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     }
 
     /**
-     * Draws the in-round clock at the top-right, just clear of the vanilla status-effect column.
+     * Draws the in-round clock in the top-right corner.
      *
      * <p>A countdown turns warm inside its last ten seconds so the finish reads without counting;
      * a stopwatch stays muted. Both use {@code m:ss}, which needs no translation and stays compact
@@ -176,8 +176,8 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static void drawRoundClock(GuiGraphics ctx, Font tr, int seconds, boolean down,
                                        int screenW) {
         String text = String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
-        int right = screenW - 50;
-        int y = TOP + 2;
+        int right = screenW - 4;
+        int y = TOP + 1;
         int w = tr.width(text);
         int colour = down && seconds <= 10 ? PvTheme.LIVE : PvTheme.TEXT;
         PvDraw.roundRect(ctx, right - w - 6, y - 2, w + 12, 14, PvTheme.RADIUS,

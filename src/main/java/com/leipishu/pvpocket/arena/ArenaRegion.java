@@ -519,6 +519,19 @@ public final class ArenaRegion {
         return new AABB(minX, bottomY, minZ, maxX() + 1.0D, topY, maxZ() + 1.0D);
     }
 
+    /**
+     * The plot plus the barrier shelf around it, for entity cleanup.
+     *
+     * <p>An arrow is an entity the moment it leaves the bow but stops being one while it is stuck
+     * in a block; it can land on the shelf outside the plot and still belong to this round. The
+     * {@link #BUFFER} margin reaches that shelf without touching a neighbouring plot: the largest
+     * plot plus the buffer stays well inside the cell pitch.
+     */
+    public AABB barrierBox(int bottomY, int topY) {
+        return new AABB(minX - BUFFER, bottomY, minZ - BUFFER,
+                maxX() + 1.0D + BUFFER, topY, maxZ() + 1.0D + BUFFER);
+    }
+
     /** True when this position deviates from the map baseline, i.e. a player changed it. */
     public boolean isChanged(BlockPos pos) {
         return changed.contains(pos.asLong());
@@ -587,12 +600,63 @@ public final class ArenaRegion {
      * @param clearSizeY how tall to scan; pass the taller of the outgoing and incoming map
      */
     public int reset(ServerLevel world, int clearSizeY) {
+        return reset(world, clearSizeY, null, 0);
+    }
+
+    /**
+     * True when ground this plot cannot cover still holds blocks, i.e. a wider plot stood here.
+     *
+     * <p>Every plot lays a barrier shelf {@link #BUFFER} blocks beyond its own box, one block below
+     * the floor, so one layer is enough to tell whether anything reached past the cell. Asked only
+     * when the previous occupant is unknown, because widening the clear costs about five times the
+     * scan and the answer is no on an ordinary start.
+     *
+     * @param spill how far past the cell the caller is prepared to widen
+     */
+    public boolean spillOccupied(ServerLevel world, int spill) {
+        int y = PLATFORM_Y - 1;
+        int keepX0 = Math.min(cellMinX, minX) - BUFFER;
+        int keepX1 = Math.max(cellMinX + cellSizeX, maxX() + 1) + BUFFER;
+        int keepZ0 = Math.min(cellMinZ, minZ) - BUFFER;
+        int keepZ1 = Math.max(cellMinZ + cellSizeZ, maxZ() + 1) + BUFFER;
+        for (int x = cellMinX - spill - BUFFER; x < cellMinX + cellSizeX + spill + BUFFER; x++) {
+            for (int z = cellMinZ - spill - BUFFER;
+                    z < cellMinZ + cellSizeZ + spill + BUFFER; z++) {
+                boolean outside = x < keepX0 || x >= keepX1 || z < keepZ0 || z >= keepZ1;
+                if (outside && !world.isEmptyBlock(new BlockPos(x, y, z))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * As {@link #reset(ServerLevel, int)}, with the plot being replaced included in the volume.
+     *
+     * <p>A plot wider than its cell spills into the gap, so the cell alone does not describe what
+     * the previous lease left behind: a 224-wide flat arena reaches 32 blocks past the cell, and a
+     * 48-wide plot would leave a ring of its floor standing, void with a band of blocks around it.
+     *
+     * @param previous the plot this one replaces, in the same cell; null when there is none
+     *
+     * @param spill    how far past the cell to clear on every side, on top of the plot and cell;
+     *                 0 unless the previous occupant is unknown and could have been wider
+     */
+    public int reset(ServerLevel world, int clearSizeY, ArenaRegion previous, int spill) {
         int top = Math.min(SURFACE_Y + Math.max(clearSizeY, sizeY) + 4, world.getHeight() - 1);
         int restored = 0;
-        int fromX = Math.min(cellMinX, minX) - BUFFER;
-        int toX = Math.max(cellMinX + cellSizeX, maxX() + 1) + BUFFER;
-        int fromZ = Math.min(cellMinZ, minZ) - BUFFER;
-        int toZ = Math.max(cellMinZ + cellSizeZ, maxZ() + 1) + BUFFER;
+        int fromX = Math.min(cellMinX - spill, minX) - BUFFER;
+        int toX = Math.max(cellMinX + cellSizeX + spill, maxX() + 1) + BUFFER;
+        int fromZ = Math.min(cellMinZ - spill, minZ) - BUFFER;
+        int toZ = Math.max(cellMinZ + cellSizeZ + spill, maxZ() + 1) + BUFFER;
+        if (previous != null) {
+            // Both plots sit in the same cell, so only their own extents can add to the box.
+            fromX = Math.min(fromX, previous.minX - BUFFER);
+            toX = Math.max(toX, previous.maxX() + 1 + BUFFER);
+            fromZ = Math.min(fromZ, previous.minZ - BUFFER);
+            toZ = Math.max(toZ, previous.maxZ() + 1 + BUFFER);
+        }
         for (int y = FLOOR_Y; y <= top; y++) {
             // Flat baseline, not the map baseline: a reset erases whatever the previous lease left,
             // and restoring the current map would leave old blocks where the two do not overlap.

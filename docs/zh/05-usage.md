@@ -13,7 +13,7 @@
    [Fabric API](https://modrinth.com/mod/fabric-api)，NeoForge 格不需要。
 3. 首次启动会在存档下生成 `pvpocket/` 目录（`journal`、`homes.json`、`guard.json`、
    `stats`、`history`）。
-4. 决斗维度在服务端启动时自动加载并预热，5 张内置图逐 tick 贴好约需 10 秒。
+4. 决斗维度在服务端启动时自动加载并预热，6 张内置图（含平地）逐 tick 贴好约需 6–10 秒。
    期间 `/pvpocket arena` 显示「分区尚未布置」，此时无法开局。
 
 **客户端必须装同一个模组。** 没有客户端就没有规则面板、配装编辑器和计分板。

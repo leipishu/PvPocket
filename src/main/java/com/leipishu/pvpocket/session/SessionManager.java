@@ -2136,12 +2136,6 @@ public final class SessionManager {
 
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
     private void startAccepted(DuelSession session, ServerPlayer accepter) {
-        // The accepter may have shown the preparing screen locally on click; clear it now so a
-        // refusal below cannot strand that screen until its watchdog fires.
-        if (accepter != null) {
-            PvPocketNetworking.sendPrepareStatus(accepter,
-                    new PrepareStatusPayload(session.id, false));
-        }
         if (!ArenaManager.isReady(server)) {
             fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
@@ -2171,11 +2165,15 @@ public final class SessionManager {
                     ArenaMaps.byIndex(mapIndex).labelText());
             return;
         }
+        // Announced before the lease: stamping a cell can block this thread for seconds, and a
+        // notice sent afterwards would arrive once the wait it explains is over.
+        broadcastPrepare(session, true);
         ArenaRegion region = ArenaManager.allocate(server, session.id,
                 rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
                 ArenaMaps.byIndex(mapIndex),
                 rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
         if (region == null) {
+            broadcastPrepare(session, false);
             fail(accepter, "pvpocket.msg.rules.arena_full");
             return;
         }
@@ -2205,9 +2203,6 @@ public final class SessionManager {
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
         closePanels(session);
-        // Every panel is closed and the arena is leased; from here a dead or absent participant can
-        // still hold the start for seconds. Show the notice so the accepted click has an answer.
-        broadcastPrepare(session, true);
         beginStart(session, 0);
     }
 
@@ -3109,6 +3104,9 @@ public final class SessionManager {
                 player.setInvulnerable(true);
             }
         }
+        // Dismiss the preparing screen once the teleport is done and clients load the arena, not at
+        // activation: a preparation countdown keeps the round from going live for several seconds.
+        broadcastPrepare(session, false);
         if (prepare > 0) {
             journal(session).append("ROUND_PREPARING", "round", session.round, "seconds", prepare);
             prepareDeadlines.put(session.id,
@@ -3177,8 +3175,6 @@ public final class SessionManager {
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
-        // Dismiss the preparing screen at the moment the round goes live.
-        broadcastPrepare(session, false);
         // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {

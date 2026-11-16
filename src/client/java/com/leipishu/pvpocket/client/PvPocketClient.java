@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.client.gui.PvAuditHarness;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
+import com.leipishu.pvpocket.client.gui.prepare.PrepareNotice;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
@@ -78,8 +79,10 @@ public final class PvPocketClient {
 
         platform.onServerPacket(PrepareStatusPayload.ID, payload -> {
             if (payload.active()) {
-                PvScreens.open(Minecraft.getInstance(), new PrepareScreen(payload.sessionId()));
+                // Armed, not opened: a start that finishes inside the delay shows nothing at all.
+                PrepareNotice.arm(payload.sessionId());
             } else {
+                PrepareNotice.cancel(payload.sessionId());
                 PrepareScreen.dismiss(payload.sessionId());
             }
         });
@@ -148,6 +151,7 @@ public final class PvPocketClient {
             MatchHud.clear();
             ArenaBounds.clear();
             PrepareScreens.clear();
+            PrepareNotice.clear();
             SpectatorHud.clear();
             PossessionHud.clear();
             // Clears the listener so a later answer cannot reach a closed dialog.
@@ -164,6 +168,8 @@ public final class PvPocketClient {
         HomeClient.register();
         InventoryButton.register();
         BoundaryRenderer.register();
+        // The preparing panel is armed by a payload and opened from here, see PrepareNotice.
+        platform.onClientTick(PrepareNotice::tick);
         // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
         PvAuditHarness.register();
 

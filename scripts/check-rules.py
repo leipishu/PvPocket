@@ -35,6 +35,8 @@ RULEBOOK = os.path.join(RULES_PKG, "Rulebook.java")
 DUEL_RULES = os.path.join(RULES_PKG, "DuelRules.java")
 ARENA_MAPS = os.path.join(SRC, "main", "java", "com", "leipishu", "pvpocket", "arena",
                           "ArenaMaps.java")
+ARENA_MANAGER = os.path.join(SRC, "main", "java", "com", "leipishu", "pvpocket", "arena",
+                             "ArenaManager.java")
 DOCS = os.path.join(ROOT, "docs", "zh", "02-rules.md")
 LANG = os.path.join(SRC, "main", "resources", "assets", "pvpocket", "lang", "zh_cn.json")
 
@@ -129,6 +131,25 @@ def choice_count(expr):
     return None
 
 
+def resolve_constant(expr):
+    """`ArenaManager.DEFAULT_FLAT_X` -> 48, or None when the name is unknown.
+
+    A default that both the catalog and the arena read (the flat plot's size) is declared once,
+    in ArenaManager. Resolving the name keeps --docs able to compare it with the documentation
+    instead of reporting a literal it never sees.
+    """
+    m = re.fullmatch(r"ArenaManager\.(\w+)", expr.strip())
+    if not m:
+        return None
+    try:
+        text = read(ARENA_MANAGER)
+    except OSError:
+        return None
+    found = re.search(r"public\s+static\s+final\s+int\s+" + re.escape(m.group(1))
+                      + r"\s*=\s*(\d+)\s*;", text)
+    return int(found.group(1)) if found else None
+
+
 def parse_catalog():
     """[{'id','group','kind','default','min','max','step','choices'}] in order."""
     text = read(CATALOG)
@@ -177,6 +198,11 @@ def parse_catalog():
             else:
                 entry["default"] = raw
                 entry["default_value"] = int(raw) if re.fullmatch(r"-?\d+", raw) else None
+                if entry["default_value"] is None:
+                    resolved = resolve_constant(raw)
+                    if resolved is not None:
+                        entry["default"] = str(resolved)
+                        entry["default_value"] = resolved
         if kind in ("intRange", "decimal") and len(args) >= 6:
             entry["min"], entry["max"], entry["step"] = args[2], args[3], args[4]
         if is_choice and def_index is not None and def_index + 1 < len(args):

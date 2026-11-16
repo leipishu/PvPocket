@@ -13,8 +13,9 @@
    [Fabric API](https://modrinth.com/mod/fabric-api); NeoForge cells do not.
 3. The first start creates a `pvpocket/` directory in the world save (`journal`, `homes.json`,
    `guard.json`, `stats`, `history`).
-4. The duel dimension loads and pre-stamps at server start; five maps take about 10 seconds, one per
-   tick. Until then `/pvpocket arena` reports "gallery not stamped" and no duel can start.
+4. The duel dimension loads and pre-stamps at server start; the six built-in maps (the flat plot
+   included) take about 6-10 seconds, one per tick. Until then `/pvpocket arena` reports "gallery
+   not stamped" and no duel can start.
 
 **Clients must run the same mod.** Without it there is no rule panel, no loadout editor and no
 scoreboard.

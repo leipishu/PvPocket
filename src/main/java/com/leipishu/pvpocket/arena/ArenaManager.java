@@ -114,6 +114,20 @@ public final class ArenaManager {
      */
     public static final int MAX_SIZE_Y = 96;
 
+    /**
+     * Size of the flat plot before anyone touches the rule panel, in blocks.
+     *
+     * <p>The flat plot has no bounding box of its own, so it is built at whatever size the rules
+     * ask for. The warm-up stamps it at these values, which are also the {@code e.sizeX/e.sizeY/
+     * e.sizeZ} defaults, so a first duel on the defaults reuses the exhibit instead of scanning a
+     * cell of unloaded chunks (4.0-4.7 s measured). Another size still rebuilds, which is the half
+     * of the cost that cannot be moved.
+     *
+     * <p>{@code RuleCatalog} reads these, so the proposed size and the stamped size cannot drift.
+     */
+    public static final int DEFAULT_FLAT_X = 48;
+    public static final int DEFAULT_FLAT_Y = 32;
+    public static final int DEFAULT_FLAT_Z = 48;
 
     private static final int SLOTS = COLS * ROWS;
 
@@ -626,11 +640,22 @@ public final class ArenaManager {
             PvPocket.LOGGER.error("Arena world is not loaded; cannot stamp {}", map.id);
             return null;
         }
-        int clearY = previous == null ? sy : Math.max(sy, previous.sizeY);
+        int baseY = previous == null ? sy : Math.max(sy, previous.sizeY);
+        // Only the flat plot can be wider than its cell, and after a restart its occupant is
+        // unknown: widen when something still stands out there, up to the tallest plot too.
+        int widest = (MAX_SIZE_XZ - CELL) / 2;
+        boolean widen = previous == null && map.isFlat() && region.spillOccupied(world, widest);
+        if (widen) {
+            PvPocket.LOGGER.info("Widening the clear of {}: the cell still holds a wider plot",
+                    region.id);
+        }
+        final int clearY = widen ? Math.max(baseY, MAX_SIZE_Y) : baseY;
+        final int spill = widen ? widest : 0;
         // Phase timings: clearing an empty cell is a few million reads that write nothing, while
         // pasting is tens of thousands of writes, so the log names each phase.
         long started = System.nanoTime();
-        int cleared = suppressRecording(() -> region.reset(world, clearY));
+        // previous is part of the volume: it may reach past the cell, see ArenaRegion#reset.
+        int cleared = suppressRecording(() -> region.reset(world, clearY, previous, spill));
         long clearedAt = System.nanoTime();
         int floorBlocks = 0;
         int pasted = 0;
@@ -961,8 +986,9 @@ public final class ArenaManager {
     private static long warmUpStarted;
 
     /**
-     * Queues the gallery fill: the first copy of every map gets stamped into its own cell, one per
-     * tick.
+     * Queues the gallery fill: every map, the flat plot included, gets its first copy stamped into
+     * its own cell, one per tick. {@link #DEFAULT_FLAT_X} says why the flat plot is stamped at a
+     * fixed size.
      *
      * <p>Only the first copy of each map. Extra copies are capacity and are built the first time
      * somebody is sent to one.
@@ -1006,10 +1032,12 @@ public final class ArenaManager {
         ArenaMap map = ArenaMaps.ALL.get(slot);
         // A map whose address was given up owns no cells, so there is nothing to fill: stamping it
         // would rebuild a build no rule panel can send anybody to.
-        if (!NO_HOME.contains(map.id) && !map.isFlat() && !USED[slot] && CELLS[slot] == null) {
-            int sx = clampSize(map.sizeX, MAX_SIZE_XZ);
-            int sy = clampSize(map.sizeY, MAX_SIZE_Y);
-            int sz = clampSize(map.sizeZ, MAX_SIZE_XZ);
+        if (!NO_HOME.contains(map.id) && !USED[slot] && CELLS[slot] == null) {
+            // The flat plot is included: it is the default choice, so it is what a first duel
+            // asks for; DEFAULT_FLAT_X explains the size.
+            int sx = clampSize(map.isFlat() ? DEFAULT_FLAT_X : map.sizeX, MAX_SIZE_XZ);
+            int sy = clampSize(map.isFlat() ? DEFAULT_FLAT_Y : map.sizeY, MAX_SIZE_Y);
+            int sz = clampSize(map.isFlat() ? DEFAULT_FLAT_Z : map.sizeZ, MAX_SIZE_XZ);
             if (stamp(server, slot, map, sx, sy, sz, false, false) != null) {
                 warmUpBuilt++;
             }
@@ -1021,7 +1049,7 @@ public final class ArenaManager {
 
     private static void finishWarmUp() {
         warmUpCursor = -1;
-        PvPocket.LOGGER.info("Arena gallery ready: {} maps stamped in {} ms",
+        PvPocket.LOGGER.info("Arena gallery ready: {} plots stamped in {} ms",
                 warmUpBuilt, (System.nanoTime() - warmUpStarted) / 1_000_000L);
     }
 
@@ -1179,9 +1207,9 @@ public final class ArenaManager {
      * Erases the cells the gallery fill will not re-stamp, so a hard reset really empties the
      * dimension.
      *
-     * <p>The gallery fill skips the flat plot, which is built at whatever size the rules ask for,
-     * any extra copy of a map, and any cell no map owns. Re-stamping an exhibit clears its cell as
-     * a side effect, so only the skipped cells need work here.
+     * <p>Mirrors {@link #warmUpTick}'s skip rule: a cell with no map at its address, a map that has
+     * given up its address, and any extra copy are not restamped, so only those need work here.
+     * Re-stamping an exhibit clears its cell as a side effect.
      *
      * <p>Call before {@link #clearAll()}, while the regions still know how tall their debris is.
      *
@@ -1194,7 +1222,8 @@ public final class ArenaManager {
         }
         int cleared = 0;
         for (int slot = 0; slot < SLOTS; slot++) {
-            boolean restamped = slot < ArenaMaps.ALL.size() && !ArenaMaps.ALL.get(slot).isFlat();
+            boolean restamped = slot < ArenaMaps.ALL.size()
+                    && !NO_HOME.contains(ArenaMaps.ALL.get(slot).id);
             if (restamped) {
                 continue;
             }
@@ -1432,16 +1461,19 @@ public final class ArenaManager {
     }
 
     /**
-     * Removes every non-player entity in the plot: arrows, thrown tridents, items, orbs and mobs.
+     * Removes every non-player entity in the plot and its barrier shelf: arrows, thrown tridents,
+     * items, orbs and mobs.
      *
-     * <p>The box is the plot, not the fight area, so the outermost barrier is the limit and an
-     * adjacent plot can never be touched. Called at every round end and again at the series end.
+     * <p>The box is the plot plus its {@link ArenaRegion#BUFFER} shelf, not the fight area, so a
+     * projectile that flew past the boundary is still caught. The margin stays inside the cell
+     * pitch, so an adjacent plot can never be touched. Called at every round end and again at the
+     * series end.
      */
     public static int purge(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;
         }
-        AABB box = region.entityBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
+        AABB box = region.barrierBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
         List<Entity> doomed = new ArrayList<>();
         for (Entity entity : world.getEntitiesOfClass(Entity.class, box, e -> !(e instanceof ServerPlayer))) {
             doomed.add(entity);

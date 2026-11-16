@@ -56,11 +56,14 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("d.allowCrafting", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowConsumables", RuleGroup.D, true));
 
-        // E. arena
-        // Upper bound is ArenaManager.MAX_SIZE_XZ: 224 = 256 centre spacing - 32. Largest map: 147.
-        add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8, 48));
-        add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8, 48));
-        add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, 8, ArenaManager.MAX_SIZE_Y, 4, 32));
+        // E. arena. Upper bound is ArenaManager.MAX_SIZE_XZ: 224 = 256 centre spacing - 32.
+        // Largest map: 147. Defaults are the flat plot's, shared with the warm-up.
+        add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8,
+                ArenaManager.DEFAULT_FLAT_X));
+        add(RuleDefinition.intRange("e.sizeZ", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8,
+                ArenaManager.DEFAULT_FLAT_Z));
+        add(RuleDefinition.intRange("e.sizeY", RuleGroup.E, 8, ArenaManager.MAX_SIZE_Y, 4,
+                ArenaManager.DEFAULT_FLAT_Y));
         add(RuleDefinition.enumOf("e.template", RuleGroup.E, 0, ArenaMaps.labelKeys()));
         add(RuleDefinition.enumOf("e.boundary", RuleGroup.E, 1, choices("e.boundary", 2)));
         add(RuleDefinition.enumOf("e.timeOfDay", RuleGroup.E, 1, choices("e.timeOfDay", 5)));

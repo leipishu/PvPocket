@@ -17,7 +17,6 @@ import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
 import com.leipishu.pvpocket.client.gui.preset.PresetOverlay;
-import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.LoadoutRequestPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -943,13 +942,7 @@ public class RuleScreen extends PvScreen {
         }
         submitted = true;
         send(action);
-        // Immediate feedback for the accept click; the server's prepare packet replaces this with
-        // an authoritative screen and dismisses it when the round actually starts.
-        if (action == RulesSubmitPayload.ACTION_ACCEPT) {
-            PvScreens.open(Minecraft.getInstance(), new PrepareScreen(payload.sessionId()));
-        } else {
-            onClose();
-        }
+        onClose();
     }
 
     private void send(int action) {

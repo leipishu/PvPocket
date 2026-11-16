@@ -19,7 +19,8 @@ import net.minecraft.client.input.KeyEvent;
  * because closing it would only hide the feedback that the click succeeded. The server dismisses it
  * with {@link #dismiss(String)} once the round starts, and a local watchdog closes it if that
  * packet never arrives. {@link #sessionId} gates late packets so a previous match cannot close a
- * newer screen.
+ * newer screen. {@link PrepareNotice} decides when it opens: a start that finishes quickly shows
+ * nothing at all.
  */
 public final class PrepareScreen extends PvScreen {
 

@@ -163,13 +163,24 @@ that more copies should be forced in.
 
 **A plot may spill out of its cell.** The plot is centred in the cell, so a plot wider than the cell
 reaches into the gap on both sides; the hard limit is "must not touch the neighbour", i.e.
-`MAX_SIZE_XZ = 256 − 32 = 224`. That is why `ArenaRegion.reset()` clears the **union** of cell and
-plot: clearing only the cell would leave the outer ring of a previous 224-wide flat arena standing
-in the gap.
+`MAX_SIZE_XZ = 256 − 32 = 224`. That is why `ArenaRegion.reset()` clears the **union** of the cell,
+the new plot and the plot it replaces: the cell alone misses the overhang, and the new plot alone
+leaves the outer ring of a previous 224-wide flat arena standing in the gap — void, then a band of
+blocks. After a restart the old plot has no in-memory record, so the reset first probes the
+overhang with one layer of the barrier shelf every plot lays outside its box, and only widens when
+it finds something; widening every start would nearly double the scan.
 
-The startup warm-up stamps only the **first** copy of each map. Copies are capacity, not exhibits:
+The startup warm-up stamps the **first** copy of each map. Copies are capacity, not exhibits:
 pre-stamping them all would double both the startup stall and the disk the dimension takes, and
 nobody flies out to look at an empty copy.
+
+**The flat plot is part of the warm-up**, stamped at the size the rule panel proposes by default
+(`ArenaManager.DEFAULT_FLAT_X/Y/Z`, 48x32x48). It is the only map without a bounding box of its
+own, so it is otherwise built at whatever size the rules ask for — and building it means scanning
+the cell, 176x176x40 block positions, which measured 4.0-4.7 s while those chunks were still
+unloaded. That is exactly the wait between "accept" and "in the arena". With the exhibit
+pre-stamped, a first duel on the defaults reuses it (`Reusing … (reverted 0 blocks)`); a rule set
+with another size still rebuilds, and that half of the cost cannot be removed.
 
 ## 6. Adding a map
 
