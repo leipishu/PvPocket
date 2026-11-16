@@ -50,6 +50,18 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static final int STRIP_W = 2;
     private static final float FLASH_TIME = 0.32F;
 
+    /**
+     * Gap between the clock plate and the screen edge, in pixels.
+     *
+     * <p>The plate is the outermost thing the HUD draws, so the gap is measured from its own right
+     * edge. 4 is the same allowance the scoreboard bar keeps at each side ({@code screenW - 8} in
+     * the width test), so the two read as one row.
+     */
+    private static final int CLOCK_MARGIN = 4;
+    /** Clock plate height and inner padding; the text is centred in the plate. */
+    private static final int CLOCK_H = 14;
+    private static final int CLOCK_PAD_X = 6;
+
     /** Null means "no match on screen". Replaced wholesale by every payload. */
     private static MatchHudPayload state;
     private static float appearT;
@@ -176,13 +188,16 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static void drawRoundClock(GuiGraphics ctx, Font tr, int seconds, boolean down,
                                        int screenW) {
         String text = String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
-        int right = screenW - 4;
-        int y = TOP + 1;
         int w = tr.width(text);
+        int plateW = w + CLOCK_PAD_X * 2;
+        // Laid out from the plate's own right edge, not from the text's: the gap belongs to the
+        // frame, and a text-anchored box grows half of its padding back into the margin.
+        int x = screenW - CLOCK_MARGIN - plateW;
+        int y = TOP;
         int colour = down && seconds <= 10 ? PvTheme.LIVE : PvTheme.TEXT;
-        PvDraw.roundRect(ctx, right - w - 6, y - 2, w + 12, 14, PvTheme.RADIUS,
+        PvDraw.roundRect(ctx, x, y, plateW, CLOCK_H, PvTheme.RADIUS,
                 PvTheme.alpha(PvTheme.CARD, 0.72F));
-        PvDraw.text(ctx, tr, text, right - w, y, colour);
+        PvDraw.text(ctx, tr, text, x + CLOCK_PAD_X, y + (CLOCK_H - 8) / 2 + 1, colour);
     }
 
     /**
