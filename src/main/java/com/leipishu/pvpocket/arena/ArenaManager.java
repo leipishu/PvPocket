@@ -10,8 +10,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.ExperienceOrb;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.resources.ResourceKey;
@@ -1434,29 +1432,11 @@ public final class ArenaManager {
     }
 
     /**
-     * Removes every dropped item and experience orb in the plot.
+     * Removes every non-player entity in the plot: arrows, thrown tridents, items, orbs and mobs.
      *
-     * <p>A player who dies in the arena drops their survival inventory and then gets it back from
-     * the snapshot; if the drops stayed, the player could collect both.
+     * <p>The box is the plot, not the fight area, so the outermost barrier is the limit and an
+     * adjacent plot can never be touched. Called at every round end and again at the series end.
      */
-    public static int clearDroppedItems(ServerLevel world, ArenaRegion region) {
-        if (world == null || region == null) {
-            return 0;
-        }
-        AABB box = region.entityBox(world.getMinBuildHeight(), world.getMaxBuildHeight());
-        int removed = 0;
-        for (ItemEntity item : world.getEntitiesOfClass(ItemEntity.class, box, entity -> true)) {
-            item.discard();
-            removed++;
-        }
-        for (ExperienceOrb orb : world.getEntitiesOfClass(ExperienceOrb.class, box, entity -> true)) {
-            orb.discard();
-            removed++;
-        }
-        return removed;
-    }
-
-    /** Removes every entity in the plot except players, when a plot is handed to a new duel. */
     public static int purge(ServerLevel world, ArenaRegion region) {
         if (world == null || region == null) {
             return 0;

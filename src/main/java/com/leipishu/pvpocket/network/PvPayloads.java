@@ -46,6 +46,7 @@ public final class PvPayloads {
         platform.registerPlayToClient(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
         platform.registerPlayToClient(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         platform.registerPlayToClient(RulesClosePayload.ID, RulesClosePayload.CODEC);
+        platform.registerPlayToClient(PrepareStatusPayload.ID, PrepareStatusPayload.CODEC);
         platform.registerPlayToClient(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
         platform.registerPlayToClient(MatchHudPayload.ID, MatchHudPayload.CODEC);
         platform.registerPlayToClient(ArenaBoundsPayload.ID, ArenaBoundsPayload.CODEC);

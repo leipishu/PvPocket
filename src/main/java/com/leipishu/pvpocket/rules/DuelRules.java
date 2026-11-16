@@ -92,14 +92,13 @@ public final class DuelRules {
     /**
      * Everything a stored value has to satisfy before any code reads it.
      *
-     * <p>Three steps in order: the definition's range, the bits the panel locks on, and the bits
-     * that exclude the rest. Applied on both the {@code set} and the {@code decode} paths, since a
-     * rule set can also arrive from disk, a preset file or a hand-built packet.
+     * <p>Two steps in order: the definition's range, then the bits that exclude the rest. Applied
+     * on both the {@code set} and the {@code decode} paths, since a rule set can also arrive from
+     * disk, a preset file or a hand-built packet.
      */
     private static int normalise(String id, int value) {
         RuleDefinition def = RuleCatalog.byId(id);
         int out = def == null ? value : def.clamp(value);
-        out |= RuleCatalog.lockedBits(id);
         int exclusive = RuleCatalog.exclusiveBits(id);
         if (exclusive != 0) {
             if ((out & exclusive) != 0) {

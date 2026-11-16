@@ -34,7 +34,6 @@ public final class RuleCatalog {
         add(RuleDefinition.enumOf("a.timeoutVerdict", RuleGroup.A, 0, choices("a.timeoutVerdict", 3)));
         add(RuleDefinition.intRange("a.countdown", RuleGroup.A, 0, 30, 1, 5));
         add(RuleDefinition.intRange("a.intermission", RuleGroup.A, 1, 10, 1, 3));
-        add(RuleDefinition.multi("a.winConditions", RuleGroup.A, 0b1111, choices("a.winConditions", 4)));
 
         // b.teamSize counts slots per player card, so it also bounds players per side: 4 x 5 = 20.
         add(RuleDefinition.intRange("b.teamSize", RuleGroup.B, 1, 5, 1, 5));
@@ -75,7 +74,6 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("f.allowPlace", RuleGroup.F, true));
         add(RuleDefinition.toggle("f.protectTerrain", RuleGroup.F, true));
         add(RuleDefinition.toggle("f.allowBreakOwn", RuleGroup.F, true));
-        add(RuleDefinition.multi("f.blockFilter", RuleGroup.F, 0b1111, choices("f.blockFilter", 5)));
 
         // G. other
         add(RuleDefinition.toggle("g.enderPearl", RuleGroup.G, false));
@@ -94,17 +92,6 @@ public final class RuleCatalog {
 
     private static String[] choices(String id, int count) {
         return RuleDefinition.choices(id, count);
-    }
-
-    /**
-     * Bits of a multi-select rule that the panel will not let a caller clear.
-     *
-     * <p>{@code a.winConditions} keeps the kill bit on, because respawning the wiped side and
-     * playing on is a different game mode rather than a switch. {@link DuelRules#set} forces the
-     * bit back on and the chip widget draws it as locked. Returns 0 for rules without a lock.
-     */
-    public static int lockedBits(String id) {
-        return "a.winConditions".equals(id) ? 1 : 0;
     }
 
     /**

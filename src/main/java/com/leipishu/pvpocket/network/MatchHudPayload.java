@@ -8,26 +8,27 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * Server to client: the scoreboard drawn over the arena.
  *
- * <p>Sent on every round start and round end rather than every tick. Sides travel as two flat
- * strings: {@code scores} holds one integer per side, comma separated ({@code "2,1"}), and
- * {@code teams} separates sides with {@code ;} and members with {@code ,}, each member
- * {@code name|uuid}.
+ * <p>Sent on round boundaries and once a second while a countdown runs. Sides travel as two flat
+ * strings: {@code scores} holds one integer per side ({@code "2,1"}), and {@code teams} separates
+ * sides with {@code ;} and members with {@code ,}, each member {@code name|uuid}.
  *
- * <p>{@code maxRounds} is the cap the series runs to; {@code winsNeeded} is the win count.
- * {@code active=false} means hide. {@code secondsLeft} is the intermission countdown, or {@code 0}
- * while a round is live, pushed every second while it is non-zero.
+ * <p>{@code active=false} hides it. {@code secondsLeft} is the intermission countdown, {@code 0}
+ * during a live round. {@code clock} is the in-round seconds, counted down under a round limit and
+ * up without one; {@code clockDown} picks the direction, {@code -1} hides it. The server computes
+ * it, so the client never compares clocks.
  */
 public record MatchHudPayload(boolean active,
                               int round, int maxRounds, int winsNeeded,
                               String scores, String teams,
                               boolean showHealth,
-                              int secondsLeft)
+                              int secondsLeft,
+                              int clock, boolean clockDown)
         implements CustomPacketPayload {
 
     public static final Type<MatchHudPayload> ID =
             new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "match_hud"));
 
-    /** Hand-written rather than {@code PacketCodec.tuple}: eight fields, two of them strings. */
+    /** Hand-written rather than {@code PacketCodec.tuple}: ten fields, two of them strings. */
     public static final StreamCodec<RegistryFriendlyByteBuf, MatchHudPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
@@ -38,6 +39,8 @@ public record MatchHudPayload(boolean active,
                 buf.writeUtf(value.teams);
                 buf.writeBoolean(value.showHealth);
                 buf.writeVarInt(value.secondsLeft);
+                buf.writeVarInt(value.clock);
+                buf.writeBoolean(value.clockDown);
             },
             buf -> new MatchHudPayload(
                     buf.readBoolean(),
@@ -47,11 +50,13 @@ public record MatchHudPayload(boolean active,
                     buf.readUtf(),
                     buf.readUtf(),
                     buf.readBoolean(),
-                    buf.readVarInt()));
+                    buf.readVarInt(),
+                    buf.readVarInt(),
+                    buf.readBoolean()));
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
     public static MatchHudPayload hidden() {
-        return new MatchHudPayload(false, 0, 0, 0, "", "", false, 0);
+        return new MatchHudPayload(false, 0, 0, 0, "", "", false, 0, -1, false);
     }
 
     @Override

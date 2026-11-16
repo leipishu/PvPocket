@@ -12,10 +12,9 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  * <p>The client never derives these values; it mirrors what the server decided, so movement
  * scaling, the attack indicator, block placement and explosions agree with the server.
  *
- * <p>{@code useGate} and {@code bans} are the two masks
- * {@link com.leipishu.pvpocket.combat.UsePolicy} takes.
+ * <p>{@code useGate} is the mask {@link com.leipishu.pvpocket.combat.UsePolicy} takes.
  */
-public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, int bans)
+public record CombatStatePayload(boolean legacy, boolean blocking, int useGate)
         implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<CombatStatePayload> ID =
@@ -25,7 +24,6 @@ public record CombatStatePayload(boolean legacy, boolean blocking, int useGate, 
             ByteBufCodecs.BOOL, CombatStatePayload::legacy,
             ByteBufCodecs.BOOL, CombatStatePayload::blocking,
             ByteBufCodecs.VAR_INT, CombatStatePayload::useGate,
-            ByteBufCodecs.VAR_INT, CombatStatePayload::bans,
             CombatStatePayload::new);
 
     @Override

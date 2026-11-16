@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.client.gui.PvAuditHarness;
 import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
+import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
@@ -33,6 +34,7 @@ import com.leipishu.pvpocket.network.PossessPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
+import com.leipishu.pvpocket.network.PrepareStatusPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
@@ -72,6 +74,14 @@ public final class PvPocketClient {
             PvPocket.LOGGER.info("Received rules_open for session {} role {}",
                     payload.sessionId(), payload.role());
             PvScreens.open(Minecraft.getInstance(), new RuleScreen(payload));
+        });
+
+        platform.onServerPacket(PrepareStatusPayload.ID, payload -> {
+            if (payload.active()) {
+                PvScreens.open(Minecraft.getInstance(), new PrepareScreen(payload.sessionId()));
+            } else {
+                PrepareScreen.dismiss(payload.sessionId());
+            }
         });
 
         platform.onServerPacket(RulesClosePayload.ID, payload -> {
@@ -187,7 +197,7 @@ public final class PvPocketClient {
                 payload.legacy() ? CombatMode.LEGACY_1_8 : CombatMode.MODERN);
         CombatState.setBlocking(client.player.getUUID(), payload.blocking());
         // Same gate as the server, so both sides predict the same placement.
-        CombatState.setUseGate(client.player.getUUID(), payload.useGate(), payload.bans());
+        CombatState.setUseGate(client.player.getUUID(), payload.useGate());
     }
 
     /** Applies a state payload that waited for the player. Called from the client tick. */

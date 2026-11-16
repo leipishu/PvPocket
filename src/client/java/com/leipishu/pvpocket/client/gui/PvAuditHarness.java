@@ -2,6 +2,7 @@ package com.leipishu.pvpocket.client.gui;
 
 import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
+import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.home.HomeScreen;
@@ -144,6 +145,7 @@ public final class PvAuditHarness {
             }
             add("loadout/personal", size, 0, () -> new LoadoutScreen(personalLoadout(), null));
             add("match/list", size, 0, () -> new MatchListScreen(matches()));
+            add("prepare", size, 0, PrepareScreen::sample);
             // Three cards: a win, a loss that ended early, and a four-side draw. Fifteen rounds
             // makes the round list truncate; four sides make the score block taller.
             for (int variant = 0; variant < 3; variant++) {

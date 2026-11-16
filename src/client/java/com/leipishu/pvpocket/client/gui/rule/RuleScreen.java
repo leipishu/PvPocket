@@ -17,6 +17,7 @@ import com.leipishu.pvpocket.client.gui.PvTheme;
 import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvValueControl;
 import com.leipishu.pvpocket.client.gui.preset.PresetOverlay;
+import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.LoadoutRequestPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
@@ -26,7 +27,6 @@ import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
-import com.leipishu.pvpocket.rules.Rulebook;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
@@ -235,19 +235,14 @@ public class RuleScreen extends PvScreen {
     /**
      * Returns whether this rule's control is usable, given what the other rules are set to.
      *
-     * <p>{@code a.roundLimit} and {@code a.timeoutVerdict} need a timeout win condition, otherwise
-     * the clock never runs. {@code e.sizeX/Y/Z} apply to the flat plot only; every other map
-     * carries its own bounding box. {@code g.deathParticleIntensity} needs the particle switch on.
+     * <p>{@code e.sizeX/Y/Z} apply to the flat plot only; every other map carries its own bounding
+     * box. {@code g.deathParticleIntensity} needs the particle switch on.
      *
      * <p>A disabled row is greyed, not hidden: its value is still part of the rule set and still
      * appears in the summary. The row's hint explains the dependency.
      */
     private boolean rowEnabled(RuleDefinition def) {
         switch (def.id) {
-            case "a.roundLimit":
-            case "a.timeoutVerdict":
-                return (edited.get("a.winConditions")
-                        & (1 << Rulebook.WinCondition.TIMEOUT.ordinal())) != 0;
             case "e.sizeX":
             case "e.sizeY":
             case "e.sizeZ":
@@ -419,8 +414,7 @@ public class RuleScreen extends PvScreen {
                 }
                 // Rows depending on this one are rebuilt, not patched, since their enabled state is
                 // fixed at construction. Deferred a tick so the pane is not rebuilt mid-click.
-                if ("a.winConditions".equals(def.id)
-                        || "g.deathParticles".equals(def.id)) {
+                if ("g.deathParticles".equals(def.id)) {
                     Minecraft.getInstance().execute(this::buildRows);
                 }
             });
@@ -949,7 +943,13 @@ public class RuleScreen extends PvScreen {
         }
         submitted = true;
         send(action);
-        onClose();
+        // Immediate feedback for the accept click; the server's prepare packet replaces this with
+        // an authoritative screen and dismisses it when the round actually starts.
+        if (action == RulesSubmitPayload.ACTION_ACCEPT) {
+            PvScreens.open(Minecraft.getInstance(), new PrepareScreen(payload.sessionId()));
+        } else {
+            onClose();
+        }
     }
 
     private void send(int action) {

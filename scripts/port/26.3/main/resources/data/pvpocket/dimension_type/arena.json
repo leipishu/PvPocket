@@ -14,7 +14,6 @@
   "default_clock": "minecraft:overworld",
   "has_ceiling": false,
   "has_ender_dragon_fight": false,
-  "has_fixed_time": true,
   "has_skylight": true,
   "height": 256,
   "infiniburn": "#minecraft:infiniburn_overworld",
@@ -22,6 +21,5 @@
   "min_y": 0,
   "monster_spawn_block_light_limit": 0,
   "monster_spawn_light_level": 0,
-  "skybox": "end",
   "timelines": "#minecraft:in_overworld"
 }

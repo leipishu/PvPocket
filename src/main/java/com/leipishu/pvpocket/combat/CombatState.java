@@ -19,7 +19,6 @@ public final class CombatState {
     private static final Map<UUID, CombatMode> MODES = new ConcurrentHashMap<>();
     private static final Set<UUID> BLOCKING = ConcurrentHashMap.newKeySet();
     private static final Map<UUID, Integer> USE_GATES = new ConcurrentHashMap<>();
-    private static final Map<UUID, Integer> USE_BANS = new ConcurrentHashMap<>();
 
     private CombatState() {
     }
@@ -56,22 +55,17 @@ public final class CombatState {
     }
 
     /**
-     * The item-use gate and the block-filter ban mask for this round.
+     * The item-use gate for this round.
      *
      * <p>Stored rather than derived because the client asks the same question and cannot see a
-     * {@code DuelSession}. {@link #clear} drops both, so "not in a round" and "nothing restricted"
+     * {@code DuelSession}. {@link #clear} drops it, so "not in a round" and "nothing restricted"
      * are the same state and every lookup falls back to {@link UsePolicy#ALL}.
      */
-    public static void setUseGate(UUID player, int gate, int bans) {
+    public static void setUseGate(UUID player, int gate) {
         if (gate == UsePolicy.ALL) {
             USE_GATES.remove(player);
         } else {
             USE_GATES.put(player, gate);
-        }
-        if (bans == 0) {
-            USE_BANS.remove(player);
-        } else {
-            USE_BANS.put(player, bans);
         }
     }
 
@@ -79,22 +73,16 @@ public final class CombatState {
         return USE_GATES.getOrDefault(player, UsePolicy.ALL);
     }
 
-    public static int useBans(UUID player) {
-        return USE_BANS.getOrDefault(player, 0);
-    }
-
     /** Drops every trace of a player. Called on settle, disconnect and shutdown. */
     public static void clear(UUID player) {
         MODES.remove(player);
         BLOCKING.remove(player);
         USE_GATES.remove(player);
-        USE_BANS.remove(player);
     }
 
     public static void clearAll() {
         MODES.clear();
         BLOCKING.clear();
         USE_GATES.clear();
-        USE_BANS.clear();
     }
 }

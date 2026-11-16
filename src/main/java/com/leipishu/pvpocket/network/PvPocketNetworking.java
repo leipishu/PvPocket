@@ -101,6 +101,13 @@ public final class PvPocketNetworking {
         }
     }
 
+    /** Shows or dismisses the preparing screen for one client. */
+    public static void sendPrepareStatus(ServerPlayer player, PrepareStatusPayload payload) {
+        if (PvPlatform.get().canSend(player, PrepareStatusPayload.ID)) {
+            PvPlatform.get().send(player, payload);
+        }
+    }
+
     /**
      * Pushes the plot outline to one client, or clears it.
      *
@@ -294,7 +301,6 @@ public final class PvPocketNetworking {
         PvPlatform.get().send(player, new CombatStatePayload(
                 CombatState.isLegacy(player.getUUID()),
                 CombatState.isBlocking(player.getUUID()),
-                CombatState.useGate(player.getUUID()),
-                CombatState.useBans(player.getUUID())));
+                CombatState.useGate(player.getUUID())));
     }
 }

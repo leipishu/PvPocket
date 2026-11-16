@@ -22,6 +22,7 @@ import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
+import com.leipishu.pvpocket.network.PrepareStatusPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
@@ -770,15 +771,12 @@ public final class SessionManager {
      * <p>Only the server speaks, and the message is throttled because a held button retries every
      * few ticks.
      */
-    public static void reportUseDenial(Player player, UsePolicy.Denial denial, ItemStack stack) {
+    public static void reportUseDenial(Player player, UsePolicy.Denial denial) {
         if (denial == UsePolicy.Denial.NONE || !(player instanceof ServerPlayer server)) {
             return;
         }
         MutableComponent message = switch (denial) {
             case PLACE -> PvLang.t("pvpocket.msg.use.place");
-            // Named, so the player knows which of the five filter switches was tripped.
-            case BANNED -> PvLang.t("pvpocket.msg.use.banned", PvLang.t(
-                    "pvpocket.rule.f.blockFilter.c" + UsePolicy.banIndex(UsePolicy.banOf(stack))));
             case CONSUMABLE -> PvLang.t("pvpocket.msg.use.consumable");
             case PEARL -> PvLang.t("pvpocket.msg.use.pearl");
             case SHIELD -> PvLang.t("pvpocket.msg.use.shield");
@@ -894,21 +892,21 @@ public final class SessionManager {
         if (book.allowEnderPearl()) {
             gate |= UsePolicy.ALLOW_ENDER_PEARL;
         }
-        CombatState.setUseGate(player.getUUID(), gate, book.blockBans());
+        CombatState.setUseGate(player.getUUID(), gate);
     }
 
     /**
      * The round clock for {@code a.roundLimit}.
      *
-     * <p>Starts when the round starts, not when the preparation countdown does. Runs only when
-     * {@code a.winConditions} also accepts a timeout win.
+     * <p>Starts when the round starts, not when the preparation countdown does. A limit above zero
+     * always ends the round; there is no separate switch to disable a timeout win.
      *
      * @return true when the round ended here, so the caller must not keep judging it
      */
     private boolean tickRoundLimit(DuelSession session) {
         Rulebook book = session.rulebook();
         int limit = book.roundLimitSeconds();
-        if (limit <= 0 || !book.winsBy(Rulebook.WinCondition.TIMEOUT)) {
+        if (limit <= 0) {
             return false;
         }
         Long started = roundStartedAt.get(session.id);
@@ -1156,6 +1154,7 @@ public final class SessionManager {
         startDueRounds();
         // After startDueRounds: a round that just started has dropped its roundReadyAt entry.
         tickIntermissionCountdown();
+        tickRoundClock();
         tickPrepare();
         // Drops watchers of finished series and repairs cameras on replaced bodies.
         spectators.tick();
@@ -1204,8 +1203,7 @@ public final class SessionManager {
                 }
                 // Logged with coordinates: position separates a walk-out from a stuck teleport.
                 // Snapping back covers the first sighting and the push-back rule.
-                if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)
-                        || !session.rulebook().winsBy(Rulebook.WinCondition.OUT_OF_BOUNDS)) {
+                if (awaitingFirstEntry(session, key) || boundaryIsPushBack(session)) {
                     boundaryExits.remove(key);
                     ArenaManager.pullInside(player, region);
                     notifyPushBack(session, player, key, awaitingFirstEntry(session, key));
@@ -2138,6 +2136,12 @@ public final class SessionManager {
 
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */
     private void startAccepted(DuelSession session, ServerPlayer accepter) {
+        // The accepter may have shown the preparing screen locally on click; clear it now so a
+        // refusal below cannot strand that screen until its watchdog fires.
+        if (accepter != null) {
+            PvPocketNetworking.sendPrepareStatus(accepter,
+                    new PrepareStatusPayload(session.id, false));
+        }
         if (!ArenaManager.isReady(server)) {
             fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
@@ -2201,6 +2205,9 @@ public final class SessionManager {
                 "rules", session.rules);
         inviteByTarget.values().removeIf(session.id::equals);
         closePanels(session);
+        // Every panel is closed and the arena is leased; from here a dead or absent participant can
+        // still hold the start for seconds. Show the notice so the accepted click has an answer.
+        broadcastPrepare(session, true);
         beginStart(session, 0);
     }
 
@@ -2305,8 +2312,7 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.duel.round_settled");
             return;
         }
-        if (!session.rulebook().allowSurrender()
-                || !session.rulebook().winsBy(Rulebook.WinCondition.SURRENDER)) {
+        if (!session.rulebook().allowSurrender()) {
             fail(player, "pvpocket.msg.duel.surrender_disabled");
             return;
         }
@@ -3160,9 +3166,8 @@ public final class SessionManager {
                 "boundary", rules.get("e.boundary") == 0 ? "push_back" : "countdown",
                 // The health cap, the one rule whose effect is a number on the HUD.
                 "maxHealth", rules.get("c.maxHealth"),
-                // The round clock only runs when a timeout is also an accepted win condition.
+                // The round clock runs whenever a limit is set.
                 "roundLimit", session.rulebook().roundLimitSeconds() == 0
-                        || !session.rulebook().winsBy(Rulebook.WinCondition.TIMEOUT)
                         ? "off" : session.rulebook().roundLimitSeconds() + "s",
                 "region", region == null ? "-" : region.id,
                 "teams", session.teamCount,
@@ -3172,6 +3177,8 @@ public final class SessionManager {
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
         broadcastHud(session, true);
+        // Dismiss the preparing screen at the moment the round goes live.
+        broadcastPrepare(session, false);
         // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
@@ -3301,9 +3308,6 @@ public final class SessionManager {
      *
      * <p>The round ends when the last member of a side is gone, not when the first player dies. A
      * 1v1 ends on the first death and a 3v3 continues while two team-mates stand.
-     *
-     * <p>Asks {@code a.winConditions} for the kill condition rather than assuming it. If the bit
-     * arrives cleared the round still ends, and the anomaly is journalled.
      */
     private void eliminate(DuelSession session, Participant p, String reason) {
         if (session.stage != SessionStage.ROUND_ACTIVE || p.eliminated) {
@@ -3316,10 +3320,6 @@ public final class SessionManager {
                 "alive", survivorsOf(session),
                 "winnerTeam", winner);
         if (winner >= 0) {
-            if (!session.rulebook().wipeEndsRound()) {
-                journal(session).append("ANOMALY", "kind", "wipe_without_kill_condition",
-                        "team", winner, "round", session.round);
-            }
             settle(session, reason, winner);
         } else {
             persist(session);
@@ -3856,7 +3856,7 @@ public final class SessionManager {
         // Ejected before the snapshots are restored, because restoring teleports the participants.
         spectators.ejectAll(session.id, "SERIES_END");
 
-        int cleared = ArenaManager.clearDroppedItems(arenaWorld, region);
+        int cleared = ArenaManager.purge(arenaWorld, region);
         journal(session).append("ARENA_CLEARED", "removed", cleared);
         journal(session).append("SERIES_ENDED",
                 "winnerTeam", winnerTeam,
@@ -3995,7 +3995,7 @@ public final class SessionManager {
      */
     private void beginIntermission(DuelSession session, ArenaRegion region, ServerLevel world,
                                    int winnerTeam) {
-        int cleared = ArenaManager.clearDroppedItems(world, region);
+        int cleared = ArenaManager.purge(world, region);
         journal(session).append("ARENA_CLEARED", "removed", cleared);
         if (region != null) {
             int tracked = region.changeCount();
@@ -4176,6 +4176,17 @@ public final class SessionManager {
                 ArenaRegion.SURFACE_Y, BOUNDARY_CURTAIN_HEIGHT, mode);
     }
 
+    /** Shows or dismisses the preparing screen for every participant of a session. */
+    private void broadcastPrepare(DuelSession session, boolean active) {
+        PrepareStatusPayload payload = new PrepareStatusPayload(session.id, active);
+        for (Participant p : session.participants) {
+            ServerPlayer player = online(p);
+            if (player != null) {
+                PvPocketNetworking.sendPrepareStatus(player, payload);
+            }
+        }
+    }
+
     private void broadcastHud(DuelSession session, boolean active) {
         MatchHudPayload payload = active ? buildHud(session) : MatchHudPayload.hidden();
         for (Participant p : session.participants) {
@@ -4224,7 +4235,60 @@ public final class SessionManager {
         }
         return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
                 scores.toString(), roster.toString(), session.rulebook().showOpponentHealth(),
-                intermissionSecondsLeft(session));
+                intermissionSecondsLeft(session), roundClock(session), roundClockDown(session));
+    }
+
+    /**
+     * The in-round clock in whole seconds, or -1 outside a live timed or untimed round.
+     *
+     * <p>Counted down from {@code a.roundLimit}, up from zero without one. Derived from the same
+     * {@code roundStartedAt} the round log uses, so the HUD and the journal agree on duration.
+     */
+    private int roundClock(DuelSession session) {
+        if (session.stage != SessionStage.ROUND_ACTIVE) {
+            return -1;
+        }
+        Long started = roundStartedAt.get(session.id);
+        if (started == null) {
+            return -1;
+        }
+        long elapsed = (System.currentTimeMillis() - started) / 1000L;
+        int limit = session.rulebook().roundLimitSeconds();
+        if (limit <= 0) {
+            return (int) elapsed;
+        }
+        return (int) Math.max(0L, limit - elapsed);
+    }
+
+    /** Whether {@link #roundClock} counts down (a limit is set) rather than up. */
+    private static boolean roundClockDown(DuelSession session) {
+        return session.rulebook().roundLimitSeconds() > 0;
+    }
+
+    /**
+     * Pushes the in-round clock at most once per second per session, only when it changes.
+     *
+     * <p>The clock is server-derived, so a client in the arena and one still loading see the same
+     * number. Sharing {@link #countdownPushed} is safe: a session is never in the intermission and
+     * the round at once, and both write the whole payload on change.
+     */
+    private void tickRoundClock() {
+        for (DuelSession session : sessions.values()) {
+            if (session.stage != SessionStage.ROUND_ACTIVE) {
+                continue;
+            }
+            int shown = roundClock(session);
+            if (shown < 0) {
+                continue;
+            }
+            // The intermission key is the session id too; active rounds have no roundReadyAt.
+            Integer last = countdownPushed.get(session.id);
+            if (last != null && last == shown) {
+                continue;
+            }
+            countdownPushed.put(session.id, shown);
+            broadcastHud(session, true);
+        }
     }
 
     /**
@@ -4339,6 +4403,8 @@ public final class SessionManager {
         ArenaManager.removePrepareWall(ArenaManager.world(server), ArenaManager.region(session.id));
         spectators.ejectAll(session.id, "ABORTED");
         broadcastHud(session, false);
+        // A failed start must not leave the preparing screen up until the client watchdog fires.
+        broadcastPrepare(session, false);
         broadcastBounds(session, false);
         for (Participant p : session.participants) {
             if (p.snapshotFile != null) {

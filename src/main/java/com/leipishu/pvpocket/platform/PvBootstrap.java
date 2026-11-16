@@ -107,22 +107,19 @@ public final class PvBootstrap {
         // path, handled by the World mixin, which also sees explosions.
         platform.onAllowBlockBreak((player, level, pos) -> ArenaManager.allowBreak(level, player, pos));
 
-        // Half of item use: ender pearls, consumables, and buckets banned by {@code f.blockFilter}.
-        // Placement goes through {@code ItemStack#useOnBlock} and is vetoed by ItemStackMixin.
+        // Half of item use: ender pearls and consumables. Placement goes through
+        // {@code ItemStack#useOnBlock} and is vetoed by ItemStackMixin.
         platform.onUseItem((player, level, hand) -> {
             ItemStack stack = player.getItemInHand(hand);
             UsePolicy.Denial denial = UsePolicy.shieldDenial(
                     CombatState.isLegacy(player.getUUID()), stack);
             if (denial == UsePolicy.Denial.NONE) {
-                denial = UsePolicy.useDenial(
-                        CombatState.useGate(player.getUUID()),
-                        CombatState.useBans(player.getUUID()),
-                        stack);
+                denial = UsePolicy.useDenial(CombatState.useGate(player.getUUID()), stack);
             }
             if (denial == UsePolicy.Denial.NONE) {
                 return PvPlatform.UseVerdict.ALLOW;
             }
-            SessionManager.reportUseDenial(player, denial, stack);
+            SessionManager.reportUseDenial(player, denial);
             return PvPlatform.UseVerdict.DENY;
         });
 

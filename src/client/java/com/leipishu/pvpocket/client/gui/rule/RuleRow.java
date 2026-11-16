@@ -206,18 +206,19 @@ public class RuleRow extends PvWidget {
     }
 
     /**
-     * Returns the control's own tooltip when it has one, and the rule's hint otherwise.
+     * Returns the rule's hint for the label area only.
+     *
+     * <p>The control area shows no tooltip at all: a hint that appears while dragging a slider or
+     * clicking a switch competes with the value being changed. Outside the control the row keeps
+     * its hint, so the explanation is still one pointer move away.
      */
     @Override
     public String tooltipAt(int mouseX, int mouseY) {
         if (!visible || !contains(mouseX, mouseY)) {
             return null;
         }
-        if (control != null) {
-            String specific = control.tooltipAt(mouseX, mouseY);
-            if (specific != null) {
-                return specific;
-            }
+        if (control != null && control.contains(mouseX, mouseY)) {
+            return null;
         }
         return tooltip;
     }

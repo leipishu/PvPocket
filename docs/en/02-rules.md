@@ -4,17 +4,17 @@
 
 ## 1. The model
 
-A duel's rules are an **ordered key/value snapshot**: 39 configurable rules plus one read-only
+A duel's rules are an **ordered key/value snapshot**: 36 configurable rules plus one read-only
 informational entry, in seven groups.
 
 | Group | Subject | Count |
 | --- | --- | --- |
-| A | Match (rounds, victory, timing) | 7 |
+| A | Match (rounds, timing) | 6 |
 | B | Players (sizes, teams, friendly fire, spectating) | 4 |
 | C | Combat (mode, survival stats) | 6 |
 | D | Loadout (items, pickups, crafting) | 4 |
 | E | Arena (size, map, boundary, environment) | 8 |
-| F | Blocks (placing, breaking) | 4 |
+| F | Blocks (placing, breaking) | 3 |
 | G | Other (pearls, surrender, display, chat, death particles) | 6 |
 
 Rules are declared in `RuleCatalog`; their text lives in the language files
@@ -31,11 +31,10 @@ what the panel shows.
 - **Round cap** — `a.maxRounds` · int 1–15 · default 3 rounds. The most rounds a match can run; reaching it ends the match.
 - **Rounds to win** — `a.winsNeeded` · int 1–15 · default 2 rounds. The first side to win this many rounds takes the match. The panel keeps it at or below the round cap, so "4 wins out of 3" is not a state the panel can sit in.
   Two numbers rather than one "best of N" choice because they answer two different questions — "how long until we stop" and "how much is enough". Collapsed into one, an even round count cannot be expressed and **a draw is structurally impossible**: wins are derived from the round count, so somebody always gets there first. Split, a match that runs out of rounds with nobody at the line goes to the highest score, and a tie is a draw.
-- **Round time limit** — `a.roundLimit` · choice · default 15 minutes · No limit / 1 minute / 3 minutes / 5 minutes / 10 minutes / 15 minutes. After this the round is settled by the timeout rule. Unlimited when off. **The clock only runs while Timeout is one of the win conditions**; without it the round has no clock at all and this row is greyed out.
+- **Round time limit** — `a.roundLimit` · choice · default 15 minutes · No limit / 1 minute / 3 minutes / 5 minutes / 10 minutes / 15 minutes. After this the round is settled by the timeout rule. Unlimited when off. The HUD shows a countdown while a limit is set and a stopwatch when there is none.
 - **Timeout verdict** — `a.timeoutVerdict` · choice · default Higher health wins · Higher health wins / Draw / Both lose. How a round is decided when the clock runs out.
 - **Preparation time** — `a.countdown` · int 0–30 · default 5 s. Time between being teleported in and the first blow, counted down in chat one second at a time. Nobody can deal or take damage during it: an invisible solid ring stands around the plot, and four blocks in front of each side a solid white screen spans the width of the fight area. Both vanish the moment the round goes live. The boundary curtain keeps its rule colour (blue/red) throughout the countdown — the solid white belongs to the wall between the two sides, not to the edge.
 - **Intermission** — `a.intermission` · int 1–10 · default 3 s. The break between two rounds of a series.
-- **Win conditions** — `a.winConditions` · multi · Kill / Out of bounds / Surrender / Timeout. Which events can end a round. **"Kill" is locked on and cannot be cleared**: wiping the other side out is the only structural guarantee that a round ends, and clearing it would mean allowing a round that never does. The other three are free.
 
 **Players** — Teams, sizes, friendly fire
 
@@ -107,10 +106,9 @@ what the panel shows.
 
 **Blocks** — Placing, breaking
 
-- **Allow placing blocks** — `f.allowPlace` · toggle · default On. When off, no blocks can be placed inside the arena. Entries ticked under Block restrictions stay banned either way.
+- **Allow placing blocks** — `f.allowPlace` · toggle · default On. When off, no blocks can be placed inside the arena.
 - **Terrain protection** — `f.protectTerrain` · toggle · default On. When on, the map's own blocks cannot be broken and only blocks placed this round can be removed. When off the plot can be dug through, and the terrain is still restored when the round ends.
 - **Allow breaking your own blocks** — `f.allowBreakOwn` · toggle · default On. Applies only to blocks placed during this duel; whether the map itself can be broken is up to Terrain protection.
-- **Block restrictions** — `f.blockFilter` · multi · Beds / Respawn anchors / TNT / Fluid buckets / End crystals. Selected entries are banned. Beds, respawn anchors, TNT and fluid buckets are banned by default.
 
 **Other** — Pearls, surrender, display
 
@@ -123,19 +121,18 @@ what the panel shows.
 
 ### Dependencies between rules
 
-Four groups are meaningless on their own: they only apply while another rule is in a particular
+Three groups are meaningless on their own: they only apply while another rule is in a particular
 state. The panel greys out the rows that do not apply and the hint says why. Greying is the only
 honest rendering — hiding the rows makes the panel look like it lost something, and leaving them
 clickable means letting the player edit a number nobody reads.
 
 | Rule | Depends on | When it does not hold |
 | --- | --- | --- |
-| `a.roundLimit`, `a.timeoutVerdict` | Timeout checked in `a.winConditions` | the round has no clock and the verdict is never used |
 | `e.sizeX`, `e.sizeY`, `e.sizeZ` | `e.template` being the flat plot | the map's bounding box decides the size; these three are ignored |
 | the "None" chip of `e.hazard` | mutually exclusive with the other three | checking None clears them, checking any of them clears None |
 | `g.deathParticleIntensity` | `g.deathParticles` being on | there is no effect, so the intensity is never read |
 
-The third is not a dependency but two spellings of one state, so it is collapsed in the data layer:
+The second is not a dependency but two spellings of one state, so it is collapsed in the data layer:
 `DuelRules` normalisation turns both `e.hazard=0` and `e.hazard=15` into `1` ("None"), so two rule
 sets that behave identically cannot produce two different digests.
 
@@ -143,20 +140,20 @@ sets that behave identically cannot produce two different digests.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-**40 rules exist, 39 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
-note). All 39 configurable rules are written to the session and the journal and affect a duel; none
+**37 rules exist, 36 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
+note). All 36 configurable rules are written to the session and the journal and affect a duel; none
 is "record only".
 
-### In effect (39)
+### In effect (36)
 
 | Group | Rules |
 | --- | --- |
-| A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict`, `a.winConditions` |
+| A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.knockbackResistance` |
 | D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
-| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn`, `f.blockFilter` |
+| F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope`, `g.deathParticles`, `g.deathParticleIntensity` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
@@ -164,9 +161,10 @@ there, and callers name no ids and do no bit arithmetic. A new rule needs a gett
 is not wired up.
 
 The first two in group A arrived with the series split, the four in group B were wired up together
-with NvN, the eight in groups C/E with the damage-and-survival slice, the last three in group A with
-the timing-and-outcome slice, the four in D/F/G with the use-restriction slice, the other two in D
-with the interaction slice, `g.showOpponentHealth` and `g.chatScope` in G with the display slice,
+with NvN, the eight in groups C/E with the damage-and-survival slice, the last four in group A with
+the timing-and-outcome slice, `f.allowPlace` with `d.allowConsumables` and `g.enderPearl` with the
+use-restriction slice, the other two in D with the interaction slice, `g.showOpponentHealth` and
+`g.chatScope` in G with the display slice,
 `g.deathParticles` and `g.deathParticleIntensity` with the death-presentation slice, and
 `d.allowSwapBetweenRounds` with the between-round swap slice.
 Where each one is read:
@@ -210,39 +208,33 @@ Where each one is read:
 - **`a.roundLimit`** — the round clock, driven by `roundStartedAt` (the same timestamp the boundary
   grace period uses). A timeout settles through `settle(..., "TIMEOUT" / "TIMEOUT_DRAW" /
   "TIMEOUT_DOUBLE")`, and it **broadcasts before settling** — otherwise a round just stops, with
-  nothing to explain it. The clock only runs when `a.winConditions` has "timeout" ticked: a round
-  that may not end on the clock should not have one ticking.
+  nothing to explain it. A limit above zero always runs the clock; the HUD shows the seconds left,
+  or a stopwatch when there is no limit. A separate "timeout" win-condition switch used to exist and
+  was removed: one limit is enough, and two switches asking the same question leave one lying.
 - **`a.timeoutVerdict`** — "highest health wins" compares the **sum of remaining health per side**
   (in 2v2 one player at ten hearts and one at one heart is not "the ten-heart side"), and a tie falls
   back to a draw. A draw and a double loss both award nothing; they differ only in the broadcast and
   in the journal `reason`.
-- **`a.winConditions`** — the gate sits in four places: out-of-bounds (unticked, players are pulled
-  back instead of eliminated), surrender (an AND with `g.allowSurrender` — both must allow it),
-  timeout (unticked, the clock does not run) and kills. **"Kill" cannot be turned off**: a round
-  cannot both not end on a wipe and end on a wipe; making that real would mean respawning the wiped
-  side, which is a different mode. So that bit is locked in the panel (`RuleCatalog.lockedBits`) and
-  `DuelRules.set` forces it back — a hand-rolled packet cannot change it either.
-- **`f.allowPlace` / `f.blockFilter` / `d.allowConsumables` / `g.enderPearl`** — all four run through
-  one use gate: the rule values are packed into two masks (`gate` and `bans`) at round start, written
-  into `CombatState`, and the decision lives in `combat/UsePolicy`. There are two entry points —
-  placement through `ItemStack#useOnBlock` (the `ItemStackMixin` injection) and everything else
-  through `UseItemCallback`.
+- **`f.allowPlace` / `d.allowConsumables` / `g.enderPearl`** — all three run through one use gate:
+  the rule values are packed into a mask (`gate`) at round start, written into `CombatState`, and the
+  decision lives in `combat/UsePolicy`. There are two entry points — placement through
+  `ItemStack#useOnBlock` (the `ItemStackMixin` injection) and everything else through
+  `UseItemCallback`.
 
   Splitting them is not tidiness. A refused `useOnBlock` returns `PASS` rather than `FAIL`, so the
   caller goes on to the block's own `onUse` — "the dirt in your hand is refused" therefore does not
-  also swallow opening a chest. Vetoing in `interactBlock` instead would. Buckets are the mirror
-  case: `BucketItem#use` is what pours the water, so filling one has nothing to do with the
-  placement switch and only the fluid-bucket restriction touches it.
+  also swallow opening a chest. Vetoing in `interactBlock` instead would. A block blacklist used to
+  be a second mask here; it was removed because the loadout never contained those blocks in the
+  first place, so banning an unreachable entry was only a switch nobody could feel.
 
-  **Both masks are shipped to the client.** The client never derives rules, but if it does not know
-  a placement will be refused it predicts one, puts the block in its own world, and the server never
-  confirms it — a block only the placer can see. So `gate`/`bans` ride along in
-  `CombatStatePayload`, both sides ask `UsePolicy` the same question, and get the same answer. The
-  server remains the only arbiter; the client's copy just keeps the prediction honest.
+  **The gate is shipped to the client.** The client never derives rules, but if it does not know a
+  placement will be refused it predicts one, puts the block in its own world, and the server never
+  confirms it — a block only the placer can see. So `gate` rides along in `CombatStatePayload`, both
+  sides ask `UsePolicy` the same question, and get the same answer. The server remains the only
+  arbiter; the client's copy just keeps the prediction honest.
 
   The message is server-only and throttled to one per 20 ticks: holding right-click re-attempts the
-  placement every few ticks, and five lines a second is a wall, not an explanation. A
-  `f.blockFilter` refusal names the entry that was tripped rather than saying "something is banned".
+  placement every few ticks, and five lines a second is a wall, not an explanation.
 - **`d.allowPickup`** — injected into `ItemEntity#onPlayerCollision` and cancelled outright. The item
   **stays where it is** rather than being discarded: "pickup off" should not look like "ground
   cleared". Silent on purpose — an item that does not move is its own explanation.
@@ -307,7 +299,7 @@ Where each one is read:
 
 ### There is no "recorded only" left
 
-**All 39 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+**All 36 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
 `fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
 
 This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line

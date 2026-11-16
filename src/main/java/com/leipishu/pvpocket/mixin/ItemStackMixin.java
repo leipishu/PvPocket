@@ -13,14 +13,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * {@code f.allowPlace} and the block half of {@code f.blockFilter}.
+ * {@code f.allowPlace}, the gate on block placement.
  *
- * <p>Hooks {@code useOn} at HEAD, the funnel every item-driven placement goes through: block items,
- * beds, respawn anchors and end crystals. Returning {@code PASS} rather than {@code FAIL} keeps the
- * block's own interaction alive, so a chest still opens when the dirt in hand was refused.
+ * <p>Hooks {@code useOn} at HEAD, the funnel every item-driven placement goes through: block items
+ * and end crystals. Returning {@code PASS} rather than {@code FAIL} keeps the block's own
+ * interaction alive, so a chest still opens when the dirt in hand was refused.
  *
  * <p>Both sides run this. The server's copy decides; the client's copy keeps the prediction from
- * creating a block only the placer can see. Both read the same two masks from {@link CombatState}.
+ * creating a block only the placer can see. Both read the same gate mask from {@link CombatState}.
  */
 @Mixin(ItemStack.class)
 public abstract class ItemStackMixin {
@@ -35,12 +35,11 @@ public abstract class ItemStackMixin {
             return;
         }
         ItemStack self = (ItemStack) (Object) this;
-        UsePolicy.Denial denial = UsePolicy.placementDenial(
-                CombatState.useGate(player.getUUID()), CombatState.useBans(player.getUUID()), self);
+        UsePolicy.Denial denial = UsePolicy.placementDenial(CombatState.useGate(player.getUUID()), self);
         if (denial == UsePolicy.Denial.NONE) {
             return;
         }
         cir.setReturnValue(InteractionResult.PASS);
-        SessionManager.reportUseDenial(player, denial, self);
+        SessionManager.reportUseDenial(player, denial);
     }
 }

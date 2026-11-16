@@ -11,15 +11,6 @@ package com.leipishu.pvpocket.rules;
  */
 public final class Rulebook {
 
-    /** Bits of {@code a.winConditions}, in choice order, which is also the wire format. */
-    public enum WinCondition {
-        /** A side is wiped out. Always on: see {@link RuleCatalog#lockedBits(String)}. */
-        KILL,
-        OUT_OF_BOUNDS,
-        SURRENDER,
-        TIMEOUT
-    }
-
     /** Values of {@code g.chatScope}, in choice order. */
     public enum ChatScope {
         /** Everyone on the server reads it. */
@@ -62,21 +53,6 @@ public final class Rulebook {
     }
 
     // ------------------------------------------------------------------ A. match structure
-
-    /** Whether a round may end for this reason. */
-    public boolean winsBy(WinCondition condition) {
-        return (rules.get("a.winConditions") & (1 << condition.ordinal())) != 0;
-    }
-
-    /**
-     * Whether wiping the other side out ends the round.
-     *
-     * <p>Reads the kill bit of {@code a.winConditions}, the only condition that is locked on. The
-     * round-end path calls this, so the lock guards a branch that is read.
-     */
-    public boolean wipeEndsRound() {
-        return winsBy(WinCondition.KILL);
-    }
 
     /** The round clock, in seconds; 0 means no limit. */
     public int roundLimitSeconds() {
@@ -177,11 +153,6 @@ public final class Rulebook {
      */
     public boolean allowPlace() {
         return rules.flag("f.allowPlace");
-    }
-
-    /** Raw ban mask of {@code f.blockFilter}; {@code UsePolicy} knows what the bits mean. */
-    public int blockBans() {
-        return rules.get("f.blockFilter");
     }
 
     // ------------------------------------------------------------------ G. other

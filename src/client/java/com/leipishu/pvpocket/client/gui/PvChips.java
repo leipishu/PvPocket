@@ -12,8 +12,8 @@ import net.minecraft.sounds.SoundEvents;
 /**
  * Multi-select control rendered as a row of equal-width chips.
  *
- * <p>For rules whose value is a set rather than a scalar: win conditions, environmental hazards,
- * the block blacklist. Equal widths keep the row on the 8px grid whatever the label lengths.
+ * <p>For rules whose value is a set rather than a scalar: environmental hazards. Equal widths keep
+ * the row on the 8px grid whatever the label lengths.
  *
  * <p>Selection is carried by fill and text colour, and each chip crossfades independently over
  * 120ms.
@@ -26,8 +26,6 @@ public class PvChips extends PvValueControl {
     private static final int MAX_LINES = 2;
 
     private final RuleDefinition def;
-    /** Chips that stay on no matter what; see {@link RuleCatalog#lockedBits}. */
-    private final int locked;
     /**
      * Chips that exclude every other chip; see {@link RuleCatalog#exclusiveBits}.
      *
@@ -42,7 +40,6 @@ public class PvChips extends PvValueControl {
     public PvChips(RuleDefinition def, int value) {
         this.def = def;
         this.value = def.clamp(value);
-        this.locked = RuleCatalog.lockedBits(def.id);
         this.exclusive = RuleCatalog.exclusiveBits(def.id);
         this.height = H;
         this.width = 200;
@@ -80,11 +77,8 @@ public class PvChips extends PvValueControl {
 
         for (int i = 0; i < def.choiceCount(); i++) {
             boolean on = (value & (1 << i)) != 0;
-            boolean lockedChip = (locked & (1 << i)) != 0;
             selT[i] = PvAnim.damp(selT[i], on ? 1F : 0F, d, 0.05F);
-            // A locked chip never lights up on hover: it cannot be pressed, and a highlight would
-            // promise otherwise.
-            hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i && !lockedChip ? 1F : 0F, d, 0.09F);
+            hotT[i] = PvAnim.damp(hotT[i], hoverIndex == i ? 1F : 0F, d, 0.09F);
 
             int cx = x + i * (cw + GAP);
             float sel = selT[i];
@@ -139,11 +133,6 @@ public class PvChips extends PvValueControl {
         int index = chipAt(mx);
         if (index < 0) {
             return false;
-        }
-        if ((locked & (1 << index)) != 0) {
-            // Consumed but ignored, so the click cannot fall through to the row behind it and the
-            // chip still feels like a control that simply refuses.
-            return true;
         }
         int bit = 1 << index;
         boolean turningOn = (value & bit) == 0;

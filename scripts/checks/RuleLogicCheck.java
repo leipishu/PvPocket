@@ -145,7 +145,7 @@ public final class RuleLogicCheck {
     }
 
     /**
-     * Checks normalisation on load: locked bits, exclusive bits and clamped values.
+     * Checks normalisation on load: exclusive bits and clamped values.
      *
      * <p>Decoding turns a rule string into in-memory values. Hand-edited packets, old saves and
      * third-party presets all enter there, and normalisation is what guards the match.
@@ -153,11 +153,7 @@ public final class RuleLogicCheck {
     private static void checkNormalise() {
         com.leipishu.pvpocket.rules.DuelRules decoded =
                 com.leipishu.pvpocket.rules.DuelRules.decode(
-                        "a.winConditions=0;e.hazard=0;e.template=99;c.mode=99");
-        // The kill bit is locked: clearing it forces it back on.
-        if ((decoded.get("a.winConditions") & 1) == 0) {
-            fail("normalise: a.winConditions 的击杀位没有被强制补回");
-        }
+                        "e.hazard=0;e.template=99;c.mode=99");
         // e.hazard "none" is exclusive with the other bits; both spellings converge on one value.
         int none = decoded.get("e.hazard");
         if (none != 1) {
