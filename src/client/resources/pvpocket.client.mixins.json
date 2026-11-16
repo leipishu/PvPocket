@@ -3,6 +3,7 @@
   "package": "com.leipishu.pvpocket.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "ArenaFogMixin",
 //? if >=1.21.11 {
     "BlockModelWrapperMixin",
 //?} else {

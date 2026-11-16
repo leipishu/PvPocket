@@ -56,7 +56,7 @@ public final class RuleCatalog {
         add(RuleDefinition.toggle("d.allowCrafting", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowConsumables", RuleGroup.D, true));
 
-        // E. arena. Upper bound is ArenaManager.MAX_SIZE_XZ: 224 = 256 centre spacing - 32.
+        // E. arena. Upper bound is ArenaManager.MAX_SIZE_XZ, the widest plot the panel offers.
         // Largest map: 147. Defaults are the flat plot's, shared with the warm-up.
         add(RuleDefinition.intRange("e.sizeX", RuleGroup.E, 16, ArenaManager.MAX_SIZE_XZ, 8,
                 ArenaManager.DEFAULT_FLAT_X));

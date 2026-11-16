@@ -122,9 +122,18 @@ the next restart or `arena reset`, both of which re-paste the template.
 ## 5. Plots and copies
 
 The duel dimension is void, carved into a 4×4 grid. Each cell is 160 blocks square and cell centres
-are 256 apart, which leaves 96 blocks of empty space between cells so two maps never grow into one
-another. A map owns one cell by its index in `ArenaMaps.ALL` — that index is its *home*, and it
-never moves.
+are 1184 apart, which leaves 1024 blocks of empty space between cells — **that distance is set by
+what a client can draw, not by looks**: a client renders up to its render distance, 32 chunks at the
+vanilla maximum (512 blocks), and two 224-wide plots sit 960 apart, so one arena's neighbour can
+never be in frame. A map owns one cell by its index in `ArenaMaps.ALL` — that index is its *home*,
+and it never moves.
+
+**Spacing is the guarantee; fog is the second layer.** Inside the duel dimension the client pulls
+terrain fog in to 384 blocks (`ArenaFog.END`, fading from 288). Spacing only covers neighbours that
+are inside a vanilla render distance, and fog covers everything past it: if someone later shrinks
+the gap or ships a wider map, whatever lies past 384 blocks still never gets drawn. Only the terrain
+pair is touched — water, lava and the sky keep the fog vanilla gave them — so this is neither a wall
+nor a translucent sheet.
 
 A map may own more than one cell. **Copies are capacity**: a duel leases one cell, and a map with
 every cell leased is full — the panel greys it out. Each extra copy is one more duel of that map
@@ -162,8 +171,9 @@ full, `copy` refuses and reports the cell count — that means the dimension nee
 that more copies should be forced in.
 
 **A plot may spill out of its cell.** The plot is centred in the cell, so a plot wider than the cell
-reaches into the gap on both sides; the hard limit is "must not touch the neighbour", i.e.
-`MAX_SIZE_XZ = 256 − 32 = 224`. That is why `ArenaRegion.reset()` clears the **union** of the cell,
+reaches into the gap on both sides; the panel's cap is `MAX_SIZE_XZ = 224` (independent of the
+spacing, which is sized separately for visibility, see above). That is why `ArenaRegion.reset()`
+clears the **union** of the cell,
 the new plot and the plot it replaces: the cell alone misses the overhang, and the new plot alone
 leaves the outer ring of a previous 224-wide flat arena standing in the gap — void, then a band of
 blocks. After a restart the old plot has no in-memory record, so the reset first probes the

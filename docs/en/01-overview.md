@@ -51,9 +51,10 @@ use their own storage under `<world>/pvpocket/` and are reconciled at startup.
 
 ### 4. One dimension, many cells
 
-Every map sits side by side in its own cell of the duel dimension, 256 blocks between cell centres
-(a 160-block cell with a 96-block gap). Choosing a map is a teleport to fixed coordinates, not a
-paste at the origin. That is what makes several duels genuinely simultaneous and mutually invisible.
+Every map sits side by side in its own cell of the duel dimension, 1184 blocks between cell centres
+(a 160-block cell with a 1024-block gap, sized so no client can draw two cells at once; see
+[06-maps](06-maps.md)). Choosing a map is a teleport to fixed coordinates, not a paste at the
+origin. That is what makes several duels genuinely simultaneous and mutually invisible.
 
 ## Scope
 

@@ -75,10 +75,13 @@ public final class ArenaManager {
     /**
      * Empty ring between two neighbouring cells, in blocks.
      *
-     * <p>This is what makes two arenas read as two places: 96 leaves a clear band of flat ground
-     * between every pair.
+     * <p>Sized by what a client can draw, not by looks: the dimension is void, so the gap is only
+     * ever seen as distance. A client renders up to its render distance, 32 chunks at the vanilla
+     * maximum (512 blocks), and two 224-wide plots sit {@code PITCH - 224 = 960} apart, which is
+     * past any vanilla setting, so one arena's neighbour can never be in frame. At 96 the gap was
+     * 32 blocks and the next arena was plainly visible.
      */
-    public static final int GAP = 96;
+    public static final int GAP = 1024;
 
     /** Cell centre-to-centre spacing, in blocks. */
     public static final int PITCH = CELL + GAP;
@@ -99,12 +102,15 @@ public final class ArenaManager {
      * Largest plot the rule panel may request.
      *
      * <p>Not the cell size. A plot is centred in its cell, so a wider plot spills into the gap on
-     * both sides, where nothing else is ever stamped. The limit is the neighbour: at
-     * {@code PITCH - 32} two maximum plots still leave {@link #MIN_ARENA_GAP} between them.
+     * both sides, where nothing else is ever stamped. The cap is 224, so the flat plot is not
+     * limited by the widest shipped build (147), and {@link #MIN_ARENA_GAP} stays the invariant
+     * that decides how close two plots may come.
      *
-     * <p>224, so the flat plot's size is not capped by the widest shipped build.
+     * <p>Written as a {@code min} rather than {@code PITCH - MIN_ARENA_GAP}: the gap is now sized
+     * for what a client can see, so deriving the cap from it would let the panel ask for a
+     * 1152-wide plot.
      */
-    public static final int MAX_SIZE_XZ = PITCH - MIN_ARENA_GAP;
+    public static final int MAX_SIZE_XZ = Math.min(224, PITCH - MIN_ARENA_GAP);
 
     /**
      * Tallest plot the rule panel may request.
