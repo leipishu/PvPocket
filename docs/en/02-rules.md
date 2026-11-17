@@ -42,7 +42,7 @@ what the panel shows.
   the number of empty slots a team card shows. Above it the match refuses to start.
 - **Player cap** — `b.maxPlayers` · int 2–20 · default 20 players. The duel cannot start above this many players. The hard ceiling of 20 is enforced by `SessionManager.MAX_PARTICIPANTS`; the smaller of the two wins.
 - **Friendly fire** — `b.friendlyFire` · toggle · default Off. When on, teammates can damage each other.
-- **Allow spectating** — `b.spectator` · toggle · default On. When on, anyone not in the duel can see it in /pvpocket list and press Watch to enter. Spectating uses spectator mode with the camera bound to a participant, V cycles the view, and leaving puts you back where you were.
+- **Allow spectating** — `b.spectator` · toggle · default On. When on, anyone not in the duel can see it in /pvpocket list and press Watch to enter. Spectating uses spectator mode with the camera bound to a participant, V cycles the view, and leaving puts you back where you were. In a multi-player duel, a participant who dies while a team-mate is still standing watches the rest of the round, regardless of this rule; their head on the score bar turns grey.
 
 > **How many sides is no longer a rule.** It is however many non-empty cards the proposer drew on the
 > roster page — two to four; an empty card simply does not play. The old `b.teamCount` could only say
@@ -114,7 +114,7 @@ what the panel shows.
 
 - **Allow ender pearls** — `g.enderPearl` · toggle · default Off. When off, ender pearls cannot be thrown.
 - **Allow surrender** — `g.allowSurrender` · toggle · default On. When off, a round can only end by a kill or by the clock.
-- **Show opponent health** — `g.showOpponentHealth` · toggle · default On. Show the opponent's health at the top of the screen.
+- **Show opponent health** — `g.showOpponentHealth` · toggle · default On. Show the opponent's health at the top of the screen (the bar does not draw it at present; the rule is kept for when it returns).
 - **Chat during the duel** — `g.chatScope` · choice · default Server-wide · Server-wide / Team only / Muted. Restricts who can see chat during the match.
 - **Death particles** — `g.deathParticles` · toggle · default On. A duel death drops no items; a burst of particles appears where the player fell instead. Off still drops nothing, only without the effect.
 - **Particle intensity** — `g.deathParticleIntensity` · choice · default Standard · Subtle / Standard / Grand. Sets the number of layers and particles; has no effect while death particles are off.

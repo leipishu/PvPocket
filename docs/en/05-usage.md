@@ -89,6 +89,13 @@ What the numbers mean:
 6. On start every side is teleported in; the round goes live when the countdown ends.
 7. After the last round everyone returns to where they entered, items and terrain restored.
 
+The score bar across the top keeps its left-right shape: one side on the left, the other on the
+right, the round and score in the middle. **1v1** draws each head with its name. **Every larger
+match drops the names** and lays each side's heads out side by side on its own half, with only a
+small gap between heads. A side of more than three wraps into two rows — four is two and two, five
+is two then three. Three- or four-side matches use a stacked row per side instead. Players who are
+out of the round have a grey head. Health readouts are not drawn on the bar at present.
+
 If the panel is dismissed with Esc, `/pvpocket review` reopens it — that is the only way back.
 Closing it while the draft is still open cancels the invite.
 
@@ -201,6 +208,12 @@ included — pixel-identical to what that player sees on their own screen.
 
 Leaving restores game mode, dimension, position and rotation. Inventory, effects and experience
 were never touched, so there is nothing to restore.
+
+In a multi-player duel, a player who dies while a team-mate is still standing watches the rest of
+the round. The "Allow spectating" rule does not gate this: an eliminated participant watching is
+part of the round flow, not a request from a third party. The score bar greys out their head so the
+surviving team-mates stay readable. The next round puts them back into survival at their side's
+spawn.
 
 Spectating is allowed by default; the challenger can turn it off in rule group B.
 

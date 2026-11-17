@@ -1003,6 +1003,12 @@ public final class SessionManager {
                 "alive", survivorsOf(session));
         persist(session);
 
+        // The head greys out on this packet, before the beat finishes. The mode switch stays with
+        // the respawn hand-off: changing mode here ends the fall beat and hides the send-off.
+        if (winner < 0) {
+            broadcastHud(session, true);
+        }
+
         // A mid-series round settles after the death beat, without waiting for the respawn. Only
         // the deciding round waits, because finishSeries restores the snapshot onto a live entity.
         if (winner >= 0 && !decidesSeries(session, winner)) {
@@ -4199,15 +4205,17 @@ public final class SessionManager {
     /**
      * Flattens the session into the HUD payload.
      *
-     * <p>Two flat strings rather than one field per side, since the payload is hand-written around
-     * {@code PacketCodec.tuple}'s six-component limit. {@code scores} is {@code "2,1"} and
+     * <p>Three flat strings rather than one field per side, since the payload is hand-written
+     * around {@code PacketCodec.tuple}'s six-component limit. {@code scores} is {@code "2,1"} and
      * {@code teams} is {@code "Dev1|uuid,Dev2|uuid;Dev3|uuid"}, with {@code ,} between members of a
-     * side, {@code ;} between sides and {@code |} between a name and its uuid.
+     * side, {@code ;} between sides and {@code |} between a name and its uuid. {@code eliminated}
+     * lists the uuids of players who are out of this round.
      */
     private MatchHudPayload buildHud(DuelSession session) {
         int teams = Math.max(1, session.teamCount);
         StringBuilder scores = new StringBuilder();
         StringBuilder roster = new StringBuilder();
+        StringBuilder eliminated = new StringBuilder();
         int written = 0;
         for (int team = 0; team < teams; team++) {
             List<Participant> members = session.activeMembers(team);
@@ -4229,8 +4237,18 @@ public final class SessionManager {
                 first = false;
             }
         }
+        for (Participant p : session.participants) {
+            if (!p.eliminated || p.rejected) {
+                continue;
+            }
+            if (eliminated.length() > 0) {
+                eliminated.append(',');
+            }
+            eliminated.append(p.uuid);
+        }
         return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
-                scores.toString(), roster.toString(), session.rulebook().showOpponentHealth(),
+                scores.toString(), roster.toString(), eliminated.toString(),
+                session.rulebook().showOpponentHealth(),
                 intermissionSecondsLeft(session), roundClock(session), roundClockDown(session));
     }
 

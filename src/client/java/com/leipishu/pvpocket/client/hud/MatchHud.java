@@ -19,16 +19,18 @@ import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * The scoreboard drawn across the top of the screen during a match.
  *
- * <p>Two sides draw one bar of three blocks: the left heads, the round counter and score, the right
- * heads. Three or four sides draw a stacked list instead, one row per side, with heads on the left
- * and round wins on the right.
+ * <p>Both sides share one bar: heads on the left, the round counter and score in the middle,
+ * heads on the right. A 1v1 also names each player; a larger match drops the names and lays the
+ * heads out side by side, wrapping into two rows once a side has four or more players.
  *
  * <p>The bar is centred on the screen, clear of the top-right corner where vanilla draws status
  * effects. Heads are 14px on a 16px row, scaled by {@code ClientPrefs.hudScale()} between 0.75x and
@@ -41,8 +43,8 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static final int PAD_X = 8;
     private static final int PAD_Y = 4;
     private static final int NAME_GAP = 4;
-    /** Gap between a name and its health readout; see {@code g.showOpponentHealth}. */
-    private static final int HEALTH_GAP = 4;
+    /** Gap between two heads of the same side. */
+    private static final int HEAD_GAP = 2;
     private static final int BLOCK_GAP = 9;
     private static final int MIN_H = 24;
     private static final int TOP = 3;
@@ -121,9 +123,15 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
 
         List<List<Row>> teams = parseTeams(payload.teams());
         int[] scores = parseScores(payload.scores());
+        Set<UUID> eliminated = parseEliminated(payload.eliminated());
         if (teams.isEmpty()) {
             return;
         }
+        int players = 0;
+        for (List<Row> side : teams) {
+            players += side.size();
+        }
+        boolean oneOnOne = teams.size() == 2 && players == 2;
 
         float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
         appearT = PvAnim.damp(appearT, 1F, d, 0.06F);
@@ -157,10 +165,13 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             PvMatrix.translate(ctx, -centreX, -TOP);
         }
         Bar bar = null;
+        int barH = 0;
         if (teams.size() == 2) {
-            bar = drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room);
+            bar = drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room,
+                    eliminated, oneOnOne);
+            barH = bar == null ? 0 : bar.h();
         } else {
-            drawStacked(ctx, client, tr, payload, teams, scores, centreX);
+            barH = drawStacked(ctx, client, tr, payload, teams, scores, centreX, eliminated);
         }
         PvMatrix.pop(ctx);
         // The team strips are drawn after the matrix is restored: their geometry is a fixed pixel
@@ -169,9 +180,10 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             drawTeamStrips(ctx, bar, scale, centreX);
         }
         // The intermission countdown sits under the bar: it answers how long the wait is, which
-        // nobody reads while aiming.
+        // nobody reads while aiming. A two-row bar pushes it down.
         if (payload.secondsLeft() > 0) {
-            drawCountdown(ctx, tr, payload.secondsLeft(), centreX, scale);
+            int under = TOP + Math.round((barH > 0 ? barH + 10 : 34F) * scale);
+            drawCountdown(ctx, tr, payload.secondsLeft(), centreX, under);
         }
         if (payload.clock() >= 0) {
             drawRoundClock(ctx, tr, payload.clock(), payload.clockDown(), screenW);
@@ -206,10 +218,9 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * <p>The plate is drawn because the arena behind it is being reverted, so the background is
      * whatever map comes next.
      */
-    private static void drawCountdown(GuiGraphics ctx, Font tr, int seconds, int centreX, float scale) {
+    private static void drawCountdown(GuiGraphics ctx, Font tr, int seconds, int centreX, int y) {
         String text = PvLang.str("pvpocket.hud.next_round", seconds);
         int w = tr.width(text);
-        int y = TOP + Math.round(34F * scale);
         PvDraw.roundRect(ctx, centreX - w / 2 - 6, y - 3, w + 12, 15, PvTheme.RADIUS,
                 PvTheme.alpha(PvTheme.CARD, 0.78F));
         PvDraw.text(ctx, tr, text, centreX - w / 2, y, PvTheme.ACCENT);
@@ -223,7 +234,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
 
     private Bar drawHeadToHead(GuiGraphics ctx, Minecraft client, Font tr,
                                MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                               int centreX, int room) {
+                               int centreX, int room, Set<UUID> eliminated, boolean oneOnOne) {
         List<Row> left = teams.get(0);
         List<Row> right = teams.get(1);
         if (left.isEmpty() && right.isEmpty()) {
@@ -232,11 +243,11 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         int leftScore = scoreOf(scores, 0);
         int rightScore = scoreOf(scores, 1);
 
-        // Two passes over the same measurement: with names first, then heads alone when that does
-        // not fit. Shrinking the type would make the score unreadable at 2x GUI scale.
-        boolean names = true;
+        // Names belong to a 1v1. Every larger match keeps the same bar and drops them, which is
+        // also the fallback when a 1v1 name does not fit at the current HUD scale.
+        boolean names = oneOnOne;
         Layout layout = measure(tr, left, right, payload, leftScore, rightScore, names);
-        if (layout.width() > room) {
+        if (layout.width() > room && names) {
             names = false;
             layout = measure(tr, left, right, payload, leftScore, rightScore, names);
         }
@@ -252,12 +263,12 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         // them with the bar would leave a 0.75px gap at the smallest step and 1.2px at the largest.
 
         drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
-                leftScore, payload.winsNeeded(), payload.showHealth());
+                leftScore, payload.winsNeeded(), eliminated);
         drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
-                names, rightScore, payload.winsNeeded(), payload.showHealth());
+                names, rightScore, payload.winsNeeded(), eliminated);
         String score = leftScore + " : " + rightScore;
         drawCentre(ctx, tr, payload, score, barX + PAD_X + layout.leftW() + BLOCK_GAP,
-                barY, layout.centreW());
+                barY, layout.height(), layout.centreW());
 
         // Divider ticks between the side blocks and the centre, so the three parts read as three
         // parts even when a name has the same colour as the score.
@@ -294,17 +305,20 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     // ------------------------------------------------------------------ three or four sides
 
     /**
-     * Draws one row per side: heads on the left, the round wins right-aligned.
+     * Draws one row per side for a three- or four-side match: heads on the left, round wins right.
      *
-     * <p>Heads are capped at four per row. A 4x4 match is sixteen players, and sixteen heads would
-     * be as wide as the screen.
+     * <p>The widest side sets the head column, so the panel does not resize between rounds.
      */
-    private void drawStacked(GuiGraphics ctx, Minecraft client, Font tr,
-                             MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                             int centreX) {
+    private int drawStacked(GuiGraphics ctx, Minecraft client, Font tr,
+                            MatchHudPayload payload, List<List<Row>> teams, int[] scores,
+                            int centreX, Set<UUID> eliminated) {
         int rows = teams.size();
         int headerH = 11;
-        int headsW = 4 * (HEAD + 2);
+        int headsPerRow = 0;
+        for (List<Row> side : teams) {
+            headsPerRow = Math.max(headsPerRow, side.size());
+        }
+        int headsW = headsPerRow * (HEAD + 2);
         int scoreW = tr.width("00") + 6;
         int width = PAD_X * 2 + STRIP_W + 4 + headsW + BLOCK_GAP + scoreW;
         int height = PAD_Y * 2 + headerH + rows * ROW_H;
@@ -326,11 +340,9 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             // Two pixels of wool per row identify the side without counting rows.
             PvDraw.rect(ctx, barX + PAD_X, y, STRIP_W, HEAD, PvTheme.team(team));
             int x = barX + PAD_X + STRIP_W + 4;
-            for (int i = 0; i < members.size() && i < 4; i++) {
+            for (int i = 0; i < members.size(); i++) {
                 Row row = members.get(i);
-                PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
-                        PvTheme.alpha(0xFF000000, 0.55F));
-                PlayerFaceRenderer.draw(ctx, skinOf(client, row.uuid()), x, y, HEAD);
+                drawHead(ctx, client, row.uuid(), x, y, eliminated.contains(row.uuid()));
                 x += HEAD + 2;
             }
             int textY = y + (HEAD - 8) / 2 + 1;
@@ -338,6 +350,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
                     barX + width - PAD_X, textY, tint);
             y += ROW_H;
         }
+        return height;
     }
 
     private static int scoreOf(int[] scores, int team) {
@@ -352,8 +365,8 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static Layout measure(Font tr, List<Row> left, List<Row> right,
                                   MatchHudPayload payload, int leftScore, int rightScore,
                                   boolean names) {
-        int leftW = blockWidth(tr, left, names, payload.showHealth());
-        int rightW = blockWidth(tr, right, names, payload.showHealth());
+        int leftW = blockWidth(tr, left, names);
+        int rightW = blockWidth(tr, right, names);
         String round = roundLabel(payload);
         String score = leftScore + " : " + rightScore;
         int centreW = Math.max(tr.width(round), tr.width(score));
@@ -366,24 +379,37 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             blocks++;
         }
         int width = PAD_X * 2 + leftW + centreW + rightW + BLOCK_GAP * blocks;
-        int rows = Math.max(left.size(), right.size());
+        int rows = Math.max(lineCount(left.size(), names), lineCount(right.size(), names));
         int height = Math.max(MIN_H, rows * ROW_H + PAD_Y * 2);
         return new Layout(width, height, leftW, centreW, rightW);
     }
 
-    private static int blockWidth(Font tr, List<Row> rows, boolean names, boolean showHealth) {
+    /** Head rows a side takes: one up to three players, two above that. */
+    private static int lineCount(int players, boolean names) {
+        if (names) {
+            return players;
+        }
+        return players <= 3 ? 1 : 2;
+    }
+
+    /** Heads on the widest row of a side's grid. */
+    private static int columnCount(int players, boolean names) {
+        if (names) {
+            return 1;
+        }
+        return players <= 3 ? players : (players + 1) / 2;
+    }
+
+    private static int blockWidth(Font tr, List<Row> rows, boolean names) {
         if (rows.isEmpty()) {
             return 0;
         }
         if (!names) {
-            return HEAD;
+            return columnCount(rows.size(), false) * (HEAD + HEAD_GAP) - HEAD_GAP;
         }
-        // Reserved from the widest readout, 9.5, rather than the current value: a block that
-        // resized when somebody drops to nine hearts would shift the bar mid-fight.
-        int healthW = showHealth ? HEALTH_GAP + tr.width("9.5") : 0;
         int max = 0;
         for (Row row : rows) {
-            max = Math.max(max, HEAD + NAME_GAP + tr.width(row.name()) + healthW);
+            max = Math.max(max, HEAD + NAME_GAP + tr.width(row.name()));
         }
         return max;
     }
@@ -394,83 +420,93 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * Draws the round counter in dim grey above the score in accent.
      *
      * <p>Two lines answer two questions and keep the centre block narrow enough for a 2v2 bar at 2x
-     * GUI scale.
+     * GUI scale. The pair is centred vertically, so a bar that grew to two head rows keeps the
+     * score on the same line as the heads.
      */
     private static void drawCentre(GuiGraphics ctx, Font tr, MatchHudPayload payload,
-                                   String score, int x, int barY, int width) {
+                                   String score, int x, int barY, int barH, int width) {
         int centreX = x + width / 2;
-        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, barY + 4, PvTheme.TEXT_DIM);
+        int top = barY + Math.max(4, (barH - 17) / 2);
+        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, top, PvTheme.TEXT_DIM);
         int color = PvTheme.mix(PvTheme.ACCENT, 0xFFFFFFFF, flashT * 0.85F);
-        PvDraw.textCenter(ctx, tr, score, centreX, barY + 13, color);
+        PvDraw.textCenter(ctx, tr, score, centreX, top + 9, color);
+    }
+
+    /**
+     * Draws one head, with a grey wash over it when the player is out of this round.
+     *
+     * <p>The wash sits on top of the face, so it reads the same for every skin and needs no
+     * shader or item-specific texture path.
+     */
+    private static void drawHead(GuiGraphics ctx, Minecraft client, UUID uuid,
+                                 int x, int y, boolean eliminated) {
+        PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
+                PvTheme.alpha(0xFF000000, 0.55F));
+        PlayerFaceRenderer.draw(ctx, skinOf(client, uuid), x, y, HEAD);
+        if (eliminated) {
+            PvDraw.rect(ctx, x, y, HEAD, HEAD, PvTheme.alpha(0xFF8A8A8A, 0.72F));
+        }
     }
 
     private static void drawSide(GuiGraphics ctx, Font tr, Minecraft client,
                                  List<Row> rows, boolean left, int edgeX, int barY, int barH,
-                                 boolean names, int score, int winsNeeded, boolean showHealth) {
+                                 boolean names, int score, int winsNeeded, Set<UUID> eliminated) {
         if (rows.isEmpty()) {
             return;
         }
         // A side at match point is tinted, so one more round reads without the numbers.
         int tint = score + 1 >= winsNeeded ? PvTheme.LIVE : PvTheme.TEXT;
-        int blockH = rows.size() * ROW_H;
-        int y = barY + (barH - blockH) / 2;
-
-        for (Row row : rows) {
-            int headX = left ? edgeX : edgeX - HEAD;
-            PvDraw.roundRect(ctx, headX - 1, y - 1, HEAD + 2, HEAD + 2, 2,
-                    PvTheme.alpha(0xFF000000, 0.55F));
-            PlayerFaceRenderer.draw(ctx, skinOf(client, row.uuid()), headX, y, HEAD);
-
-            if (names) {
-                int textY = y + (HEAD - 8) / 2 + 1;
-                int nameW = tr.width(row.name());
-                if (left) {
-                    PvDraw.text(ctx, tr, row.name(), headX + HEAD + NAME_GAP, textY, tint);
-                } else {
-                    PvDraw.textRight(ctx, tr, row.name(), headX - NAME_GAP, textY, tint);
-                }
-                // Health comes from the entity, not the payload: both sides stand in the same
-                // arena, so this client knows it. The sender's own row is skipped.
-                if (showHealth && !isSelf(client, row.uuid())) {
-                    float health = healthOf(client, row.uuid());
-                    if (health >= 0) {
-                        String label = heartsLabel(health);
-                        if (left) {
-                            PvDraw.text(ctx, tr, label,
-                                    headX + HEAD + NAME_GAP + nameW + HEALTH_GAP, textY,
-                                    PvTheme.TEXT_DIM);
-                        } else {
-                            PvDraw.textRight(ctx, tr, label,
-                                    headX - NAME_GAP - nameW - HEALTH_GAP, textY,
-                                    PvTheme.TEXT_DIM);
-                        }
-                    }
-                }
+        if (names) {
+            drawNamedColumn(ctx, tr, client, rows, left, edgeX, barY, barH, tint, eliminated);
+            return;
+        }
+        int cellW = HEAD + HEAD_GAP;
+        List<List<Row>> lines = gridOf(rows);
+        int y = barY + (barH - lines.size() * ROW_H) / 2;
+        for (List<Row> line : lines) {
+            int x = left ? edgeX : edgeX - line.size() * cellW + HEAD_GAP;
+            for (Row row : line) {
+                drawHead(ctx, client, row.uuid(), x, y, eliminated.contains(row.uuid()));
+                x += cellW;
             }
             y += ROW_H;
         }
     }
 
-    /** Health in hearts, one decimal, trimmed - {@code 20} HP is {@code 10}, not {@code 10.0}. */
-    private static String heartsLabel(float health) {
-        String text = String.format(Locale.ROOT, "%.1f", health / 2.0F);
-        return text.endsWith(".0") ? text.substring(0, text.length() - 2) : text;
-    }
-
-    /** The participant's health, or -1 when their entity is not in this client's world. */
-    private static float healthOf(Minecraft client, UUID uuid) {
-        if (client.level != null) {
-            for (AbstractClientPlayer player : client.level.players()) {
-                if (player.getUUID().equals(uuid)) {
-                    return player.getHealth();
-                }
+    /** One row per player: head and name. The 1v1 layout. */
+    private static void drawNamedColumn(GuiGraphics ctx, Font tr, Minecraft client,
+                                        List<Row> rows, boolean left, int edgeX, int barY,
+                                        int barH, int tint, Set<UUID> eliminated) {
+        int y = barY + (barH - rows.size() * ROW_H) / 2;
+        for (Row row : rows) {
+            int headX = left ? edgeX : edgeX - HEAD;
+            drawHead(ctx, client, row.uuid(), headX, y, eliminated.contains(row.uuid()));
+            int textY = y + (HEAD - 8) / 2 + 1;
+            if (left) {
+                PvDraw.text(ctx, tr, row.name(), headX + HEAD + NAME_GAP, textY, tint);
+            } else {
+                PvDraw.textRight(ctx, tr, row.name(), headX - NAME_GAP, textY, tint);
             }
+            y += ROW_H;
         }
-        return -1.0F;
     }
 
-    private static boolean isSelf(Minecraft client, UUID uuid) {
-        return client.player != null && client.player.getUUID().equals(uuid);
+    /**
+     * Splits a side's heads into one row up to three players, two rows above that.
+     *
+     * <p>Four players give two and two; five give two then three.
+     */
+    private static List<List<Row>> gridOf(List<Row> rows) {
+        List<List<Row>> lines = new ArrayList<>();
+        int n = rows.size();
+        if (n <= 3) {
+            lines.add(rows);
+            return lines;
+        }
+        int first = n / 2;
+        lines.add(rows.subList(0, first));
+        lines.add(rows.subList(first, n));
+        return lines;
     }
 
     private static String roundLabel(MatchHudPayload payload) {
@@ -537,6 +573,22 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             }
         }
         return rows;
+    }
+
+    /** Parses the comma-separated uuid list of players who are out of this round. */
+    private static Set<UUID> parseEliminated(String encoded) {
+        Set<UUID> out = new HashSet<>();
+        if (encoded == null || encoded.isEmpty()) {
+            return out;
+        }
+        for (String part : encoded.split(",")) {
+            try {
+                out.add(UUID.fromString(part));
+            } catch (IllegalArgumentException ignored) {
+                // Bad uuid: skip this entry only.
+            }
+        }
+        return out;
     }
 
     private static int[] parseScores(String encoded) {
