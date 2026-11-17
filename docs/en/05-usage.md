@@ -215,6 +215,10 @@ part of the round flow, not a request from a third party. The score bar greys ou
 surviving team-mates stay readable. The next round puts them back into survival at their side's
 spawn.
 
+A duel death respawns them on their own spawn pad and hands them to spectator mode from there, so
+death, respawn and hand-off all happen inside the arena: no trip through the overworld. The respawn
+point is borrowed at the moment of death and given back as soon as they are back on their feet.
+
 Spectating is allowed by default; the challenger can turn it off in rule group B.
 
 ### The result card

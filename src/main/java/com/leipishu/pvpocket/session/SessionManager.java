@@ -52,6 +52,7 @@ import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.GameType;
 
 import java.io.IOException;
@@ -206,6 +207,13 @@ public final class SessionManager {
      * as it is read.
      */
     private final Map<UUID, String> forfeitReasons = new HashMap<>();
+    /**
+     * Player uuid -> the respawn point they had before a death moved it onto the plot.
+     *
+     * <p>Null is a real value here: a player whose respawn point is the world spawn has none, and
+     * the restore has to clear it rather than leave the arena behind.
+     */
+    private final Map<UUID, PvCompat.RespawnPoint> respawnPoints = new HashMap<>();
     /** Rounds that have teleported everybody in but have not gone live yet. */
     private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
     /**
@@ -378,6 +386,11 @@ public final class SessionManager {
             }
         }
         CombatState.clearAll();
+        // A borrowed respawn point would outlive the process, and the next death would land in a
+        // plot that has since been reverted.
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            restoreRespawnPoint(player);
+        }
         ArenaManager.clearAll();
         journals.values().forEach(SessionJournal::close);
         journals.clear();
@@ -996,6 +1009,9 @@ public final class SessionManager {
         if (me == null || me.eliminated) {
             return;
         }
+        // Set before the client can ask for its respawn, which the suppressed death screen sends a
+        // tick later: the death and everything after it stay inside the arena.
+        respawnOnPlot(session, me, player);
         // Marked here and settled below, so a crash between the two still leaves a journalled
         // outcome.
         me.eliminated = true;
@@ -1044,6 +1060,9 @@ public final class SessionManager {
      * back on the plot as a spectator.
      */
     public void onRespawn(ServerPlayer player) {
+        // A death inside the plot borrows the player's respawn point; it goes back first, before
+        // anything else can read the arena as where they belong.
+        restoreRespawnPoint(player);
         // A respawn replaces the server-side entity, so re-send the HUD state; nothing else will
         // push it before the next boundary.
         pushHudTo(player);
@@ -1073,7 +1092,44 @@ public final class SessionManager {
             afterDeathBeat(() -> settle(session, reason, team));
             return;
         }
-        afterDeathBeat(() -> watchRestOfRound(session, player));
+        // The death beat already played while they were down, and the respawn put them on the
+        // plot, so the hand-off needs no second hold.
+        deferred.add(() -> watchRestOfRound(session, player));
+    }
+
+    /**
+     * Points a dying participant's respawn at their own pad.
+     *
+     * <p>Vanilla sends a dead player to the overworld, and the hand-off then pulls them back in:
+     * a trip through another dimension for a death that belongs to the plot. A forced point on the
+     * pad keeps the whole thing inside the arena. The point the player came in with is put back on
+     * the respawn.
+     */
+    private void respawnOnPlot(DuelSession session, Participant p, ServerPlayer player) {
+        ArenaRegion region = ArenaManager.region(session.id);
+        if (region == null) {
+            return;
+        }
+        ServerLevel world = ArenaManager.world(PvCompat.server(player));
+        BlockPos pad = ArenaManager.spawnBlock(region, p.teamIndex());
+        if (!ArenaManager.respawnable(world, pad)) {
+            // No usable pad. Vanilla's overworld fallback beats a point inside a block.
+            return;
+        }
+        // Kept once per death, since a second death before the respawn must not overwrite the
+        // player's own point with the borrowed one.
+        if (!respawnPoints.containsKey(player.getUUID())) {
+            respawnPoints.put(player.getUUID(), PvCompat.respawnPoint(player));
+        }
+        PvCompat.setRespawnPoint(player, new PvCompat.RespawnPoint(world.dimension(), pad,
+                region.spawnYaw(p.teamIndex()), 0.0F, true));
+    }
+
+    /** Puts back the respawn point a death took over, if one was taken. */
+    private void restoreRespawnPoint(ServerPlayer player) {
+        if (respawnPoints.containsKey(player.getUUID())) {
+            PvCompat.setRespawnPoint(player, respawnPoints.remove(player.getUUID()));
+        }
     }
 
     /**

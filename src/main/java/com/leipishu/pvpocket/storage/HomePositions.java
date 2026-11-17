@@ -173,6 +173,7 @@ public final class HomePositions {
         if (!ArenaManager.isArena(player.level())) {
             return false;
         }
+        clearArenaRespawn(player);
         Home home = homes.get(player.getStringUUID());
         ServerLevel target = home == null ? null : resolve(player, home.dimension);
         if (target == null) {
@@ -194,6 +195,20 @@ public final class HomePositions {
         player.displayClientMessage(PvLang.t("pvpocket.msg.home.sent_home", PvLang.t(whyKey))
                 .withStyle(ChatFormatting.YELLOW), false);
         return true;
+    }
+
+    /**
+     * Undoes a respawn point that a death inside the plot left behind.
+     *
+     * <p>The point is only borrowed for one death and given back on the respawn, so finding one
+     * here means a restore was lost: the session ended, or the server stopped, while the player was
+     * dead. A point inside a plot that has since been reverted would drop them into the void.
+     */
+    private static void clearArenaRespawn(ServerPlayer player) {
+        PvCompat.RespawnPoint point = PvCompat.respawnPoint(player);
+        if (point != null && ArenaManager.ARENA_WORLD.equals(point.dimension())) {
+            PvCompat.setRespawnPoint(player, null);
+        }
     }
 
     /**

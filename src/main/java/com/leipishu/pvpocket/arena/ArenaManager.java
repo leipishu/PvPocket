@@ -1305,6 +1305,34 @@ public final class ArenaManager {
     }
 
     /**
+     * The block a side's players stand in when a round puts them on the plot.
+     *
+     * <p>The pad's own coordinates, without the team-mate fan: a respawn point is one block, and
+     * vanilla puts the player at its centre.
+     */
+    public static BlockPos spawnBlock(ArenaRegion region, int spawnIndex) {
+        return region == null ? null
+                : new BlockPos(region.spawnX(spawnIndex), region.spawnY(spawnIndex),
+                        region.spawnZ(spawnIndex));
+    }
+
+    /**
+     * Whether vanilla's forced respawn accepts this block: it and the one above are free.
+     *
+     * <p>The same test {@code ServerPlayer} runs before it spawns a player at a forced point, so
+     * asking first keeps a bad point from silently falling back to the overworld.
+     */
+    public static boolean respawnable(ServerLevel world, BlockPos pos) {
+        if (world == null || pos == null) {
+            return false;
+        }
+        BlockState at = world.getBlockState(pos);
+        BlockState above = world.getBlockState(pos.above());
+        return at.getBlock().isPossibleToRespawnInThis(at)
+                && above.getBlock().isPossibleToRespawnInThis(above);
+    }
+
+    /**
      * Teleports one player to their side's pad, fanned out by team-mate index.
      *
      * <p>Team-mates would otherwise land on the same block and be pushed apart by the collision

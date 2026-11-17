@@ -44,6 +44,7 @@ import net.minecraft.world.clock.WorldClocks;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.Permissions;
 import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.level.storage.LevelData;
 //?} else {
 import net.minecraft.world.item.component.Unbreakable;
 import net.minecraft.world.level.GameRules;
@@ -356,6 +357,52 @@ public final class PvCompat {
         player.hurtServer((ServerLevel) player.level(), source, Float.MAX_VALUE);
 //?} else {
         player.hurt(source, Float.MAX_VALUE);
+//?}
+    }
+
+    /**
+     * A player's respawn point, in a shape both forms of the API can be read from and written back.
+     *
+     * <p>1.21.11 packed the four separate fields into a {@code RespawnConfig} record. The older
+     * form has no pitch, so a point read there comes back with {@code 0}.
+     */
+    public record RespawnPoint(ResourceKey<Level> dimension, BlockPos pos, float yaw, float pitch,
+                               boolean forced) {
+    }
+
+    /** The player's respawn point, or null when they have none. */
+    public static RespawnPoint respawnPoint(ServerPlayer player) {
+//? if >=1.21.11 {
+        ServerPlayer.RespawnConfig config = player.getRespawnConfig();
+        if (config == null) {
+            return null;
+        }
+        LevelData.RespawnData data = config.respawnData();
+        return new RespawnPoint(data.dimension(), data.pos(), data.yaw(), data.pitch(),
+                config.forced());
+//?} else {
+        BlockPos pos = player.getRespawnPosition();
+        if (pos == null) {
+            return null;
+        }
+        return new RespawnPoint(player.getRespawnDimension(), pos, player.getRespawnAngle(), 0.0F,
+                player.isRespawnForced());
+//?}
+    }
+
+    /** Writes a respawn point back, or clears it when {@code point} is null. */
+    public static void setRespawnPoint(ServerPlayer player, RespawnPoint point) {
+//? if >=1.21.11 {
+        player.setRespawnPosition(point == null ? null
+                : new ServerPlayer.RespawnConfig(LevelData.RespawnData.of(point.dimension(),
+                        point.pos(), point.yaw(), point.pitch()), point.forced()), false);
+//?} else {
+        if (point == null) {
+            player.setRespawnPosition(null, null, 0.0F, false, false);
+        } else {
+            player.setRespawnPosition(point.dimension(), point.pos(), point.yaw(), point.forced(),
+                    false);
+        }
 //?}
     }
 }
