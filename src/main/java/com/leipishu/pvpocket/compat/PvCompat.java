@@ -14,6 +14,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.damagesource.DamageSource;
 //? if >=26.2 {
 import net.minecraft.world.entity.EntityTypes;
 //?} else {
@@ -339,6 +340,22 @@ public final class PvCompat {
         return entity.getSwingAnimation(tickDelta);
 //?} else {
         return entity.getAttackAnim(tickDelta);
+//?}
+    }
+
+    /**
+     * Kills a player through the normal damage path.
+     *
+     * <p>1.21.11 moved the hurt entry point to {@code hurtServer} on the server side, so the call
+     * now names a level. Going through damage rather than dying directly keeps the death event,
+     * the drop hook and the death message, which is what the arena builds its send-off on.
+     */
+    public static void kill(ServerPlayer player) {
+        DamageSource source = player.damageSources().genericKill();
+//? if >=1.21.11 {
+        player.hurtServer((ServerLevel) player.level(), source, Float.MAX_VALUE);
+//?} else {
+        player.hurt(source, Float.MAX_VALUE);
 //?}
     }
 }

@@ -199,6 +199,13 @@ public final class SessionManager {
      * Key is {@code sessionId/playerUuid}: wall clock of the last pull-back notice, for throttling.
      */
     private final Map<String, Long> boundaryNotices = new HashMap<>();
+    /**
+     * Player uuid -> why their next death is not a normal one, read once by {@link #onDeath}.
+     *
+     * <p>Only a forfeit writes here, and the death lands in the same tick, so the entry is removed
+     * as it is read.
+     */
+    private final Map<UUID, String> forfeitReasons = new HashMap<>();
     /** Rounds that have teleported everybody in but have not gone live yet. */
     private final Map<String, Prepare> prepareDeadlines = new HashMap<>();
     /**
@@ -994,10 +1001,13 @@ public final class SessionManager {
         me.eliminated = true;
         recordDeath(session, me, player);
         int winner = lastTeamStanding(session);
+        // A forfeit brings its own reason, so the history says "out of bounds" rather than "kill".
+        String reason = forfeitReasons.getOrDefault(player.getUUID(), "DEATH");
+        forfeitReasons.remove(player.getUUID());
         session.pendingWinner = me.uuid;
-        session.pendingReason = "DEATH";
+        session.pendingReason = reason;
         session.pendingWinnerTeam = winner;
-        journal(session).append("ROUND_DECIDED", "reason", "DEATH",
+        journal(session).append("ROUND_DECIDED", "reason", reason,
                 "player", me.name,
                 "winnerTeam", winner,
                 "alive", survivorsOf(session));
@@ -1012,7 +1022,7 @@ public final class SessionManager {
         // A mid-series round settles after the death beat, without waiting for the respawn. Only
         // the deciding round waits, because finishSeries restores the snapshot onto a live entity.
         if (winner >= 0 && !decidesSeries(session, winner)) {
-            afterDeathBeat(() -> settle(session, "DEATH", winner));
+            afterDeathBeat(() -> settle(session, reason, winner));
         }
     }
 
@@ -1194,6 +1204,12 @@ public final class SessionManager {
                     continue;
                 }
                 String key = session.id + "/" + p.uuid;
+                if (p.eliminated) {
+                    // Already out of the round, so the countdown is answered: no re-arming for a
+                    // corpse or for a watcher who stands outside the plot by design.
+                    boundaryExits.remove(key);
+                    continue;
+                }
                 if (ArenaManager.isInside(player, region)) {
                     // First sighting on the plot settles this player.
                     settledIn.add(key);
@@ -1238,8 +1254,9 @@ public final class SessionManager {
                     journal(session).append("BOUNDARY_FORFEIT", "player", p.name,
                             "elapsedMs", now - exit.since());
                     player.connection.send(new ClientboundClearTitlesPacket(false));
-                    // Through eliminate(): leaving the plot removes one player, not the side.
-                    deferred.add(() -> eliminate(session, p, "OUT_OF_BOUNDS"));
+                    // A forfeit kills, so the fall beat, the burst and the hand-off to spectator
+                    // mode all run. Marking alone would leave the player standing there alive.
+                    deferred.add(() -> forfeit(session, p, "OUT_OF_BOUNDS"));
                     break;
                 }
                 int second = (int) Math.ceil(remaining / 1000.0D);
@@ -3303,6 +3320,36 @@ public final class SessionManager {
         }
         PvCompat.setDaylightCycle(world, true);
         PvCompat.setWeather(world, 12_000, 0, false, false);
+    }
+
+    /**
+     * Takes one player out of the round by killing them.
+     *
+     * <p>A forfeit has to look like a death. The fall beat, the particle burst and the hand-off to
+     * spectator mode all hang off the death event, so a player who is only marked as eliminated
+     * keeps standing there, alive, wearing a grey head.
+     *
+     * @param reason kept for the round history, so it does not read as a kill
+     */
+    private void forfeit(DuelSession session, Participant p, String reason) {
+        if (session.stage != SessionStage.ROUND_ACTIVE || p.eliminated) {
+            return;
+        }
+        ServerPlayer player = online(p);
+        if (player == null || !player.isAlive()) {
+            // No body to kill, so the bookkeeping is the whole removal.
+            eliminate(session, p, reason);
+            return;
+        }
+        forfeitReasons.put(player.getUUID(), reason);
+        // Nobody's kill: a hit taken a moment earlier must not earn the credit for this death.
+        player.setLastHurtByMob(null);
+        PvCompat.kill(player);
+        if (!p.eliminated) {
+            // Damage refused, which a live round should never allow: still take the player out.
+            forfeitReasons.remove(player.getUUID());
+            eliminate(session, p, reason);
+        }
     }
 
     /**
