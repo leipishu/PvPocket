@@ -152,11 +152,9 @@ would be a legal state. That set starts as the proposer's own saved loadout, and
 afterwards inherits it instead of bringing their own.
 
 **A loadout edited after a series has started does not enter that series.** Saving it writes the
-personal book and nothing else, and the confirmation says so: "this series keeps the loadout it
-started with; the change applies from the next one". That is deliberate — the loadout is one of the
-terms both sides agreed to before the first round, so changing it mid-series changes the terms, and it
-lands only when the next round hands out items (with `d.allowSwapBetweenRounds` on, it instead goes
-through "a swap needs both sides to agree").
+personal book and nothing else; the running series keeps the set both sides agreed to before the
+first round. That is deliberate — the loadout is one of those terms, and changing it mid-series
+would change the terms.
 
 **If it is still the default set, the match says so once.** When nobody has ever saved a loadout the
 match runs on the built-in preset, and chat says so before the first round — a panel draws a set

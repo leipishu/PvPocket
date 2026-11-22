@@ -22,7 +22,7 @@
 
 | At a glance | |
 | --- | --- |
-| Rules | 38 entries (37 configurable + one read-only conflict note), seven groups; any edit voids earlier agreement |
+| Rules | 36 entries (35 configurable + one read-only conflict note), seven groups; any edit voids earlier agreement |
 | Combat | Modern (1.9+ cooldown, shields) and Classic 1.8 (no cooldown, sword blocking, 1.8 knockback and damage), switched per match |
 | Series | Up to 15 rounds, optional per-round limit; each round resets fully while the score carries over |
 | Players | Up to 4 sides x 5 players each = 20 people |
@@ -36,7 +36,7 @@
 
 ## What it does
 
-- **Terms before fighting**: seven groups, 38 rules. Both sides walk through the same panel before the first round, and nothing starts until everyone agrees. Rules carry a revision number, so any edit invalidates the earlier "yes".
+- **Terms before fighting**: seven groups, 36 rules. Both sides walk through the same panel before the first round, and nothing starts until everyone agrees. Rules carry a revision number, so any edit invalidates the earlier "yes".
 - **Two combat modes**: modern and Classic 1.8, switched per match. Classic turns off the attack cooldown and recomputes knockback, blocking and armour with the 1.8 formulas.
 - **Best-of-N**: up to 15 rounds, with a configurable per-round time limit and timeout verdict. Every round resets completely; the score carries over.
 - **Custom loadouts**: weapons, armour and consumables configured item by item. Enchantments follow the item type — a trident picks one of Loyalty / Riptide / neither, an elytra has a firework flight duration, a bow has Infinity and an arrow count, an end crystal comes with obsidian, TNT with flint and steel. A loadout can be saved as a preset, and a preset can be published as a share code valid for five minutes; whoever imports it keeps it locally.

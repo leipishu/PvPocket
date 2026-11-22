@@ -69,23 +69,6 @@ public final class Participant {
     public boolean loadoutApplied;
 
     /**
-     * A between-round loadout change waiting for the rest of the match to agree.
-     *
-     * <p>Kept apart from {@link #loadout} because the change is not in effect until everybody
-     * accepts. {@link #loadout} stays intact, so a refusal needs no rollback.
-     */
-    public String pendingLoadout;
-    public String pendingLoadoutDigest;
-
-    /**
-     * Which {@code DuelSession#loadoutRevision} this player has agreed to.
-     *
-     * <p>Same shape as {@link #acceptedRevision}: the change lands when every participant's number
-     * matches the current revision.
-     */
-    public int acceptedLoadoutRevision;
-
-    /**
      * The combined loadout fingerprint this player agreed to, or null when they have not agreed.
      *
      * <p>A digest rather than a boolean, so a later loadout change invalidates every earlier

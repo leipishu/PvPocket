@@ -51,7 +51,6 @@ public final class RuleCatalog {
         add(RuleDefinition.percent("c.knockbackResistance", RuleGroup.C, 0));
 
         // D. loadout
-        add(RuleDefinition.toggle("d.allowSwapBetweenRounds", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowPickup", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowCrafting", RuleGroup.D, false));
         add(RuleDefinition.toggle("d.allowConsumables", RuleGroup.D, true));

@@ -4,14 +4,14 @@
 
 ## 1. 规则模型
 
-一场决斗的规则是一份**有序的键值快照**，由 36 条可配置规则加 1 条只读提示项组成，分七组：
+一场决斗的规则是一份**有序的键值快照**，由 35 条可配置规则加 1 条只读提示项组成，分七组：
 
 | 组 | 主题 | 条数 |
 | --- | --- | --- |
 | A | 对局结构（局数、时间） | 6 |
 | B | 参与者（人数、队伍、误伤、观战） | 4 |
 | C | 战斗（模式、生存参数） | 6 |
-| D | 配装（进场物品、拾取、合成） | 4 |
+| D | 配装（进场物品、拾取、合成） | 3 |
 | E | 场地（尺寸、模板、边界、环境） | 8 |
 | F | 方块（放置、破坏） | 3 |
 | G | 其他（珍珠、投降、显示、聊天、死亡粒子） | 6 |
@@ -71,7 +71,6 @@
 
 - **配装** — 全场一份，见下方「配装唯一」。没有开关：一场对局里所有人的物品、属性、附魔完全一样，
   唯一不同的是队伍颜色。谁打开面板看到的都是这一套，谁保存都是全场生效。
-- **局间可换配装** — `d.allowSwapBetweenRounds` · 开关 · 默认 关。开启后可以在系列赛中途改配装，但改动要对手同意，从下一局开始生效。
 - **允许拾取场地物品** — `d.allowPickup` · 开关 · 默认 关。关闭后无法捡起场地里掉落的物品。
 - **允许合成** — `d.allowCrafting` · 开关 · 默认 关。关闭后工作台与背包合成格不可用。
 - **允许消耗品** — `d.allowConsumables` · 开关 · 默认 开。关闭后药水、食物、金苹果不可使用。
@@ -122,17 +121,17 @@
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
-**共 37 条，其中 36 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
-36 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
+**共 36 条，其中 35 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
+35 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
 
-### 已生效（36 条）
+### 已生效（35 条）
 
 | 组 | 规则 |
 | --- | --- |
 | A | `a.maxRounds`、`a.winsNeeded`、`a.countdown`、`a.intermission`、`a.roundLimit`、`a.timeoutVerdict` |
 | B | `b.teamSize`、`b.maxPlayers`、`b.friendlyFire`、`b.spectator` |
 | C | `c.mode`、`c.maxHealth`、`c.naturalRegen`、`c.hunger`、`c.knockbackResistance` |
-| D | `d.allowSwapBetweenRounds`、`d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
+| D | `d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn` |
 | G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope`、`g.deathParticles`、`g.deathParticleIntensity` |
@@ -144,7 +143,7 @@ A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接�
 切片接上的，A 组后四条是「计时与胜负」切片接上的，`f.allowPlace` 与 `d.allowConsumables` /
 `g.enderPearl` 是「使用限制」切片接上的，
 D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHealth` 与 `chatScope` 是「界面」切片接上的，
-`g.deathParticles` 与 `g.deathParticleIntensity` 是「死亡表现」切片接上的，`d.allowSwapBetweenRounds` 是「局间换装」切片接上的，各自的读取点：
+`g.deathParticles` 与 `g.deathParticleIntensity` 是「死亡表现」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
   到线；打满且无人到线时由 `leaderTeam` 取最高分，并列即 `seriesEndReason = "DRAW"`。两者在
@@ -224,25 +223,9 @@ D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHe
    死亡到旁观/结算之间有固定的 2.5 秒停顿（`DEATH_BEAT_MS`），让特效播完、让胜方看清谁倒下：
    非决胜局在 `onDeath` 排期结算，决胜局与旁观切换在 `onRespawn` 排期，三者共用一条墙钟延迟队列。
 
-- **`d.allowSwapBetweenRounds`** — 关掉时中途提交配装会被 `onLoadoutSubmit` 拒掉；开着时改动进入
-  `Participant.pendingLoadout`，`DuelSession.loadoutRevision` 加一，提出者自己记作已同意，
-  其余人用 `/pvpocket loadout accept` / `decline` 表态；全员同意才写回 `loadout`。
-
-  **改动不会覆盖原配装**，而是另存一份：拒绝时要把旧配装找回来，而旧配装从来没被写过第二遍，
-  先覆盖再回滚就是无处回滚。
-
-  **没有时间压力，也不需要暂停局间计时**。配装只在开局那一刻写进背包，所以「从下一局开始生效」
-  是读取点决定的，不是谁必须赶上的截止时间——没谈拢就这一局照旧，改动继续挂着等下一局。
-
-  同意用的是**和规则协商同构但独立的计数器**（`loadoutRevision` ≠ `rulesRevision`）：规则在系列赛
-  开始后就冻结了，一条「换装」规则如果能让双方重新谈规则，那它就不只是换装。
-
-  表态用指令而不是面板按钮：局间没有面板可放按钮——规则面板是草案/协商界面，中途打开它是另一
-  件事。这两条指令是这个决定的**第一条**路径，不是和 GUI 并存的第二条。
-
 ### 现在没有"仅记录"了
 
-**36 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
+**35 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
 只用来在面板上说明「1.8 模式与某些规则冲突」，没有取值可言。
 
 这一节保留下来是因为它记的是一条纪律：**加规则时先问「谁读它」**。写进 `RuleCatalog` 只说明

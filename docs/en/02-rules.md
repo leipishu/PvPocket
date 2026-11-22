@@ -4,7 +4,7 @@
 
 ## 1. The model
 
-A duel's rules are an **ordered key/value snapshot**: 36 configurable rules plus one read-only
+A duel's rules are an **ordered key/value snapshot**: 35 configurable rules plus one read-only
 informational entry, in seven groups.
 
 | Group | Subject | Count |
@@ -12,7 +12,7 @@ informational entry, in seven groups.
 | A | Match (rounds, timing) | 6 |
 | B | Players (sizes, teams, friendly fire, spectating) | 4 |
 | C | Combat (mode, survival stats) | 6 |
-| D | Loadout (items, pickups, crafting) | 4 |
+| D | Loadout (items, pickups, crafting) | 3 |
 | E | Arena (size, map, boundary, environment) | 8 |
 | F | Blocks (placing, breaking) | 3 |
 | G | Other (pearls, surrender, display, chat, death particles) | 6 |
@@ -88,7 +88,6 @@ what the panel shows.
   every player carries the same items, attributes and enchantments, and the only difference between
   the sides is the wool colour. Whoever opens the panel sees that one set; whoever saves changes it
   for everybody.
-- **Swap loadout between rounds** — `d.allowSwapBetweenRounds` · toggle · default Off. When on, a loadout can be changed mid-series, but the change needs the other side to agree and applies from the next round.
 - **Pick up dropped items** — `d.allowPickup` · toggle · default Off. When off, items dropped in the arena cannot be picked up.
 - **Allow crafting** — `d.allowCrafting` · toggle · default Off. When off, crafting tables and the inventory grid are disabled.
 - **Allow consumables** — `d.allowConsumables` · toggle · default On. When off, potions, food and golden apples cannot be used.
@@ -140,18 +139,18 @@ sets that behave identically cannot produce two different digests.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-**37 rules exist, 36 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
-note). All 36 configurable rules are written to the session and the journal and affect a duel; none
+**36 rules exist, 35 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
+note). All 35 configurable rules are written to the session and the journal and affect a duel; none
 is "record only".
 
-### In effect (36)
+### In effect (35)
 
 | Group | Rules |
 | --- | --- |
 | A | `a.maxRounds`, `a.winsNeeded`, `a.countdown`, `a.intermission`, `a.roundLimit`, `a.timeoutVerdict` |
 | B | `b.teamSize`, `b.maxPlayers`, `b.friendlyFire`, `b.spectator` |
 | C | `c.mode`, `c.maxHealth`, `c.naturalRegen`, `c.hunger`, `c.knockbackResistance` |
-| D | `d.allowSwapBetweenRounds`, `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
+| D | `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn` |
 | G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope`, `g.deathParticles`, `g.deathParticleIntensity` |
@@ -165,8 +164,7 @@ with NvN, the eight in groups C/E with the damage-and-survival slice, the last f
 the timing-and-outcome slice, `f.allowPlace` with `d.allowConsumables` and `g.enderPearl` with the
 use-restriction slice, the other two in D with the interaction slice, `g.showOpponentHealth` and
 `g.chatScope` in G with the display slice,
-`g.deathParticles` and `g.deathParticleIntensity` with the death-presentation slice, and
-`d.allowSwapBetweenRounds` with the between-round swap slice.
+`g.deathParticles` and `g.deathParticleIntensity` with the death-presentation slice.
 Where each one is read:
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` looks at the round cap first and the win
@@ -275,31 +273,9 @@ Where each one is read:
   the settle from `onDeath`; deciding rounds and the spectator hand-off queue from `onRespawn`. All
   three share one wall-clock delay queue.
 
-- **`d.allowSwapBetweenRounds`** — off, a mid-series submission is refused by `onLoadoutSubmit`;
-  on, the change goes into `Participant.pendingLoadout`, `DuelSession.loadoutRevision` is bumped,
-  the proposer counts as having agreed, and the rest answer with `/pvpocket loadout accept` or
-  `decline`. Only a unanimous yes writes it back into `loadout`.
-
-  **The change never overwrites the live loadout.** It is stored beside it, because a refusal has to
-  restore the old one and the old one was never written down a second time — overwrite-then-roll-back
-  has nowhere to roll back to.
-
-  **There is no deadline and the intermission clock does not need pausing.** A loadout only reaches
-  an inventory at a round start, so "applies from the next round" is a consequence of where it is
-  read rather than a deadline anybody has to meet. Unresolved, the round runs on the old loadout and
-  the proposal waits for the next boundary.
-
-  The consent uses **the same shape as the rule negotiation but a separate counter**
-  (`loadoutRevision` ≠ `rulesRevision`): the rules are frozen once the series starts, and a rule
-  called "swap loadout" must not be able to re-open the rule set.
-
-  The two answers are commands rather than panel buttons because there is no mid-series panel to put
-  a button on — the rules panel is a draft/negotiation screen. These two leaves are the *first* path
-  to this decision, not a second one beside a GUI.
-
 ### There is no "recorded only" left
 
-**All 36 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+**All 35 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
 `fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
 
 This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line

@@ -106,8 +106,6 @@ public final class PvPocketCommands {
                 .executes(PvPocketCommands::loadout)
                 .then(Commands.literal("give").executes(PvPocketCommands::loadoutGive))
                 .then(Commands.literal("edit").executes(PvPocketCommands::loadoutEdit))
-                .then(Commands.literal("accept").executes(PvPocketCommands::loadoutAccept))
-                .then(Commands.literal("decline").executes(PvPocketCommands::loadoutDecline))
                 .then(Commands.literal("reset").executes(PvPocketCommands::loadoutReset)));
 
         dispatcher.register(root);
@@ -143,7 +141,6 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket spectate <prefix>", "pvpocket.command.help.spectate");
         helpLine(source, "/pvpocket spectate leave", "pvpocket.command.help.spectate_leave");
         helpLine(source, "/pvpocket loadout [give|edit|reset]", "pvpocket.command.help.loadout");
-        helpLine(source, "/pvpocket loadout [accept|decline]", "pvpocket.command.help.loadout_swap");
         source.sendSuccess(() -> PvLang.t("pvpocket.command.help.footer")
                 .withStyle(ChatFormatting.DARK_GRAY), false);
         return 1;
@@ -512,30 +509,6 @@ public final class PvPocketCommands {
     private static int loadoutEdit(CommandContext<CommandSourceStack> ctx) {
         try {
             SessionManager.get().onLoadoutRequest(ctx.getSource().getPlayerOrException());
-            return 1;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    /**
-     * Accepts or declines the between-round loadout swap.
-     *
-     * <p>A command rather than a panel button because there is no mid-series panel to put a button
-     * on: the rules panel is a draft and negotiation screen.
-     */
-    private static int loadoutAccept(CommandContext<CommandSourceStack> ctx) {
-        try {
-            SessionManager.get().acceptLoadoutSwap(ctx.getSource().getPlayerOrException());
-            return 1;
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
-    private static int loadoutDecline(CommandContext<CommandSourceStack> ctx) {
-        try {
-            SessionManager.get().declineLoadoutSwap(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;

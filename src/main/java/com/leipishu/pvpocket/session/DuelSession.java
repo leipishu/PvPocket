@@ -64,14 +64,6 @@ public final class DuelSession {
     }
     /** Bumped on every accepted edit, so both sides can tell which revision they agreed to. */
     public int rulesRevision;
-    /**
-     * Bumped every time somebody changes their loadout between rounds; see
-     * {@code Participant#acceptedLoadoutRevision}.
-     *
-     * <p>Separate from {@link #rulesRevision}: the rules are frozen once the series starts, and
-     * {@code d.allowSwapBetweenRounds} covers the loadout alone.
-     */
-    public int loadoutRevision;
     /** Uuid of the player who authored the current revision. */
     public String rulesAuthor;
     /** Uuid of the player whose answer the session is waiting on. */

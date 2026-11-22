@@ -138,11 +138,6 @@ public final class Rulebook {
         return rules.flag("d.allowCrafting");
     }
 
-    /** Whether a loadout may be re-proposed mid-series ({@code d.allowSwapBetweenRounds}). */
-    public boolean allowSwapBetweenRounds() {
-        return rules.flag("d.allowSwapBetweenRounds");
-    }
-
     // ------------------------------------------------------------------ F. blocks
 
     /**
