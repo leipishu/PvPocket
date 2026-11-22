@@ -178,7 +178,7 @@ frame in it is measured from the short one. The ladder lives in `PvDraw`:
   a second line breaks the one-row-per-item rhythm of every panel. Wrapping is only reached where a
   single line would have to be cut.
 - **Two pixels of slack.** Landing within 2px of the floor is not a label that does not fit: `0.733`
-  and `0.75` are indistinguishable on screen, and turning `Accept & start` into `Accept & sta…` over
+  and `0.75` are indistinguishable on screen, and turning `Submit changes` into `Submit chang…` over
   1.6px is pure loss.
 - Wrapping is only used where the **height allows** it: a 22px chip, a 24px row and a 20px button each
   hold two lines (a 16px title-row chip holds one), and a hint sentence holds up to three with its
@@ -264,7 +264,7 @@ Two constraints:
 is the button's 8px on each side. A fixed width wastes space in one language and truncates in the other
 ("Consumables" is 64px).
 
-**Tab labels alone are not enough.** The English commit button is wider than any tab ("Accept & start"
+**Tab labels alone are not enough.** The English commit button is wider than any tab ("Retract changes"
 is 84px against "Players" at 42px), and a 76px column measured from the tabs truncates it to
 "Accept & st…". So the buttons are built first, their labels measured, and only then is the column
 sized: `init()` runs `buildStack()` → `sidebarWidth(stack)` → `buildActions(stack)`.

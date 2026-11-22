@@ -154,7 +154,7 @@ TrueType 字体没有，同一段代码就变成「糊了一层」。这个界�
 - **缩小优先于换行。** 只差一点点就放得下的标签仍然占一行——两行制会打乱面板一行一条的节奏。
   只有一行必须截断时才动第二行。
 - **两级容差。** 差 2px 以内不算放不下：`0.733` 和 `0.75` 在屏幕上没有区别，为 1.6px 把
-  `Accept & start` 变成 `Accept & sta…` 是纯损失。
+  `Submit changes` 变成 `Submit chang…` 是纯损失。
 - 换行只在**高度允许**的地方用：22px 的 chip、24px 的行、20px 的按钮各容两行（16px 的标题行
   chip 只有一行），提示句最多三行且**行高由宽度决定**（`SettingRow.hint` 在 `onWidth` 里算）。
 - 尺寸能改的时候改尺寸，不要靠缩小硬塞。`PvCycle` 的标签列、`KeyBindRow` 的标签列、历史行的
@@ -218,7 +218,7 @@ sdRoundBox(p) = length(max(|p−c| − (h/2 − r), 0)) + min(max(qx,qy), 0) −
 **侧栏宽由内容推导**：`clamp(max(最长 Tab 标签 + 34, 最长按钮标签 + 16), 72, 100)`，34 = 两侧内缩 12 +
 文字缩进 10 + 脏点列 12，16 = 按钮左右各 8。写死宽度在中文下浪费、在英文下截断（"Consumables" 64px）。
 
-**只看 Tab 标签是不够的。** 英文的提交按钮比任何 Tab 都宽（"Accept & start" 84px 对 "Players" 42px），
+**只看 Tab 标签是不够的。** 英文的提交按钮比任何 Tab 都宽（"Retract changes" 对 "Players"），
 按 Tab 算出来的 76px 侧栏会把按钮标签截成 "Accept & st…"。因此先建按钮、量出它们的标签宽度、再定
 侧栏宽，`init()` 里的顺序是 `buildStack()` → `sidebarWidth(stack)` → `buildActions(stack)`。
 

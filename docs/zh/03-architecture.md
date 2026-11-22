@@ -23,7 +23,8 @@
 
 | 客户端能说的 | 服务端如何处理 |
 | --- | --- |
-| 「我接受这份规则」（`RulesSubmitPayload`） | 重新核对阶段、是否轮到它、配装指纹是否仍然一致 |
+| 「我不修改 / 我提交这份修改」（`RulesSubmitPayload`） | 重新核对阶段、是否仍是参与者、窗口是否还开着 |
+| 「这一项我投第 N 个选项」（`VoteSubmitPayload`） | 核对阶段是 `VOTING`、项在冻结的票面上、选项在范围内 |
 | 「我要观战这一局」（`SpectateRequestPayload`） | 核对会话存在、观战开关、是否已是参与者 |
 | 「我按住了右键格挡」（`BlockingPayload`） | 核对经典模式、主手是剑、没死、不是旁观者 |
 | 「把配装存成这个」（`LoadoutSubmitPayload`） | 逐项校验，非法项丢弃并回报 |
@@ -34,19 +35,18 @@
 ## 3. 会话状态机
 
 ```
-DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
-                        │                      │
-                        │                      ├─> ROUND_READY ─> ROUND_ACTIVE ─> ROUND_SETTLED
-                        │                      │                        │              │
-                        └──拒绝/取消──┐         │                        └──────────────┘
-                                      ↓         ↓                              （还有下一局）
-                                   VOIDED   RESTORING ─> ARCHIVED
+DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──逐项合并──> RESULT ──20s──> FROZEN
+                        │  │                                        │
+                        │  └──无分支────────────────────────────────┴─> RESULT
+                        └──拒绝 / 取消──> VOIDED
 ```
 
 | 阶段 | 含义 | 有快照 |
 | --- | --- | --- |
 | `DRAFT` | 发起方在改规则，还没发给对方 | 否 |
-| `NEGOTIATING` | 已发给对方，等回应 | 否 |
+| `NEGOTIATING` | 分支窗口：邀请已发出，5 分钟内每人可提交一份修改 | 否 |
+| `VOTING` | 有分支，逐项投票中；票数最多者胜，平票保持 main | 否 |
+| `RESULT` | 结果公示：只读倒计时，结束后冻结与传送 | 否 |
 | `FROZEN` | 规则与配装已锁定，正在传送与快照 | 是 |
 | `ROUND_READY` | 回合准备期，硬墙未拆 | 是 |
 | `ROUND_ACTIVE` | 回合进行中 | 是 |
@@ -54,7 +54,7 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | `RESTORING` | 正在逐项还原玩家状态 | 是 |
 | `ARCHIVED` / `VOIDED` | 终态：正常归档 / 未开始就作废 | — |
 
-`isPreFreeze()`（`DRAFT` / `NEGOTIATING`）是分界线：在此之前取消不需要还原任何东西，
+`isPreFreeze()`（`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`）是分界线：在此之前取消不需要还原任何东西，
 在此之后每个终态都必须走还原路径。**「有快照」等价于「必须还原」**，这条不变量是
 崩溃对账的基础。
 
@@ -97,7 +97,8 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | 方向 | 包 | 用途 |
 | --- | --- | --- |
 | C→S | `BlockingPayload` | 格挡按住/松开 |
-| C→S | `RulesSubmitPayload` | 征询 / 接受 / 拒绝 / 关闭面板 |
+| C→S | `RulesSubmitPayload` | 发送邀请 / 提交修改 / 不修改 / 拒绝 / 关闭面板 |
+| C→S | `VoteSubmitPayload` | 对某一项投某个选项 |
 | C→S | `LoadoutRequestPayload` | 请求打开配装编辑器 |
 | C→S | `LoadoutSubmitPayload` | 提交配装 |
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
@@ -105,6 +106,8 @@ DRAFT ──发送征询──> NEGOTIATING ──全员同意──> FROZEN
 | C→S | `HomeRequestPayload` | 「给我一份主页面快照」 |
 | C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、收回分区、重建场地、开关滞留保护 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
+| S→C | `VoteOpenPayload` / `VoteProgressPayload` | 投票面板开 / 参与进度 |
+| S→C | `ResultOpenPayload` | 结果公示页：项表 + 票数 + 最终编排 + 倒计时 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |
 | S→C | `MatchHudPayload` | 计分板 |

@@ -184,7 +184,8 @@ Where each one is read:
 - **One set, no switch** — a match has exactly one loadout, and that is not a rule but a premise:
   `SessionManager.sharedLoadout` reads it off the participants (every copy is written to the same
   value by `adoptSharedLoadout`), `startRound` grants it to everybody, and `onLoadoutRequest` draws
-  it in every panel. There used to be a `d.loadoutScope` (per player / per team). It was deleted not
+  it in every panel (inside the branch window a panel shows that player's own branch, and this set
+  only when they have none). There used to be a `d.loadoutScope` (per player / per team). It was deleted not
   because there were too many options but because it made "my sword has Sharpness and his does not"
   a legal state — a duel is supposed to be the same blade and the same armour. The round reads the
   **match-wide** set; it no longer resolves a set per side or per player.
@@ -303,26 +304,46 @@ any time on a survival server", not a league.
 
 ## 5. Negotiation and freeze
 
+Rule negotiation is a **commit graph**, not a round of proposals: main is the set the challenger sent,
+each player may branch off it once, and the roster then votes item by item to merge the winners back.
+
 1. The challenger runs `/pvpocket duel`, which creates a session (`DRAFT`) with default rules and
    opens the panel on the **roster page** (tab 0).
-2. The challenger draws the cards: two by default, four at most, each with `b.teamSize` slots, and a
-   `+` in the corner opens the player picker. An empty card means that side does not play; at least
-   two non-empty cards are needed to send.
+2. The challenger draws the cards: two by default, four at most, each with `b.teamSize` slots. An
+   empty card means that side does not play; at least two non-empty cards are needed to send.
 3. "Send invite" sends the roster and the current rules together. The server checks the side count
    (2–4), the per-side cap, the player cap, duplicates, that everyone is online and idle, and that
-   the sender is on the roster — **against the rules that were just sent**, not the defaults the
-   draft opened with. Empty cards are compacted away, and the session moves to `NEGOTIATING`.
-4. Everybody invited gets the panel at once, also opening on the roster page, where they can see
-   which side they are on and who has not answered yet (grey = waiting, green = accepted, red =
-   declined). The roster is read-only for reviewers.
-5. "Accept and start" means agreeing to the rules **and to everybody's loadout**. The combined
-   loadout fingerprint is recorded; if anyone changes their loadout afterwards the agreement lapses
-   and the panel reopens.
-6. **The match starts when everybody has answered and at least two non-empty sides remain.** A
-   refusal is not a cancellation — it takes that player off the roster: invite four, one declines,
-   and the remaining three still play as a 2v1. Only when fewer than two non-empty sides are left is
-   the whole invite voided.
-7. The rules freeze (`FROZEN`) and the teleport/snapshot phase begins.
+   the sender is on the roster — **against the rules that were just sent**. The session moves to
+   `NEGOTIATING`, that set becomes **main v1**, and every loadout row is numbered
+   (`LoadoutEntry.ref`). **From this moment `b.teamSize` and `b.maxPlayers` are frozen**: they are
+   not on the ballot and the panel greys them out, because the roster is now a shared object.
+4. **The branch window is five minutes, one answer per player.** The challenger does not answer:
+   sending the invite is their answer, and their panel opens in the waiting state. An invitee edits
+   first, then takes one of two paths:
+   - "No changes": files nothing, and only records that they have looked.
+   - "Submit changes": files the panel's rules, their saved loadout and the arrangement made with
+     "Arrange sides" as one branch. That editor rewrites the **whole roster**: anybody can be moved
+     to any side, and a new side can be opened; the player set never changes, and the only limits
+     are two to four sides, each at most `b.teamSize`, and the total at most `b.maxPlayers`.
+   **After submitting, the panel becomes a read-only waiting page** ("Submitted; waiting for the
+   others"): no further edits and no second submit. The window closes as soon as the last player
+   answers, or at the deadline, where silence counts as no change.
+5. **No branches at all** skips voting and goes straight to the result page.
+6. Otherwise each branch is diffed against main to build the **ballot**: one item for the whole
+   arrangement; one item per rule; one item per loadout row, where the candidates are whole rows;
+   additions and removals are items of their own. Candidates with the same value merge into one
+   option and list everybody who proposed it. The arrangement is a single-choice item: moving one
+   player changes two sides at once, and per-side votes could pick a combination nobody proposed.
+7. `VOTING`: everybody votes on every item, and option 0 is always "keep what main has". **The most
+   votes wins; any tie returns to main's value.** Votes may be changed, and the ballot closes when
+   everybody has voted or after three minutes.
+8. The merged set bumps `rulesRevision` and becomes the new main (v2), written to the session and
+   the journal; then the session enters **`RESULT`**.
+9. `RESULT` is the **result page**: a read-only ten-second countdown. The arrangement is drawn as
+   cards, and every rule and loadout item lists "was -> now", who proposed it and the tally. The
+   freeze and teleport happen when the countdown ends. `/pvpocket review` reopens the page.
 
-Every snapshot carries `rulesRevision`, shown in the panel's top right. Each "send proposal" bumps
-it and invalidates earlier agreement — the only defence against "I agreed to the previous version".
+The rule set carries `rulesRevision`, shown in the panel's top right. v1 is what the challenger sent
+and v2 is the merged result. There is no re-proposal after the merge, because the branch window opens
+once.
+

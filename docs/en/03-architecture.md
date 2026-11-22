@@ -25,7 +25,8 @@ server-side exception.
 
 | What the client may say | What the server does about it |
 | --- | --- |
-| "I accept these rules" (`RulesSubmitPayload`) | Re-checks stage, whether it is their turn, and whether the loadout fingerprint still matches |
+| "No changes" / "here are my changes" (`RulesSubmitPayload`) | Re-checks stage, that they are still a participant, and that the window is open |
+| "On this item, option N" (`VoteSubmitPayload`) | Checks the stage is `VOTING`, the item is on the frozen ballot, and the option is in range |
 | "I want to watch this match" (`SpectateRequestPayload`) | Checks the session exists, spectating is on, and they are not already a participant |
 | "I am holding right-click to block" (`BlockingPayload`) | Checks legacy mode, sword in main hand, alive, not a spectator |
 | "Save this loadout" (`LoadoutSubmitPayload`) | Validates item by item, drops illegal entries, reports back |
@@ -37,19 +38,18 @@ only displays the result.
 ## 3. Session state machine
 
 ```
-DRAFT ──send proposal──> NEGOTIATING ──all agree──> FROZEN
-                          │                          │
-                          │                          ├─> ROUND_READY ─> ROUND_ACTIVE ─> ROUND_SETTLED
-                          │                          │                        │              │
-                          └──reject/cancel──┐        │                        └──────────────┘
-                                            ↓        ↓                             (more rounds)
-                                         VOIDED  RESTORING ─> ARCHIVED
+DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──merge──> RESULT ──20s──> FROZEN
+                          │  │                                      │
+                          │  └──no branches──────────────────────────┴─> RESULT
+                          └──reject / cancel──> VOIDED
 ```
 
 | Stage | Meaning | Snapshotted |
 | --- | --- | --- |
 | `DRAFT` | Challenger is editing, not sent yet | No |
-| `NEGOTIATING` | Sent, awaiting a reply | No |
+| `NEGOTIATING` | Branch window: invite is out, five minutes to file one alternative | No |
+| `VOTING` | Branches exist; one vote per item, most votes wins, a tie keeps main | No |
+| `RESULT` | Result page: read-only countdown, then freeze and teleport | No |
 | `FROZEN` | Rules and loadouts locked, teleporting and snapshotting | Yes |
 | `ROUND_READY` | Preparation period, wall still standing | Yes |
 | `ROUND_ACTIVE` | Round in progress | Yes |
@@ -57,7 +57,7 @@ DRAFT ──send proposal──> NEGOTIATING ──all agree──> FROZEN
 | `RESTORING` | Restoring player state field by field | Yes |
 | `ARCHIVED` / `VOIDED` | Terminal: archived normally / abandoned before starting | — |
 
-`isPreFreeze()` (`DRAFT` / `NEGOTIATING`) is the dividing line: cancelling before it requires no
+`isPreFreeze()` (`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`) is the dividing line: cancelling before it requires no
 restore, and every terminal state after it must go through one. **"Has snapshots" is equivalent to
 "must restore"**, and that invariant is what crash reconciliation is built on.
 
@@ -107,7 +107,9 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | Dir | Payload | Purpose |
 | --- | --- | --- |
 | C→S | `BlockingPayload` | Block held / released |
-| C→S | `RulesSubmitPayload` | Propose / accept / reject / dismiss |
+| C→S | `RulesSubmitPayload` | Send invite / file changes / no changes / reject / dismiss |
+| C→S | `VoteSubmitPayload` | One option on one item |
+| S→C | `ResultOpenPayload` | Result page: items, tallies, final arrangement, countdown |
 | C→S | `LoadoutRequestPayload` | Ask for the loadout editor |
 | C→S | `LoadoutSubmitPayload` | Submit a loadout |
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |

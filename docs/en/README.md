@@ -49,7 +49,10 @@
 1. Player A runs `/pvpocket duel`; the rule panel opens on the players page with two team cards.
 2. Put people on the cards and drag the sliders; player B sees the same draft on their own panel.
 3. Both sides build a loadout, optionally from a preset.
-4. Both press "Accept & start" — rules and loadouts lock together, a countdown runs, and everyone is teleported in.
+4. Everybody answers within five minutes: "No changes", "Submit changes" to file a branch, or "Arrange sides" to
+   rewrite the whole roster. Nobody filing skips the vote; otherwise the roster votes item by item (the arrangement as
+   one item, each rule, each loadout row), most votes wins, a tie keeps the original.
+5. The result page then publishes what the match will run on for twenty seconds, and only then does the teleport happen.
 5. After the agreed number of rounds a winner is declared; a few seconds later everyone is back where they started, restored.
 
 If the panel is closed with Esc, `/pvpocket review` reopens it.
