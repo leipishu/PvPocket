@@ -26,6 +26,7 @@ import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.RuleCatalog;
 import com.leipishu.pvpocket.rules.RuleDefinition;
 import com.leipishu.pvpocket.rules.RuleGroup;
+import com.leipishu.pvpocket.session.RosterShape;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
@@ -37,13 +38,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The rule panel: the screen a duel is proposed from.
+ * The rule panel: the screen a duel is proposed from, and the branch editor afterwards.
  *
- * <p>One screen serves the proposer and the reviewer. Both roles see the same layout, labels,
- * ranges and defaults; only the footer actions differ.
+ * <p>Past the draft the panel shows main (or this player's own branch), the footer counts down the
+ * five-minute window, and the two commit buttons mean "nothing to change" and "file these edits".
+ * One player's answer never invalidates another's.
  *
  * <p>Nothing is committed until a footer button is pressed. Closing the panel sends an explicit
- * dismiss so the server can drop the draft.
+ * dismiss, which past the draft only closes it: the window keeps running and
+ * {@code /pvpocket review} brings it back.
  */
 public class RuleScreen extends PvScreen {
 
@@ -70,14 +73,27 @@ public class RuleScreen extends PvScreen {
     private final RulesOpenPayload payload;
     private final DuelRules incoming;
     private final List<RuleGroup> groups = List.of(RuleGroup.values());
+    /**
+     * When this panel opened, for turning the payload's countdown into a live clock.
+     *
+     * <p>The server sends "milliseconds left" rather than a deadline instant, so the client needs
+     * no clock sync with it; the local elapsed time is subtracted as the panel sits open.
+     */
+    private final long openedAt = System.currentTimeMillis();
 
     private DuelRules edited;
     private PvTabs tabs;
     private PvScrollPane pane;
     private RosterBoard board;
     private PvButton addTeamButton;
+    /** Window-only: opens the arrangement editor. */
+    private PvButton rosterButton;
+    /** The arrangement this panel opened with, canonical, for the dirty check. */
+    private String openedRoster;
     /** Title-row chip: the preset dialog. */
     private PvButton presetButton;
+    /** Title-row entry to the arrangement editor, window only. */
+    private PvButton rosterChip;
     /**
      * The loadout page toolbar button that opens the loadout editor.
      */
@@ -95,6 +111,8 @@ public class RuleScreen extends PvScreen {
     /** Whether the stack holds the revert button; the stack is rebuilt when this flips. */
     private boolean footerHasRevert;
     private boolean submitted;
+    /** Last time a commit button sent, so a double click does not send twice. */
+    private long sentAt;
 
     public RuleScreen(RulesOpenPayload payload) {
         super(PvLang.t("pvpocket.gui.rule.title"));
@@ -204,6 +222,10 @@ public class RuleScreen extends PvScreen {
             roots.remove(addTeamButton);
             addTeamButton = null;
         }
+        if (rosterButton != null) {
+            roots.remove(rosterButton);
+            rosterButton = null;
+        }
         if (loadoutButton != null) {
             roots.remove(loadoutButton);
             loadoutButton = null;
@@ -241,6 +263,14 @@ public class RuleScreen extends PvScreen {
      * appears in the summary. The row's hint explains the dependency.
      */
     private boolean rowEnabled(RuleDefinition def) {
+        if (answered()) {
+            // The waiting panel reports the answer; it does not accept a second one.
+            return false;
+        }
+        if (inWindow() && RuleCatalog.lockedAfterSend(def.id)) {
+            // The roster is shared from the moment the invite is out, so its two caps are frozen.
+            return false;
+        }
         switch (def.id) {
             case "e.sizeX":
             case "e.sizeY":
@@ -283,6 +313,19 @@ public class RuleScreen extends PvScreen {
             toolbarVisible = true;
             pane.y += TOOLBAR_H;
             pane.height -= TOOLBAR_H;
+        } else if (inWindow() && !answered()) {
+            // The roster is read-only here; the editor is how a player files a new one.
+            rosterButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.roster"),
+                    PvButton.Style.NORMAL, this::openRosterEditor);
+            rosterButton.size(Math.max(76, font().width(rosterButton.label()) + 16),
+                    PvTheme.BTN_H);
+            rosterButton.x = pane.x;
+            rosterButton.y = pane.y + (TOOLBAR_H - PvTheme.BTN_H) / 2;
+            roots.add(rosterButton);
+
+            toolbarVisible = true;
+            pane.y += TOOLBAR_H;
+            pane.height -= TOOLBAR_H;
         }
 
         board.visible = true;
@@ -297,6 +340,10 @@ public class RuleScreen extends PvScreen {
      * <p>The button stays outside the scroll pane so it stays reachable while the list is scrolled.
      */
     private void buildLoadoutToolbar() {
+        if (answered()) {
+            // The answer already carries the kit; the server refuses a save at this point too.
+            return;
+        }
         loadoutButton = new PvButton(PvLang.str("pvpocket.gui.rule.button.edit_loadout"),
                 PvButton.Style.NORMAL, this::openLoadout);
         loadoutButton.size(Math.max(76, font().width(loadoutButton.label()) + 16), PvTheme.BTN_H);
@@ -312,27 +359,112 @@ public class RuleScreen extends PvScreen {
     /** Rebuilds the cards from what the server sent: one card per side, players in team order. */
     private void seedBoard() {
         board.clear();
-        java.util.TreeMap<Integer, java.util.List<Slot>> byTeam = new java.util.TreeMap<>();
-        int teams = 0;
-        for (Slot slot : slots()) {
-            byTeam.computeIfAbsent(slot.team(), k -> new java.util.ArrayList<>()).add(slot);
-            teams = Math.max(teams, slot.team() + 1);
-        }
-        // Two cards is the floor even with one player in the list: a proposal that arrived with a
-        // side nobody is on still has to draw that side.
-        board.addTeam();
-        board.addTeam();
-        for (int team = 0; team < Math.max(teams, 2); team++) {
-            if (team >= board.teamCount()) {
-                board.addTeam();
+        // Inside the window the board shows this player's own arrangement when they filed one,
+        // otherwise the match set as the server listed it.
+        java.util.List<java.util.List<String>> mine = RosterShape.decode(payload.window().myRoster());
+        if (mine != null) {
+            seedFromSides(mine);
+        } else {
+            java.util.TreeMap<Integer, java.util.List<Slot>> byTeam = new java.util.TreeMap<>();
+            int teams = 0;
+            for (Slot slot : slots()) {
+                byTeam.computeIfAbsent(slot.team(), k -> new java.util.ArrayList<>()).add(slot);
+                teams = Math.max(teams, slot.team() + 1);
             }
-            java.util.List<Slot> members = byTeam.get(team);
-            if (members != null) {
-                for (Slot member : members) {
-                    board.addPlayer(team, member.name(), member.uuid(), member.state());
+            // Two cards is the floor even with one player in the list: a proposal that arrived with
+            // a side nobody is on still has to draw that side.
+            board.addTeam();
+            board.addTeam();
+            for (int team = 0; team < Math.max(teams, 2); team++) {
+                if (team >= board.teamCount()) {
+                    board.addTeam();
+                }
+                java.util.List<Slot> members = byTeam.get(team);
+                if (members != null) {
+                    for (Slot member : members) {
+                        board.addPlayer(team, member.name(), member.uuid(), member.state());
+                    }
                 }
             }
         }
+        openedRoster = canonicalRoster();
+    }
+
+    /** Rebuilds the cards from an arrangement string, using the names the server sent. */
+    private void seedFromSides(java.util.List<java.util.List<String>> sides) {
+        java.util.Map<String, Slot> byUuid = new java.util.HashMap<>();
+        for (Slot slot : slots()) {
+            byUuid.put(slot.uuid(), slot);
+        }
+        board.addTeam();
+        board.addTeam();
+        for (int team = 0; team < sides.size(); team++) {
+            if (team >= board.teamCount()) {
+                board.addTeam();
+            }
+            for (String uuid : sides.get(team)) {
+                Slot slot = byUuid.get(uuid);
+                board.addPlayer(team, slot == null ? uuid : slot.name(), uuid,
+                        slot == null ? 0 : slot.state());
+            }
+        }
+    }
+
+    /** The cards as an arrangement, empty sides dropped, so two drawings of it compare equal. */
+    private String canonicalRoster() {
+        return RosterShape.normalise(board.encode());
+    }
+
+    private boolean rosterChanged() {
+        // Called while the sidebar is being measured, before the cards exist on a first open.
+        return board != null && openedRoster != null && !openedRoster.equals(canonicalRoster());
+    }
+
+    /** Opens the arrangement editor on what the cards currently show. */
+    private void openRosterEditor() {
+        // The title-row chip can be pressed without ever opening the roster tab, where the cards
+        // are seeded; without this the editor would open on an empty list.
+        if (board.teamCount() == 0) {
+            seedBoard();
+        }
+        java.util.List<String> uuids = new java.util.ArrayList<>();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        java.util.List<Integer> teams = new java.util.ArrayList<>();
+        for (int team = 0; team < board.teamCount(); team++) {
+            for (RosterBoard.Member member : board.teams().get(team)) {
+                uuids.add(member.uuid);
+                names.add(member.name);
+                teams.add(team);
+            }
+        }
+        RosterEditor editor = new RosterEditor(uuids, names, teams, edited.get("b.teamSize"));
+        editor.x = 0;
+        editor.y = 0;
+        editor.width = width;
+        editor.height = height;
+        editor.listener(new RosterEditor.Listener() {
+            @Override
+            public void onConfirm(String roster) {
+                setOverlay(null);
+                applyRoster(roster);
+            }
+
+            @Override
+            public void onCancel() {
+                setOverlay(null);
+            }
+        });
+        setOverlay(editor);
+    }
+
+    private void applyRoster(String roster) {
+        java.util.List<java.util.List<String>> sides = RosterShape.decode(roster);
+        if (sides == null) {
+            return;
+        }
+        board.clear();
+        seedFromSides(sides);
+        buildRows();
     }
 
     /**
@@ -503,28 +635,30 @@ public class RuleScreen extends PvScreen {
             stack.add(primary);
             stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
                     PvButton.Style.DANGER, this::onClose));
-        } else if (payload.role() == RulesOpenPayload.ROLE_PROPOSER) {
-            primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
-                    PvButton.Style.PRIMARY,
-                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE));
+        } else if (answered()) {
+            // One answer per player: after it the panel only reports, it does not offer an edit.
+            primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.close"),
+                    PvButton.Style.GHOST, this::onClose);
             stack.add(primary);
-            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.cancel"),
-                    PvButton.Style.DANGER, this::onClose));
         } else {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
                     () -> submit(RulesSubmitPayload.ACTION_ACCEPT));
-            // "Accept" takes the revision from the server's record, so an unsent edit would be
-            // dropped. The button refuses while anything is unsent and the tooltip says why.
+            // "No changes" takes main from the server's record, so an unsent edit would be dropped.
+            // The button refuses while anything is unsent and the tooltip says why.
             if (changeCount() > 0) {
                 primary.enabled = false;
                 primary.tooltip = PvLang.str("pvpocket.gui.rule.accept_blocked");
             }
             stack.add(primary);
-            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.repropose"),
-                    PvButton.Style.NORMAL, () -> submit(RulesSubmitPayload.ACTION_PROPOSE)));
-            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.reject"),
-                    PvButton.Style.DANGER, () -> submit(RulesSubmitPayload.ACTION_REJECT)));
+            stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.propose"),
+                    PvButton.Style.NORMAL,
+                    () -> submit(RulesSubmitPayload.ACTION_PROPOSE)));
+            if (payload.role() == RulesOpenPayload.ROLE_REVIEWER) {
+                stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.reject"),
+                        PvButton.Style.DANGER,
+                        () -> submit(RulesSubmitPayload.ACTION_REJECT)));
+            }
         }
         defaultButton = primary;
         return stack;
@@ -630,6 +764,10 @@ public class RuleScreen extends PvScreen {
         if (presetButton != null) {
             roots.remove(presetButton);
         }
+        if (rosterChip != null) {
+            roots.remove(rosterChip);
+            rosterChip = null;
+        }
         int right = panelX + panelW - 12;
         int chipY = panelY + (HEADER_H - PvButton.CHIP_H) / 2;
 
@@ -637,6 +775,16 @@ public class RuleScreen extends PvScreen {
         presetButton.x = right - presetButton.width;
         presetButton.y = chipY;
         roots.add(presetButton);
+
+        // The arrangement entry lives in the title row, so it is reachable from every tab. The
+        // roster page has a second one, but a player who never opens that tab still finds this.
+        if (inWindow() && !answered()) {
+            rosterChip = PvButton.chip(PvLang.str("pvpocket.gui.rule.button.roster"),
+                    this::openRosterEditor);
+            rosterChip.x = right;
+            rosterChip.y = chipY;
+            roots.add(rosterChip);
+        }
     }
 
     /** Asks the server for the loadout editor; the server answers with a {@code loadout_open}. */
@@ -699,7 +847,25 @@ public class RuleScreen extends PvScreen {
         PvDraw.roundRect(ctx, versionX, chipY, versionW, PvBadge.H, 3, PvTheme.ACCENT_SOFT);
         PvDraw.textCenter(ctx, tr, version, versionX + versionW / 2, chipY + 3, PvTheme.ACCENT);
 
-        int subtitleMax = versionX - 8 - titleEnd;
+        int subtitleLimit = versionX;
+        // The window clock sits beside the version: both answer "which set is this", and the
+        // countdown is the one number a player needs while deciding whether to file a branch.
+        if (inWindow()) {
+            String clock = clock(remainingMs());
+            int clockW = PvBadge.widthOf(clock);
+            int clockX = versionX - 6 - clockW;
+            PvDraw.roundRect(ctx, clockX, chipY, clockW, PvBadge.H, 3, PvTheme.ACCENT_SOFT);
+            PvDraw.textCenter(ctx, tr, clock, clockX + clockW / 2, chipY + 3, PvTheme.ACCENT);
+            subtitleLimit = clockX;
+        }
+        // The arrangement entry is laid out against the chips, not against the panel edge: it is
+        // placed last so it can never sit under the countdown.
+        if (rosterChip != null) {
+            rosterChip.x = subtitleLimit - 6 - rosterChip.width;
+            subtitleLimit = rosterChip.x;
+        }
+
+        int subtitleMax = subtitleLimit - 8 - titleEnd;
         PvDraw.text(ctx, tr, PvDraw.fit(tr, subtitle, subtitleMax), titleEnd, panelY + 11,
                 PvTheme.TEXT_DIM);
 
@@ -729,7 +895,15 @@ public class RuleScreen extends PvScreen {
         // yet. On the roster page it names the blocker rather than restating the button label.
         String status;
         int color = PvTheme.TEXT_MUTED;
-        if (rosterEditable()) {
+        if (answered()) {
+            // Waiting is the whole state: the answer is in, and the window closes when the last
+            // one lands. The author never answers, so their line says what they wait on.
+            status = PvLang.str(payload.role() == RulesOpenPayload.ROLE_PROPOSER
+                            ? "pvpocket.gui.rule.footer.waiting_author"
+                            : "pvpocket.gui.rule.footer.waiting",
+                    clock(remainingMs()));
+            color = PvTheme.ACCENT;
+        } else if (rosterEditable()) {
             int teams = board == null ? 0 : board.playingTeams();
             int people = board == null ? 0 : board.playerCount();
             // The cap is named before the generic hint: it is the one blocker the cards cannot
@@ -743,6 +917,15 @@ public class RuleScreen extends PvScreen {
                     : PvLang.str("pvpocket.gui.roster.footer");
             if (atPlayerCap() || (teams >= 2 && people >= 2)) {
                 color = PvTheme.ACCENT;
+            }
+        } else if (inWindow()) {
+            // The footer states the one thing that is still open: how long is left, and whether
+            // this player's answer is already on record.
+            if (changes > 0) {
+                status = PvLang.str("pvpocket.gui.rule.footer.changed", changes);
+                color = PvTheme.ACCENT;
+            } else {
+                status = PvLang.str("pvpocket.gui.rule.footer.window", clock(remainingMs()));
             }
         } else {
             status = reviewer
@@ -872,13 +1055,35 @@ public class RuleScreen extends PvScreen {
     // ------------------------------------------------------------------ actions
 
     private int changeCount() {
-        int n = 0;
+        int n = rosterChanged() ? 1 : 0;
         for (RuleDefinition def : RuleCatalog.all()) {
             if (edited.get(def.id) != incoming.get(def.id)) {
                 n++;
             }
         }
         return n;
+    }
+
+    /** True once this player has given their one answer, which puts the panel in waiting mode. */
+    private boolean answered() {
+        return payload.role() != RulesOpenPayload.ROLE_DRAFT && payload.window().answered() != 0;
+    }
+
+    /** True while the branch window is open, i.e. the panel is not a draft. */
+    private boolean inWindow() {
+        return payload.role() != RulesOpenPayload.ROLE_DRAFT && payload.window().deadlineMsLeft() > 0;
+    }
+
+    /** Milliseconds left in the window, counted down locally from the payload's snapshot. */
+    private int remainingMs() {
+        long left = payload.window().deadlineMsLeft() - (System.currentTimeMillis() - openedAt);
+        return (int) Math.max(0, left);
+    }
+
+    /** Formats a countdown as {@code m:ss}. */
+    private static String clock(int millis) {
+        int seconds = Math.max(0, millis / 1000);
+        return String.format("%d:%02d", seconds / 60, seconds % 60);
     }
 
     /**
@@ -931,27 +1136,28 @@ public class RuleScreen extends PvScreen {
     }
 
     private void submit(int action) {
-        if (submitted) {
-            return;
-        }
         if (rosterEditable()) {
             // A draft stays open after sending: a refusal has to leave the cards where they are so
             // the player can fix the problem. A successful send replaces this screen a tick later.
             send(action);
             return;
         }
-        submitted = true;
+        // Past the draft the server answers every submit with a fresh panel, so closing here would
+        // flash the world; a second click inside half a second would only repeat the packet.
+        if (System.currentTimeMillis() - sentAt < 500L) {
+            return;
+        }
+        sentAt = System.currentTimeMillis();
         send(action);
-        onClose();
     }
 
     private void send(int action) {
         if (!PvClientPlatform.get().canSend(RulesSubmitPayload.ID)) {
             return;
         }
-        // The roster rides on every submit and is empty once the invite is out; the server ignores
-        // it outside the draft.
-        String roster = rosterEditable() ? board.encode() : "";
+        // The cards ride on every submit: in the draft they are the invite's roster, and inside the
+        // window they are this player's proposed arrangement.
+        String roster = board.encode();
         PvClientPlatform.get().send(new RulesSubmitPayload(action, edited.encode(), roster));
     }
 

@@ -9,7 +9,9 @@ import com.leipishu.pvpocket.client.gui.prepare.PrepareNotice;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
+import com.leipishu.pvpocket.client.gui.rule.ResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
 import com.leipishu.pvpocket.client.home.HomeClient;
 import com.leipishu.pvpocket.client.home.HomeState;
 import com.leipishu.pvpocket.client.home.InventoryButton;
@@ -36,9 +38,12 @@ import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.PrepareStatusPayload;
+import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
+import com.leipishu.pvpocket.network.VoteOpenPayload;
+import com.leipishu.pvpocket.network.VoteProgressPayload;
 import com.leipishu.pvpocket.client.compat.PvScreens;
 import net.minecraft.client.Minecraft;
 
@@ -77,6 +82,29 @@ public final class PvPocketClient {
             PvScreens.open(Minecraft.getInstance(), new RuleScreen(payload));
         });
 
+        platform.onServerPacket(VoteOpenPayload.ID, payload -> {
+            PvPocket.LOGGER.info("Received vote_open for session {} ({} items)",
+                    payload.sessionId(), payload.items().isEmpty()
+                            ? 0 : payload.items().split("\n").length);
+            PvScreens.open(Minecraft.getInstance(), new VoteScreen(payload));
+        });
+
+        platform.onServerPacket(ResultOpenPayload.ID, payload -> {
+            PvPocket.LOGGER.info("Received result_open for session {} ({} items)",
+                    payload.sessionId(), payload.items().isEmpty()
+                            ? 0 : payload.items().split("\n").length);
+            PvScreens.open(Minecraft.getInstance(), new ResultScreen(payload));
+        });
+
+        platform.onServerPacket(VoteProgressPayload.ID, payload -> {
+            // Only the panel for this ballot listens: a late packet from an older vote must not
+            // repaint the one on screen.
+            if (PvScreens.current(Minecraft.getInstance()) instanceof VoteScreen screen
+                    && screen.sessionId().equals(payload.sessionId())) {
+                screen.update(payload);
+            }
+        });
+
         platform.onServerPacket(PrepareStatusPayload.ID, payload -> {
             if (payload.active()) {
                 // Armed, not opened: a start that finishes inside the delay shows nothing at all.
@@ -95,6 +123,16 @@ public final class PvPocketClient {
                     payload.sessionId(), showing);
             if (showing) {
                 ((RuleScreen) PvScreens.current(client)).closeSilently();
+                return;
+            }
+            if (PvScreens.current(client) instanceof VoteScreen ballot
+                    && ballot.sessionId().equals(payload.sessionId())) {
+                ballot.closeSilently();
+                return;
+            }
+            if (PvScreens.current(client) instanceof ResultScreen result
+                    && result.sessionId().equals(payload.sessionId())) {
+                result.closeSilently();
                 return;
             }
             // The loadout editor is a child of the rule panel, so it closes with it.

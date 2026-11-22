@@ -4,15 +4,21 @@ import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
+import com.leipishu.pvpocket.client.gui.rule.ResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
+import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
 import com.leipishu.pvpocket.client.home.HomeScreen;
 import com.leipishu.pvpocket.client.home.HomeState;
 import com.leipishu.pvpocket.client.preset.PresetStore;
+import com.leipishu.pvpocket.loadout.ItemKind;
 import com.leipishu.pvpocket.loadout.Loadout;
+import com.leipishu.pvpocket.loadout.LoadoutEntry;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
+import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
+import com.leipishu.pvpocket.network.VoteOpenPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
@@ -140,6 +146,12 @@ public final class PvAuditHarness {
             for (int variant = 0; variant < 11; variant++) {
                 add("rules/draft", size, variant, () -> new RuleScreen(draft()));
             }
+            for (int variant = 0; variant < 2; variant++) {
+                add("vote", size, variant, () -> new VoteScreen(ballot()));
+            }
+            for (int variant = 0; variant < 2; variant++) {
+                add("rules/result", size, variant, () -> new ResultScreen(result()));
+            }
             for (int variant = 0; variant < 7; variant++) {
                 add("loadout/duel", size, variant, () -> new LoadoutScreen(duelLoadout(), null));
             }
@@ -170,13 +182,61 @@ public final class PvAuditHarness {
     private static RulesOpenPayload reviewer() {
         return new RulesOpenPayload("audit", DuelRules.defaults().encode(),
                 RulesOpenPayload.ROLE_REVIEWER, 3,
-                new RulesOpenPayload.Details("Dev2", PARTICIPANTS, 1, 4, 0, ""));
+                new RulesOpenPayload.Details("Dev2", PARTICIPANTS, 1, 4, 0, ""),
+                new RulesOpenPayload.Window(240_000, 0, "", ""));
     }
 
     private static RulesOpenPayload draft() {
         return new RulesOpenPayload("audit", DuelRules.defaults().encode(),
                 RulesOpenPayload.ROLE_DRAFT, 0,
-                new RulesOpenPayload.Details("", PARTICIPANTS, 0, 4, 0, "Dev3|u3,Dev4|u4"));
+                new RulesOpenPayload.Details("", PARTICIPANTS, 0, 4, 0, "Dev3|u3,Dev4|u4"),
+                RulesOpenPayload.Window.none());
+    }
+
+    /**
+     * A ballot with every shape of row on it: two rules with competing values, a changed loadout
+     * row, a removal and an addition.
+     *
+     * <p>Built from the real encodings rather than hand-written strings, so the audit measures the
+     * same text a live ballot produces.
+     */
+    /** Uuid to name, the form both the ballot and the result page carry. */
+    private static final String NAMES = "u1|Dev1,u2|Dev2,u3|Dev3,u4|Dev4";
+
+    /** Two arrangements of the same four players, the shape the roster item votes on. */
+    private static final String ROSTER_BASE = "u1,u3;u2,u4";
+    private static final String ROSTER_ALT = "u1,u2;u3,u4";
+
+    private static VoteOpenPayload ballot() {
+        Loadout loadout = Loadout.defaultDuel();
+        loadout.assignRefs();
+        StringBuilder sb = new StringBuilder();
+        sb.append("t:roster\t3\t\t-1\t").append(ROSTER_BASE)
+                .append('\t').append(ROSTER_ALT).append("~Dev2");
+        sb.append('\n').append("r:a.maxRounds\t0\ta.maxRounds\t-1\t3\t5~Dev2\t7~Dev3,Dev4");
+        sb.append('\n').append("r:c.maxHealth\t0\tc.maxHealth\t-1\t20\t30~Dev2,Dev4\t40~Dev3");
+        LoadoutEntry sword = loadout.byRef(0).copy();
+        LoadoutEntry sharper = sword.copy();
+        sharper.damageTenths = 90;
+        sb.append('\n').append("e:0\t1\t\t0\t").append(sword.encode())
+                .append('\t').append(sharper.encode()).append("~Dev3");
+        LoadoutEntry shield = loadout.byRef(1);
+        sb.append('\n').append("e:1\t1\t\t1\t").append(shield.encode()).append("\t~Dev4");
+        LoadoutEntry apple = LoadoutEntry.of(ItemKind.FOOD);
+        apple.variant = "minecraft:golden_apple";
+        apple.count = 8;
+        sb.append('\n').append("e:new:1a\t2\t\t-1\t\t").append(apple.encode()).append("~Dev2");
+        return new VoteOpenPayload("audit",
+                new VoteOpenPayload.Body(sb.toString(), "", NAMES, 150_000, 2, 4));
+    }
+
+    /** The same ballot after counting: one adopted item, one tie, the arrangement adopted. */
+    private static ResultOpenPayload result() {
+        String tallies = String.join("\n",
+                "t:roster\t1\t1,3",
+                "r:a.maxRounds\t1\t1,3",
+                "r:c.maxHealth\t0\t2,2");
+        return new ResultOpenPayload("audit", ballot().items(), tallies, ROSTER_ALT, NAMES, 150_000);
     }
 
     private static LoadoutOpenPayload duelLoadout() {

@@ -385,7 +385,7 @@ public class RosterBoard extends PvWidget {
         }
     }
 
-    private static PlayerSkin skinOf(String uuid) {
+    static PlayerSkin skinOf(String uuid) {
         UUID id;
         try {
             id = UUID.fromString(uuid);
