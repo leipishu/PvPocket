@@ -26,6 +26,16 @@ public final class RuleCatalog {
     private static final List<RuleDefinition> ORDERED = new ArrayList<>();
     private static final Map<String, RuleDefinition> BY_ID = new LinkedHashMap<>();
 
+    /**
+     * Rules that describe the roster rather than the match, and freeze when the invite goes out.
+     *
+     * <p>The roster is a shared object from that moment: players file whole arrangements against
+     * it, so letting one branch shrink the per-side cap would invalidate arrangements other people
+     * are looking at. Frozen here means "not on the ballot and not editable", not "removed".
+     */
+    private static final java.util.Set<String> LOCKED_AFTER_SEND =
+            java.util.Set.of("b.teamSize", "b.maxPlayers");
+
     static {
         // Rounds to play and rounds to win. The cap of 15 keeps a series under an hour.
         add(RuleDefinition.intRange("a.maxRounds", RuleGroup.A, 1, 15, 1, 3));
@@ -132,5 +142,10 @@ public final class RuleCatalog {
 
     public static int size() {
         return ORDERED.size();
+    }
+
+    /** True for a rule the roster panel owns once the invite is out. */
+    public static boolean lockedAfterSend(String id) {
+        return LOCKED_AFTER_SEND.contains(id);
     }
 }

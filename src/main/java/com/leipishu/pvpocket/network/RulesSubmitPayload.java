@@ -10,21 +10,23 @@ import net.minecraft.resources.ResourceLocation;
  * Client to server: the outcome of one rule panel session.
  *
  * <p>An intent, not a state change. The server re-derives who may do what from the session record
- * before acting: a proposal from someone who is not a participant, or from the side that is
- * supposed to be reviewing, is dropped.
+ * before acting: a proposal from someone who is not a participant is dropped.
  *
  * <p>{@code roster} is the team cards, {@code "uuid,uuid;uuid"}. It only means anything on the
  * first send, the one that turns a draft into an invite, and is empty afterwards.
+ *
+ * <p>Past the draft these are branch operations: {@link #ACTION_ACCEPT} means no change and starts
+ * nothing, {@link #ACTION_PROPOSE} files or amends this player's branch.
  */
 public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPacketPayload {
 
-    /** Send the roster (in draft) or the edited rules (in negotiation) and ask for consent. */
+    /** Send the roster (in draft) or file/amend this player's branch. */
     public static final int ACTION_PROPOSE = 0;
-    /** Accept the rule set exactly as it was received. */
+    /** Change nothing: the player has reviewed main and has no alternative to file. */
     public static final int ACTION_ACCEPT = 1;
     /** Decline the invite. With an explicit roster this drops the player, not the match. */
     public static final int ACTION_REJECT = 2;
-    /** Close the panel without deciding anything; the session stays where it is. */
+    /** Close the panel without deciding anything; the window keeps running. */
     public static final int ACTION_DISMISS = 3;
 
     public static final Type<RulesSubmitPayload> ID =

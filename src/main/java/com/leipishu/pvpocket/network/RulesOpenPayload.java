@@ -15,10 +15,11 @@ import net.minecraft.resources.ResourceLocation;
  *
  * <p>{@code role} selects the footer buttons: {@link #ROLE_PROPOSER} can only send a proposal,
  * {@link #ROLE_REVIEWER} can accept, reject, or edit and send it back. The display fields sit in
- * the nested {@link Details} record because {@code PacketCodec.tuple} stops at six components.
+ * the nested {@link Details} record because {@code PacketCodec.tuple} stops at six components;
+ * {@link Window} carries the branch-window state.
  */
-public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details)
-        implements CustomPacketPayload {
+public record RulesOpenPayload(String sessionId, String rules, int role, int revision, Details details,
+                               Window window) implements CustomPacketPayload {
 
     /**
      * The three panels one screen can be.
@@ -54,6 +55,32 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
                 Details::new);
     }
 
+    /**
+     * The branch window, as the panel needs it.
+     *
+     * <p>{@code deadlineMsLeft} is a countdown rather than an absolute instant: the client has no
+     * clock sync with the server, and a wall-clock comparison would be wrong by the player's time
+     * zone offset. {@code submitted} is 1 once this player has a branch on record.
+     * {@code myRules} is that branch's rule set, empty when there is none, so reopening the panel
+     * shows what the player submitted rather than main. {@code myRoster} is the same for the
+     * arrangement, in the roster panel's own {@code uuid,uuid;uuid} form. {@code answered} is 1
+     * once this player has given their one answer, which puts the panel in its waiting state.
+     */
+    public record Window(int deadlineMsLeft, int answered, String myRules, String myRoster) {
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, Window> CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, Window::deadlineMsLeft,
+                ByteBufCodecs.VAR_INT, Window::answered,
+                ByteBufCodecs.STRING_UTF8, Window::myRules,
+                ByteBufCodecs.STRING_UTF8, Window::myRoster,
+                Window::new);
+
+        /** A panel opened outside the branch window, where no countdown is drawn. */
+        public static Window none() {
+            return new Window(0, 0, "", "");
+        }
+    }
+
     public static final Type<RulesOpenPayload> ID =
             new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "rules_open"));
 
@@ -63,6 +90,7 @@ public record RulesOpenPayload(String sessionId, String rules, int role, int rev
             ByteBufCodecs.VAR_INT, RulesOpenPayload::role,
             ByteBufCodecs.VAR_INT, RulesOpenPayload::revision,
             Details.CODEC, RulesOpenPayload::details,
+            Window.CODEC, RulesOpenPayload::window,
             RulesOpenPayload::new);
 
     public String otherName() {

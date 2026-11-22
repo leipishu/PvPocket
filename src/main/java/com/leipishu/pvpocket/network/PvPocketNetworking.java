@@ -147,6 +147,40 @@ public final class PvPocketNetworking {
     }
 
     /**
+     * Opens the ballot on the client.
+     *
+     * <p>Logged like {@link #openRules}: "the panel did not appear" is answered by whether the
+     * channel was open or the payload never left the server.
+     */
+    public static void openVote(ServerPlayer player, VoteOpenPayload payload) {
+        boolean canSend = PvPlatform.get().canSend(player, VoteOpenPayload.ID);
+        PvPocket.LOGGER.info("Vote panel -> {} (canSend={}, items={})",
+                player.getName().getString(), canSend,
+                payload.items().isEmpty() ? 0 : payload.items().split("\n").length);
+        if (canSend) {
+            PvPlatform.get().send(player, payload);
+        }
+    }
+
+    /** Opens the result page: the final rules, loadout and arrangement, read-only. */
+    public static void openResult(ServerPlayer player, ResultOpenPayload payload) {
+        boolean canSend = PvPlatform.get().canSend(player, ResultOpenPayload.ID);
+        PvPocket.LOGGER.info("Result panel -> {} (canSend={}, items={})",
+                player.getName().getString(), canSend,
+                payload.items().isEmpty() ? 0 : payload.items().split("\n").length);
+        if (canSend) {
+            PvPlatform.get().send(player, payload);
+        }
+    }
+
+    /** Pushes the ballot's participation counts to one client. */
+    public static void sendVoteProgress(ServerPlayer player, VoteProgressPayload payload) {
+        if (PvPlatform.get().canSend(player, VoteProgressPayload.ID)) {
+            PvPlatform.get().send(player, payload);
+        }
+    }
+
+    /**
      * Tells a client to drop its rule panel because the negotiation it belongs to is finished.
      *
      * <p>Sent at every terminal transition of a negotiation: accepted, rejected, dismissed or

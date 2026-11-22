@@ -31,6 +31,7 @@ public final class PvPayloads {
     private static void registerClientToServer(PvPlatform platform) {
         platform.registerPlayToServer(BlockingPayload.ID, BlockingPayload.CODEC);
         platform.registerPlayToServer(RulesSubmitPayload.ID, RulesSubmitPayload.CODEC);
+        platform.registerPlayToServer(VoteSubmitPayload.ID, VoteSubmitPayload.CODEC);
         platform.registerPlayToServer(LoadoutRequestPayload.ID, LoadoutRequestPayload.CODEC);
         platform.registerPlayToServer(LoadoutSubmitPayload.ID, LoadoutSubmitPayload.CODEC);
         platform.registerPlayToServer(SpectateRequestPayload.ID, SpectateRequestPayload.CODEC);
@@ -46,6 +47,9 @@ public final class PvPayloads {
         platform.registerPlayToClient(BlockingStatePayload.ID, BlockingStatePayload.CODEC);
         platform.registerPlayToClient(RulesOpenPayload.ID, RulesOpenPayload.CODEC);
         platform.registerPlayToClient(RulesClosePayload.ID, RulesClosePayload.CODEC);
+        platform.registerPlayToClient(VoteOpenPayload.ID, VoteOpenPayload.CODEC);
+        platform.registerPlayToClient(ResultOpenPayload.ID, ResultOpenPayload.CODEC);
+        platform.registerPlayToClient(VoteProgressPayload.ID, VoteProgressPayload.CODEC);
         platform.registerPlayToClient(PrepareStatusPayload.ID, PrepareStatusPayload.CODEC);
         platform.registerPlayToClient(LoadoutOpenPayload.ID, LoadoutOpenPayload.CODEC);
         platform.registerPlayToClient(MatchHudPayload.ID, MatchHudPayload.CODEC);
@@ -80,6 +84,13 @@ public final class PvPayloads {
             SessionManager sessions = SessionManager.get();
             if (sessions != null) {
                 sessions.onRulesSubmit(player, payload.action(), payload.rules(), payload.roster());
+            }
+        });
+
+        platform.onServerReceive(VoteSubmitPayload.ID, (player, payload) -> {
+            SessionManager sessions = SessionManager.get();
+            if (sessions != null) {
+                sessions.onVoteSubmit(player, payload.sessionId(), payload.itemId(), payload.option());
             }
         });
 

@@ -15,6 +15,7 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.Loadout;
 import com.leipishu.pvpocket.loadout.LoadoutBook;
 import com.leipishu.pvpocket.loadout.LoadoutBuilder;
+import com.leipishu.pvpocket.loadout.LoadoutEntry;
 import com.leipishu.pvpocket.loadout.LoadoutLock;
 import com.leipishu.pvpocket.mixin.PlayerManagerInvoker;
 import com.leipishu.pvpocket.network.ArenaBoundsPayload;
@@ -24,10 +25,13 @@ import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PrepareStatusPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
+import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
+import com.leipishu.pvpocket.network.VoteOpenPayload;
+import com.leipishu.pvpocket.network.VoteProgressPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
 import com.leipishu.pvpocket.rules.Rulebook;
 import com.leipishu.pvpocket.snapshot.PlayerSnapshot;
@@ -83,6 +87,41 @@ public final class SessionManager {
 
     /** How often stray mobs are swept out of leased plots, in server ticks. */
     private static final int SWEEP_INTERVAL = 60;
+
+    /**
+     * How long the branch window stays open after the invite goes out.
+     *
+     * <p>Five minutes is the design's number: long enough to read thirty-five rules and one
+     * loadout, short enough that an idle invite does not hold a plot's worth of players. A window
+     * that everybody answers early closes early; only silence runs the clock out.
+     */
+    private static final long RULES_WINDOW_MS = 5L * 60L * 1000L;
+
+    /**
+     * How long voting stays open once the ballot is built.
+     *
+     * <p>Shorter than the branch window: every option is already written down, so the only work is
+     * clicking. It exists so one player who walks away cannot hold the match forever; the result is
+     * then decided on the votes already cast.
+     */
+    private static final long VOTE_WINDOW_MS = 3L * 60L * 1000L;
+
+    /**
+     * How long to wait before retrying a start the arena refused.
+     *
+     * <p>Long enough for a lease to be released or a rebuild to finish, short enough that the
+     * players still see the countdown rather than a frozen panel.
+     */
+    private static final long START_RETRY_MS = 3_000L;
+
+    /**
+     * How long the result page stays up before the match starts.
+     *
+     * <p>Long enough to read a handful of items, short enough not to feel like a second lobby. The
+     * page is a countdown rather than a ready check: everybody has answered before it opens, so a
+     * second gate would only add a way to stall the start.
+     */
+    private static final long RESULT_WINDOW_MS = 10_000L;
 
     /**
      * How long the first round waits for a participant who accepted while dead, in server ticks.
@@ -501,6 +540,46 @@ public final class SessionManager {
                 homes.rescue(online);
             }
         });
+    }
+
+    /**
+     * Expires the branch window and the ballot.
+     *
+     * <p>Wall-clock deadlines rather than tick counters: a server that stalls for ten seconds still
+     * owes the players the ten seconds, and a session file read back after a restart carries the
+     * same instant. A zero deadline means "no window", which is every session written before
+     * windows existed.
+     *
+     * <p>Expiry is the only place silence is interpreted. A branch window that runs out closes with
+     * the branches it has (players who filed nothing are "no change"), and a ballot that runs out
+     * is decided on the votes already cast, including none.
+     */
+    private void tickNegotiationWindows() {
+        long now = System.currentTimeMillis();
+        for (DuelSession session : sessions.values()) {
+            if (session.stage == SessionStage.NEGOTIATING
+                    && session.rulesWindowEndsAt > 0
+                    && now >= session.rulesWindowEndsAt) {
+                journal(session).append("WINDOW_EXPIRED",
+                        "branches", session.branches.size(),
+                        "players", liveCount(session));
+                closeWindow(session);
+            } else if (session.stage == SessionStage.VOTING
+                    && session.voteWindowEndsAt > 0
+                    && now >= session.voteWindowEndsAt) {
+                journal(session).append("VOTE_EXPIRED", "items", session.voteItems.size());
+                resolveVote(session, null);
+            } else if (session.stage == SessionStage.RESULT
+                    && session.resultEndsAt > 0
+                    && now >= session.resultEndsAt) {
+                journal(session).append("RESULT_EXPIRED", "items", session.voteItems.size());
+                session.resultEndsAt = 0;
+                settleNegotiation(session, null);
+            } else if (session.startRetryAt > 0 && now >= session.startRetryAt) {
+                session.startRetryAt = 0;
+                settleNegotiation(session, null);
+            }
+        }
     }
 
     /**
@@ -1228,6 +1307,7 @@ public final class SessionManager {
         tickIntermissionCountdown();
         tickRoundClock();
         tickPrepare();
+        tickNegotiationWindows();
         // Drops watchers of finished series and repairs cameras on replaced bodies.
         spectators.tick();
         // After the spectator pass, which can teleport a watcher out in this same tick.
@@ -1445,6 +1525,8 @@ public final class SessionManager {
         applyRulesToSession(session, rules);
         session.rulesRevision = 0;
         session.rulesAuthor = proposer.getStringUUID();
+        // Rows are numbered before anything can be branched off them; see LoadoutEntry#ref.
+        mainLoadout(session);
 
         sessions.put(session.id, session);
         journal(session).append("SESSION_DRAFTED", "proposer", me.name);
@@ -1728,11 +1810,23 @@ public final class SessionManager {
 
     /** Sends the panel to a player, from the packet path or from /pvpocket review. */
     private void openPanel(ServerPlayer player, DuelSession session, int role) {
-        // The tally is "how many have pressed Accept", not "how many agreed to the loadout".
+        // The tally is "how many have answered", not "how many agreed to the loadout".
         int agreed = acceptedCount(session);
+        // A player with a branch sees their own set, so reopening the panel resumes the edit rather
+        // than silently throwing it away. Everyone else sees main.
+        RuleBranch branch = session.branchOf(player.getStringUUID());
+        Participant me = session.participant(player.getStringUUID());
+        String shown = branch != null ? branch.rules : session.rules;
+        RulesOpenPayload.Window window = session.stage == SessionStage.NEGOTIATING
+                ? new RulesOpenPayload.Window(
+                        deadlineLeft(session.rulesWindowEndsAt),
+                        me != null && answered(session, me) ? 1 : 0,
+                        branch != null ? branch.rules : "",
+                        branch != null && branch.roster != null ? branch.roster : "")
+                : RulesOpenPayload.Window.none();
         PvPocketNetworking.openRules(player, new RulesOpenPayload(
                 session.id,
-                session.rules,
+                shown,
                 role,
                 session.rulesRevision,
                 new RulesOpenPayload.Details(
@@ -1745,7 +1839,8 @@ public final class SessionManager {
                         // Only the draft edits the roster, so only it gets the candidate list.
                         role == RulesOpenPayload.ROLE_DRAFT
                                 ? candidates(player)
-                                : "")));
+                                : ""),
+                window));
     }
 
     /**
@@ -1816,7 +1911,7 @@ public final class SessionManager {
     /**
      * True when every participant who has answered also accepted the loadout as it stands.
      *
-     * <p>Silent about players who have not answered yet; that is {@link #allResponded}'s job.
+     * <p>Silent about players who have not answered yet; the branch window tracks those.
      */
     private static boolean allLoadoutsAgreed(DuelSession session) {
         String combined = combinedLoadoutDigest(session);
@@ -1831,56 +1926,6 @@ public final class SessionManager {
         return true;
     }
 
-    /**
-     * Invalidates the negotiation after somebody changed their loadout.
-     *
-     * <p>A change drops the session back to {@link SessionStage#DRAFT} and gives the pen back to
-     * whoever changed it: their panel reopens as proposer, everyone else's as reviewer.
-     *
-     * <p>{@code before} is the combined fingerprint from just before the edit. A save that produced
-     * the same fingerprint changed nothing, so the session is left alone.
-     */
-    private void noteLoadoutChanged(DuelSession session, Participant changed, String before) {
-        String after = combinedLoadoutDigest(session);
-        if (before != null && before.equals(after)) {
-            persist(session);
-            return;
-        }
-        if (session.stage == SessionStage.DRAFT) {
-            // Nothing has been sent yet, so there is no consent to invalidate.
-            if (session.awaitingUuid == null) {
-                session.awaitingUuid = changed.uuid;
-            }
-            persist(session);
-            return;
-        }
-        if (session.stage != SessionStage.NEGOTIATING) {
-            return;
-        }
-        journal(session).append("LOADOUT_REOPENED",
-                "player", changed.name, "digest", changed.loadoutDigest,
-                "combined", combinedLoadoutDigest(session));
-        transition(session, SessionStage.DRAFT);
-        session.awaitingUuid = changed.uuid;
-        persist(session);
-        for (Participant p : session.participants) {
-            ServerPlayer player = online(p);
-            if (player != null) {
-                openPanel(player, session, p.uuid.equals(changed.uuid)
-                        ? RulesOpenPayload.ROLE_PROPOSER
-                        : RulesOpenPayload.ROLE_REVIEWER);
-            }
-        }
-        String name = changed.name;
-        for (Participant p : session.participants) {
-            ServerPlayer player = online(p);
-            if (player != null) {
-                player.displayClientMessage(PvLang.t("pvpocket.msg.rules.loadout_changed", name)
-                        .withStyle(ChatFormatting.GOLD), false);
-            }
-        }
-    }
-
     /** Re-opens the panel for whoever is currently expected to answer. Command fallback path. */
     public void review(ServerPlayer player) {
         DuelSession session = findOpenSession(player.getUUID());
@@ -1888,14 +1933,16 @@ public final class SessionManager {
             fail(player, "pvpocket.msg.rules.none_pending");
             return;
         }
-        // A draft belongs to one player and has no reviewer. Past the draft the "proposer" is
-        // whoever authored the revision on the table, not whoever is being waited on.
-        int role = session.stage == SessionStage.DRAFT
-                ? RulesOpenPayload.ROLE_DRAFT
-                : player.getStringUUID().equals(session.rulesAuthor)
-                ? RulesOpenPayload.ROLE_PROPOSER
-                : RulesOpenPayload.ROLE_REVIEWER;
-        openPanel(player, session, role);
+        if (session.stage == SessionStage.VOTING) {
+            // The ballot is the panel in this stage; there is nothing left to edit.
+            openVotePanel(player, session);
+            return;
+        }
+        if (session.stage == SessionStage.RESULT) {
+            openResultPanel(player, session);
+            return;
+        }
+        openPanel(player, session, roleFor(session, player.getStringUUID()));
         player.displayClientMessage(PvLang.t("pvpocket.msg.rules.version",
                         session.rulesRevision, shortDigest(session))
                 .withStyle(ChatFormatting.DARK_GRAY), false);
@@ -1904,8 +1951,12 @@ public final class SessionManager {
     /**
      * Handles one panel outcome.
      *
-     * <p>Every branch re-derives permission from the session record: only the player the session is
-     * waiting on may act, and only the author of the current revision may replace it.
+     * <p>Past the draft these are branch operations, not a negotiation round: a player either files
+     * one alternative (and may amend it until the window closes) or says "nothing to change".
+     * Neither answer invalidates anybody else's: one edit does not re-ask the whole roster.
+     *
+     * <p>Every branch re-derives permission from the session record; the client is never trusted
+     * about who may act or what an action means.
      */
     public void onRulesSubmit(ServerPlayer player, int action, String encoded,
                               String encodedRoster) {
@@ -1923,26 +1974,9 @@ public final class SessionManager {
                 session.voidReason = "PROPOSER_DISMISSED";
                 transition(session, SessionStage.VOIDED);
                 closePanels(session);
-                return;
             }
-            // Past the draft, walking away leaves everybody waiting, so it is recorded as a
-            // refusal. The author of the revision on the table is left alone.
-            if (session.stage == SessionStage.NEGOTIATING && !uuid.equals(session.rulesAuthor)) {
-                Participant me = session.participant(uuid);
-                if (me != null && !me.rejected) {
-                    me.rejected = true;
-                    me.acceptedRevision = -1;
-                    journal(session).append("PLAYER_WALKED_AWAY", "player", me.name,
-                            "revision", session.rulesRevision,
-                            "playingTeams", session.playingTeams().size());
-                    persist(session);
-                    player.displayClientMessage(PvLang.t("pvpocket.msg.rules.rejected_self")
-                            .withStyle(ChatFormatting.GRAY), false);
-                    broadcastNegotiation(session, uuid,
-                            PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
-                    settleNegotiation(session, player);
-                }
-            }
+            // Past the draft, closing the panel decides nothing: the window runs on and the player
+            // reopens with /pvpocket review. A refusal is an explicit button, not an Esc.
             return;
         }
 
@@ -1962,8 +1996,15 @@ public final class SessionManager {
                 closePanels(session);
                 return;
             }
+            if (session.stage != SessionStage.NEGOTIATING) {
+                // Voting is already under way; leaving is handled by the disconnect path, and a
+                // refusal here would re-shape a roster the ballot was built against.
+                fail(player, "pvpocket.msg.rules.vote_closed");
+                return;
+            }
             me.rejected = true;
             me.acceptedRevision = -1;
+            session.removeBranch(uuid);
             journal(session).append("PLAYER_REJECTED", "player", me.name,
                     "revision", session.rulesRevision,
                     "remaining", session.participants.size() - rejectedCount(session),
@@ -1973,7 +2014,11 @@ public final class SessionManager {
                     .withStyle(ChatFormatting.GRAY), false);
             broadcastNegotiation(session, uuid,
                     PvLang.t("pvpocket.msg.rules.rejected_by", me.name));
-            settleNegotiation(session, player);
+            if (session.playingTeams().size() < 2) {
+                settleNegotiation(session, player);
+            } else {
+                maybeCloseWindow(session);
+            }
             return;
         }
 
@@ -1989,9 +2034,6 @@ public final class SessionManager {
                 return;
             }
             DuelRules proposed = DuelRules.decode(encoded);
-            List<String> changed = DuelRules.decode(session.rules).differences(proposed);
-            // In DRAFT this is "send it"; in NEGOTIATING the roster is frozen and this is "ask
-            // again with the new terms".
             if (session.stage == SessionStage.DRAFT) {
                 // Validated against the rules just sent, not against the defaults the draft
                 // opened with.
@@ -2000,58 +2042,76 @@ public final class SessionManager {
                     return;
                 }
                 me = session.participant(uuid);
-            }
-            applyRulesToSession(session, proposed);
-            session.rulesRevision++;
-            session.rulesAuthor = uuid;
-            session.awaitingUuid = null;
-            journal(session).append("RULES_PROPOSED",
-                    "revision", session.rulesRevision,
-                    "author", player.getName().getString(),
-                    "digest", session.rulesDigest,
-                    "teams", session.teamCount,
-                    "changed", String.join(",", changed));
-            // Proposing is also agreeing: the proposer is looking at this exact loadout set.
-            me.acceptedRevision = session.rulesRevision;
-            me.agreedLoadoutDigest = combinedLoadoutDigest(session);
-            journal(session).append("LOADOUT_AGREED", "player", me.name,
-                    "combined", me.agreedLoadoutDigest);
-            transition(session, SessionStage.NEGOTIATING);
+                applyRulesToSession(session, proposed);
+                session.rulesRevision++;
+                session.rulesAuthor = uuid;
+                session.awaitingUuid = null;
+                openWindow(session);
+                journal(session).append("RULES_PROPOSED",
+                        "revision", session.rulesRevision,
+                        "author", player.getName().getString(),
+                        "digest", session.rulesDigest,
+                        "teams", session.teamCount,
+                        "changed", String.join(",", DuelRules.decode(session.rules)
+                                .differences(DuelRules.defaults())));
+                // Authoring main is also answering: this player has nothing else to file.
+                me.acceptedRevision = session.rulesRevision;
+                me.agreedLoadoutDigest = combinedLoadoutDigest(session);
+                journal(session).append("LOADOUT_AGREED", "player", me.name,
+                        "combined", me.agreedLoadoutDigest);
+                transition(session, SessionStage.NEGOTIATING);
 
-            List<String> others = new ArrayList<>();
-            for (Participant p : session.participants) {
-                if (!p.uuid.equals(uuid) && !p.rejected) {
-                    others.add(p.name);
+                List<String> others = new ArrayList<>();
+                for (Participant p : session.participants) {
+                    if (!p.uuid.equals(uuid) && !p.rejected) {
+                        others.add(p.name);
+                    }
                 }
+                player.displayClientMessage(PvLang.t("pvpocket.msg.rules.sent",
+                                session.rulesRevision, String.join(", ", others))
+                        .withStyle(ChatFormatting.GRAY), false);
+                for (Participant p : session.participants) {
+                    if (p.uuid.equals(uuid) || p.rejected) {
+                        continue;
+                    }
+                    inviteByTarget.put(UUID.fromString(p.uuid), session.id);
+                    ServerPlayer target = online(p);
+                    if (target == null) {
+                        continue;
+                    }
+                    target.displayClientMessage(PvLang.t("pvpocket.msg.rules.incoming",
+                                    player.getName().getString(), session.rulesRevision,
+                                    proposed.summaryText())
+                            .withStyle(ChatFormatting.GOLD), false);
+                    target.displayClientMessage(PvLang.t("pvpocket.msg.rules.window_open",
+                                    RULES_WINDOW_MS / 60_000L)
+                            .withStyle(ChatFormatting.DARK_GRAY), false);
+                    openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
+                }
+                openPanel(player, session, RulesOpenPayload.ROLE_PROPOSER);
+                return;
             }
-            player.displayClientMessage(PvLang.t("pvpocket.msg.rules.sent",
-                            session.rulesRevision, String.join(", ", others))
-                    .withStyle(ChatFormatting.GRAY), false);
-            for (Participant p : session.participants) {
-                if (p.uuid.equals(uuid) || p.rejected) {
-                    continue;
-                }
-                inviteByTarget.put(UUID.fromString(p.uuid), session.id);
-                ServerPlayer target = online(p);
-                if (target == null) {
-                    continue;
-                }
-                target.displayClientMessage(PvLang.t("pvpocket.msg.rules.incoming",
-                                player.getName().getString(), session.rulesRevision,
-                                proposed.summaryText())
-                        .withStyle(ChatFormatting.GOLD), false);
-                target.displayClientMessage(PvLang.t("pvpocket.msg.rules.panel_hint")
-                        .withStyle(ChatFormatting.DARK_GRAY), false);
-                openPanel(target, session, RulesOpenPayload.ROLE_REVIEWER);
+            if (session.stage != SessionStage.NEGOTIATING) {
+                fail(player, "pvpocket.msg.rules.vote_closed");
+                return;
             }
-            // A re-proposal invalidates every earlier yes, so the proposer's panel is re-sent.
-            openPanel(player, session, RulesOpenPayload.ROLE_PROPOSER);
+            if (answered(session, me)) {
+                // One answer per player: a second submit would move the moment the window closes
+                // and make "everybody has answered" mean nothing.
+                fail(player, "pvpocket.msg.rules.already_answered");
+                return;
+            }
+            fileBranch(session, me, proposed, null, encodedRoster, true);
             return;
         }
 
         if (action == RulesSubmitPayload.ACTION_ACCEPT) {
-            if (session.stage != SessionStage.NEGOTIATING) {
+            if (session.stage == SessionStage.DRAFT) {
                 fail(player, "pvpocket.msg.rules.nothing_to_accept");
+                return;
+            }
+            if (session.stage != SessionStage.NEGOTIATING) {
+                fail(player, "pvpocket.msg.rules.vote_closed");
                 return;
             }
             Participant me = session.participant(uuid);
@@ -2059,40 +2119,646 @@ public final class SessionManager {
                 fail(player, "pvpocket.msg.rules.none_pending");
                 return;
             }
-            // Accepting agrees to the rules and to everybody's loadout as they stand. The rules an
-            // ACCEPT carries are not applied, so a client with unsent edits has to send PROPOSE.
-            if (encoded != null && !encoded.isEmpty() && !encoded.equals(session.rules)) {
-                journal(session).append("RULES_ACCEPT_DROPPED_EDITS", "player", me.name,
-                        "revision", session.rulesRevision);
+            if (answered(session, me)) {
+                fail(player, "pvpocket.msg.rules.already_answered");
+                return;
             }
             me.acceptedRevision = session.rulesRevision;
             me.agreedLoadoutDigest = combinedLoadoutDigest(session);
-            journal(session).append("RULES_AGREED", "player", me.name,
+            journal(session).append("RULES_AGREED",
+                    "player", me.name,
                     "revision", session.rulesRevision,
                     "agreed", acceptedCount(session), "of", liveCount(session));
-            journal(session).append("LOADOUT_AGREED", "player", me.name,
-                    "combined", me.agreedLoadoutDigest);
             persist(session);
-            // Consent is checked before the loadout, so an unanswered invite is not reported as a
-            // loadout disagreement.
-            if (!allResponded(session)) {
-                int agreed = acceptedCount(session);
-                player.displayClientMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
-                                agreed, liveCount(session))
-                        .withStyle(ChatFormatting.GRAY), false);
-                openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
-                broadcastNegotiation(session, uuid,
-                        PvLang.t("pvpocket.msg.rules.other_accepted",
-                                player.getName().getString(), agreed, liveCount(session)));
+            int agreed = acceptedCount(session);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.rules.accepted_waiting",
+                            agreed, liveCount(session))
+                    .withStyle(ChatFormatting.GRAY), false);
+            broadcastNegotiation(session, uuid,
+                    PvLang.t("pvpocket.msg.rules.other_accepted",
+                            player.getName().getString(), agreed, liveCount(session)));
+            openPanel(player, session, roleFor(session, uuid));
+            maybeCloseWindow(session);
+        }
+    }
+
+    // ------------------------------------------------------------------ branch window
+
+    /**
+     * The match's one loadout, with every row numbered.
+     *
+     * <p>Numbering happens once, when the invite goes out; from then on a branch's rows are matched
+     * against these numbers rather than against positions. A session written before the field
+     * existed is numbered on first use, which produces the same numbers because it is list order.
+     */
+    private static Loadout mainLoadout(DuelSession session) {
+        Loadout main = sharedLoadout(session);
+        boolean missing = false;
+        for (LoadoutEntry entry : main.entries) {
+            if (entry.ref < 0) {
+                missing = true;
+                break;
+            }
+        }
+        if (missing) {
+            main.assignRefs();
+            adoptSharedLoadout(session, main);
+        }
+        return main;
+    }
+
+    /** Opens the branch window and clears anything a previous window left behind. */
+    private void openWindow(DuelSession session) {
+        session.rulesWindowEndsAt = System.currentTimeMillis() + RULES_WINDOW_MS;
+        session.voteWindowEndsAt = 0;
+        session.branches.clear();
+        session.voteItems.clear();
+        session.votes.clear();
+        mainLoadout(session);
+    }
+
+    /**
+     * Closes the window once every live player has answered, or once the clock runs out.
+     *
+     * <p>An unanswered player holds it open; silence is what the deadline is for.
+     */
+    private void maybeCloseWindow(DuelSession session) {
+        if (session.stage != SessionStage.NEGOTIATING) {
+            return;
+        }
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            if (!answered(session, p)) {
                 return;
             }
-            if (!allLoadoutsAgreed(session)) {
-                // Reachable only if a loadout changed after everybody had already said yes.
-                fail(player, "pvpocket.msg.rules.loadout_not_all_agreed");
-                openPanel(player, session, RulesOpenPayload.ROLE_REVIEWER);
+        }
+        closeWindow(session);
+    }
+
+    /**
+     * Freezes the branch set and either starts the match or opens the ballot.
+     *
+     * <p>No branches at all means nobody disagreed: the match starts on main immediately, which is
+     * the "all accepted" path and skips voting entirely.
+     */
+    private void closeWindow(DuelSession session) {
+        if (session.stage != SessionStage.NEGOTIATING) {
+            return;
+        }
+        session.rulesWindowEndsAt = 0;
+        List<RuleBranch> live = new ArrayList<>();
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            RuleBranch branch = session.branchOf(p.uuid);
+            if (branch != null) {
+                live.add(branch);
+            }
+        }
+        if (live.isEmpty()) {
+            // Nobody disagreed, but the result page still goes up: it is the last chance to read
+            // what the match will run on before the teleport.
+            journal(session).append("WINDOW_CLOSED", "branches", 0);
+            enterResult(session);
+            return;
+        }
+        session.voteItems = VoteBallot.build(DuelRules.decode(session.rules),
+                mainLoadout(session), RosterShape.of(session), live);
+        if (session.voteItems.isEmpty()) {
+            // Every branch turned out to be main: same outcome as no branch at all.
+            journal(session).append("WINDOW_CLOSED", "branches", live.size(), "items", 0);
+            enterResult(session);
+            return;
+        }
+        session.voteWindowEndsAt = System.currentTimeMillis() + VOTE_WINDOW_MS;
+        journal(session).append("VOTE_OPENED",
+                "branches", live.size(),
+                "items", session.voteItems.size(),
+                "authors", String.join(",", live.stream().map(b -> b.name).toList()));
+        transition(session, SessionStage.VOTING);
+        // Rule panels first: the ballot replaces them, and a client cannot show both.
+        closePanels(session);
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            ServerPlayer target = online(p);
+            if (target != null) {
+                openVotePanel(target, session);
+            }
+        }
+        broadcastParticipants(session, PvLang.t("pvpocket.msg.rules.vote_started",
+                session.voteItems.size(), VOTE_WINDOW_MS / 60_000L));
+    }
+
+    /**
+     * Files or replaces this player's branch, or drops it when it is identical to main.
+     *
+     * @param loadout the alternative loadout, or null to keep whatever this player already filed
+     *                (or main, when they have not touched it)
+     */
+    private void fileBranch(DuelSession session, Participant me, DuelRules rules, Loadout loadout,
+                            String roster, boolean answer) {
+        Loadout main = mainLoadout(session);
+        Loadout proposed;
+        if (loadout != null) {
+            proposed = loadout;
+        } else {
+            RuleBranch previous = session.branchOf(me.uuid);
+            proposed = previous != null ? previous.decodedLoadout() : main.copy();
+        }
+        alignRefs(proposed, main);
+
+        String mainRoster = RosterShape.of(session);
+        String proposedRoster;
+        if (roster != null && !roster.isEmpty()) {
+            proposedRoster = RosterShape.normalise(roster);
+            // Validated against main's caps, not the branch's: a client that sends a bigger
+            // b.teamSize would otherwise get an arrangement past this check and fail at the start.
+            String problem = proposedRoster == null ? "pvpocket.msg.roster.branch_bad"
+                    : rosterProblem(session, proposedRoster, DuelRules.decode(session.rules));
+            if (problem != null) {
+                // Refused before anything is stored: a half-valid arrangement would be voted on.
+                fail(online(me), problem);
                 return;
             }
-            settleNegotiation(session, player);
+        } else {
+            RuleBranch previous = session.branchOf(me.uuid);
+            proposedRoster = previous != null && previous.roster != null
+                    && !previous.roster.isEmpty() ? previous.roster : mainRoster;
+        }
+
+        boolean sameRules = rules.encode().equals(session.rules);
+        boolean sameLoadout = proposed.digest().equals(main.digest());
+        boolean sameRoster = proposedRoster.equals(mainRoster);
+        session.removeBranch(me.uuid);
+        if (sameRules && sameLoadout && sameRoster) {
+            if (answer) {
+                me.acceptedRevision = session.rulesRevision;
+            }
+            me.agreedLoadoutDigest = combinedLoadoutDigest(session);
+            journal(session).append("BRANCH_RETRACTED", "player", me.name,
+                    "reason", "IDENTICAL_TO_MAIN");
+            persist(session);
+        } else {
+            RuleBranch branch = new RuleBranch(me.uuid, me.name, rules.encode(),
+                    proposed.encode(), sameRoster ? "" : proposedRoster,
+                    rules.digest() + ":" + proposed.digest() + ":"
+                            + Integer.toHexString(proposedRoster.hashCode()));
+            session.branches.add(branch);
+            if (answer) {
+                me.acceptedRevision = session.rulesRevision;
+            }
+            me.agreedLoadoutDigest = combinedLoadoutDigest(session);
+            journal(session).append("BRANCH_FILED",
+                    "player", me.name,
+                    "revision", session.rulesRevision,
+                    "changed", String.join(",",
+                            DuelRules.decode(session.rules).differences(rules)),
+                    "items", proposed.size(),
+                    "roster", sameRoster ? "-" : "changed",
+                    "digest", branch.digest);
+            persist(session);
+            broadcastNegotiation(session, me.uuid,
+                    PvLang.t("pvpocket.msg.rules.branch_filed", me.name));
+        }
+        ServerPlayer actor = online(me);
+        if (actor != null) {
+            openPanel(actor, session, roleFor(session, me.uuid));
+        }
+        maybeCloseWindow(session);
+    }
+
+    /**
+     * Why an arrangement cannot be voted on, or null when it can.
+     *
+     * <p>The participant set is fixed at the invite: an arrangement may move anybody anywhere, but
+     * it cannot add, drop or duplicate a player. Every limit is checked against the frozen caps, so
+     * a branch cannot propose a roster the match could not start with.
+     */
+    private String rosterProblem(DuelSession session, String roster, DuelRules rules) {
+        List<List<String>> sides = RosterShape.decode(roster);
+        if (sides == null) {
+            return "pvpocket.msg.roster.branch_bad";
+        }
+        if (sides.size() < MIN_TEAMS || sides.size() > MAX_TEAMS) {
+            return "pvpocket.msg.roster.branch_sides";
+        }
+        int teamSize = rules.get("b.teamSize");
+        int cap = rules.get("b.maxPlayers");
+        Set<String> live = new LinkedHashSet<>();
+        for (Participant p : session.participants) {
+            if (!p.rejected) {
+                live.add(p.uuid);
+            }
+        }
+        Set<String> seen = new HashSet<>();
+        int total = 0;
+        for (List<String> side : sides) {
+            if (side.size() > teamSize) {
+                return "pvpocket.msg.roster.branch_full";
+            }
+            for (String uuid : side) {
+                if (!seen.add(uuid)) {
+                    return "pvpocket.msg.roster.branch_dup";
+                }
+                if (!live.contains(uuid)) {
+                    return "pvpocket.msg.roster.branch_unknown";
+                }
+            }
+            total += side.size();
+        }
+        if (total > cap) {
+            return "pvpocket.msg.roster.branch_total";
+        }
+        return seen.size() < live.size() ? "pvpocket.msg.roster.branch_missing" : null;
+    }
+
+    /**
+     * Numbers rows a client could not number, by matching them to main.
+     *
+     * <p>Rows keep their {@code ref} through the editor, so this normally does nothing. It covers
+     * the paths that rebuild a set from nothing: "restore default", a preset loaded inside the
+     * window, and any client that lost the field. Without it those rows would all read as
+     * additions, and the ballot would offer to remove main's rows and add identical ones.
+     *
+     * <p>Matching is by {@code fingerprint}, first unused row wins, so two identical food stacks
+     * still line up one to one.
+     */
+    private static void alignRefs(Loadout proposed, Loadout main) {
+        java.util.Set<Integer> taken = new HashSet<>();
+        for (LoadoutEntry entry : proposed.entries) {
+            if (entry.ref >= 0 && main.byRef(entry.ref) != null) {
+                taken.add(entry.ref);
+            }
+        }
+        for (LoadoutEntry entry : proposed.entries) {
+            if (entry.ref >= 0 && main.byRef(entry.ref) != null) {
+                continue;
+            }
+            String fingerprint = entry.fingerprint();
+            for (LoadoutEntry base : main.entries) {
+                if (!taken.contains(base.ref) && base.fingerprint().equals(fingerprint)) {
+                    entry.ref = base.ref;
+                    taken.add(base.ref);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether this player has given their one answer for the current revision.
+     *
+     * <p>Answering is a single act: a branch, or "no changes". The author of main counts as
+     * answered from the start, because the invite is their answer.
+     */
+    private static boolean answered(DuelSession session, Participant p) {
+        return p.acceptedRevision == session.rulesRevision;
+    }
+
+    /** The panel role for this player, derived from the stage and who authored main. */
+    private static int roleFor(DuelSession session, String uuid) {
+        if (session.stage == SessionStage.DRAFT) {
+            return RulesOpenPayload.ROLE_DRAFT;
+        }
+        return uuid.equals(session.rulesAuthor)
+                ? RulesOpenPayload.ROLE_PROPOSER
+                : RulesOpenPayload.ROLE_REVIEWER;
+    }
+
+    // ------------------------------------------------------------------ voting
+
+    /** Opens or refreshes the ballot for one player. */
+    private void openVotePanel(ServerPlayer player, DuelSession session) {
+        List<String> voters = liveUuids(session);
+        int finished = VoteBallot.finishedVoters(session.voteItems, voters, session.votes);
+        PvPocketNetworking.openVote(player, new VoteOpenPayload(session.id,
+                new VoteOpenPayload.Body(
+                        VoteItem.encodeAll(session.voteItems),
+                        myVotes(session, player.getStringUUID()),
+                        namesOf(session),
+                        deadlineLeft(session.voteWindowEndsAt),
+                        finished,
+                        voters.size())));
+    }
+
+    /**
+     * Records one vote.
+     *
+     * <p>The client may change its mind until the ballot closes, so a second vote on the same item
+     * replaces the first rather than being refused.
+     */
+    public void onVoteSubmit(ServerPlayer player, String sessionId, String itemId, int option) {
+        DuelSession session = sessionId == null ? null : sessions.get(sessionId);
+        if (session == null || session.stage != SessionStage.VOTING) {
+            fail(player, "pvpocket.msg.rules.vote_closed");
+            return;
+        }
+        Participant me = session.participant(player.getStringUUID());
+        if (me == null || me.rejected) {
+            return;
+        }
+        VoteItem item = null;
+        for (VoteItem candidate : session.voteItems) {
+            if (candidate.id.equals(itemId)) {
+                item = candidate;
+                break;
+            }
+        }
+        if (item == null || option < 0 || option >= item.options.size()) {
+            // Recorded rather than dropped silently: a ballot the client invented is worth a line.
+            journal(session).append("VOTE_REJECTED", "player", me.name,
+                    "item", itemId, "option", option);
+            return;
+        }
+        session.votes.put(VoteBallot.voteKey(me.uuid, itemId), Integer.toString(option));
+        persist(session);
+        broadcastVoteProgress(session);
+        List<String> voters = liveUuids(session);
+        if (VoteBallot.everyoneVoted(session.voteItems, voters, session.votes)) {
+            journal(session).append("VOTE_COMPLETE", "players", voters.size());
+            resolveVote(session, player);
+        }
+    }
+
+    /** Pushes participation counts to every live participant. */
+    private void broadcastVoteProgress(DuelSession session) {
+        List<String> voters = liveUuids(session);
+        int finished = VoteBallot.finishedVoters(session.voteItems, voters, session.votes);
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            ServerPlayer target = online(p);
+            if (target == null) {
+                continue;
+            }
+            PvPocketNetworking.sendVoteProgress(target, new VoteProgressPayload(
+                    session.id, myVotes(session, p.uuid), finished, voters.size()));
+        }
+    }
+
+    /**
+     * Merges the ballot and starts the match.
+     *
+     * <p>Called when every vote is in, or when the vote window expires on the votes already cast.
+     * The merged set becomes main: the revision is bumped once, so the journal still says which
+     * rule set ran.
+     */
+    private void resolveVote(DuelSession session, ServerPlayer actor) {
+        if (session.stage != SessionStage.VOTING) {
+            return;
+        }
+        List<String> voters = liveUuids(session);
+        Loadout main = mainLoadout(session);
+        Loadout merged = VoteBallot.resolveLoadout(main, session.voteItems, voters, session.votes);
+        if (merged.isEmpty() || !merged.validate().isEmpty()) {
+            // Only reachable if every row was voted away, or if an unusual number of additions
+            // pushed past the cap. The match still has to be playable, so main stands.
+            journal(session).append("VOTE_LOADOUT_DROPPED",
+                    "reason", merged.isEmpty() ? "empty" : "invalid",
+                    "items", merged.size());
+            merged = main.copy();
+        }
+        DuelRules mergedRules = mergeRules(session, DuelRules.decode(session.rules), voters);
+        String mainRoster = RosterShape.of(session);
+        String mergedRoster = VoteBallot.resolveRoster(mainRoster, session.voteItems, voters,
+                session.votes);
+        boolean rosterChanged = !mergedRoster.equals(mainRoster);
+        if (rosterChanged) {
+            applyRoster(session, mergedRoster);
+        }
+
+        StringBuilder tallies = new StringBuilder();
+        for (VoteItem item : session.voteItems) {
+            if (tallies.length() > 0) {
+                tallies.append(' ');
+            }
+            tallies.append(VoteBallot.tallyLine(item, voters, session.votes));
+        }
+        session.voteWindowEndsAt = 0;
+        applyRulesToSession(session, mergedRules);
+        session.rulesRevision++;
+        // No single author: the roster did this, and naming one player would misattribute it.
+        session.rulesAuthor = null;
+        adoptSharedLoadout(session, merged);
+        journal(session).append("VOTE_RESOLVED",
+                "revision", session.rulesRevision,
+                "voters", voters.size(),
+                "items", session.voteItems.size(),
+                "changed", changedFromDefaults(mergedRules),
+                "digest", session.rulesDigest,
+                "loadoutDigest", merged.digest(),
+                "roster", rosterChanged ? mergedRoster : "-",
+                "tallies", tallies.toString());
+        closePanels(session);
+        enterResult(session);
+    }
+
+    /**
+     * Publishes the result page and starts the countdown.
+     *
+     * <p>Every path into the match goes through here: a window nobody branched on, and a ballot
+     * that has been counted. The page is read-only, so this is also the last place a session can be
+     * voided for having fewer than two sides without anybody being mid-click.
+     */
+    private void enterResult(DuelSession session) {
+        if (session.stage != SessionStage.NEGOTIATING && session.stage != SessionStage.VOTING
+                && session.stage != SessionStage.RESULT) {
+            return;
+        }
+        if (session.playingTeams().size() < 2) {
+            settleNegotiation(session, null);
+            return;
+        }
+        session.resultEndsAt = System.currentTimeMillis() + RESULT_WINDOW_MS;
+        journal(session).append("RESULT_PUBLISHED",
+                "revision", session.rulesRevision,
+                "items", session.voteItems.size(),
+                "roster", RosterShape.of(session),
+                "digest", session.rulesDigest);
+        transition(session, SessionStage.RESULT);
+        closePanels(session);
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            ServerPlayer target = online(p);
+            if (target != null) {
+                openResultPanel(target, session);
+            }
+        }
+    }
+
+    /** Opens or refreshes the result page for one player. */
+    private void openResultPanel(ServerPlayer player, DuelSession session) {
+        List<String> voters = liveUuids(session);
+        PvPocketNetworking.openResult(player, new ResultOpenPayload(
+                session.id,
+                VoteItem.encodeAll(session.voteItems),
+                tallySheet(session, voters),
+                RosterShape.of(session),
+                namesOf(session),
+                deadlineLeft(session.resultEndsAt)));
+    }
+
+    /** Per-item outcome as {@code id 	 winner 	 counts}, one line per item. */
+    /** Every participant as {@code uuid|name} pairs, for drawing arrangements by name. */
+    private static String namesOf(DuelSession session) {
+        StringBuilder sb = new StringBuilder();
+        for (Participant p : session.participants) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(p.uuid).append('|').append(p.name);
+        }
+        return sb.toString();
+    }
+
+    private static String tallySheet(DuelSession session, List<String> voters) {
+        StringBuilder sb = new StringBuilder();
+        for (VoteItem item : session.voteItems) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            int[] counts = VoteBallot.counts(item, voters, session.votes);
+            sb.append(item.id).append('\t').append(VoteBallot.winner(counts)).append('\t');
+            for (int i = 0; i < counts.length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(counts[i]);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Writes an arrangement onto the session.
+     *
+     * <p>Teams are renumbered from the arrangement itself, so an arrangement that merges two sides
+     * leaves no hole: team 0 is the first non-empty side, and every member's index within it is
+     * recomputed because that index decides the spawn offset on the pad.
+     */
+    private static void applyRoster(DuelSession session, String roster) {
+        List<List<String>> sides = RosterShape.decode(roster);
+        if (sides == null) {
+            return;
+        }
+        for (Participant p : session.participants) {
+            p.team = -1;
+            p.member = 0;
+        }
+        for (int team = 0; team < sides.size(); team++) {
+            List<String> side = sides.get(team);
+            for (int member = 0; member < side.size(); member++) {
+                Participant p = session.participant(side.get(member));
+                if (p != null) {
+                    p.team = team;
+                    p.member = member;
+                    p.spawnIndex = team;
+                }
+            }
+        }
+        session.teamCount = Math.max(MIN_TEAMS, sides.size());
+    }
+
+    /**
+     * The merged rules, with roster-coupled values dropped item by item.
+     *
+     * <p>{@code b.teamSize} and {@code b.maxPlayers} describe a roster that was drawn before the
+     * vote and is not part of it. A winning value that cannot hold that roster is vetoed on its
+     * own, rather than discarding every other winning change with it, and rather than leaving a
+     * set that {@code startAccepted} would refuse with nobody left to fix it.
+     */
+    private DuelRules mergeRules(DuelSession session, DuelRules main, List<String> voters) {
+        java.util.Set<String> vetoed = new HashSet<>();
+        DuelRules merged = VoteBallot.resolveRules(main, session.voteItems, voters,
+                session.votes, vetoed);
+        if (!rosterHolds(session, merged)) {
+            vetoed.add("b.teamSize");
+            merged = VoteBallot.resolveRules(main, session.voteItems, voters, session.votes, vetoed);
+            journal(session).append("VOTE_VETOED", "rule", "b.teamSize", "reason", "roster");
+        }
+        if (!rosterHolds(session, merged)) {
+            vetoed.add("b.maxPlayers");
+            merged = VoteBallot.resolveRules(main, session.voteItems, voters, session.votes, vetoed);
+            journal(session).append("VOTE_VETOED", "rule", "b.maxPlayers", "reason", "roster");
+        }
+        return merged;
+    }
+
+    /** Whether the roster still fits the rules: the same two limits {@code validateRoster} uses. */
+    private static boolean rosterHolds(DuelSession session, DuelRules rules) {
+        int teamSize = rules.get("b.teamSize");
+        int total = 0;
+        for (int team = 0; team < session.teamCount; team++) {
+            int members = session.activeMembers(team).size();
+            if (members > teamSize) {
+                return false;
+            }
+            total += members;
+        }
+        return total <= rules.get("b.maxPlayers");
+    }
+
+    /** Everybody still in the match, as uuids: the electorate, in roster order. */
+    private static List<String> liveUuids(DuelSession session) {
+        List<String> out = new ArrayList<>();
+        for (Participant p : session.participants) {
+            if (!p.rejected) {
+                out.add(p.uuid);
+            }
+        }
+        return out;
+    }
+
+    /** This player's votes as {@code itemId=option;...}, for restoring a panel. */
+    private static String myVotes(DuelSession session, String uuid) {
+        StringBuilder sb = new StringBuilder();
+        for (VoteItem item : session.voteItems) {
+            String raw = session.votes.get(VoteBallot.voteKey(uuid, item.id));
+            if (raw == null) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(';');
+            }
+            sb.append(item.id).append('=').append(raw);
+        }
+        return sb.toString();
+    }
+
+    /** Milliseconds left before {@code deadlineAt}, clamped to zero and to an int. */
+    private static int deadlineLeft(long deadlineAt) {
+        if (deadlineAt <= 0) {
+            return 0;
+        }
+        long left = deadlineAt - System.currentTimeMillis();
+        if (left <= 0) {
+            return 0;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, left);
+    }
+
+    /**
+     * Every live player's consent, written at once just before the match starts.
+     *
+     * <p>One answer per player plus a merge everybody is bound by, so consent is recorded once, on
+     * the final set, rather than compared rule set by rule set.
+     */
+    private static void sealConsent(DuelSession session) {
+        String combined = combinedLoadoutDigest(session);
+        for (Participant p : session.participants) {
+            if (p.rejected) {
+                continue;
+            }
+            p.acceptedRevision = session.rulesRevision;
+            p.agreedLoadoutDigest = combined;
         }
     }
 
@@ -2105,21 +2771,6 @@ public final class SessionManager {
             }
         }
         return count;
-    }
-
-    /**
-     * Everybody has answered: accepted the current revision, or declined.
-     *
-     * <p>Not "everybody accepted". A decline is an answer, and a negotiation cannot wait for a
-     * player who has already said no.
-     */
-    private static boolean allResponded(DuelSession session) {
-        for (Participant p : session.participants) {
-            if (!p.responded(session.rulesRevision)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /** Participants still in the match, with declined invites excluded. */
@@ -2144,10 +2795,10 @@ public final class SessionManager {
      * them. Sides need not be the same size: a 2v1 after one refusal out of four is a match.
      */
     private void settleNegotiation(DuelSession session, ServerPlayer actor) {
-        if (session.stage != SessionStage.NEGOTIATING) {
-            return;
-        }
-        if (!allResponded(session)) {
+        // Reachable from the branch window, the ballot and the result countdown. All three are
+        // still pre-freeze, so all three may start the match.
+        if (session.stage != SessionStage.NEGOTIATING && session.stage != SessionStage.VOTING
+                && session.stage != SessionStage.RESULT) {
             return;
         }
         if (session.playingTeams().size() < 2) {
@@ -2168,7 +2819,18 @@ public final class SessionManager {
             }
             return;
         }
+        // One answer per player is already on record; the final rule set is what they are bound
+        // by, so consent is sealed onto it here rather than compared revision by revision.
+        sealConsent(session);
+        session.startRetryAt = 0;
         startAccepted(session, actor);
+        if (!session.stage.isTerminal() && session.stage.isPreFreeze()) {
+            // The arena refused: full grid, a rebuild, a map taken a second ago. Retried from
+            // the tick, because the ballot left nobody with a button to press.
+            session.startRetryAt = System.currentTimeMillis() + START_RETRY_MS;
+            journal(session).append("START_DEFERRED", "stage", session.stage.name());
+            persist(session);
+        }
     }
 
     /**
@@ -2187,6 +2849,8 @@ public final class SessionManager {
         }
         p.rejected = true;
         p.acceptedRevision = -1;
+        // Their branch goes with them: it is an opinion, and they are out of the match.
+        session.removeBranch(uuid);
         journal(session).append("PLAYER_LEFT", "player", p.name,
                 "revision", session.rulesRevision,
                 "remaining", session.participants.size() - rejectedCount(session),
@@ -2194,7 +2858,11 @@ public final class SessionManager {
         persist(session);
         broadcastNegotiation(session, uuid,
                 PvLang.t("pvpocket.msg.rules.left_match", p.name));
-        settleNegotiation(session, null);
+        if (session.playingTeams().size() < 2) {
+            settleNegotiation(session, null);
+        } else {
+            maybeCloseWindow(session);
+        }
     }
 
     /** One line to everybody still in the match, except {@code exceptUuid}. */
@@ -2293,7 +2961,8 @@ public final class SessionManager {
      * {@code !isAlive()} and {@code isRemoved()}.
      */
     private void beginStart(DuelSession session, int waited) {
-        if (session.stage != SessionStage.NEGOTIATING) {
+        if (session.stage != SessionStage.NEGOTIATING && session.stage != SessionStage.VOTING
+                && session.stage != SessionStage.RESULT) {
             return;   // voided or forfeited during the wait
         }
         // Three shapes, and only one is something the player can fix. A dead player is also removed
@@ -2461,7 +3130,9 @@ public final class SessionManager {
     private DuelSession findOpenSession(UUID uuid) {
         String id = uuid.toString();
         for (DuelSession session : sessions.values()) {
-            if (session.stage == SessionStage.DRAFT || session.stage == SessionStage.NEGOTIATING) {
+            // Every pre-freeze stage is "open": the draft, the branch window and the ballot all
+            // want the player to be able to reopen their panel.
+            if (session.stage.isPreFreeze()) {
                 // Only a session this player is still in: a refusal takes them off the roster.
                 Participant p = session.participant(id);
                 if (p != null && !p.rejected) {
@@ -2530,11 +3201,24 @@ public final class SessionManager {
         if (p == null) {
             return;
         }
+        if (session.stage == SessionStage.VOTING) {
+            // The ballot was built from the rows on the table when the window closed, so editing
+            // a kit now would change nothing that is being voted on.
+            fail(player, "pvpocket.msg.loadout.voting");
+            return;
+        }
+        if (answered(session, p)) {
+            // The answer is in; the kit it carried is what gets voted on.
+            fail(player, "pvpocket.msg.rules.already_answered");
+            return;
+        }
         int role = session.stage == SessionStage.DRAFT
                 ? RulesOpenPayload.ROLE_PROPOSER
                 : RulesOpenPayload.ROLE_REVIEWER;
-        // The panel draws the match's one set, whoever opened it.
-        String encoded = sharedLoadout(session).encode();
+        // A player with a branch edits their own alternative; everyone else edits main. Either way
+        // the panel shows the rows numbered, so what comes back can be matched against main.
+        RuleBranch branch = session.branchOf(player.getStringUUID());
+        String encoded = branch != null ? branch.loadout : mainLoadout(session).encode();
         PvPocketNetworking.openLoadout(player, new com.leipishu.pvpocket.network.LoadoutOpenPayload(
                 session.id, encoded, role, otherName(session, player.getStringUUID())));
     }
@@ -2583,11 +3267,28 @@ public final class SessionManager {
             rejectSubmit(session, player, "no_participant_record", player.getStringUUID());
             return;
         }
-        String before = combinedLoadoutDigest(session);
-        // One set per match: whoever saves writes the set everybody fights with.
-        adoptSharedLoadout(session, loadout);
-        // The book is written too, so the saved set means the same thing wherever the panel opened.
         loadouts.put(player.getUUID(), loadout);
+        if (session.stage == SessionStage.NEGOTIATING) {
+            if (answered(session, p)) {
+                rejectSubmit(session, player, "answered", player.getStringUUID());
+                fail(player, "pvpocket.msg.rules.already_answered");
+                return;
+            }
+            // A save inside the window is this player's branch, not a rewrite of everybody's kit:
+            // main is what the roster votes on, and one player cannot change it unilaterally.
+            journal(session).append("LOADOUT_BRANCHED",
+                    "player", p.name,
+                    "digest", loadout.digest(),
+                    "items", loadout.size());
+            persist(session);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.loadout.saved_branch",
+                            loadout.size())
+                    .withStyle(ChatFormatting.GREEN), false);
+            fileBranch(session, p, DuelRules.decode(session.rules), loadout, null, false);
+            return;
+        }
+        // Draft: the proposer is still authoring main, so a save writes the set directly.
+        adoptSharedLoadout(session, loadout);
         journal(session).append("LOADOUT_SAVED",
                 "player", p.name,
                 "digest", p.loadoutDigest,
@@ -2595,7 +3296,6 @@ public final class SessionManager {
                 "summary", loadout.name,
                 "scope", "match");
         persist(session);
-        noteLoadoutChanged(session, p, before);
         // The stacks the players carry were built from the previous loadout, so the locks are
         // re-applied to everybody.
         for (Participant target : session.participants) {
@@ -2645,27 +3345,40 @@ public final class SessionManager {
         if (session != null && session.stage.isPreFreeze()) {
             Participant p = session.participant(player.getStringUUID());
             if (p != null) {
-                String before = combinedLoadoutDigest(session);
-                // The same one-set-per-match write as onLoadoutSubmit.
-                adoptSharedLoadout(session, loadout);
-                journal(session).append("LOADOUT_SAVED",
-                        "player", p.name,
-                        "digest", p.loadoutDigest,
-                        "items", loadout.size(),
-                        "summary", loadout.name,
-                        "scope", "personal");
-                persist(session);
-                noteLoadoutChanged(session, p, before);
-                for (Participant q : session.participants) {
-                    if (q.rejected) {
-                        continue;
+                if (session.stage == SessionStage.DRAFT) {
+                    // The same one-set-per-match write as onLoadoutSubmit.
+                    adoptSharedLoadout(session, loadout);
+                    journal(session).append("LOADOUT_SAVED",
+                            "player", p.name,
+                            "digest", p.loadoutDigest,
+                            "items", loadout.size(),
+                            "summary", loadout.name,
+                            "scope", "personal");
+                    persist(session);
+                    for (Participant q : session.participants) {
+                        if (q.rejected) {
+                            continue;
+                        }
+                        ServerPlayer holder = online(q);
+                        if (holder != null) {
+                            LoadoutLock.restamp(holder, loadout);
+                        }
                     }
-                    ServerPlayer holder = online(q);
-                    if (holder != null) {
-                        LoadoutLock.restamp(holder, loadout);
-                    }
+                    mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
+                } else if (session.stage == SessionStage.NEGOTIATING) {
+                    // Inside the window this is a branch like any other save, so it is voted on
+                    // rather than silently replacing what everybody is looking at.
+                    journal(session).append("LOADOUT_BRANCHED",
+                            "player", p.name,
+                            "digest", loadout.digest(),
+                            "items", loadout.size(),
+                            "scope", "personal");
+                    persist(session);
+                    fileBranch(session, p, DuelRules.decode(session.rules), loadout, null, false);
+                    mirrored = PvLang.t("pvpocket.msg.loadout.mirrored_branch");
+                } else {
+                    mirrored = PvLang.t("pvpocket.msg.loadout.mirrored_voting");
                 }
-                mirrored = PvLang.t("pvpocket.msg.loadout.mirrored");
             }
         }
         // Restamped against the loadout that will be granted, not the one just saved.
@@ -2698,12 +3411,23 @@ public final class SessionManager {
             return;
         }
         Loadout fallback = Loadout.defaultDuel();
-        String before = combinedLoadoutDigest(session);
+        if (session.stage == SessionStage.VOTING) {
+            // The ballot is already built; a reset now would not be part of it.
+            fail(player, "pvpocket.msg.loadout.voting");
+            return;
+        }
+        if (session.stage == SessionStage.NEGOTIATING) {
+            // Same rule as a save inside the window: the fallback becomes this player's branch.
+            journal(session).append("LOADOUT_RESET", "player", p.name,
+                    "digest", fallback.digest(), "scope", "branch");
+            persist(session);
+            fileBranch(session, p, DuelRules.decode(session.rules), fallback, null, false);
+            return;
+        }
         // Everyone, for the same reason a save writes everyone: the match has one set.
         adoptSharedLoadout(session, fallback);
         journal(session).append("LOADOUT_RESET", "player", p.name, "digest", p.loadoutDigest);
         persist(session);
-        noteLoadoutChanged(session, p, before);
         for (Participant q : session.participants) {
             if (q.rejected) {
                 continue;

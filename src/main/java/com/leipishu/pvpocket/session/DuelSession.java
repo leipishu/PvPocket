@@ -69,6 +69,70 @@ public final class DuelSession {
     /** Uuid of the player whose answer the session is waiting on. */
     public String awaitingUuid;
 
+    /**
+     * Alternative rule sets, one per player, submitted inside the branch window.
+     *
+     * <p>Empty means nobody changed anything and the match starts on {@link #rules} as it stands.
+     * A branch replaces its author's previous one; it is never a stack of patches.
+     */
+    public List<RuleBranch> branches = new ArrayList<>();
+
+    /**
+     * When the branch window closes, as epoch milliseconds.
+     *
+     * <p>Absolute rather than a tick count, so a server that stalls or is restarted still expires
+     * the window on wall-clock time. Zero on a session written before windows existed, which reads
+     * as "already expired".
+     */
+    public long rulesWindowEndsAt;
+
+    /**
+     * The ballot, materialised once when the window closes.
+     *
+     * <p>Frozen because ids are what votes point at: rebuilding it after voting started would
+     * orphan every vote already cast.
+     */
+    public List<VoteItem> voteItems = new ArrayList<>();
+
+    /** Votes, keyed {@code uuid|itemId} to the chosen option index. See {@link VoteBallot}. */
+    public Map<String, String> votes = new LinkedHashMap<>();
+
+    /** When voting closes, as epoch milliseconds. Zero when the session is not voting. */
+    public long voteWindowEndsAt;
+
+    /**
+     * When the result page closes and the match starts, as epoch milliseconds.
+     *
+     * <p>Zero outside {@link SessionStage#RESULT}. The page is a fixed countdown rather than a
+     * ready check: everybody has already answered, and a second gate would only add a way to stall.
+     */
+    public long resultEndsAt;
+
+    /**
+     * When to try starting again after the arena refused, as epoch milliseconds.
+     *
+     * <p>Every refusal on the start path is transient: the grid is full, the arena is being
+     * rebuilt, the map is leased for another second. By the time the ballot is resolved nobody has
+     * a button left to press, so this is what retries.
+     */
+    public long startRetryAt;
+
+    /** The branch this player submitted, or null. */
+    public RuleBranch branchOf(String uuid) {
+        for (RuleBranch branch : branches) {
+            if (branch.uuid.equals(uuid)) {
+                return branch;
+            }
+        }
+        return null;
+    }
+
+    /** Drops a branch, e.g. because its author declined the invite. */
+    public void removeBranch(String uuid) {
+        branches.removeIf(branch -> branch.uuid.equals(uuid));
+        votes.keySet().removeIf(key -> key.startsWith(uuid + "|"));
+    }
+
     public List<Participant> participants = new ArrayList<>();
 
     /**
