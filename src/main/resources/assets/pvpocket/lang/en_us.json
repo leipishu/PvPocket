@@ -615,6 +615,7 @@
   "pvpocket.msg.round.timeout.double": "Time: both sides lose the round.",
   "pvpocket.msg.round.eliminated": "You are out; you can only watch for the rest of this round.",
   "pvpocket.hud.next_round": "Next round in %ss",
+  "pvpocket.hud.round_next": "Round %s / %s · next %ss",
   "pvpocket.msg.series.ended": "Duel over: %s (%sscore %s).",
   "pvpocket.msg.series.winner": "%s wins",
   "pvpocket.msg.series.no_winner": "Nobody wins",
