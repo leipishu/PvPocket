@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="1.21.11-neoforge - Client4" type="GradleRunConfiguration" folderName="PvPocket 单跑">
+  <configuration default="false" name="1.21.11-neoforge - Client4" type="GradleRunConfiguration" factoryName="Gradle" folderName="PvPocket 单跑">
     <ExternalSystemSettings>
       <option name="executionName" />
       <option name="externalProjectPath" value="$PROJECT_DIR$" />

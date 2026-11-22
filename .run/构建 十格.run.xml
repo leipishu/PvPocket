@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="构建 十格" type="GradleRunConfiguration" folderName="PvPocket 构建">
+  <configuration default="false" name="构建 十格" type="GradleRunConfiguration" factoryName="Gradle" folderName="PvPocket 构建">
     <ExternalSystemSettings>
       <option name="executionName" />
       <option name="externalProjectPath" value="$PROJECT_DIR$" />
