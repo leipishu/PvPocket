@@ -218,6 +218,45 @@ public final class Loadout {
         };
     }
 
+    // ------------------------------------------------------------------ row identity
+
+    /**
+     * Numbers every row in list order, overwriting whatever {@code ref} they carried.
+     *
+     * <p>Called once on the match's set, at the moment the invite goes out. From then on the
+     * numbers are what a branch's rows are matched against, so a branch that deletes a row still
+     * aligns its remaining rows with the base rather than shifting every one of them.
+     *
+     * <p>Rows added inside the editor keep {@code -1} and are therefore "new" to the vote builder.
+     */
+    public void assignRefs() {
+        for (int i = 0; i < entries.size(); i++) {
+            entries.get(i).ref = i;
+        }
+    }
+
+    /** The row carrying {@code ref}, or null. */
+    public LoadoutEntry byRef(int ref) {
+        if (ref < 0) {
+            return null;
+        }
+        for (LoadoutEntry entry : entries) {
+            if (entry.ref == ref) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    /** The next unused number, for a row appended by a merge. */
+    public int nextRef() {
+        int max = -1;
+        for (LoadoutEntry entry : entries) {
+            max = Math.max(max, entry.ref);
+        }
+        return max + 1;
+    }
+
     // ------------------------------------------------------------------ validation
 
     /**

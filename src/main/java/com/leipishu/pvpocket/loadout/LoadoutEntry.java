@@ -61,6 +61,20 @@ public final class LoadoutEntry {
      */
     public boolean noDrop = true;
 
+    /**
+     * Row identity inside one negotiation, or {@code -1} for a row nobody has numbered yet.
+     *
+     * <p>Assigned by {@code Loadout#assignRefs} to the match's rule set and inherited by every
+     * branch, so a branch that drops a row still lines its remaining rows up with the base. Without
+     * it a diff has to guess by position, and deleting the second row would make every row after it
+     * look changed.
+     *
+     * <p>Not part of {@link #fingerprint()}: the fingerprint answers "what does this row grant",
+     * which a negotiation's bookkeeping must not disturb. Rows a player adds carry {@code -1},
+     * which is how the vote builder tells an addition from a change.
+     */
+    public int ref = -1;
+
     public static LoadoutEntry of(ItemKind kind) {
         LoadoutEntry entry = new LoadoutEntry();
         entry.kind = kind;
@@ -134,6 +148,7 @@ public final class LoadoutEntry {
         tridentStyle = other.tridentStyle;
         fireworkFlight = other.fireworkFlight;
         noDrop = other.noDrop;
+        ref = other.ref;
     }
 
     public boolean has(WeaponFlag flag) {
@@ -162,6 +177,10 @@ public final class LoadoutEntry {
      * Field order is frozen: it is the wire format between client and server and the on-disk format
      * of a saved preset. Appending a field is safe because {@link #decode} tolerates a short
      * string; reordering is not, so new fields go at the end.
+     *
+     * <p>{@code ref} is the last field and defaults to {@code -1}, so a preset written before it
+     * existed still reads as "not numbered", which is the correct answer for a loadout that is
+     * not part of a negotiation.
      */
     public String encode() {
         return String.join("|",
@@ -180,7 +199,8 @@ public final class LoadoutEntry {
                 Integer.toString(amplifier),
                 tridentStyle.id,
                 Integer.toString(fireworkFlight),
-                Integer.toString(noDrop ? 1 : 0));
+                Integer.toString(noDrop ? 1 : 0),
+                Integer.toString(ref));
     }
 
     public static LoadoutEntry decode(String encoded) {
@@ -207,6 +227,8 @@ public final class LoadoutEntry {
                 Math.min(LoadoutCatalog.FIREWORK_FLIGHT_MAX, num(parts, 14, 1)));
         // Defaults to 1 (locked), so a preset without this field still protects its stacks.
         entry.noDrop = num(parts, 15, 1) != 0;
+        // A preset, or a client that never entered a negotiation, leaves the row unnumbered.
+        entry.ref = num(parts, 16, -1);
         // A preset that still carries the retired riptide bit is read as RIPTIDE and the bit is
         // cleared, so the string re-encodes in the current shape. Trident rows only.
         if (entry.kind == ItemKind.TRIDENT
