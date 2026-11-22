@@ -7,6 +7,15 @@ Mojang 做了一次大规模改名（`ResourceLocation` → `Identifier`、一�
 所以 cell 编译的不是 `src/`，而是**生成树**：`gen.py` 把 `src/` 复制到
 `versions/<cell>/gen-src/`，途中做两件事——按表改名、按 `//? if` 剔除分支。
 
+十格一起重跑（改完 `src/` 之后）：
+
+```bash
+scripts/port/gen-all.sh        # 强制重写十格 gen-src；IDEA 里是「构建 生成十格源码」
+```
+
+格名从 `settings.gradle` 读，不另存一份清单；脚本对每格调一次 `:cell:generatePortSources`，
+并加 `--rerun-tasks`——不加的话，`src/` 没变时 Gradle 会判 up-to-date，脚本等于空跑。
+
 ## 一个 cell 怎么接进来
 
 ```groovy

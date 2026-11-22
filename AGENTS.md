@@ -70,7 +70,8 @@ remap，一个 project 只能应用其中一个。塞进同一个 project 就是
 `versions/<cell>/gen-src/`——`scripts/port/gen.py` 复制 `src/` 时按表改名、按 `//? if` 剔分支
 （1.21.1 那两格也走这一步，只是改名 0 条）。
 所以 `src/` 里那 200 多个 `//?` 标记**两支代码同时存在**，直接拿某格的类路径编 `src/` 会报几十个
-错，这是正常的。规则与踩坑记录见 `scripts/port/README.md`。
+错，这是正常的。改完 `src/` 后十格一起重跑用 `scripts/port/gen-all.sh`（IDEA 里是
+「构建 生成十格源码」）；规则与踩坑记录见 `scripts/port/README.md`。
 
 **为什么版本号按 MC 版本分文件**：`gradle/catalogs/<mc>.toml` 里的键名在每个文件里完全一样
 （`minecraft` / `fabricApi` / `neoforge`），区分靠 catalog 名。catalog 名由 cell 名派生

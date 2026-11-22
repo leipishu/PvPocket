@@ -23,6 +23,7 @@
 | 把世界存档 / litematic 转成结构模板 | `python scripts/map/world2struct.py convert ...` |
 | 生成斗兽场 | `python scripts/map/colosseum.py --out ...` |
 | 给服务端发指令 | `python scripts/map/rcon.py "execute as Dev1 run ..."` |
+| 重生成十格的 `gen-src`（改完 `src/` 之后） | `scripts/port/gen-all.sh` |
 | 加一个新版本格子 | 见 [`port/README.md`](port/README.md) |
 
 ## 换版本怎么跑

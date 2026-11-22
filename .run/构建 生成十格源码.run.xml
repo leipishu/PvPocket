@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="构建 生成十格源码" type="ShConfigurationType" folderName="PvPocket 构建">
+    <option name="SCRIPT_TEXT" value="" />
+    <option name="SCRIPT_PATH" value="$PROJECT_DIR$/scripts/port/gen-all.sh" />
+    <option name="SCRIPT_OPTIONS" value="" />
+    <option name="SCRIPT_WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="INTERPRETER_PATH" value="C:\Program Files\Git\bin\bash.exe" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="EXECUTE_IN_TERMINAL" value="false" />
+    <option name="EXECUTE_SCRIPT_FILE" value="true" />
+    <method v="2" />
+  </configuration>
+</component>
