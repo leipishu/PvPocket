@@ -160,6 +160,27 @@ reason is different in kind: it is not a typographic decision but a trade betwee
 and being too small to read, and only the person sitting at that screen knows which way to move it.
 Type inside the panels never follows it.
 
+The scoreboard also has an **anchor**: centred at the top (the default), or the bottom-left corner.
+In the corner the sides become one card each, stacked top to bottom in roster order. Card width
+follows the content - a 1v1 gets a 30px card, not a padded-out minimum - capped by the room left of
+the hotbar; a column that still would not fit is lifted above it rather than drawn over the item
+slots. **The two corners are fixed**: the round plate sits top-left and the clock top-right in both
+layouts, and the bar is centred between them, measuring its width against the wider of the two and
+giving that up on both sides. Both plates are measured from their own string, not from a fixed
+width: the round label changes with the language and with the series length, and a plate narrower
+than its text draws the overflow past its own edge. Both layouts share one geometry and one opacity:
+the bar, the team cards, the round plate and the clock are all `CARD` at 72%, and none of them casts
+a shadow. They sit next to each other on one screen, and a difference in weight reads as a
+difference in layer. The team colour on a card is a `teamWash(CARD, 0.14)` tint, not a second
+surface.
+
+**Two sides draw through the same chip.** They used to have a layout of their own - wool strips on
+the outer edges, names in the middle, the score centred between them - which did not look like the
+same interface next to a three- or four-side bar, and made a player relearn the board whenever the
+roster size changed. There is one layout now: one chip per side (wool strip, heads, round pips), so
+two sides is that row with two chips in it. The roster size changes how wide the row is, not what it
+looks like.
+
 **Text inside a fixed frame gives way in four steps: as written → shrunk → wrapped → cut.** This
 interface is built for two languages whose words differ in length by up to a factor of two, and every
 frame in it is measured from the short one. The ladder lives in `PvDraw`:

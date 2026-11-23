@@ -219,6 +219,22 @@ point is borrowed at the moment of death and given back as soon as they are back
 
 Spectating is allowed by default; the challenger can turn it off in rule group B.
 
+### Surrendering
+
+`/pvpocket surrender` (or the "Surrender" the home panel's main button turns into) **takes your side
+out of the series**, not out of one round.
+
+- With more than one player on the side it opens a request: a card in the corner names who asked and
+  how many have agreed, and team-mates answer with two rebindable keys (default `F6` / `F7`, also in
+  Settings > Controls). **Everyone has to agree**; one refusal drops it, and 30 seconds without an
+  answer times it out. A team-mate who has already gone offline is not waited for.
+- **In a three- or four-side match only your side is out**: its players go straight back to
+  survival, its heads grey out on the score bar with the score frozen, and the remaining sides play
+  on until one is left.
+- With two sides it is the plain forfeit: the opponent takes the series.
+- It takes effect the moment the request passes, so it works between rounds too - no need to start
+  another one first.
+
 ### The result card
 
 When a whole series ends — not a single round — every participant gets a result card. The server
@@ -268,7 +284,7 @@ client and scripts and operators can only speak commands.
 | `/pvpocket help` | Show help (same as bare `/pvpocket`) |
 | `/pvpocket duel` | Open the rule panel: pick the players, set the sides and the rules there; takes no arguments |
 | `/pvpocket review` | Reopen the rule panel |
-| `/pvpocket surrender` | Forfeit the whole series (not one round) |
+| `/pvpocket surrender` | Leave the series (not one round). With three or more sides only yours is out and the rest play on |
 | `/pvpocket status` | Current session's stage, round, score and rule summary |
 | `/pvpocket list` | Open the match list |
 | `/pvpocket spectate <id prefix>` | Enter a match directly, bypassing the panel |
