@@ -42,6 +42,7 @@ import com.leipishu.pvpocket.stats.PlayerStats;
 import com.leipishu.pvpocket.storage.HomePositions;
 import com.leipishu.pvpocket.storage.PvPocketStorage;
 import com.leipishu.pvpocket.storage.SessionJournal;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
@@ -684,6 +685,12 @@ public final class SessionManager {
                 continue;
             }
             int before = session.round;
+            if (anyDead(session)) {
+                // Starting on a corpse revives the entity server-side while the client stays on its
+                // death screen. The sweep replaces the entity within the death beat; wait for it.
+                roundReadyAt.put(id, System.currentTimeMillis() + CORPSE_IDLE_MS);
+                continue;
+            }
             try {
                 startRound(session);
             } catch (RuntimeException e) {
@@ -747,6 +754,79 @@ public final class SessionManager {
                     : "pvpocket.msg.restore.done_voided");
             player.displayClientMessage(note.withStyle(ChatFormatting.YELLOW), false);
         }
+    }
+
+    /**
+     * Replaces the entity of a participant whose body outlived the death beat.
+     *
+     * <p>Vanilla swaps a dead player for a fresh entity only when the client asks for a respawn.
+     * The client asks from the death screen, which is suppressed during a match, and a death
+     * outside a live round is handled by no hand-off at all. The body then stands where it fell:
+     * {@code ArenaManager.purge} skips players, and reviving the same entity server-side at the
+     * next round start cannot clear the client's death state.
+     *
+     * <p>The replacement runs vanilla's own respawn, so the client receives the same packet a
+     * player's own request would have produced, and {@link #onRespawn} takes over from there.
+     */
+    private void tickCorpses() {
+        long now = System.currentTimeMillis();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID uuid = player.getUUID();
+            String sessionId = sessionByPlayer.get(uuid);
+            DuelSession session = sessionId == null ? null : sessions.get(sessionId);
+            if (session == null || player.isAlive()) {
+                corpseSince.remove(uuid);
+                continue;
+            }
+            Long since = corpseSince.get(uuid);
+            if (since == null) {
+                corpseSince.put(uuid, now);
+                continue;
+            }
+            // The beat belongs to a live round; anywhere else the body can go at once.
+            long wait = session.stage == SessionStage.ROUND_ACTIVE ? DEATH_BEAT_MS : CORPSE_IDLE_MS;
+            if (now - since < wait) {
+                continue;
+            }
+            corpseSince.remove(uuid);
+            journal(session).append("CORPSE_CLEARED", "player", player.getName().getString(),
+                    "stage", session.stage.name(), "alive", survivorsOf(session));
+            respawnNow(player);
+        }
+        // A player who left keeps no entry, or a rejoin would inherit a stale deadline.
+        corpseSince.keySet().removeIf(uuid -> server.getPlayerList().getPlayer(uuid) == null);
+    }
+
+    /**
+     * Replaces a dead participant's entity the way a client respawn request does.
+     *
+     * @return the new entity, which is a different object from {@code player}; the argument itself
+     *         when it is not dead
+     */
+    private ServerPlayer respawnNow(ServerPlayer player) {
+        if (player.isAlive()) {
+            return player;
+        }
+        ServerPlayer next = ((PlayerManagerInvoker) server.getPlayerList())
+                .pvpocket$respawn(player, false, Entity.RemovalReason.KILLED);
+        // The respawn hook normally puts the borrowed point back. Repeating it here is idempotent
+        // and covers a loader whose hook skips a server-initiated respawn.
+        restoreRespawnPoint(next);
+        return next;
+    }
+
+    /** True while any participant of this session is a corpse. */
+    private boolean anyDead(DuelSession session) {
+        for (Participant p : session.participants) {
+            if (p.surrendered) {
+                continue;
+            }
+            ServerPlayer player = online(p);
+            if (player != null && !player.isAlive()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void onDisconnect(ServerPlayer player) {
@@ -1136,6 +1216,8 @@ public final class SessionManager {
         }
         DuelSession session = sessions.get(sessionId);
         if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+            // A death outside a live round has no round bookkeeping to do, and the corpse it leaves
+            // is the sweep's problem rather than this method's.
             return;
         }
         Participant me = session.participant(player.getStringUUID());
@@ -1149,16 +1231,25 @@ public final class SessionManager {
         // outcome.
         me.eliminated = true;
         recordDeath(session, me, player);
-        int winner = lastTeamStanding(session);
         // A forfeit brings its own reason, so the history says "out of bounds" rather than "kill".
         String reason = forfeitReasons.getOrDefault(player.getUUID(), "DEATH");
         forfeitReasons.remove(player.getUUID());
-        session.pendingWinner = me.uuid;
-        session.pendingReason = reason;
-        session.pendingWinnerTeam = winner;
-        journal(session).append("ROUND_DECIDED", "reason", reason,
+        // A round that is already decided keeps its decision. The player who just fell may be the
+        // side that won it, and overwriting the record would leave the round with no winner.
+        boolean decided = session.pendingWinnerTeam >= 0;
+        int winner = decided ? session.pendingWinnerTeam : lastTeamStanding(session);
+        // Nobody left standing is a mutual kill, not an ongoing round. Without this the round stays
+        // open with every side out: no settle, no next round, and a body in the arena.
+        boolean wiped = !decided && winner < 0 && session.survivingTeams().isEmpty();
+        if (!decided) {
+            session.pendingWinner = me.uuid;
+            session.pendingReason = wiped ? "MUTUAL" : reason;
+            session.pendingWinnerTeam = winner;
+        }
+        journal(session).append("ROUND_DECIDED", "reason", wiped ? "MUTUAL" : reason,
                 "player", me.name,
                 "winnerTeam", winner,
+                "alreadyDecided", decided,
                 "alive", survivorsOf(session));
         persist(session);
 
@@ -1168,10 +1259,15 @@ public final class SessionManager {
             broadcastHud(session, true);
         }
 
+        if (wiped) {
+            afterDeathBeat(() -> settle(session, "MUTUAL", -1));
+            return;
+        }
         // A mid-series round settles after the death beat, without waiting for the respawn. Only
         // the deciding round waits, because finishSeries restores the snapshot onto a live entity.
         if (winner >= 0 && !decidesSeries(session, winner)) {
-            afterDeathBeat(() -> settle(session, reason, winner));
+            String settled = decided && session.pendingReason != null ? session.pendingReason : reason;
+            afterDeathBeat(() -> settle(session, settled, winner));
         }
     }
 
@@ -1359,6 +1455,8 @@ public final class SessionManager {
             due.forEach(Runnable::run);
         }
         flushPendingRestores();
+        // Before startDueRounds: a body still on its death screen blocks the round it would play.
+        tickCorpses();
         startDueRounds();
         // After startDueRounds: a round that just started has dropped its roundReadyAt entry.
         tickIntermissionCountdown();
@@ -4862,6 +4960,12 @@ public final class SessionManager {
         transition(session, SessionStage.RESTORING);
 
         for (Participant p : session.participants) {
+            ServerPlayer player = online(p);
+            if (player != null && !player.isAlive()) {
+                // A body on its death screen cannot take the snapshot. Replacing the entity here is
+                // what keeps the restore from being deferred with the corpse left in the arena.
+                respawnNow(player);
+            }
             restoreParticipant(session, p);
         }
 
