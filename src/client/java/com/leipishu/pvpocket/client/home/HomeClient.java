@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.home;
 
 import com.leipishu.pvpocket.client.SpectatorInput;
+import com.leipishu.pvpocket.client.surrender.SurrenderInput;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.network.HomeRequestPayload;
@@ -47,7 +48,9 @@ public final class HomeClient {
 
     /** The other keys the settings page can rebind, so one place lists every key this mod adds. */
     public static List<KeyMapping> extraKeys() {
-        return SpectatorInput.bindings();
+        List<KeyMapping> all = new java.util.ArrayList<>(SpectatorInput.bindings());
+        all.addAll(SurrenderInput.bindings());
+        return all;
     }
 
     /**

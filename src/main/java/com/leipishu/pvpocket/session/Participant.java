@@ -56,6 +56,16 @@ public final class Participant {
     public boolean eliminated;
 
     /**
+     * True once this player's side gave up the series.
+     *
+     * <p>Per-series and terminal, unlike {@link #eliminated}: a surrendered side is out for the
+     * rest of the match. Its members get their survival state back straight away and its card
+     * stays on the scoreboard, greyed, holding the score it finished on. The other sides play on
+     * until one of them is left.
+     */
+    public boolean surrendered;
+
+    /**
      * This player's loadout, encoded by {@code Loadout.encode()}.
      *
      * <p>Every participant in a session holds the same value; written by

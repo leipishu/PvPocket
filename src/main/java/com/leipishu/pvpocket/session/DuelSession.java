@@ -274,6 +274,34 @@ public final class DuelSession {
         return out;
     }
 
+    /**
+     * Members of a side still playing the series: declined invites and a surrendered side out.
+     *
+     * <p>The distinction from {@link #activeMembers(int)} is what a surrender means. A side that
+     * gives up keeps its roster and its score - the scoreboard still shows both - but nothing that
+     * means "who is fighting" may count it.
+     */
+    public List<Participant> contestingMembers(int team) {
+        List<Participant> out = new ArrayList<>();
+        for (Participant p : activeMembers(team)) {
+            if (!p.surrendered) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
+    /** Sides still fighting for the series, in card order. */
+    public List<Integer> contestingTeams() {
+        List<Integer> out = new ArrayList<>();
+        for (int team : playingTeams()) {
+            if (!contestingMembers(team).isEmpty()) {
+                out.add(team);
+            }
+        }
+        return out;
+    }
+
     public int wins(int team) {
         return teamScore.getOrDefault(Integer.toString(team), 0);
     }
@@ -286,12 +314,13 @@ public final class DuelSession {
      * Teams that still have somebody standing this round.
      *
      * <p>Read from {@link Participant#eliminated} rather than from online-ness: a disconnected
-     * player may reconnect during the grace period.
+     * player may reconnect during the grace period. A side that surrendered the series is not
+     * here at all - it is not fighting, so it can neither win nor hold a round open.
      */
     public List<Integer> survivingTeams() {
         List<Integer> out = new ArrayList<>();
-        for (int team : playingTeams()) {
-            for (Participant p : activeMembers(team)) {
+        for (int team : contestingTeams()) {
+            for (Participant p : contestingMembers(team)) {
                 if (!p.eliminated) {
                     out.add(team);
                     break;

@@ -268,6 +268,17 @@ public final class PvPocketNetworking {
     }
 
     /**
+     * Shows or dismisses the surrender prompt on one client.
+     *
+     * <p>Silent like {@link #sendHud}: a request is re-announced once a second for its countdown.
+     */
+    public static void sendSurrender(ServerPlayer player, SurrenderStatePayload payload) {
+        if (PvPlatform.get().canSend(player, SurrenderStatePayload.ID)) {
+            PvPlatform.get().send(player, payload);
+        }
+    }
+
+    /**
      * Re-validates a blocking request and pushes the resulting authoritative state back down.
      *
      * <p>Only the client knows whether a mouse button is held, but every reason to refuse is

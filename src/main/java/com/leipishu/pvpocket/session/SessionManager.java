@@ -30,6 +30,7 @@ import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
+import com.leipishu.pvpocket.network.SurrenderStatePayload;
 import com.leipishu.pvpocket.network.VoteOpenPayload;
 import com.leipishu.pvpocket.network.VoteProgressPayload;
 import com.leipishu.pvpocket.rules.DuelRules;
@@ -178,6 +179,22 @@ public final class SessionManager {
     private static final long DEATH_BEAT_MS = 2_500L;
 
     /**
+     * How long a surrender request waits for the rest of the side, in milliseconds.
+     *
+     * <p>Thirty seconds covers a fight in progress without holding the whole match open on a
+     * teammate who has walked away from the keyboard.
+     */
+    private static final long SURRENDER_WINDOW_MS = 30_000L;
+
+    /**
+     * How long a dead body outside a live round may stay before it is replaced, in milliseconds.
+     *
+     * <p>No death beat is playing there, so the only reason to wait at all is a client that is one
+     * packet behind.
+     */
+    private static final long CORPSE_IDLE_MS = 500L;
+
+    /**
      * Hard ceiling on one session's roster.
      *
      * <p>Four sides of five is the largest shape the roster panel can draw. Enforced when the
@@ -201,6 +218,31 @@ public final class SessionManager {
 
     /** One reaction held until its wall-clock deadline. */
     private record DelayedReaction(long dueAt, Runnable body) {
+    }
+
+    /**
+     * A surrender waiting on the rest of the side.
+     *
+     * <p>One per session: a second request while one is open would make "everybody agreed"
+     * ambiguous, so the second caller is refused instead.
+     *
+     * <p>{@code agreed} holds uuids and starts with the requester, whose consent is the request
+     * itself. {@code announced} is the last whole second pushed to the clients, so the countdown
+     * costs one packet per second rather than one per tick.
+     */
+    private static final class SurrenderRequest {
+        final String requester;
+        final int team;
+        final long deadline;
+        final Set<String> agreed = new LinkedHashSet<>();
+        int announced = -1;
+
+        SurrenderRequest(String requester, int team, long deadline) {
+            this.requester = requester;
+            this.team = team;
+            this.deadline = deadline;
+            this.agreed.add(requester);
+        }
     }
 
     private final MinecraftServer server;
@@ -246,6 +288,15 @@ public final class SessionManager {
      * as it is read.
      */
     private final Map<UUID, String> forfeitReasons = new HashMap<>();
+    /**
+     * Player uuid -> when the sweep first saw them dead inside a session.
+     *
+     * <p>Drives {@link #tickCorpses}: a body is replaced once it has been down for the death beat,
+     * since vanilla only does that on a client respawn request that may never arrive.
+     */
+    private final Map<UUID, Long> corpseSince = new HashMap<>();
+    /** Session id -> the surrender waiting on the rest of the side. */
+    private final Map<String, SurrenderRequest> surrenderRequests = new HashMap<>();
     /**
      * Player uuid -> the respawn point they had before a death moved it onto the plot.
      *
@@ -638,7 +689,8 @@ public final class SessionManager {
             } catch (RuntimeException e) {
                 // startRound bumps the round counter before it can fail; a cut counts no round.
                 session.round = before;
-                if (session.participants.stream().anyMatch(p -> online(p) == null)) {
+                if (session.participants.stream()
+                        .anyMatch(p -> !p.surrendered && online(p) == null)) {
                     // A participant logged off during the intermission; that ends the series.
                     session.seriesEndReason = "CUT";
                     journal(session).append("SERIES_CUT", "reason", "participant_offline");
@@ -719,7 +771,7 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        if (me == null) {
+        if (me == null || me.surrendered) {
             return;
         }
         // Leaving is an elimination, not a verdict on the round: the last member of a side ends it.
@@ -1052,7 +1104,9 @@ public final class SessionManager {
     private int healthLeader(DuelSession session) {
         Map<Integer, Double> totals = new LinkedHashMap<>();
         for (Participant p : session.participants) {
-            if (p.rejected) {
+            // A side that left is out of the verdict too: its players are standing in survival with
+            // full health, which would read as a lead.
+            if (p.rejected || p.surrendered) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -1142,14 +1196,17 @@ public final class SessionManager {
         // A death inside the plot borrows the player's respawn point; it goes back first, before
         // anything else can read the arena as where they belong.
         restoreRespawnPoint(player);
+        String sessionId = sessionByPlayer.get(player.getUUID());
+        DuelSession session = sessionId == null ? null : sessions.get(sessionId);
+        Participant quitter = session == null ? null : session.participant(player.getStringUUID());
+        if (quitter != null && quitter.surrendered) {
+            // A side that left waits for its queued restore, not for the round flow: parking or
+            // spectating would put it back into a match it is out of.
+            return;
+        }
         // A respawn replaces the server-side entity, so re-send the HUD state; nothing else will
         // push it before the next boundary.
         pushHudTo(player);
-        String sessionId = sessionByPlayer.get(player.getUUID());
-        if (sessionId == null) {
-            return;
-        }
-        DuelSession session = sessions.get(sessionId);
         if (session == null) {
             return;
         }
@@ -1222,7 +1279,7 @@ public final class SessionManager {
         }
         Participant me = session.participant(player.getStringUUID());
         ArenaRegion region = ArenaManager.region(session.id);
-        if (me == null || region == null || !me.eliminated) {
+        if (me == null || me.surrendered || region == null || !me.eliminated) {
             return;
         }
         Sandbox.changeGameMode(player, GameType.SPECTATOR);
@@ -1245,7 +1302,7 @@ public final class SessionManager {
      */
     private void parkForIntermission(DuelSession session, ServerPlayer player, Participant p,
                                      ArenaRegion region) {
-        if (region == null) {
+        if (region == null || p.surrendered) {
             return;
         }
         Sandbox.changeGameMode(player, GameType.SPECTATOR);
@@ -1308,6 +1365,7 @@ public final class SessionManager {
         tickRoundClock();
         tickPrepare();
         tickNegotiationWindows();
+        tickSurrender();
         // Drops watchers of finished series and repairs cameras on replaced bodies.
         spectators.tick();
         // After the spectator pass, which can teleport a watcher out in this same tick.
@@ -1340,6 +1398,12 @@ public final class SessionManager {
                     continue;
                 }
                 String key = session.id + "/" + p.uuid;
+                if (p.surrendered) {
+                    // Back in survival, standing in their own world by design: the plot's bounds
+                    // are not theirs to keep, and the countdown would kill them a second time.
+                    boundaryExits.remove(key);
+                    continue;
+                }
                 if (p.eliminated) {
                     // Already out of the round, so the countdown is answered: no re-arming for a
                     // corpse or for a watcher who stands outside the plot by design.
@@ -3029,10 +3093,16 @@ public final class SessionManager {
     }
 
     /**
-     * Forfeits the whole series, not the round.
+     * Gives up the series on behalf of a whole side.
      *
-     * <p>Surrender is the way out of a match, not a way to drop one round. The score is left
-     * untouched: nobody won this round, and the series ends with the opponent as its winner.
+     * <p>A side that quits leaves the match; it does not end it. The members get their survival
+     * state back, their card stays on the scoreboard greyed out, and the remaining sides play on.
+     * Only when nobody is left to play does the series end, and then the last side standing takes
+     * it. A two-side match therefore behaves as it always did: the one who quits hands the series
+     * to the opponent.
+     *
+     * <p>On a side with more than one player the request only opens: every team-mate has to agree
+     * before the side leaves, so one player cannot end a match the others are still in.
      */
     public void surrender(ServerPlayer player) {
         String sessionId = sessionByPlayer.get(player.getUUID());
@@ -3057,19 +3127,311 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        // A surrender gives up for the whole side, so the series goes to the best other side.
-        forfeit(session, player, leaderTeam(session, me == null ? -1 : me.teamIndex()));
+        if (me == null) {
+            fail(player, "pvpocket.msg.duel.not_in");
+            return;
+        }
+        if (me.surrendered) {
+            fail(player, "pvpocket.msg.duel.surrender_done");
+            return;
+        }
+        if (session.contestingMembers(me.teamIndex()).size() <= 1) {
+            // Nobody to ask, so the request is the decision.
+            applySurrender(session, me.teamIndex(), player);
+            return;
+        }
+        if (surrenderRequests.containsKey(session.id)) {
+            fail(player, "pvpocket.msg.duel.surrender_pending");
+            return;
+        }
+        SurrenderRequest request = new SurrenderRequest(me.uuid, me.teamIndex(),
+                System.currentTimeMillis() + SURRENDER_WINDOW_MS);
+        surrenderRequests.put(session.id, request);
+        journal(session).append("SURRENDER_REQUESTED", "player", me.name,
+                "team", me.teamIndex(), "members", session.contestingMembers(me.teamIndex()).size());
+        player.displayClientMessage(PvLang.t("pvpocket.msg.duel.surrender_asking")
+                .withStyle(ChatFormatting.YELLOW), false);
+        for (Participant p : session.contestingMembers(me.teamIndex())) {
+            if (p.uuid.equals(me.uuid)) {
+                continue;
+            }
+            ServerPlayer member = online(p);
+            if (member == null) {
+                continue;
+            }
+            member.displayClientMessage(PvLang.t("pvpocket.msg.duel.surrender_asked", me.name)
+                    .withStyle(ChatFormatting.YELLOW), false);
+            sendSurrender(member, request, session, true);
+        }
     }
 
     /**
-     * Ends the series by forfeit: the surrendering side loses, {@code winnerTeam} takes the series.
+     * Records one team-mate's answer to an open surrender request.
      *
-     * <p>Works from {@code ROUND_READY} as well as {@code ROUND_ACTIVE}: a player who wants out
-     * should not have to sit through the intermission and start another round to say so.</p>
+     * <p>Any refusal cancels the request outright: the point of asking is that nobody is dragged
+     * out of a match they want to keep playing. A missing answer is not a refusal, so the request
+     * stays open until its window runs out.
+     */
+    public void onSurrenderAnswer(ServerPlayer player, boolean approve) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
+        if (sessionId == null) {
+            return;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null) {
+            return;
+        }
+        SurrenderRequest request = surrenderRequests.get(session.id);
+        if (request == null) {
+            return;
+        }
+        Participant me = session.participant(player.getStringUUID());
+        if (me == null || me.teamIndex() != request.team || me.uuid.equals(request.requester)) {
+            return;
+        }
+        if (!approve) {
+            surrenderRequests.remove(session.id);
+            journal(session).append("SURRENDER_DECLINED", "player", me.name, "team", request.team);
+            broadcastSurrenderClosed(session, request, "pvpocket.msg.duel.surrender_declined",
+                    me.name);
+            return;
+        }
+        if (!request.agreed.add(me.uuid)) {
+            return;   // already counted; a double tap must not push a second prompt
+        }
+        journal(session).append("SURRENDER_AGREED", "player", me.name, "team", request.team,
+                "agreed", request.agreed.size());
+        if (surrenderSatisfied(session, request)) {
+            approveSurrender(session, request);
+            return;
+        }
+        for (Participant p : session.contestingMembers(request.team)) {
+            ServerPlayer member = online(p);
+            if (member != null && !p.uuid.equals(request.requester)) {
+                sendSurrender(member, request, session, true);
+            }
+        }
+    }
+
+    /**
+     * Expires, resolves or re-announces open surrender requests.
+     *
+     * <p>The window is wall-clock, like every other deadline in a session, so a stalled server does
+     * not extend it. A request whose session left the round is dropped here rather than in each
+     * caller that can end a round.
+     */
+    private void tickSurrender() {
+        if (surrenderRequests.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        List<String> stale = new ArrayList<>();
+        // A copy: approving a request removes it, and that happens inside this loop.
+        for (Map.Entry<String, SurrenderRequest> entry
+                : new ArrayList<>(surrenderRequests.entrySet())) {
+            DuelSession session = sessions.get(entry.getKey());
+            SurrenderRequest request = entry.getValue();
+            if (session == null
+                    || (session.stage != SessionStage.ROUND_ACTIVE
+                    && session.stage != SessionStage.ROUND_READY)
+                    || session.pendingWinnerTeam >= 0) {
+                stale.add(entry.getKey());
+                if (session != null) {
+                    closeSurrenderPrompt(session, request);
+                }
+                continue;
+            }
+            if (now >= request.deadline) {
+                stale.add(entry.getKey());
+                broadcastSurrenderClosed(session, request, "pvpocket.msg.duel.surrender_expired", "");
+                continue;
+            }
+            // A team-mate who left cannot be waited for; the side may already be complete.
+            if (surrenderSatisfied(session, request)) {
+                approveSurrender(session, request);
+                continue;
+            }
+            int seconds = (int) ((request.deadline - now + 999L) / 1000L);
+            if (seconds != request.announced) {
+                request.announced = seconds;
+                for (Participant p : session.contestingMembers(request.team)) {
+                    ServerPlayer member = online(p);
+                    if (member != null && !p.uuid.equals(request.requester)) {
+                        sendSurrender(member, request, session, true);
+                    }
+                }
+            }
+        }
+        for (String id : stale) {
+            surrenderRequests.remove(id);
+        }
+    }
+
+    /**
+     * Whether every team-mate who is still here has agreed.
+     *
+     * <p>An offline team-mate is skipped rather than counted as a refusal: a disconnect already
+     * ends the series on the next settle, so blocking on one would only strand the side.
+     */
+    private boolean surrenderSatisfied(DuelSession session, SurrenderRequest request) {
+        for (Participant p : session.contestingMembers(request.team)) {
+            if (p.uuid.equals(request.requester) || request.agreed.contains(p.uuid)) {
+                continue;
+            }
+            if (online(p) != null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Carries out a request every team-mate agreed to. */
+    private void approveSurrender(DuelSession session, SurrenderRequest request) {
+        surrenderRequests.remove(session.id);
+        journal(session).append("SURRENDER_APPROVED", "team", request.team,
+                "agreed", request.agreed.size());
+        ServerPlayer requester = server.getPlayerList().getPlayer(UUID.fromString(request.requester));
+        broadcastSurrenderClosed(session, request, "pvpocket.msg.duel.surrender_agreed", "");
+        applySurrender(session, request.team, requester);
+    }
+
+    /**
+     * Takes one side out of the series and lets the rest play on.
+     *
+     * <p>The side keeps its roster, its score and its card on the scoreboard; the card greys out
+     * because every member is now marked. Its players get their survival state back immediately
+     * rather than at the end of the series.
+     *
+     * <p>The series only ends here when this was the second-to-last side: the one still contesting
+     * takes it, and {@code forfeit} writes the end-of-series bookkeeping. With three or more sides
+     * the remaining ones keep their rounds, and a round that just lost its last opposition is
+     * settled in their favour.
+     */
+    private void applySurrender(DuelSession session, int team, ServerPlayer requester) {
+        // Before the flags: the prompt has to reach the side that asked, which is about to stop
+        // counting as contesting. A no-op when the caller already closed its own request.
+        SurrenderRequest open = surrenderRequests.remove(session.id);
+        if (open != null) {
+            closeSurrenderPrompt(session, open);
+        }
+        for (Participant p : session.contestingMembers(team)) {
+            p.surrendered = true;
+        }
+        List<Integer> left = session.contestingTeams();
+        journal(session).append("TEAM_SURRENDERED", "team", team,
+                "players", session.activeMembers(team).size(),
+                "remaining", left.size());
+        // Written now: the remaining sides play on, so the flag has to survive a restart without
+        // waiting for the next settle to persist it.
+        persist(session);
+
+        MutableComponent line = PvLang.t("pvpocket.msg.duel.team_surrendered",
+                teamName(session, team)).withStyle(ChatFormatting.RED);
+        for (Participant p : session.participants) {
+            ServerPlayer member = online(p);
+            if (member != null) {
+                member.displayClientMessage(line.copy(), false);
+            }
+        }
+        // Ahead of the restores: these players leave the plot here, so it stops being theirs.
+        for (Participant p : session.activeMembers(team)) {
+            ServerPlayer member = online(p);
+            if (member != null) {
+                // A boundary countdown title left over from the moment they quit would hang there.
+                member.connection.send(new ClientboundClearTitlesPacket(false));
+            }
+            if (p.snapshotFile != null && restoreParticipant(session, p)) {
+                continue;
+            }
+            // No snapshot to put back, or a restore deferred to the respawn: the screen still has
+            // to lose the match now, or the bar stays up over a player who has already left.
+            if (member != null) {
+                clearMatchScreen(member);
+            }
+        }
+        broadcastHud(session, true);
+
+        if (left.size() <= 1) {
+            // Nobody left to play: the series goes to the side that stayed, or on score when the
+            // last side walked out too.
+            forfeit(session, requester, left.isEmpty() ? leaderTeam(session) : left.get(0));
+            return;
+        }
+        if (session.stage == SessionStage.ROUND_ACTIVE) {
+            // The round may have lost its last opposition rather than its last player.
+            int winner = lastTeamStanding(session);
+            if (winner >= 0) {
+                settle(session, "SURRENDER", winner);
+            }
+        }
+    }
+
+    /** Tells the side a request ended, and clears the prompt on their clients. */
+    private void broadcastSurrenderClosed(DuelSession session, SurrenderRequest request,
+                                          String key, String name) {
+        MutableComponent line = name.isEmpty() ? PvLang.t(key) : PvLang.t(key, name);
+        for (Participant p : session.contestingMembers(request.team)) {
+            ServerPlayer member = online(p);
+            if (member == null) {
+                continue;
+            }
+            member.displayClientMessage(line.copy().withStyle(ChatFormatting.YELLOW), false);
+        }
+        closeSurrenderPrompt(session, request);
+    }
+
+    /**
+     * Clears the prompt on the side's clients without a chat line.
+     *
+     * <p>Used where the request ends because the round did, which the chat already announces.
+     */
+    private void closeSurrenderPrompt(DuelSession session, SurrenderRequest request) {
+        for (Participant p : session.contestingMembers(request.team)) {
+            ServerPlayer member = online(p);
+            if (member != null) {
+                sendSurrender(member, request, session, false);
+            }
+        }
+    }
+
+    /** One surrender prompt packet; {@code active=false} closes it. */
+    private static void sendSurrender(ServerPlayer player, SurrenderRequest request,
+                                      DuelSession session, boolean active) {
+        int agreed = 0;
+        int total = 0;
+        for (Participant p : session.contestingMembers(request.team)) {
+            total++;
+            if (request.agreed.contains(p.uuid)) {
+                agreed++;
+            }
+        }
+        int seconds = active
+                ? (int) Math.max(0L, (request.deadline - System.currentTimeMillis() + 999L) / 1000L)
+                : 0;
+        String requester = "";
+        Participant author = session.participant(request.requester);
+        if (author != null) {
+            requester = author.name;
+        }
+        PvPocketNetworking.sendSurrender(player,
+                new SurrenderStatePayload(active, requester, agreed, total, seconds));
+    }
+
+    /**
+     * Ends the series on a surrender: {@code winnerTeam} takes it.
+     *
+     * <p>Reached only when the last other side walked out, since a surrender in a three- or
+     * four-side match leaves the rest playing. Works from {@code ROUND_READY} as well as
+     * {@code ROUND_ACTIVE}: a side that quits during the intermission should not have to start
+     * another round first.
+     *
+     * <p>{@code player} may be null: a surrender agreed to by the team can be carried out after the
+     * player who asked for it has left, and there is then nobody to name.
+     * </p>
      */
     private void forfeit(DuelSession session, ServerPlayer player, int winnerTeam) {
         journal(session).append("SERIES_FORFEITED",
-                "player", player.getName().getString(),
+                "player", player == null ? "-" : player.getName().getString(),
                 "winnerTeam", winnerTeam,
                 "score", scoreLine(session),
                 "round", session.round,
@@ -3090,8 +3452,7 @@ public final class SessionManager {
         }
         roundReadyAt.remove(session.id);
         session.seriesEndReason = "SURRENDER";
-        player.displayClientMessage(PvLang.t("pvpocket.msg.duel.surrendered")
-                .withStyle(ChatFormatting.RED), false);
+        // No per-player line here: the surrender was announced to the whole session by the caller.
         finishSeries(session, winnerTeam);
     }
 
@@ -3614,6 +3975,11 @@ public final class SessionManager {
         }
         int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
+            if (p.surrendered) {
+                // A side that left the series is not teleported in, armed, or counted as absent:
+                // its members are back in survival and have no part in this round.
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
@@ -3697,6 +4063,9 @@ public final class SessionManager {
             broadcastHud(session, true);
             broadcastBounds(session, true);
             for (Participant p : session.participants) {
+                if (p.surrendered) {
+                    continue;
+                }
                 ServerPlayer player = online(p);
                 if (player != null) {
                     player.displayClientMessage(PvLang.t("pvpocket.msg.round.prepare", prepare)
@@ -3723,6 +4092,9 @@ public final class SessionManager {
             journal(session).append("PREPARE_WALL_REMOVED", "blocks", removed);
         }
         for (Participant p : session.participants) {
+            if (p.surrendered) {
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player == null) {
                 // Somebody left during the preparation window; they never fought, so cut it.
@@ -3756,6 +4128,9 @@ public final class SessionManager {
         // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
+            if (p.surrendered) {
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player != null) {
                 // Three pieces: the "first to N" clause only exists for a series.
@@ -3799,6 +4174,9 @@ public final class SessionManager {
             if (second != entry.getValue().announced()) {
                 prepareDeadlines.put(id, new Prepare(entry.getValue().at(), second));
                 for (Participant p : session.participants) {
+                    if (p.surrendered) {
+                        continue;
+                    }
                     ServerPlayer player = online(p);
                     if (player != null) {
                         player.displayClientMessage(PvLang.t("pvpocket.msg.round.prepare_tick", second)
@@ -3956,6 +4334,11 @@ public final class SessionManager {
         // Cleared here: the "seen on the plot" memory belongs to the round that just ended.
         roundStartedAt.remove(session.id);
         clearBoundaryExits(session);
+        // A surrender asked for in the round that just ended has nothing left to forfeit.
+        SurrenderRequest request = surrenderRequests.remove(session.id);
+        if (request != null) {
+            closeSurrenderPrompt(session, request);
+        }
         prepareDeadlines.remove(session.id);
         countdownPushed.remove(session.id);
 
@@ -3965,7 +4348,7 @@ public final class SessionManager {
         int seriesWinner = seriesWinnerTeam(session);
         boolean decided = seriesDecided(session);
         if (!decided && session.participants.stream()
-                .anyMatch(p -> !p.rejected && online(p) == null)) {
+                .anyMatch(p -> !p.rejected && !p.surrendered && online(p) == null)) {
             // Somebody left, so the series is cut now rather than failing in the intermission.
             // Cut always finishes, even with no leader: a cut tied series has no winner.
             session.seriesEndReason = "CUT";
@@ -4455,6 +4838,11 @@ public final class SessionManager {
         // Defensive: a series can end during the preparation window, and a leftover barrier ring
         // would be an invisible cage.
         ArenaManager.removePrepareWall(arenaWorld, region);
+        // Nothing is left to forfeit once the series is over.
+        SurrenderRequest pendingSurrender = surrenderRequests.remove(session.id);
+        if (pendingSurrender != null) {
+            closeSurrenderPrompt(session, pendingSurrender);
+        }
         // Ejected before the snapshots are restored, because restoring teleports the participants.
         spectators.ejectAll(session.id, "SERIES_END");
 
@@ -4524,11 +4912,15 @@ public final class SessionManager {
      * The side that has nobody left online, or {@code -1} when every side still has a player.
      *
      * <p>A cut is a forfeit by whoever walked out, so that side cannot also be the side that wins.
-     * {@code -1} when two or more sides are absent, since there is no forfeit to attribute.
+     * {@code -1} when two or more sides are absent, since there is no forfeit to attribute. A
+     * surrendered side is skipped: its members leaving afterwards is not a cut.
      */
     private int absentTeam(DuelSession session) {
         int absent = -1;
         for (int t = 0; t < Math.max(1, session.teamCount); t++) {
+            if (session.contestingMembers(t).isEmpty()) {
+                continue;
+            }
             boolean anyOnline = false;
             for (Participant p : session.participants) {
                 if (p.teamIndex() == t && !p.rejected && online(p) != null) {
@@ -4550,14 +4942,15 @@ public final class SessionManager {
      * The best-scoring side other than {@code exclude}, or {@code -1} when they are tied.
      *
      * <p>{@code exclude} exists for surrender: a side that quits cannot be its own winner, so the
-     * tie is judged among the sides that stayed.
+     * tie is judged among the sides that stayed. A side that already surrendered is skipped for the
+     * same reason, whatever its score says.
      */
     private static int leaderTeam(DuelSession session, int exclude) {
         int best = -1;
         int bestScore = Integer.MIN_VALUE;
         boolean tied = false;
         for (int t = 0; t < Math.max(1, session.teamCount); t++) {
-            if (t == exclude) {
+            if (t == exclude || session.contestingMembers(t).isEmpty()) {
                 continue;
             }
             int wins = session.wins(t);
@@ -4613,7 +5006,7 @@ public final class SessionManager {
         // players are skipped and parked by onRespawn once they are alive.
         for (Participant p : session.participants) {
             ServerPlayer player = online(p);
-            if (player == null || p.rejected || !player.isAlive()) {
+            if (player == null || p.rejected || p.surrendered || !player.isAlive()) {
                 continue;
             }
             parkForIntermission(session, player, p, region);
@@ -4724,6 +5117,9 @@ public final class SessionManager {
                 : boundsOf(region, mode);
         PrepareScreensPayload screens = screensOf(session);
         for (Participant p : session.participants) {
+            if (p.surrendered) {
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendBounds(player, payload);
@@ -4782,6 +5178,9 @@ public final class SessionManager {
     private void broadcastPrepare(DuelSession session, boolean active) {
         PrepareStatusPayload payload = new PrepareStatusPayload(session.id, active);
         for (Participant p : session.participants) {
+            if (p.surrendered) {
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendPrepareStatus(player, payload);
@@ -4792,6 +5191,11 @@ public final class SessionManager {
     private void broadcastHud(DuelSession session, boolean active) {
         MatchHudPayload payload = active ? buildHud(session) : MatchHudPayload.hidden();
         for (Participant p : session.participants) {
+            // A side that left has its own screen cleared once, on the way out; a live scoreboard
+            // pushed at it again every round would read as "still in the match".
+            if (p.surrendered) {
+                continue;
+            }
             ServerPlayer player = online(p);
             if (player != null) {
                 PvPocketNetworking.sendHud(player, payload);
@@ -4837,8 +5241,10 @@ public final class SessionManager {
                 first = false;
             }
         }
+        // A surrendered side is greyed for the rest of the series, not just for the round it left
+        // in, so its flag is folded in here rather than into the per-round field.
         for (Participant p : session.participants) {
-            if (!p.eliminated || p.rejected) {
+            if ((!p.eliminated && !p.surrendered) || p.rejected) {
                 continue;
             }
             if (eliminated.length() > 0) {
@@ -4921,6 +5327,18 @@ public final class SessionManager {
     }
 
     /**
+     * Takes every trace of a match off one client's screen: bar, plot outline and curtain.
+     *
+     * <p>Three payloads rather than one, because a client that keeps any of them draws an arena
+     * around a player who is standing in their own world.
+     */
+    private static void clearMatchScreen(ServerPlayer player) {
+        PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
+        PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
+        PvPocketNetworking.sendScreens(player, PrepareScreensPayload.none());
+    }
+
+    /**
      * Re-sends the HUD to one player, or tells them to hide it.
      *
      * <p>Needed on join: the payload is pushed only when the score changes.
@@ -4929,9 +5347,7 @@ public final class SessionManager {
         String id = sessionByPlayer.get(player.getUUID());
         DuelSession session = id == null ? null : sessions.get(id);
         if (session == null || session.stage.isTerminal()) {
-            PvPocketNetworking.sendHud(player, MatchHudPayload.hidden());
-            PvPocketNetworking.sendBounds(player, ArenaBoundsPayload.hidden());
-            PvPocketNetworking.sendScreens(player, PrepareScreensPayload.none());
+            clearMatchScreen(player);
             return;
         }
         PvPocketNetworking.sendHud(player,
@@ -5014,6 +5430,10 @@ public final class SessionManager {
         clearBoundaryExits(session);
         prepareDeadlines.remove(session.id);
         countdownPushed.remove(session.id);
+        SurrenderRequest pendingSurrender = surrenderRequests.remove(session.id);
+        if (pendingSurrender != null) {
+            closeSurrenderPrompt(session, pendingSurrender);
+        }
         ArenaManager.removePrepareWall(ArenaManager.world(server), ArenaManager.region(session.id));
         spectators.ejectAll(session.id, "ABORTED");
         broadcastHud(session, false);
@@ -5062,6 +5482,11 @@ public final class SessionManager {
             ((PlayerManagerInvoker) PvCompat.server(player).getPlayerList())
                     .pvpocket$savePlayerData(player);
             sessionByPlayer.remove(player.getUUID());
+            if (p.surrendered) {
+                // Nothing of the match may stay on the screen of a player who left it: the bar,
+                // the plot outline and the preparation curtain all go with the session mapping.
+                clearMatchScreen(player);
+            }
             journal(session).append("RESTORE_COMPLETED", "player", p.name, "verified", verified);
             if (!verified) {
                 // Naming the field turns "something differs" into a line somebody can act on.
@@ -5072,7 +5497,11 @@ public final class SessionManager {
                 PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}: {}",
                         p.name, session.id, diff);
             }
-            player.displayClientMessage(PvLang.t("pvpocket.msg.series.restored")
+            // A side that surrendered gets its state back mid-series, so it must not be told the
+            // match is over: the others are still fighting.
+            player.displayClientMessage(PvLang.t(p.surrendered
+                            ? "pvpocket.msg.duel.surrendered_restored"
+                            : "pvpocket.msg.series.restored")
                     .withStyle(ChatFormatting.GREEN), false);
             return true;
         } catch (Exception e) {

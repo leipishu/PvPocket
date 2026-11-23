@@ -38,6 +38,7 @@ public final class PvPayloads {
         platform.registerPlayToServer(PresetSharePayload.ID, PresetSharePayload.CODEC);
         platform.registerPlayToServer(HomeRequestPayload.ID, HomeRequestPayload.CODEC);
         platform.registerPlayToServer(HomeActionPayload.ID, HomeActionPayload.CODEC);
+        platform.registerPlayToServer(SurrenderAnswerPayload.ID, SurrenderAnswerPayload.CODEC);
     }
 
     /** Server to client: state the server pushes, drawn by the client. */
@@ -60,6 +61,7 @@ public final class PvPayloads {
         platform.registerPlayToClient(PossessPayload.ID, PossessPayload.CODEC);
         platform.registerPlayToClient(PresetShareResultPayload.ID, PresetShareResultPayload.CODEC);
         platform.registerPlayToClient(SeriesResultPayload.ID, SeriesResultPayload.CODEC);
+        platform.registerPlayToClient(SurrenderStatePayload.ID, SurrenderStatePayload.CODEC);
     }
 
     /**
@@ -125,6 +127,13 @@ public final class PvPayloads {
             SessionManager sessions = SessionManager.get();
             if (sessions != null) {
                 sessions.onHomeAction(player, payload);
+            }
+        });
+
+        platform.onServerReceive(SurrenderAnswerPayload.ID, (player, payload) -> {
+            SessionManager sessions = SessionManager.get();
+            if (sessions != null) {
+                sessions.onSurrenderAnswer(player, payload.approve());
             }
         });
     }

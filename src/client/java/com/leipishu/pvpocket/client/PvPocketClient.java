@@ -21,6 +21,8 @@ import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
 import com.leipishu.pvpocket.client.render.PossessedHandRenderer;
 import com.leipishu.pvpocket.client.hud.SpectatorHud;
+import com.leipishu.pvpocket.client.hud.SurrenderHud;
+import com.leipishu.pvpocket.client.surrender.SurrenderInput;
 import com.leipishu.pvpocket.client.render.ArenaBounds;
 import com.leipishu.pvpocket.client.render.BoundaryRenderer;
 import com.leipishu.pvpocket.client.render.PrepareScreens;
@@ -42,6 +44,7 @@ import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
 import com.leipishu.pvpocket.network.SpectateStatePayload;
+import com.leipishu.pvpocket.network.SurrenderStatePayload;
 import com.leipishu.pvpocket.network.VoteOpenPayload;
 import com.leipishu.pvpocket.network.VoteProgressPayload;
 import com.leipishu.pvpocket.client.compat.PvScreens;
@@ -161,6 +164,9 @@ public final class PvPocketClient {
 
         platform.onServerPacket(SpectateStatePayload.ID, SpectatorHud::update);
 
+        // A surrender request is re-sent once a second while it is open, so it carries the window.
+        platform.onServerPacket(SurrenderStatePayload.ID, SurrenderHud::update);
+
         // The possessed body's hotbar; it updates on a different clock than the spectator bar.
         platform.onServerPacket(PossessPayload.ID, PossessionHud::update);
 
@@ -192,6 +198,7 @@ public final class PvPocketClient {
             PrepareNotice.clear();
             SpectatorHud.clear();
             PossessionHud.clear();
+            SurrenderHud.clear();
             // Clears the listener so a later answer cannot reach a closed dialog.
             PresetShare.listener(null);
             // Stats and history belong to the server that sent them.
@@ -201,8 +208,10 @@ public final class PvPocketClient {
         MatchHud.register();
         SpectatorHud.register();
         PossessionHud.register();
+        SurrenderHud.register();
         PossessedHandRenderer.register();
         SpectatorInput.register();
+        SurrenderInput.register();
         HomeClient.register();
         InventoryButton.register();
         BoundaryRenderer.register();
