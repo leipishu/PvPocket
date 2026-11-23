@@ -835,6 +835,8 @@
   "pvpocket.gui.home.settings.motion": "动效",
   "pvpocket.gui.home.settings.hud_scale": "比分板大小",
   "pvpocket.gui.home.settings.hud_scale_hint": "对局时屏幕顶部比分板的显示大小。100% 是默认值。",
+  "pvpocket.gui.home.settings.hud_anchor": "队伍卡片放在左下角",
+  "pvpocket.gui.home.settings.hud_anchor_hint": "打开后队伍卡片移到屏幕左下角、按队逐行向下排列；关闭则仍在顶部居中。回合与计时始终在屏幕上方两角。",
   "pvpocket.gui.home.settings.history_page": "每页记录数",
   "pvpocket.gui.home.settings.history_page_hint": "历史页面每页显示多少条记录，超出后翻页。",
   "pvpocket.gui.home.settings.match": "对局",

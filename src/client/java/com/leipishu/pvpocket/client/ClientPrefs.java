@@ -48,6 +48,17 @@ public final class ClientPrefs {
     public static final int DEFAULT_HUD_SCALE = 3;
     private static final float[] HUD_SCALE_FACTORS = {0.75F, 0.9F, 1.0F, 1.2F};
 
+    /**
+     * Where the match HUD draws its team cards: the bar across the top, or a column in the bottom
+     * left corner.
+     *
+     * <p>Two layouts, not a free position: the top bar is the shape the scoreboard has in every
+     * other game, and the corner column is what keeps the view over the crosshair clear in a large
+     * match. A free drag would let a player park it over the crosshair.
+     */
+    public static final int HUD_ANCHOR_TOP = 0;
+    public static final int HUD_ANCHOR_BOTTOM_LEFT = 1;
+
     /** On-disk shape. Public fields, no adapters, tolerant of missing keys. */
     private static final class File_ {
         int version = 1;
@@ -57,6 +68,8 @@ public final class ClientPrefs {
         int historyPageSize = DEFAULT_HISTORY_PAGE;
         /** Scoreboard size step, 1..4. Zero when the field is absent from the file. */
         int hudScale = DEFAULT_HUD_SCALE;
+        /** Scoreboard layout, {@link #HUD_ANCHOR_TOP} or {@link #HUD_ANCHOR_BOTTOM_LEFT}. */
+        int hudAnchor = HUD_ANCHOR_TOP;
         /**
          * Whether a finished series opens the result card.
          *
@@ -71,6 +84,7 @@ public final class ClientPrefs {
     private static boolean motion = true;
     private static int historyPageSize = DEFAULT_HISTORY_PAGE;
     private static int hudScale = DEFAULT_HUD_SCALE;
+    private static int hudAnchor = HUD_ANCHOR_TOP;
     private static boolean resultScreen = true;
 
     private ClientPrefs() {
@@ -96,6 +110,7 @@ public final class ClientPrefs {
                     motion = parsed.motion;
                     historyPageSize = clampPage(parsed.historyPageSize);
                     hudScale = clampHudScale(parsed.hudScale);
+                    hudAnchor = clampHudAnchor(parsed.hudAnchor);
                     resultScreen = parsed.resultScreen;
                 }
             } catch (Exception e) {
@@ -189,12 +204,28 @@ public final class ClientPrefs {
         save();
     }
 
+    /** Where the match HUD draws: {@link #HUD_ANCHOR_TOP} or {@link #HUD_ANCHOR_BOTTOM_LEFT}. */
+    public static int hudAnchor() {
+        return hudAnchor;
+    }
+
+    public static void setHudAnchor(int value) {
+        hudAnchor = clampHudAnchor(value);
+        save();
+    }
+
+    /** Two layouts; anything else in the file reads as the top bar. */
+    private static int clampHudAnchor(int raw) {
+        return raw == HUD_ANCHOR_BOTTOM_LEFT ? HUD_ANCHOR_BOTTOM_LEFT : HUD_ANCHOR_TOP;
+    }
+
     private static void save() {
         File_ out = new File_();
         out.theme = theme == PvTheme.Theme.LIGHT ? "light" : "dark";
         out.motion = motion;
         out.historyPageSize = historyPageSize;
         out.hudScale = hudScale;
+        out.hudAnchor = hudAnchor;
         out.resultScreen = resultScreen;
         try {
             Files.createDirectories(file().getParent());

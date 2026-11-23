@@ -835,6 +835,8 @@
   "pvpocket.gui.home.settings.motion": "Motion",
   "pvpocket.gui.home.settings.hud_scale": "Scoreboard size",
   "pvpocket.gui.home.settings.hud_scale_hint": "How large the match scoreboard at the top of the screen is drawn. 100% is the default.",
+  "pvpocket.gui.home.settings.hud_anchor": "Team cards in the bottom-left corner",
+  "pvpocket.gui.home.settings.hud_anchor_hint": "On: the team cards move to the bottom-left corner, one row per side. Off: the bar stays centred at the top. The round and the clock always stay in the two top corners.",
   "pvpocket.gui.home.settings.history_page": "Rows per page",
   "pvpocket.gui.home.settings.history_page_hint": "How many records one history page holds before it paginates.",
   "pvpocket.gui.home.settings.match": "Matches",

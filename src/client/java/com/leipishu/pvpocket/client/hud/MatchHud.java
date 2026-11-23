@@ -28,80 +28,82 @@ import java.util.UUID;
 /**
  * The scoreboard drawn across the top of the screen during a match.
  *
- * <p>Both sides share one bar: heads on the left, the round counter and score in the middle,
- * heads on the right. A 1v1 also names each player; a larger match drops the names and lays the
- * heads out side by side, wrapping into two rows once a side has four or more players.
+ * <p>One chip per side: wool strip, heads, round wins. Two sides draw the same board as three or
+ * four, so the HUD keeps one shape and one reading order whatever the roster looks like.
  *
- * <p>The bar is centred on the screen, clear of the top-right corner where vanilla draws status
- * effects. Heads are 14px on a 16px row, scaled by {@code ClientPrefs.hudScale()} between 0.75x and
- * 1.2x.
+ * <p>Heads are 12px on a 16px chip, scaled by {@code ClientPrefs.hudScale()} between 0.75x and
+ * 1.2x. A player who prefers the corners can move the whole column to the bottom left instead; see
+ * {@link ClientPrefs#hudAnchor()}. Both layouts share one opacity and one radius with the clock
+ * plate, so the HUD reads as one surface rather than three.
  */
 public final class MatchHud implements PvClientPlatform.HudLayer {
 
-    private static final int ROW_H = 16;
-    private static final int HEAD = 14;
-    private static final int PAD_X = 8;
-    private static final int PAD_Y = 4;
-    private static final int NAME_GAP = 4;
+    private static final int HEAD = 12;
     /** Gap between two heads of the same side. */
     private static final int HEAD_GAP = 2;
-    private static final int BLOCK_GAP = 9;
-    private static final int MIN_H = 24;
     private static final int TOP = 3;
     /** Wool strip on the outer edge of a side - the same colour the team cards and blocks use. */
     private static final int STRIP_W = 2;
-    private static final float FLASH_TIME = 0.32F;
 
     /**
-     * Gap between the clock plate and the screen edge, in pixels.
+     * Opacity shared by the bar, the team cards, the round plate and the clock.
      *
-     * <p>The plate is the outermost thing the HUD draws, so the gap is measured from its own right
-     * edge. 4 is the same allowance the scoreboard bar keeps at each side ({@code screenW - 8} in
-     * the width test), so the two read as one row.
+     * <p>One number for all four: the HUD is read while fighting, and a bar that is more opaque
+     * than the plates sitting next to it looks like a different layer of the interface.
      */
-    private static final int CLOCK_MARGIN = 4;
-    /** Clock plate height and inner padding; the text is centred in the plate. */
-    private static final int CLOCK_H = 14;
-    private static final int CLOCK_PAD_X = 6;
+    private static final float PLATE_ALPHA = 0.72F;
+    /** Gap the bottom-left column keeps from the screen edges. */
+    private static final int STACK_MARGIN = 4;
+    /** Vanilla's hotbar width, and the height of the strip it occupies at the bottom. */
+    private static final int HOTBAR_W = 182;
+    private static final int HOTBAR_LIFT = 26;
 
-    // ------------------------------------------------------------------ three- or four-side row
+    /**
+     * Gap between a corner plate and the screen edge, in pixels.
+     *
+     * <p>A plate is the outermost thing the HUD draws, so the gap is measured from its own edge.
+     * 4 is the same allowance the bar keeps at each side, so the three read as one row.
+     */
+    private static final int PLATE_MARGIN = 4;
+    /** Corner plate height and inner padding; the text is centred in the plate. */
+    private static final int PLATE_H = 12;
+    private static final int PLATE_PAD_X = 5;
+    /** Air between a corner plate and the bar, so a wide bar never touches one. */
+    private static final int PLATE_GAP = 6;
+
+    // ------------------------------------------------------------------ team chips
 
     /**
      * Chip height inside the bar.
      *
-     * <p>Two pixels of air above and below give the bar 24px, the same height the two-side bar has,
-     * so the HUD does not change size when a match adds a third side.
+     * <p>Two pixels of air above and below give the bar 20px whatever the roster size, so the HUD
+     * does not change height when a match gains or loses a side.
      */
-    private static final int CHIP_H = 20;
+    private static final int CHIP_H = 16;
     /** A chip's inset to its first head; the wool strip owns the first two of these pixels. */
-    private static final int CHIP_PAD_L = 5;
-    private static final int CHIP_PAD_R = 6;
-    private static final int CHIP_GAP = 4;
+    private static final int CHIP_PAD_L = 4;
+    private static final int CHIP_PAD_R = 4;
+    private static final int CHIP_GAP = 3;
     /** Gap between a side's heads and its round wins. */
-    private static final int SCORE_GAP = 4;
-    /** The bar's own padding. Smaller than {@link #PAD_X}: every chip already carries a margin. */
-    private static final int ROW_PAD_X = 4;
-    private static final int ROW_PAD_Y = 2;
+    private static final int SCORE_GAP = 3;
+    /** The bar's own padding. Smaller than a chip's: every chip already carries a margin. */
+    private static final int ROW_PAD_X = 3;
+    private static final int ROW_PAD_Y = 1;
     private static final int CHIP_ROW_GAP = 2;
     /**
-     * One pip per round won, four pixels square.
+     * One pip per round won, three pixels square.
      *
      * <p>A pip row is as wide as a two-digit number at three wins and much quicker to read: one
      * more round and the side is out is a count of filled squares, not a subtraction.
      */
-    private static final int PIP = 4;
+    private static final int PIP = 3;
     private static final int PIP_GAP = 1;
     /** Past four wins a pip row outgrows a number, so the number takes over. */
     private static final int MAX_PIPS = 4;
-    /** Gap between the bar and the top of the round line's plate, and the plate's height. */
-    private static final int AUX_H = 15;
-    private static final int AUX_GAP = 4;
 
     /** Null means "no match on screen". Replaced wholesale by every payload. */
     private static MatchHudPayload state;
     private static float appearT;
-    private static float flashT;
-    private static String lastScore = "";
 
     private MatchHud() {
     }
@@ -125,8 +127,6 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     public static void clear() {
         state = null;
         appearT = 0F;
-        flashT = 0F;
-        lastScore = "";
     }
 
     /**
@@ -160,73 +160,68 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         if (teams.isEmpty()) {
             return;
         }
-        int players = 0;
-        for (List<Row> side : teams) {
-            players += side.size();
-        }
-        boolean oneOnOne = teams.size() == 2 && players == 2;
 
         float d = PvAnim.dt(tickCounter.getGameTimeDeltaPartialTick(false));
         appearT = PvAnim.damp(appearT, 1F, d, 0.06F);
 
-        // A score change flashes the number: it is 9px tall between two heads, so a round win is
-        // easy to miss during a fight.
-        String scoreKey = payload.scores();
-        if (!scoreKey.equals(lastScore)) {
-            if (!lastScore.isEmpty()) {
-                flashT = 1F;
-            }
-            lastScore = scoreKey;
-        }
-        flashT = Math.max(0F, flashT - d / FLASH_TIME);
-
         Font tr = client.font;
         int screenW = client.getWindow().getGuiScaledWidth();
 
-        // The bar is scaled as a whole (frame, heads and text) about the centre of its top edge, so
+        // The row is scaled as a whole (frame, heads and text) about the centre of its top edge, so
         // every step stays centred and keeps the 3px gap below the screen edge.
         float scale = ClientPrefs.hudScaleFactor();
-        // Width the bar may use in its own pixels. At 1.2x a fifth less of the screen is available,
-        // so the name-dropping fallback measures against this rather than the raw width.
-        int room = (int) Math.floor((screenW - 8) / scale);
-        // A three- or four-side row is wide enough to reach the round clock in the top-right
-        // corner, so that branch also subtracts the clock plate from its budget.
-        int clockW = payload.clock() >= 0
-                ? tr.width("00:00") + CLOCK_PAD_X * 2 + CLOCK_MARGIN + 8
-                : 0;
-        int rowRoom = (int) Math.floor((screenW - 8 - clockW) / scale);
+        String round = auxLabel(payload);
         int centreX = screenW / 2;
 
-        PvMatrix.push(ctx);
-        if (scale != 1F) {
-            PvMatrix.translate(ctx, centreX, TOP);
-            PvMatrix.scale(ctx, scale, scale);
-            PvMatrix.translate(ctx, -centreX, -TOP);
-        }
-        Bar bar = null;
-        int barH = 0;
-        if (teams.size() == 2) {
-            bar = drawHeadToHead(ctx, client, tr, payload, teams, scores, centreX, room,
-                    eliminated, oneOnOne);
-            barH = bar == null ? 0 : bar.h();
+        if (ClientPrefs.hudAnchor() == ClientPrefs.HUD_ANCHOR_BOTTOM_LEFT) {
+            // The stacked layout places itself from the corner and scales about it, so it needs no
+            // shared transform with the row.
+            drawStack(ctx, client, tr, payload, teams, scores, eliminated);
         } else {
-            drawTeamRow(ctx, client, tr, payload, teams, scores, centreX, rowRoom, eliminated);
+            // The row is centred between two corner plates, so it gives the wider of them up on
+            // both sides - not just on the side it happens to be nearer.
+            int side = Math.max(
+                    round.isEmpty() ? 0 : plateWidth(tr, round) + PLATE_MARGIN + PLATE_GAP,
+                    payload.clock() >= 0
+                            ? plateWidth(tr, "00:00") + PLATE_MARGIN + PLATE_GAP
+                            : 0);
+            int room = (int) Math.floor((screenW - side * 2) / scale);
+            PvMatrix.push(ctx);
+            if (scale != 1F) {
+                PvMatrix.translate(ctx, centreX, TOP);
+                PvMatrix.scale(ctx, scale, scale);
+                PvMatrix.translate(ctx, -centreX, -TOP);
+            }
+            drawTeamRow(ctx, client, tr, payload, teams, scores, centreX, room, eliminated);
+            PvMatrix.pop(ctx);
         }
-        PvMatrix.pop(ctx);
-        // The team strips are drawn after the matrix is restored: their geometry is a fixed pixel
-        // count, so it is computed from the panel's on-screen rectangle.
-        if (bar != null) {
-            drawTeamStrips(ctx, bar, scale, centreX);
-        }
-        // The intermission countdown sits under the two-side bar, which has no line of its own.
-        // The chip row draws a line that carries both the round and the countdown.
-        if (teams.size() == 2 && payload.secondsLeft() > 0) {
-            int under = TOP + Math.round((barH > 0 ? barH + 10 : 34F) * scale);
-            drawCountdown(ctx, tr, payload.secondsLeft(), centreX, under);
+        // Both corners are drawn last and unscaled: they are the two fixed ends of the top edge.
+        // They stay in the corners in both layouts, so the clock always has its counterpart.
+        if (!round.isEmpty()) {
+            drawPlate(ctx, tr, round, PLATE_MARGIN, TOP,
+                    payload.secondsLeft() > 0 ? PvTheme.ACCENT : PvTheme.TEXT_DIM);
         }
         if (payload.clock() >= 0) {
             drawRoundClock(ctx, tr, payload.clock(), payload.clockDown(), screenW);
         }
+    }
+
+    /** Width of a corner plate holding {@code text}: the string plus its own padding. */
+    private static int plateWidth(Font tr, String text) {
+        return tr.width(text) + PLATE_PAD_X * 2;
+    }
+
+    /**
+     * Draws one corner plate, left-anchored, sized to its own text.
+     *
+     * <p>Measured from the string rather than from a fixed width: the round label changes with the
+     * language and with the series length, and a plate narrower than its text draws the overflow
+     * past its own edge.
+     */
+    private static void drawPlate(GuiGraphics ctx, Font tr, String text, int x, int y, int colour) {
+        PvDraw.roundRect(ctx, x, y, plateWidth(tr, text), PLATE_H, PvTheme.RADIUS,
+                PvTheme.alpha(PvTheme.CARD, PLATE_ALPHA * appearT));
+        PvDraw.text(ctx, tr, text, x + PLATE_PAD_X, y + (PLATE_H - 8) / 2 + 1, colour);
     }
 
     /**
@@ -239,109 +234,14 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     private static void drawRoundClock(GuiGraphics ctx, Font tr, int seconds, boolean down,
                                        int screenW) {
         String text = String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
-        int w = tr.width(text);
-        int plateW = w + CLOCK_PAD_X * 2;
         // Laid out from the plate's own right edge, not from the text's: the gap belongs to the
         // frame, and a text-anchored box grows half of its padding back into the margin.
-        int x = screenW - CLOCK_MARGIN - plateW;
-        int y = TOP;
+        int x = screenW - PLATE_MARGIN - plateWidth(tr, text);
         int colour = down && seconds <= 10 ? PvTheme.LIVE : PvTheme.TEXT;
-        PvDraw.roundRect(ctx, x, y, plateW, CLOCK_H, PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.CARD, 0.72F));
-        PvDraw.text(ctx, tr, text, x + CLOCK_PAD_X, y + (CLOCK_H - 8) / 2 + 1, colour);
+        drawPlate(ctx, tr, text, x, TOP, colour);
     }
 
-    /**
-     * Draws "Next round in N" under the scoreboard.
-     *
-     * <p>The plate is drawn because the arena behind it is being reverted, so the background is
-     * whatever map comes next.
-     */
-    private static void drawCountdown(GuiGraphics ctx, Font tr, int seconds, int centreX, int y) {
-        String text = PvLang.str("pvpocket.hud.next_round", seconds);
-        int w = tr.width(text);
-        PvDraw.roundRect(ctx, centreX - w / 2 - 6, y - 3, w + 12, 15, PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.CARD, 0.78F));
-        PvDraw.text(ctx, tr, text, centreX - w / 2, y, PvTheme.ACCENT);
-    }
-
-    // ------------------------------------------------------------------ two sides
-
-    /** A panel rectangle in layout coordinates, so the strips can be placed after scaling. */
-    private record Bar(int x, int y, int w, int h) {
-    }
-
-    private Bar drawHeadToHead(GuiGraphics ctx, Minecraft client, Font tr,
-                               MatchHudPayload payload, List<List<Row>> teams, int[] scores,
-                               int centreX, int room, Set<UUID> eliminated, boolean oneOnOne) {
-        List<Row> left = teams.get(0);
-        List<Row> right = teams.get(1);
-        if (left.isEmpty() && right.isEmpty()) {
-            return null;
-        }
-        int leftScore = scoreOf(scores, 0);
-        int rightScore = scoreOf(scores, 1);
-
-        // Names belong to a 1v1. Every larger match keeps the same bar and drops them, which is
-        // also the fallback when a 1v1 name does not fit at the current HUD scale.
-        boolean names = oneOnOne;
-        Layout layout = measure(tr, left, right, payload, leftScore, rightScore, names);
-        if (layout.width() > room && names) {
-            names = false;
-            layout = measure(tr, left, right, payload, leftScore, rightScore, names);
-        }
-
-        int barX = centreX - layout.width() / 2;
-        int barY = TOP;
-        PvDraw.shadow(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS);
-        PvDraw.roundPanel(ctx, barX, barY, layout.width(), layout.height(), PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.BORDER, appearT),
-                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
-
-        // The wool strips are drawn in screen space: their width and inset are pixels, so scaling
-        // them with the bar would leave a 0.75px gap at the smallest step and 1.2px at the largest.
-
-        drawSide(ctx, tr, client, left, true, barX + PAD_X, barY, layout.height(), names,
-                leftScore, payload.winsNeeded(), eliminated);
-        drawSide(ctx, tr, client, right, false, barX + layout.width() - PAD_X, barY, layout.height(),
-                names, rightScore, payload.winsNeeded(), eliminated);
-        String score = leftScore + " : " + rightScore;
-        drawCentre(ctx, tr, payload, score, barX + PAD_X + layout.leftW() + BLOCK_GAP,
-                barY, layout.height(), layout.centreW());
-
-        // Divider ticks between the side blocks and the centre, so the three parts read as three
-        // parts even when a name has the same colour as the score.
-        int divTop = barY + 6;
-        int divH = layout.height() - 12;
-        PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
-        PvDraw.vLine(ctx, barX + PAD_X + layout.leftW() + BLOCK_GAP + layout.centreW()
-                + BLOCK_GAP / 2, divTop, divH, PvTheme.DIVIDER);
-        return new Bar(barX, barY, layout.width(), layout.height());
-    }
-
-    /**
-     * Draws the two wool strips on the outer edges of a two-side bar.
-     *
-     * <p>The strips are the only part of the bar given in absolute pixels: one pixel inside the
-     * edge, two wide. They are drawn in screen space from the panel rectangle mapped through the
-     * same pivot, so the width stays exact at every scale step.
-     *
-     * <p>The corner radius follows the panel radius, so the strip ends do not sit as square nubs.
-     */
-    private static void drawTeamStrips(GuiGraphics ctx, Bar bar, float scale, int centreX) {
-        int left = Math.round(centreX + (bar.x() - centreX) * scale);
-        int right = Math.round(centreX + (bar.x() + bar.w() - centreX) * scale);
-        int top = Math.round(TOP + (bar.y() - TOP) * scale);
-        int bottom = Math.round(TOP + (bar.y() + bar.h() - TOP) * scale);
-        int stripH = Math.max(1, bottom - top - 2);
-        // One less than the panel radius: the strip sits a pixel inside the edge.
-        int r = Math.max(1, Math.round(PvTheme.RADIUS * scale) - 1);
-        PvDraw.roundRect(ctx, left + 1, top + 1, STRIP_W, stripH, r, 0, 0, r, PvTheme.team(0));
-        PvDraw.roundRect(ctx, right - 1 - STRIP_W, top + 1, STRIP_W, stripH, 0, r, r, 0,
-                PvTheme.team(1));
-    }
-
-    // ------------------------------------------------------------------ three or four sides
+    // ------------------------------------------------------------------ team chips
 
     /** The chip layout picked for the current payload: one row when it fits, two when it cannot. */
     private record RowPlan(int width, int height, int rows, int perRow, int gap, int padR,
@@ -349,12 +249,15 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     }
 
     /**
-     * Draws one row of team chips for a three- or four-side match.
+     * Draws the bar as a row of team chips, for two sides as well as three or four.
      *
      * <p>Each side is a chip: wool strip, heads, round wins. One side per line made a 1v1v1v1 bar
      * 83px tall and 64px wide - a narrow column that pushed the play area down, and four scores
-     * read along a diagonal. Side by side the bar costs width instead of height, keeps the 24px
-     * the two-side bar already uses, and turns four scores into one horizontal sweep.
+     * read along a diagonal. Side by side the bar costs width instead of height and turns the
+     * scores into one horizontal sweep.
+     *
+     * <p>A two-side match draws through the same code: the same board with two chips, so the shape
+     * of the HUD is independent of the roster size.
      */
     private static void drawTeamRow(GuiGraphics ctx, Minecraft client, Font tr,
                                    MatchHudPayload payload, List<List<Row>> teams, int[] scores,
@@ -373,10 +276,9 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         RowPlan plan = planRow(tr, teams, payload, shown, room);
         int barX = centreX - plan.width() / 2;
         int barY = TOP;
-        PvDraw.shadow(ctx, barX, barY, plan.width(), plan.height(), PvTheme.RADIUS);
         PvDraw.roundPanel(ctx, barX, barY, plan.width(), plan.height(), PvTheme.RADIUS,
                 PvTheme.alpha(PvTheme.BORDER, appearT),
-                PvTheme.alpha(PvTheme.PANEL, 0.94F * appearT));
+                PvTheme.alpha(PvTheme.CARD, PLATE_ALPHA * appearT));
 
         int y = barY + ROW_PAD_Y;
         for (int row = 0; row * plan.perRow() < shown.size(); row++) {
@@ -394,7 +296,6 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             }
             y += CHIP_H + CHIP_ROW_GAP;
         }
-        drawAux(ctx, tr, payload, centreX, barY + plan.height() + AUX_GAP);
     }
 
     /**
@@ -485,11 +386,11 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             }
         }
         boolean matchPoint = score + 1 >= payload.winsNeeded();
-        int wash = PvTheme.teamWash(team, PvTheme.PANEL, alive ? 0.14F : 0.05F);
+        int wash = PvTheme.teamWash(team, PvTheme.CARD, alive ? 0.14F : 0.05F);
         PvDraw.roundRect(ctx, x, y, w, CHIP_H, PvTheme.RADIUS,
-                PvTheme.alpha(wash, (alive ? 0.94F : 0.72F) * appearT));
-        // The strip is drawn inside the scaled matrix, unlike the two-side bar's: a chip carries
-        // its own wash, so the strip only has to name the side and 1.5px at 0.75x still reads.
+                PvTheme.alpha(wash, PLATE_ALPHA * appearT));
+        // Inside the scaled matrix: a chip carries its own wash, so the strip only has to name the
+        // side and 1.5px at 0.75x still reads.
         PvDraw.roundRect(ctx, x, y, STRIP_W, CHIP_H, 2, 0, 0, 2, PvTheme.team(team));
 
         int headX = x + CHIP_PAD_L;
@@ -526,33 +427,10 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
     }
 
     /**
-     * Draws the round and countdown line under a three- or four-side bar.
-     *
-     * <p>The chip row has no centre block to hold it, and putting the round inside the bar would
-     * leave the chips off-centre for an odd number of sides. Below the bar it costs one 15px line
-     * and steals no width from the sides. The plate is drawn because the arena behind it is being
-     * reverted between rounds, so the background is whatever map comes next.
-     *
-     * <p>{@code y} is the top of the plate, not the baseline of the text.
-     */
-    private static void drawAux(GuiGraphics ctx, Font tr, MatchHudPayload payload, int centreX,
-                                int y) {
-        String text = auxLabel(payload);
-        if (text.isEmpty()) {
-            return;
-        }
-        int w = tr.width(text);
-        PvDraw.roundRect(ctx, centreX - w / 2 - 6, y, w + 12, AUX_H, PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.CARD, 0.78F * appearT));
-        PvDraw.textCenter(ctx, tr, text, centreX, y + 4,
-                payload.secondsLeft() > 0 ? PvTheme.ACCENT : PvTheme.TEXT_DIM);
-    }
-
-    /**
      * "Round 2/5, next 12s" between rounds, "Round 2/5" during one.
      *
-     * <p>A single-round match has no round number worth the line, so it only appears while the
-     * next round is pending.
+     * <p>A single-round match has no round number worth a plate, so it only appears while the next
+     * round is pending.
      */
     private static String auxLabel(MatchHudPayload payload) {
         int seconds = payload.secondsLeft();
@@ -569,80 +447,68 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         return team < scores.length ? scores[team] : 0;
     }
 
-    // ------------------------------------------------------------------ measuring
+    // ------------------------------------------------------------------ bottom-left column
 
-    private record Layout(int width, int height, int leftW, int centreW, int rightW) {
-    }
+    /**
+     * Draws the column anchored to the bottom-left corner.
+     *
+     * <p>One card per side, stacked top to bottom in roster order. The block is scaled about the
+     * anchor, so a larger HUD grows away from the corner instead of off the screen.
+     *
+     * <p>Every card is as wide as the widest, so the column reads as one block rather than as four
+     * cards of four widths. That width is the content's own: a 1v1 chip is about 30px and gets a
+     * 30px card, not a padded-out minimum.
+     */
+    private static void drawStack(GuiGraphics ctx, Minecraft client, Font tr,
+                                  MatchHudPayload payload, List<List<Row>> teams, int[] scores,
+                                  Set<UUID> eliminated) {
+        List<Integer> shown = new ArrayList<>();
+        for (int i = 0; i < teams.size(); i++) {
+            if (!teams.get(i).isEmpty()) {
+                shown.add(i);
+            }
+        }
+        if (shown.isEmpty()) {
+            return;
+        }
+        boolean pips = payload.winsNeeded() >= 1 && payload.winsNeeded() <= MAX_PIPS;
+        int contentW = 0;
+        for (int team : shown) {
+            contentW = Math.max(contentW, chipWidth(tr, teams.get(team), payload, pips, CHIP_PAD_R));
+        }
+        int stackH = shown.size() * CHIP_H + (shown.size() - 1) * CHIP_ROW_GAP;
+        int screenW = client.getWindow().getGuiScaledWidth();
+        int screenH = client.getWindow().getGuiScaledHeight();
 
-    private static Layout measure(Font tr, List<Row> left, List<Row> right,
-                                  MatchHudPayload payload, int leftScore, int rightScore,
-                                  boolean names) {
-        int leftW = blockWidth(tr, left, names);
-        int rightW = blockWidth(tr, right, names);
-        String round = roundLabel(payload);
-        String score = leftScore + " : " + rightScore;
-        int centreW = Math.max(tr.width(round), tr.width(score));
+        float scale = ClientPrefs.hudScaleFactor();
+        // The width is the content's own - a 1v1 chip gets a 30px card, not a padded-out minimum.
+        // Content wider than the room left of the hotbar is lifted above it, never drawn over it.
+        int hotbarLeft = (screenW - HOTBAR_W) / 2;
+        int besideW = hotbarLeft - STACK_MARGIN * 2;
+        boolean lift = Math.round(contentW * scale) > besideW;
+        int cap = lift ? screenW / 2 - STACK_MARGIN * 2 : besideW;
+        int cardW = Math.min(contentW, Math.max(1, cap));
+        int bottom = lift ? HOTBAR_LIFT : STACK_MARGIN;
 
-        int blocks = 0;
-        if (leftW > 0) {
-            blocks++;
+        PvMatrix.push(ctx);
+        if (scale != 1F) {
+            int anchorX = STACK_MARGIN;
+            int anchorY = screenH - bottom;
+            PvMatrix.translate(ctx, anchorX, anchorY);
+            PvMatrix.scale(ctx, scale, scale);
+            PvMatrix.translate(ctx, -anchorX, -anchorY);
         }
-        if (rightW > 0) {
-            blocks++;
+        int x = STACK_MARGIN;
+        int y = screenH - bottom - stackH;
+        for (int i = 0; i < shown.size(); i++) {
+            int team = shown.get(i);
+            drawChip(ctx, client, tr, payload, teams.get(team), team, scoreOf(scores, team), pips,
+                    x, y + i * (CHIP_H + CHIP_ROW_GAP), cardW, eliminated);
         }
-        int width = PAD_X * 2 + leftW + centreW + rightW + BLOCK_GAP * blocks;
-        int rows = Math.max(lineCount(left.size(), names), lineCount(right.size(), names));
-        int height = Math.max(MIN_H, rows * ROW_H + PAD_Y * 2);
-        return new Layout(width, height, leftW, centreW, rightW);
-    }
-
-    /** Head rows a side takes: one up to three players, two above that. */
-    private static int lineCount(int players, boolean names) {
-        if (names) {
-            return players;
-        }
-        return players <= 3 ? 1 : 2;
-    }
-
-    /** Heads on the widest row of a side's grid. */
-    private static int columnCount(int players, boolean names) {
-        if (names) {
-            return 1;
-        }
-        return players <= 3 ? players : (players + 1) / 2;
-    }
-
-    private static int blockWidth(Font tr, List<Row> rows, boolean names) {
-        if (rows.isEmpty()) {
-            return 0;
-        }
-        if (!names) {
-            return columnCount(rows.size(), false) * (HEAD + HEAD_GAP) - HEAD_GAP;
-        }
-        int max = 0;
-        for (Row row : rows) {
-            max = Math.max(max, HEAD + NAME_GAP + tr.width(row.name()));
-        }
-        return max;
+        PvMatrix.pop(ctx);
     }
 
     // ------------------------------------------------------------------ drawing
-
-    /**
-     * Draws the round counter in dim grey above the score in accent.
-     *
-     * <p>Two lines answer two questions and keep the centre block narrow enough for a 2v2 bar at 2x
-     * GUI scale. The pair is centred vertically, so a bar that grew to two head rows keeps the
-     * score on the same line as the heads.
-     */
-    private static void drawCentre(GuiGraphics ctx, Font tr, MatchHudPayload payload,
-                                   String score, int x, int barY, int barH, int width) {
-        int centreX = x + width / 2;
-        int top = barY + Math.max(4, (barH - 17) / 2);
-        PvDraw.textCenter(ctx, tr, roundLabel(payload), centreX, top, PvTheme.TEXT_DIM);
-        int color = PvTheme.mix(PvTheme.ACCENT, 0xFFFFFFFF, flashT * 0.85F);
-        PvDraw.textCenter(ctx, tr, score, centreX, top + 9, color);
-    }
 
     /**
      * Draws one head, with a grey wash over it when the player is out of this round.
@@ -658,67 +524,6 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         if (eliminated) {
             PvDraw.rect(ctx, x, y, HEAD, HEAD, PvTheme.alpha(0xFF8A8A8A, 0.72F));
         }
-    }
-
-    private static void drawSide(GuiGraphics ctx, Font tr, Minecraft client,
-                                 List<Row> rows, boolean left, int edgeX, int barY, int barH,
-                                 boolean names, int score, int winsNeeded, Set<UUID> eliminated) {
-        if (rows.isEmpty()) {
-            return;
-        }
-        // A side at match point is tinted, so one more round reads without the numbers.
-        int tint = score + 1 >= winsNeeded ? PvTheme.LIVE : PvTheme.TEXT;
-        if (names) {
-            drawNamedColumn(ctx, tr, client, rows, left, edgeX, barY, barH, tint, eliminated);
-            return;
-        }
-        int cellW = HEAD + HEAD_GAP;
-        List<List<Row>> lines = gridOf(rows);
-        int y = barY + (barH - lines.size() * ROW_H) / 2;
-        for (List<Row> line : lines) {
-            int x = left ? edgeX : edgeX - line.size() * cellW + HEAD_GAP;
-            for (Row row : line) {
-                drawHead(ctx, client, row.uuid(), x, y, eliminated.contains(row.uuid()));
-                x += cellW;
-            }
-            y += ROW_H;
-        }
-    }
-
-    /** One row per player: head and name. The 1v1 layout. */
-    private static void drawNamedColumn(GuiGraphics ctx, Font tr, Minecraft client,
-                                        List<Row> rows, boolean left, int edgeX, int barY,
-                                        int barH, int tint, Set<UUID> eliminated) {
-        int y = barY + (barH - rows.size() * ROW_H) / 2;
-        for (Row row : rows) {
-            int headX = left ? edgeX : edgeX - HEAD;
-            drawHead(ctx, client, row.uuid(), headX, y, eliminated.contains(row.uuid()));
-            int textY = y + (HEAD - 8) / 2 + 1;
-            if (left) {
-                PvDraw.text(ctx, tr, row.name(), headX + HEAD + NAME_GAP, textY, tint);
-            } else {
-                PvDraw.textRight(ctx, tr, row.name(), headX - NAME_GAP, textY, tint);
-            }
-            y += ROW_H;
-        }
-    }
-
-    /**
-     * Splits a side's heads into one row up to three players, two rows above that.
-     *
-     * <p>Four players give two and two; five give two then three.
-     */
-    private static List<List<Row>> gridOf(List<Row> rows) {
-        List<List<Row>> lines = new ArrayList<>();
-        int n = rows.size();
-        if (n <= 3) {
-            lines.add(rows);
-            return lines;
-        }
-        int first = n / 2;
-        lines.add(rows.subList(0, first));
-        lines.add(rows.subList(first, n));
-        return lines;
     }
 
     private static String roundLabel(MatchHudPayload payload) {

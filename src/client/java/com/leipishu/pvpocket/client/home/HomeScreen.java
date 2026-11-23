@@ -543,6 +543,15 @@ public class HomeScreen extends PvScreen {
         hudScale.tooltip = PvLang.str("pvpocket.gui.home.settings.hud_scale_hint");
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.hud_scale"), hudScale, null));
 
+        // A switch rather than a position picker: two layouts, and the label says which one is on.
+        PvToggle hudAnchor = new PvToggle(
+                ClientPrefs.hudAnchor() == ClientPrefs.HUD_ANCHOR_BOTTOM_LEFT);
+        hudAnchor.onChange(value -> ClientPrefs.setHudAnchor(value == 1
+                ? ClientPrefs.HUD_ANCHOR_BOTTOM_LEFT : ClientPrefs.HUD_ANCHOR_TOP));
+        hudAnchor.tooltip = PvLang.str("pvpocket.gui.home.settings.hud_anchor_hint");
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.hud_anchor"), hudAnchor,
+                null));
+
         // Its own section: how many records a page holds is about the data, not about colours.
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.match")));
         PvToggle resultCard = new PvToggle(ClientPrefs.resultScreen());
