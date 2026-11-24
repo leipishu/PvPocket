@@ -117,8 +117,10 @@ behind). Its blocks cannot be broken, and a guest who falls off is put back by t
 The dimension is void, with a barrier buffer ring around each map. Boundaries are drawn client-side
 as a light curtain; the server only judges position. The sky is painted over the whole sphere by
 `client.render.ArenaSky`: vanilla stops at the horizon and leaves nothing below it, which in a void
-reads as a black half-sphere. The colour is the mod's own fixed blue, dimmed by `getSkyDarken` over
-the day, because the vanilla sky colour is reached three different ways across the five versions.
+reads as a black half-sphere. The colours are the mod's own three-stop gradient (deep blue overhead,
+pale at the horizon, a little deeper underneath), dimmed by `getSkyDarken` over the day with the
+zenith dimmed harder than the horizon, because the vanilla sky colour is reached three ways across
+the five versions.
 The cost is the sun, moon, stars and clouds: they are drawn before the sky pass and leave no depth
 behind, so anything drawn later covers them.
 

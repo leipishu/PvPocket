@@ -9,32 +9,48 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 
 /**
- * Paints the arena dimension's whole sky, above the horizon and below it.
+ * Paints the arena dimension's sky: a gradient sphere, above the horizon and below it.
  *
- * <p>Vanilla's sky stops at the horizon: below it there is no geometry, so looking down from the
- * lobby showed the frame's clear colour, which is black. In a world with ground nobody notices; the
- * arena is void, so it read as a black half-sphere under a blue one.
+ * <p>Vanilla's sky stops at the horizon, so looking down from the lobby showed the frame's clear
+ * colour, which is black. One flat colour closed that hole and looked like a painted room, so the
+ * sphere carries the usual sky gradient: deep blue overhead, pale and hazy at the horizon, a little
+ * deeper underneath, all of it lerped from the horizon colour by a power of the elevation.
  *
- * <p>The colour is this file's own rather than vanilla's, because the sky colour is not reachable
- * the same way on every version: 1.21.1 has {@code Level#getSkyColor}, 1.21.11 dropped it, and 26.1
- * moved it into the environment attribute map. A fixed colour dimmed by the world's sky darkening
- * survives all five, at the cost of the sun, moon, stars and clouds, which leave no depth behind.
+ * <p>The colours are this file's own rather than vanilla's, because the sky colour is reached three
+ * different ways across the five versions. One palette dimmed by the world's sky darkening survives
+ * all of them, at the cost of the sun, moon, stars and clouds, which leave no depth behind.
  */
 public final class ArenaSky {
 
-    /** Rings from straight up to straight down. A flat colour needs no more. */
-    private static final int RINGS = 8;
+    /** Bands from straight up to straight down, evenly spaced in elevation. */
+    private static final int RINGS = 16;
 
     /** Segments around the vertical axis. */
-    private static final int SEGMENTS = 24;
+    private static final int SEGMENTS = 32;
 
-    /** Daylight sky, close to what the overworld's plains give at noon. */
-    private static final float SKY_R = 0.47F;
-    private static final float SKY_G = 0.65F;
-    private static final float SKY_B = 1.00F;
+    /** Daylight overhead, the deep end of the gradient. */
+    private static final float ZENITH_R = 0.20F;
+    private static final float ZENITH_G = 0.38F;
+    private static final float ZENITH_B = 0.75F;
 
-    /** How much of the colour the night takes away. The sky stays readable, not black. */
-    private static final float NIGHT_DROP = 0.82F;
+    /** Daylight at the horizon: pale and hazy, the bright end. */
+    private static final float HORIZON_R = 0.70F;
+    private static final float HORIZON_G = 0.81F;
+    private static final float HORIZON_B = 0.94F;
+
+    /** Below the horizon the haze deepens again, so looking down is not a bright wall. */
+    private static final float NADIR_R = 0.44F;
+    private static final float NADIR_G = 0.56F;
+    private static final float NADIR_B = 0.72F;
+
+    /** Below one the haze piles up at the horizon; above it the blue climbs slowly. */
+    private static final float GRADIENT_POWER = 0.55F;
+
+    /** How much of each stop the night takes away. The horizon keeps more light than the zenith,
+     * the way a real night sky stays paler near the ground. */
+    private static final float NIGHT_ZENITH = 0.88F;
+    private static final float NIGHT_HORIZON = 0.62F;
+    private static final float NIGHT_NADIR = 0.70F;
 
     /** Sky darkening runs from 0 at noon to 11 at midnight. */
     private static final float DARKEN_STEPS = 11.0F;
@@ -65,14 +81,12 @@ public final class ArenaSky {
         Vec3 cam = frame.camera().getPosition();
 //?}
         float night = Math.min(1.0F, level.getSkyDarken() / DARKEN_STEPS);
-        float dim = 1.0F - NIGHT_DROP * night;
         float radius = radius(client);
         poses.pushPose();
         // Vertices are sent in world coordinates, so the camera offset is cancelled here.
         poses.translate(-cam.x, -cam.y, -cam.z);
         PvWorldGeometry.draw(frame, poses, PvRenderTypes.debugQuads(),
-                (vc, matrix) -> sphere(vc, matrix, cam, radius,
-                        SKY_R * dim, SKY_G * dim, SKY_B * dim));
+                (vc, matrix) -> sphere(vc, matrix, cam, radius, night));
         poses.popPose();
     }
 
@@ -91,28 +105,38 @@ public final class ArenaSky {
 
     /** The inside of a sphere, as quads. Winding does not matter: the type has culling off. */
     private static void sphere(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius,
-                               float r, float g, float b) {
+                               float night) {
         for (int ring = 0; ring < RINGS; ring++) {
-            double high = Math.PI * ring / RINGS;
-            double low = Math.PI * (ring + 1) / RINGS;
+            double high = 1.0D - 2.0D * ring / RINGS;
+            double low = 1.0D - 2.0D * (ring + 1) / RINGS;
             for (int seg = 0; seg < SEGMENTS; seg++) {
                 double from = Math.PI * 2.0D * seg / SEGMENTS;
                 double to = Math.PI * 2.0D * (seg + 1) / SEGMENTS;
-                vertex(vc, matrix, cam, radius, high, from, r, g, b);
-                vertex(vc, matrix, cam, radius, high, to, r, g, b);
-                vertex(vc, matrix, cam, radius, low, to, r, g, b);
-                vertex(vc, matrix, cam, radius, low, from, r, g, b);
+                vertex(vc, matrix, cam, radius, high, from, night);
+                vertex(vc, matrix, cam, radius, high, to, night);
+                vertex(vc, matrix, cam, radius, low, to, night);
+                vertex(vc, matrix, cam, radius, low, from, night);
             }
         }
     }
 
-    /** Phi runs from 0 at straight up to pi at straight down. */
+    /** Elevation runs from 1 straight up through 0 at the horizon to -1 straight down. */
     private static void vertex(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius,
-                               double phi, double theta, float r, float g, float b) {
-        double horizontal = Math.sin(phi) * radius;
+                               double elevation, double theta, float night) {
+        double horizontal = Math.sqrt(Math.max(0.0D, 1.0D - elevation * elevation)) * radius;
         float x = (float) (cam.x + Math.cos(theta) * horizontal);
-        float y = (float) (cam.y + Math.cos(phi) * radius);
+        float y = (float) (cam.y + elevation * radius);
         float z = (float) (cam.z + Math.sin(theta) * horizontal);
+        float t = (float) Math.pow(Math.abs(elevation), GRADIENT_POWER);
+        boolean up = elevation >= 0.0D;
+        float dim = 1.0F - night * mix(NIGHT_HORIZON, up ? NIGHT_ZENITH : NIGHT_NADIR, t);
+        float r = mix(HORIZON_R, up ? ZENITH_R : NADIR_R, t) * dim;
+        float g = mix(HORIZON_G, up ? ZENITH_G : NADIR_G, t) * dim;
+        float b = mix(HORIZON_B, up ? ZENITH_B : NADIR_B, t) * dim;
         vc.addVertex(matrix, x, y, z).setColor(r, g, b, 1.0F);
+    }
+
+    private static float mix(float from, float to, float t) {
+        return from + (to - from) * t;
     }
 }
