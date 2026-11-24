@@ -115,7 +115,12 @@ at `x = z = -192` with its surface at `y = 40`, about 680 blocks from the neares
 behind). Its blocks cannot be broken, and a guest who falls off is put back by the tick.
 
 The dimension is void, with a barrier buffer ring around each map. Boundaries are drawn client-side
-as a light curtain; the server only judges position.
+as a light curtain; the server only judges position. The sky is painted over the whole sphere by
+`client.render.ArenaSky`: vanilla stops at the horizon and leaves nothing below it, which in a void
+reads as a black half-sphere. The colour is the mod's own fixed blue, dimmed by `getSkyDarken` over
+the day, because the vanilla sky colour is reached three different ways across the five versions.
+The cost is the sun, moon, stars and clouds: they are drawn before the sky pass and leave no depth
+behind, so anything drawn later covers them.
 
 ## 6. Networking
 

@@ -24,6 +24,7 @@ import com.leipishu.pvpocket.client.hud.SpectatorHud;
 import com.leipishu.pvpocket.client.hud.SurrenderHud;
 import com.leipishu.pvpocket.client.surrender.SurrenderInput;
 import com.leipishu.pvpocket.client.render.ArenaBounds;
+import com.leipishu.pvpocket.client.render.ArenaSky;
 import com.leipishu.pvpocket.client.render.BoundaryRenderer;
 import com.leipishu.pvpocket.client.render.PrepareScreens;
 import com.leipishu.pvpocket.combat.CombatMode;
@@ -217,6 +218,7 @@ public final class PvPocketClient {
         HomeClient.register();
         InventoryButton.register();
         BoundaryRenderer.register();
+        ArenaSky.register();
         // The preparing panel is armed by a payload and opened from here, see PrepareNotice.
         platform.onClientTick(PrepareNotice::tick);
         // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
