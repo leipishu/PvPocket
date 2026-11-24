@@ -113,6 +113,12 @@ jar**，那里还有中间产物。
 十格各五条、统一放在 `PvPocket 单跑` 文件夹里，命名 `<cell> - Client / Client2 / Client3 /
 Client4 / Server`。它们都是 Gradle 型配置，等价于 `./gradlew :<cell>:<task>`。
 
+**Dev1 是管理员。** 服务端控制台 stdin 挂不到终端上（见下），`op Dev1` 打不进去，所以每次
+`runServer` 启动前都会先跑 `scripts/ensure-ops.py` 写 `runs/<cell>/server/ops.json`——合并而不覆盖，
+手改过的 op 名单不会被冲掉。要一次补齐十格（或补某一格）：
+`python scripts/ensure-ops.py` / `python scripts/ensure-ops.py --cell 26.1-fabric`。
+UUID 用离线值（`OfflinePlayer:<name>` 的 MD5，version 3），因为 dev 客户端从不认证。
+
 ModDevGradle 本来会自己往 `.idea/workspace.xml` 写一套 Application 型配置（引用
 `build/moddev/*RunVmArgs.txt`），但那套落在文件夹外面、与 `.run/` 逐条重复，所以
 `gradle/pvpocket-cells.gradle` 把 `neoForgeIdeSync` 关掉了。**不要再开回来**：两套同名配置会让

@@ -166,6 +166,22 @@ ext.pvpocketClientHeap = project.hasProperty('clientHeap')
 ext.pvpocketRunDir = { String dir ->
     rootProject.file("runs/${project.name}/${dir}")
 }
+
+// The dev server gets no usable console stdin (Gradle does not forward it, see AGENTS.md), so
+// `op Dev1` cannot be typed while it runs and ops.json is the only way in. Written before every
+// runServer launch, for every cell, and merged rather than replaced so a hand-edited op list
+// survives. Same reason the usernames live here: one place for ten cells.
+def ensureOps = tasks.register('ensureDevOps', Exec) {
+    group = 'pvpocket'
+    description = "Makes Dev1 an operator in this cell's server run directory."
+    // PYTHON overrides the interpreter, same as the scripts/ entry points.
+    def pythonBin = System.getenv('PYTHON') ?: 'python'
+    commandLine pythonBin, rootProject.file('scripts/ensure-ops.py').absolutePath,
+            '--dir', pvpocketRunDir('server').absolutePath
+    // No declared outputs, so the task can never be skipped as up to date.
+    outputs.upToDateWhen { false }
+}
+tasks.matching { it.name == 'runServer' }.configureEach { dependsOn ensureOps }
 // ModDevGradle wants a File for gameDirectory; Loom's runDir takes a String relative to projectDir
 // and rejects a File or an absolute path, hence the relativize helper.
 ext.pvpocketRunDirRelative = { String dir ->
