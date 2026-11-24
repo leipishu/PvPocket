@@ -346,7 +346,7 @@ each player may branch off it once, and the roster then votes item by item to me
    **The moment it goes up it does two things**: it leases and builds the plot (clearing the cell,
    laying the platform or pasting the map), and it moves everybody to the **waiting lobby** in the
    duel dimension (the island in `06-maps.md`). The countdown starts once the plot is ready, so the
-   five seconds are reading time and the fight begins the moment they run out.
+   ten seconds are reading time and the fight begins the moment they run out.
    `/pvpocket review` brings the layer back.
 
 The rule set carries `rulesRevision`, shown in the panel's top right. v1 is what the challenger sent

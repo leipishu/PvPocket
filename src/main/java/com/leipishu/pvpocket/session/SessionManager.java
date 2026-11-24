@@ -120,15 +120,15 @@ public final class SessionManager {
     /**
      * How long the result page stays up before the match starts.
      *
-     * <p>Five seconds: enough to see that the page is there and read the first few lines. The page
-     * is a countdown rather than a ready check, because everybody has answered before it opens and
-     * a second gate would only add a way to stall the start.
+     * <p>Ten seconds: long enough to read the card through without having to come back for it with
+     * `/pvpocket review`. The page is a countdown rather than a ready check, because everybody has
+     * answered before it opens and a second gate would only add a way to stall the start.
      *
      * <p>Counted from the moment the plot is ready, not from the moment the page is published: the
      * build is synchronous and can block the server for seconds, and a deadline set before it would
      * be spent by the time the page reached the clients.
      */
-    private static final long RESULT_WINDOW_MS = 5_000L;
+    private static final long RESULT_WINDOW_MS = 10_000L;
 
     /**
      * How long the first round waits for a participant who accepted while dead, in server ticks.

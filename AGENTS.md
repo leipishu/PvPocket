@@ -285,7 +285,7 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 - **公示页是一层 HUD，不是 `PvScreen`。** `client.hud.ResultHud` 挂在 `onHudRender` 上，因为玩家
   在倒计时里要能走动。它因此拿不到 `PvScreen` 的布局审计（`PvAuditHarness` 只走屏幕），溢出只能靠
   自己的「按可用宽度定字号」兜住。别把它改回屏幕：一开面板就锁住移动，`ResultOpenPayload` 里那
-  5 秒也就白给了。HUD 位置与字号**不读** `ClientPrefs.hudAnchor/hudScale`——计分板挪到左下角不该
+  10 秒也就白给了。HUD 位置与字号**不读** `ClientPrefs.hudAnchor/hudScale`——计分板挪到左下角不该
   把横幅一起带走。
 - **准备大厅不是地图。** `arena.Lobby` 不占格子、不进 `ArenaMaps.ALL`、不参与租用与还原；坐标固定，
   每次开服重贴。加格子、改网格参数时不会碰到它，反过来改 `Lobby` 的常量也不会碰到网格。

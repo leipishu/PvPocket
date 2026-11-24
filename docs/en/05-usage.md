@@ -90,7 +90,7 @@ What the numbers mean:
    the countdown sits in the top right, and a card down the left lists the final rules and loadout.
    **It is a HUD layer, not a panel**, so the player can walk around while it counts down. The
    moment it appears the server builds the plot behind it and moves everybody to the **waiting
-   lobby** in the duel dimension (the island). The five-second countdown is all there is to read it:
+   lobby** in the duel dimension (the island). The ten-second countdown is all there is to read it:
    when it runs out the fight starts, with nothing left to wait for.
 7. On start every side is teleported in; the round goes live when the countdown ends.
 8. After the last round everyone returns to where they entered, items and terrain restored.

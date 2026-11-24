@@ -38,7 +38,7 @@ only displays the result.
 ## 3. Session state machine
 
 ```
-DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──merge──> RESULT ──5s──> FROZEN
+DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──merge──> RESULT ──10s─> FROZEN
                           │  │                                      │
                           │  └──no branches──────────────────────────┴─> RESULT
                           └──reject / cancel──> VOIDED
@@ -49,7 +49,7 @@ DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──me
 | `DRAFT` | Challenger is editing, not sent yet | No |
 | `NEGOTIATING` | Branch window: invite is out, five minutes to file one alternative | No |
 | `VOTING` | Branches exist; one vote per item, most votes wins, a tie keeps main | No |
-| `RESULT` | Result page: HUD layer, read-only five-second countdown the player can walk around under; leases and builds the plot and moves everybody to the lobby | Yes (written before the move) |
+| `RESULT` | Result page: HUD layer, read-only ten-second countdown the player can walk around under; leases and builds the plot and moves everybody to the lobby | Yes (written before the move) |
 | `FROZEN` | Rules and loadouts locked, teleporting and snapshotting | Yes |
 | `ROUND_READY` | Preparation period, wall still standing | Yes |
 | `ROUND_ACTIVE` | Round in progress | Yes |
