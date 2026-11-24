@@ -35,7 +35,7 @@
 ## 3. 会话状态机
 
 ```
-DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──逐项合并──> RESULT ──20s──> FROZEN
+DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──逐项合并──> RESULT ──5s──> FROZEN
                         │  │                                        │
                         │  └──无分支────────────────────────────────┴─> RESULT
                         └──拒绝 / 取消──> VOIDED
@@ -46,7 +46,7 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 | `DRAFT` | 发起方在改规则，还没发给对方 | 否 |
 | `NEGOTIATING` | 分支窗口：邀请已发出，5 分钟内每人可提交一份修改 | 否 |
 | `VOTING` | 有分支，逐项投票中；票数最多者胜，平票保持 main | 否 |
-| `RESULT` | 结果公示：只读倒计时，结束后冻结与传送 | 否 |
+| `RESULT` | 结果公示：HUD 层，只读 5 秒倒计时，玩家可走动；进场即租场地、建地图、全员进准备大厅 | 是（进大厅前写） |
 | `FROZEN` | 规则与配装已锁定，正在传送与快照 | 是 |
 | `ROUND_READY` | 回合准备期，硬墙未拆 | 是 |
 | `ROUND_ACTIVE` | 回合进行中 | 是 |
@@ -54,14 +54,19 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 | `RESTORING` | 正在逐项还原玩家状态 | 是 |
 | `ARCHIVED` / `VOIDED` | 终态：正常归档 / 未开始就作废 | — |
 
-`isPreFreeze()`（`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`）是分界线：在此之前取消不需要还原任何东西，
-在此之后每个终态都必须走还原路径。**「有快照」等价于「必须还原」**，这条不变量是
-崩溃对账的基础。
+`isPreFreeze()`（`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`）划的是「还能不能开打、还能不能改规则」，
+**不是「有没有副作用」**。`RESULT` 已经租下格子、建好地图、把全员写进快照并传送到准备大厅，
+所以从 `RESULT` 起的任何终态都要走 `releaseLobby`（还原 + 退租），只有 `DRAFT` / `NEGOTIATING` /
+`VOTING` 才真的「取消不用还原」。**「有快照」等价于「必须还原」**，这条不变量是崩溃对账的基础。
 
 ## 4. 快照与恢复
 
-进场前对每个参与者做完整快照：位置与朝向、背包（36 格 + 副手 + 盔甲）、生命、饥饿与饱和、
-状态效果、经验等级与进度、游戏模式、属性修饰符。
+**快照在公示出现时写，不在冻结时写。** 顺序是「写快照 → 传送进准备大厅 → 出公示 HUD」：
+玩家进大厅之后位置就变了，此刻再拍会把大厅记成「赛后送回去的地方」。`freeze()` 因此只在没有快照
+时补拍（`SNAPSHOT_REUSED` 就是复用那一行的日志）。
+
+快照内容：位置与朝向、背包（36 格 + 副手 + 盔甲）、生命、饥饿与饱和、状态效果、经验等级与进度、
+游戏模式、属性修饰符。
 
 - 快照落在内存的 `DuelSession` 里，同时把「进入前的位置」写进
   `<world>/pvpocket/homes.json`。
@@ -79,7 +84,8 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 每格 160 格见方、中心距 1184，格与格之间留 1024 格空地（按客户端最大视距定，见
 [06-maps](06-maps.md)）。选图 = 传送到固定坐标。
 
-- **租用**：开局时按 `e.template` 申请一格，记录会话 id。一张图能同时租「它拥有的分区数」次——
+- **租用**：公示页一出现就按 `e.template` 申请一格并建好（清格、铺平台或粘贴地图），记录会话 id；
+  倒计时结束时只是复用这份租约，所以「公示一结束就能开打」。一张图能同时租「它拥有的分区数」次——
   地图的「家」是它在 `ArenaMaps.ALL` 里的索引，额外分区（副本）记在 `pvpocket/arena.json`，
   由 `/pvpocket arena copy` 分配、`/pvpocket arena remove` 收回。副本的格子编号是地址，重启不会挪。
   副本可以删到 0 份（删掉「家」记在文件的 `noHome` 里），此时这张图 `allocate` 拿不到格子。
@@ -89,6 +95,11 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
   会触发看门狗报警并踢掉客户端。
 
 维度是虚空，地图外圈有屏障缓冲带。边界由客户端光幕绘制，服务端只判定位置。
+
+**准备大厅**（`arena.Lobby`）不占格子，也不算地图：一座 55 格宽的浮空岛，固定在
+`x = z = -192`、地面 `y = 40`，离最近的格子约 700 格（远于 `ArenaFog.END`，所以在场里看不见它，
+在大厅里也看不见场）。结构是 `data/pvpocket/structure/lobby.nbt`，由 `scripts/map/lobby.py` 生成，
+每次开服重贴一遍（顺带清掉上一轮留下的方块）。大厅的方块不可破坏，掉出岛外由 tick 拉回岛上。
 
 ## 6. 网络协议
 
@@ -107,7 +118,7 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 | C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、收回分区、重建场地、开关滞留保护 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `VoteOpenPayload` / `VoteProgressPayload` | 投票面板开 / 参与进度 |
-| S→C | `ResultOpenPayload` | 结果公示页：项表 + 票数 + 最终编排 + 倒计时 |
+| S→C | `ResultOpenPayload` | 结果公示 HUD：项表 + 票数 + 最终编排 + 倒计时 |
 | S→C | `LoadoutOpenPayload` | 配装编辑器打开 |
 | S→C | `MatchListPayload` | 对局列表 |
 | S→C | `MatchHudPayload` | 计分板 |

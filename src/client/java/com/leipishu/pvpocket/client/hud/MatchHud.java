@@ -62,12 +62,9 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * Gap between a corner plate and the screen edge, in pixels.
      *
      * <p>A plate is the outermost thing the HUD draws, so the gap is measured from its own edge.
-     * 4 is the same allowance the bar keeps at each side, so the three read as one row.
+     * The same allowance the bar keeps at each side, so the three read as one row.
      */
-    private static final int PLATE_MARGIN = 4;
-    /** Corner plate height and inner padding; the text is centred in the plate. */
-    private static final int PLATE_H = 12;
-    private static final int PLATE_PAD_X = 5;
+    private static final int PLATE_MARGIN = HudPlate.MARGIN;
     /** Air between a corner plate and the bar, so a wide bar never touches one. */
     private static final int PLATE_GAP = 6;
 
@@ -208,7 +205,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
 
     /** Width of a corner plate holding {@code text}: the string plus its own padding. */
     private static int plateWidth(Font tr, String text) {
-        return tr.width(text) + PLATE_PAD_X * 2;
+        return HudPlate.width(tr, text);
     }
 
     /**
@@ -219,9 +216,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * past its own edge.
      */
     private static void drawPlate(GuiGraphics ctx, Font tr, String text, int x, int y, int colour) {
-        PvDraw.roundRect(ctx, x, y, plateWidth(tr, text), PLATE_H, PvTheme.RADIUS,
-                PvTheme.alpha(PvTheme.CARD, PLATE_ALPHA * appearT));
-        PvDraw.text(ctx, tr, text, x + PLATE_PAD_X, y + (PLATE_H - 8) / 2 + 1, colour);
+        HudPlate.draw(ctx, tr, text, x, y, colour, PLATE_ALPHA * appearT);
     }
 
     /**

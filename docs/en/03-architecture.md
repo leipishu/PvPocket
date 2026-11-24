@@ -38,7 +38,7 @@ only displays the result.
 ## 3. Session state machine
 
 ```
-DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──merge──> RESULT ──20s──> FROZEN
+DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──merge──> RESULT ──5s──> FROZEN
                           │  │                                      │
                           │  └──no branches──────────────────────────┴─> RESULT
                           └──reject / cancel──> VOIDED
@@ -49,7 +49,7 @@ DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──me
 | `DRAFT` | Challenger is editing, not sent yet | No |
 | `NEGOTIATING` | Branch window: invite is out, five minutes to file one alternative | No |
 | `VOTING` | Branches exist; one vote per item, most votes wins, a tie keeps main | No |
-| `RESULT` | Result page: read-only countdown, then freeze and teleport | No |
+| `RESULT` | Result page: HUD layer, read-only five-second countdown the player can walk around under; leases and builds the plot and moves everybody to the lobby | Yes (written before the move) |
 | `FROZEN` | Rules and loadouts locked, teleporting and snapshotting | Yes |
 | `ROUND_READY` | Preparation period, wall still standing | Yes |
 | `ROUND_ACTIVE` | Round in progress | Yes |
@@ -57,15 +57,23 @@ DRAFT ──send invite──> NEGOTIATING ──branches──> VOTING ──me
 | `RESTORING` | Restoring player state field by field | Yes |
 | `ARCHIVED` / `VOIDED` | Terminal: archived normally / abandoned before starting | — |
 
-`isPreFreeze()` (`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`) is the dividing line: cancelling before it requires no
-restore, and every terminal state after it must go through one. **"Has snapshots" is equivalent to
-"must restore"**, and that invariant is what crash reconciliation is built on.
+`isPreFreeze()` (`DRAFT` / `NEGOTIATING` / `VOTING` / `RESULT`) answers "may this still start, may the
+rules still change", **not** "has anything happened yet". `RESULT` has already leased a cell, built the
+map, written every snapshot and moved the players into the lobby, so any terminal state from `RESULT`
+onwards must go through `releaseLobby` (restore plus release); only `DRAFT` / `NEGOTIATING` / `VOTING`
+can really be dropped for free. **"Has snapshots" is equivalent to "must restore"**, and that
+invariant is what crash reconciliation is built on.
 
 ## 4. Snapshots and restore
 
-Before entering, each participant is snapshotted in full: position and rotation, inventory (36 slots
-plus offhand and armour), health, hunger and saturation, status effects, experience level and
-progress, game mode, attribute modifiers.
+**The snapshot is written when the result page goes up, not at the freeze.** The order is "write the
+snapshot, teleport to the lobby, publish the HUD": once a player is in the lobby their position has
+changed, and a capture made there would record the lobby as the place to send them back to. `freeze()`
+therefore only captures when no snapshot exists yet (the `SNAPSHOT_REUSED` journal line is the reuse).
+
+Each participant is snapshotted in full: position and rotation, inventory (36 slots plus offhand and
+armour), health, hunger and saturation, status effects, experience level and progress, game mode,
+attribute modifiers.
 
 - The snapshot lives in the in-memory `DuelSession`, and the pre-entry position is also written to
   `<world>/pvpocket/homes.json`.
@@ -85,7 +93,9 @@ cells of 160 blocks square, 1184 apart from centre to centre, which leaves 1024 
 space between neighbours (sized past the largest render distance; see [06-maps](06-maps.md)).
 Choosing a map is a teleport to fixed coordinates.
 
-- **Lease**: a duel claims one cell based on `e.template` and records the session id. A map can be
+- **Lease**: the result page claims one cell based on `e.template` and builds it (clear the cell, lay
+  the platform or paste the map) and records the session id; the end of the countdown only reuses that
+  lease, which is why the fight can start the moment the page closes. A map can be
   leased as many times as it owns cells — its *home* is its index in `ArenaMaps.ALL`, extra cells
   (copies) are recorded in `pvpocket/arena.json`, handed out by `/pvpocket arena copy` and taken back
   by `/pvpocket arena remove`. A copy's cell number is an address and does not move across restarts.
@@ -96,6 +106,13 @@ Choosing a map is a teleport to fixed coordinates.
 - **Rebuild**: `/pvpocket arena reset` aborts every session, ejects everyone, clears the dimension and
   then **re-stamps one map per tick**. Five maps is roughly 150,000 blocks; doing it in one go stops
   the main thread for 4.5 seconds, trips the watchdog and drops clients.
+
+**The waiting lobby** (`arena.Lobby`) owns no cell and is not a map: a 55-wide floating island fixed at
+`x = z = -192` with its surface at `y = 40`, about 700 blocks from the nearest cell — past
+`ArenaFog.END`, so it is invisible from a plot and a plot is invisible from it. The build is
+`data/pvpocket/structure/lobby.nbt`, generated by `scripts/map/lobby.py`, and re-stamped on every
+start (which also wipes whatever a guest left behind). Its blocks cannot be broken, and a guest who
+falls off is put back by the tick.
 
 The dimension is void, with a barrier buffer ring around each map. Boundaries are drawn client-side
 as a light curtain; the server only judges position.
@@ -109,7 +126,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `BlockingPayload` | Block held / released |
 | C→S | `RulesSubmitPayload` | Send invite / file changes / no changes / reject / dismiss |
 | C→S | `VoteSubmitPayload` | One option on one item |
-| S→C | `ResultOpenPayload` | Result page: items, tallies, final arrangement, countdown |
+| S→C | `ResultOpenPayload` | Result HUD: items, tallies, final arrangement, countdown |
 | C→S | `LoadoutRequestPayload` | Ask for the loadout editor |
 | C→S | `LoadoutSubmitPayload` | Submit a loadout |
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |

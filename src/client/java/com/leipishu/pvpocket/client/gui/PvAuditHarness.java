@@ -4,7 +4,6 @@ import com.leipishu.pvpocket.client.gui.loadout.LoadoutScreen;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
-import com.leipishu.pvpocket.client.gui.rule.ResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
 import com.leipishu.pvpocket.client.home.HomeScreen;
@@ -16,7 +15,6 @@ import com.leipishu.pvpocket.loadout.LoadoutEntry;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.LoadoutOpenPayload;
 import com.leipishu.pvpocket.network.MatchListPayload;
-import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.VoteOpenPayload;
 import com.leipishu.pvpocket.preset.PresetKind;
@@ -149,9 +147,6 @@ public final class PvAuditHarness {
             for (int variant = 0; variant < 2; variant++) {
                 add("vote", size, variant, () -> new VoteScreen(ballot()));
             }
-            for (int variant = 0; variant < 2; variant++) {
-                add("rules/result", size, variant, () -> new ResultScreen(result()));
-            }
             for (int variant = 0; variant < 7; variant++) {
                 add("loadout/duel", size, variant, () -> new LoadoutScreen(duelLoadout(), null));
             }
@@ -228,15 +223,6 @@ public final class PvAuditHarness {
         sb.append('\n').append("e:new:1a\t2\t\t-1\t\t").append(apple.encode()).append("~Dev2");
         return new VoteOpenPayload("audit",
                 new VoteOpenPayload.Body(sb.toString(), "", NAMES, 150_000, 2, 4));
-    }
-
-    /** The same ballot after counting: one adopted item, one tie, the arrangement adopted. */
-    private static ResultOpenPayload result() {
-        String tallies = String.join("\n",
-                "t:roster\t1\t1,3",
-                "r:a.maxRounds\t1\t1,3",
-                "r:c.maxHealth\t0\t2,2");
-        return new ResultOpenPayload("audit", ballot().items(), tallies, ROSTER_ALT, NAMES, 150_000);
     }
 
     private static LoadoutOpenPayload duelLoadout() {

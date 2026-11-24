@@ -4,6 +4,9 @@ import com.leipishu.pvpocket.client.gui.loadout.LoadoutFields;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.loadout.LoadoutCatalog;
 import com.leipishu.pvpocket.loadout.LoadoutEntry;
+import com.leipishu.pvpocket.rules.RuleCatalog;
+import com.leipishu.pvpocket.rules.RuleDefinition;
+import com.leipishu.pvpocket.session.VoteItem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +99,72 @@ public final class VoteText {
             sb.append(" …");
         }
         return sb.toString();
+    }
+
+    /**
+     * The heading an item is listed under: its rule label, or the row it carries.
+     *
+     * <p>An addition has no row in main, so the first candidate names it. Shared by the ballot and
+     * the result HUD so the two cannot call the same item by two names.
+     */
+    public static String itemTitle(VoteItem item) {
+        if (item.kind == VoteItem.KIND_RULE) {
+            RuleDefinition def = RuleCatalog.byId(item.ruleId);
+            return def == null ? item.ruleId : def.label();
+        }
+        LoadoutEntry entry = entryOf(item.baseValue());
+        if (entry == null) {
+            for (int i = 1; i < item.options.size(); i++) {
+                entry = entryOf(item.options.get(i).value);
+                if (entry != null) {
+                    break;
+                }
+            }
+        }
+        return entry == null ? item.id : title(entry);
+    }
+
+    /**
+     * What one item was decided on, for the read-only list after the vote.
+     *
+     * <p>Unlike a ballot chip this carries no proposer and no "keep" wording: the list answers what
+     * the match will run on, so the winning option is spelled out as the value it holds, and an
+     * option that removes or skips a row says so.
+     */
+    public static String decidedValue(VoteItem item, int winner) {
+        int index = winner < 0 || winner >= item.options.size() ? 0 : winner;
+        String raw = item.options.get(index).value;
+        if (item.kind == VoteItem.KIND_RULE) {
+            RuleDefinition def = RuleCatalog.byId(item.ruleId);
+            return def == null ? raw : def.format(parse(raw));
+        }
+        LoadoutEntry chosen = entryOf(raw);
+        if (index == 0) {
+            if (item.kind == VoteItem.KIND_ADD) {
+                return PvLang.str("pvpocket.gui.vote.skip");
+            }
+            return chosen == null ? "" : value(chosen);
+        }
+        if (chosen == null) {
+            return PvLang.str("pvpocket.gui.vote.remove");
+        }
+        if (item.kind == VoteItem.KIND_ADD) {
+            return title(chosen);
+        }
+        LoadoutEntry before = entryOf(item.baseValue());
+        return before == null ? title(chosen) : diff(before, chosen);
+    }
+
+    private static LoadoutEntry entryOf(String encoded) {
+        return encoded == null || encoded.isEmpty() ? null : LoadoutEntry.decode(encoded);
+    }
+
+    private static int parse(String raw) {
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /** Parses the payload's {@code uuid|name,uuid|name} map; a malformed pair is skipped. */

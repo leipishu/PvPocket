@@ -9,7 +9,6 @@ import com.leipishu.pvpocket.client.gui.prepare.PrepareNotice;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
-import com.leipishu.pvpocket.client.gui.rule.ResultScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
 import com.leipishu.pvpocket.client.home.HomeClient;
@@ -19,6 +18,7 @@ import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.client.preset.PresetShare;
 import com.leipishu.pvpocket.client.hud.MatchHud;
 import com.leipishu.pvpocket.client.hud.PossessionHud;
+import com.leipishu.pvpocket.client.hud.ResultHud;
 import com.leipishu.pvpocket.client.render.PossessedHandRenderer;
 import com.leipishu.pvpocket.client.hud.SpectatorHud;
 import com.leipishu.pvpocket.client.hud.SurrenderHud;
@@ -96,7 +96,9 @@ public final class PvPocketClient {
             PvPocket.LOGGER.info("Received result_open for session {} ({} items)",
                     payload.sessionId(), payload.items().isEmpty()
                             ? 0 : payload.items().split("\n").length);
-            PvScreens.open(Minecraft.getInstance(), new ResultScreen(payload));
+            // A HUD layer, not a screen: the countdown runs while the player walks around the
+            // lobby, and a layer has nothing to lose when the teleport replaces the world.
+            ResultHud.update(payload);
         });
 
         platform.onServerPacket(VoteProgressPayload.ID, payload -> {
@@ -120,6 +122,9 @@ public final class PvPocketClient {
 
         platform.onServerPacket(RulesClosePayload.ID, payload -> {
             Minecraft client = Minecraft.getInstance();
+            // The result page is the HUD layer now, so it is dismissed by name rather than by
+            // looking for a screen that may never have opened.
+            ResultHud.clear();
             boolean showing = PvScreens.current(client) instanceof RuleScreen screen
                     && screen.sessionId().equals(payload.sessionId());
             PvPocket.LOGGER.info("Rules close for session {} (panel open: {})",
@@ -131,11 +136,6 @@ public final class PvPocketClient {
             if (PvScreens.current(client) instanceof VoteScreen ballot
                     && ballot.sessionId().equals(payload.sessionId())) {
                 ballot.closeSilently();
-                return;
-            }
-            if (PvScreens.current(client) instanceof ResultScreen result
-                    && result.sessionId().equals(payload.sessionId())) {
-                result.closeSilently();
                 return;
             }
             // The loadout editor is a child of the rule panel, so it closes with it.
@@ -193,6 +193,7 @@ public final class PvPocketClient {
             clearPendingState();
             lastResultSession = null;
             MatchHud.clear();
+            ResultHud.clear();
             ArenaBounds.clear();
             PrepareScreens.clear();
             PrepareNotice.clear();
@@ -206,6 +207,7 @@ public final class PvPocketClient {
         });
 
         MatchHud.register();
+        ResultHud.register();
         SpectatorHud.register();
         PossessionHud.register();
         SurrenderHud.register();

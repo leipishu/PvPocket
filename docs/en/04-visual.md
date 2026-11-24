@@ -5,7 +5,7 @@
 > This document supersedes the visual language table in §9.1 of the v0.4 technical plan (archived
 > under `../archive/design/`). Where they disagree, this wins.
 >
-> Scope: the self-drawn GUI layer (`client/gui/**`) and the three HUDs (`client/hud/**`) under
+> Scope: the self-drawn GUI layer (`client/gui/**`) and the five HUDs (`client/hud/**`) under
 > `src/client`, shared by both loaders.
 
 ## 1. Goals
@@ -378,6 +378,22 @@ background is uncontrolled), therefore:
   ends".
 - The ring is inset by 1px so it does not touch the slot boundary.
 - HUD fade-in multiplies `appearT` into alpha and does not move anything.
+
+### 4.3 Display type (the result banner)
+
+The "A VS B" on the result page is the only display type in the mod, and it follows different rules
+from a panel title:
+
+- **The size comes from the room available, and is never fixed.** Up to 3× (an 8px face becomes
+  24px); the floor is "whatever fits", because a smaller name beats one that overflows its plate or
+  runs under a corner plate.
+- **The outline is one text unit**, so it scales with the glyphs and lands at two or three screen
+  pixels. Four offset passes plus the fill: no second font file, and a resource pack that changes
+  the face changes the outline with it.
+- **`ClientPrefs.hudAnchor/hudScale` are not read.** The banner and the left-hand card are placed
+  from the screen corners: a scoreboard moved to the bottom left must not take the banner with it.
+- Body text stays at 1.0× 8px. Hierarchy comes from size and colour, never from bold (bold is a
+  second offset draw in this layer, see §2).
 
 ## 5. Motion
 

@@ -86,8 +86,14 @@ What the numbers mean:
 5. Each of them picks "Accept and start", "Edit and re-propose" or "Reject". **The match starts once
    everybody has answered and two sides still have somebody on them.** A refusal only takes that
    player off the roster: invite four, one declines, and the remaining three still play.
-6. On start every side is teleported in; the round goes live when the countdown ends.
-7. After the last round everyone returns to where they entered, items and terrain restored.
+6. The **result page** comes up first: a banner across the top spells out "A VS B" at display size,
+   the countdown sits in the top right, and a card down the left lists the final rules and loadout.
+   **It is a HUD layer, not a panel**, so the player can walk around while it counts down. The
+   moment it appears the server builds the plot behind it and moves everybody to the **waiting
+   lobby** in the duel dimension (the island). The five-second countdown is all there is to read it:
+   when it runs out the fight starts, with nothing left to wait for.
+7. On start every side is teleported in; the round goes live when the countdown ends.
+8. After the last round everyone returns to where they entered, items and terrain restored.
 
 The score bar across the top keeps its left-right shape: one side on the left, the other on the
 right, the round and score in the middle. **1v1** draws each head with its name. **Every larger

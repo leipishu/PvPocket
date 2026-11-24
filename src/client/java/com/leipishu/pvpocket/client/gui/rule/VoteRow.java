@@ -170,21 +170,7 @@ public class VoteRow extends PvWidget {
     // ------------------------------------------------------------------ text
 
     private static String titleOf(VoteItem item) {
-        if (item.kind == VoteItem.KIND_RULE) {
-            RuleDefinition def = RuleCatalog.byId(item.ruleId);
-            return def == null ? item.ruleId : def.label();
-        }
-        LoadoutEntry entry = entryOf(item, item.baseValue());
-        if (entry == null) {
-            // An addition: main has no row, so the candidate names it.
-            for (int i = 1; i < item.options.size(); i++) {
-                entry = entryOf(item, item.options.get(i).value);
-                if (entry != null) {
-                    break;
-                }
-            }
-        }
-        return entry == null ? item.id : VoteText.title(entry);
+        return VoteText.itemTitle(item);
     }
 
     private static String baseOf(VoteItem item) {
