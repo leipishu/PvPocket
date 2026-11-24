@@ -66,6 +66,19 @@ BOULDER_R = 17.5
 # Rock hanging off the underside, at bearings chosen so the spurs are not evenly spaced.
 SPURS = (48, 122, 203, 291, 336)
 
+# A lantern survives only against a full face, and one the game removes leaves its item on the
+# island. Bottom slabs count, so a lamp post carries one under the lantern.
+FULL_FACE = frozenset((
+    "minecraft:stone_bricks", "minecraft:cracked_stone_bricks", "minecraft:mossy_stone_bricks",
+    "minecraft:chiseled_stone_bricks", "minecraft:smooth_stone", "minecraft:stone",
+    "minecraft:andesite", "minecraft:tuff", "minecraft:deepslate",
+    "minecraft:cobbled_deepslate", "minecraft:cobblestone", "minecraft:grass_block",
+    "minecraft:dirt", "minecraft:coarse_dirt", "minecraft:moss_block", "minecraft:oak_log",
+    "minecraft:smooth_quartz", "minecraft:quartz_bricks", "minecraft:chiseled_quartz_block",
+    "minecraft:quartz_pillar", "minecraft:sea_lantern",
+    "minecraft:stone_brick_slab", "minecraft:smooth_stone_slab", "minecraft:smooth_quartz_slab",
+))
+
 
 def noise(x, z, salt=0):
     """Deterministic per-cell value in [0, 1), so the ground is mottled without a random seed."""
@@ -229,7 +242,7 @@ def bench(blocks, angle):
     lx = int(round(cx + math.cos(rad) * 1.6))
     lz = int(round(cz + math.sin(rad) * 1.6))
     put(blocks, lx, SURFACE + 1, lz, "minecraft:stone_brick_wall")
-    put(blocks, lx, SURFACE + 2, lz, "minecraft:stone_brick_wall")
+    put(blocks, lx, SURFACE + 2, lz, "minecraft:stone_brick_slab", type="bottom")
     put(blocks, lx, SURFACE + 3, lz, "minecraft:lantern", hanging="false")
 
 
@@ -277,14 +290,18 @@ def tree(blocks, angle):
 
 
 def lamp(blocks, angle):
-    """A stone post with a lantern on top, one ring inside the rim."""
+    """A stone post with a lantern on top, one ring inside the rim.
+
+    The slab is what holds the lantern up: a wall post is slim, so its top face is not full and a
+    lantern standing on it is removed by the game and dropped as an item.
+    """
     rad = math.radians(angle)
     cx = int(round(math.cos(rad) * LAMP_R))
     cz = int(round(math.sin(rad) * LAMP_R))
     if on_path(cx, cz):
         return   # never stand a lamp in the middle of a path
     put(blocks, cx, SURFACE + 1, cz, "minecraft:stone_brick_wall")
-    put(blocks, cx, SURFACE + 2, cz, "minecraft:stone_brick_wall")
+    put(blocks, cx, SURFACE + 2, cz, "minecraft:stone_brick_slab", type="bottom")
     put(blocks, cx, SURFACE + 3, cz, "minecraft:lantern", hanging="false")
 
 
@@ -354,6 +371,26 @@ def scatter(blocks):
             put(blocks, x, SURFACE + 1, z, "minecraft:azure_bluet")
 
 
+def check(blocks):
+    """Refuses a build where a lantern would not survive being placed.
+
+    The template file cannot show this: a lantern that loses its support keeps its entry in the
+    palette and only disappears once the game checks it, leaving an item on the ground where the
+    lamp post was. So the rule is enforced here instead of after the fact.
+    """
+    bad = []
+    for (x, y, z), (name, props) in blocks.items():
+        if name != "minecraft:lantern":
+            continue
+        anchor = (x, y + 1, z) if props.get("hanging") == "true" else (x, y - 1, z)
+        held = blocks.get(anchor)
+        if held is None or held[0] not in FULL_FACE:
+            bad.append((x, y, z))
+    if bad:
+        raise SystemExit("%d lantern(s) would not survive placement, e.g. %s"
+                         % (len(bad), bad[:4]))
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -363,6 +400,7 @@ def main(argv):
     args = parser.parse_args(argv)
 
     blocks = build()
+    check(blocks)
     # The same two guards the converter applies: nothing that falls, nothing that cannot be placed.
     bbox, blocks = W.normalise(blocks)
     size = (bbox[3] - bbox[0] + 1, bbox[4] - bbox[1] + 1, bbox[5] - bbox[2] + 1)
