@@ -111,6 +111,9 @@ Run → Edit Configurations 里改 Interpreter path。
 
 - **`CELL`** 选格子，十格通吃。少数脚本用两个变量（`check-logic.sh` 同时核 Fabric 与 NeoForge）。
 - **`PVP_CLIENTS`** 1–4，对应 `runClient` / `runClient2` / `runClient3` / `runClient4` 四个 run 任务。
+  客户端之间隔 `PVP_CLIENT_STAGGER`（默认 4 秒）起，免得几个冷 JVM 同一秒砸到服务端上。
+- **`PVP_READY_TIMEOUT`** / **`PVP_GALLERY_TIMEOUT`** 等 `Done (` / 等场地铺完的上限（默认 300 / 180 秒）。
+- **`PVP_JOIN_TIMEOUT`** 起了客户端却一个都没进服的判定时长（默认 120 秒），到点会打印诊断并收工。
 - **退出码**：0 通过，1 有发现，2 环境不全（没编译、找不到 JDK、审计没跑完）。CI 只需要看 0/非 0。
 - **日志**落在 `versions/<cell>/build/devlogs/`，不在仓库根的 `logs/`。
 - `mojmap/` 与 `ui/` 里的脚本不是给人手动跑的，删改前先确认没有别的自动化在引用。

@@ -27,19 +27,41 @@ echo "[dev] 服务端在 $ADDR 已就绪"
 
 # Each client needs its own run dir and username: a shared dir makes two JVMs fight over
 # logs/latest.log, and a shared username is rejected as a duplicate login.
+#
+# One at a time. Three cold JVMs (registries, textures, resource reload) landing on the server in
+# the same second is what starves the machine, and a connection that arrives in that window can
+# be left on "Connecting to server" for good.
+STAGGER="${PVP_CLIENT_STAGGER:-4}"
 PIDS=()
 for i in $(seq 1 "$COUNT"); do
     if [ "$i" -eq 1 ]; then TASK="runClient"; else TASK="runClient${i}"; fi
     echo "[dev] 启动 Dev${i} (runs/$CELL/client${i}) ..."
     ./gradlew ":$CELL:$TASK" --console=plain -PquickJoin="$ADDR" > "$LOGS/client${i}.out" 2>&1 &
     PIDS+=($!)
+    if [ "$i" -lt "$COUNT" ]; then
+        sleep "$STAGGER"
+    fi
 done
+
+any_alive() {
+    local pid
+    for pid in "${PIDS[@]}"; do
+        kill -0 "$pid" 2>/dev/null && return 0
+    done
+    return 1
+}
 
 cleanup() {
     echo
     echo "[dev] 收到中断，正在结束客户端..."
     kill "${PIDS[@]}" 2>/dev/null
-    wait 2>/dev/null
+    # Bounded: a client JVM that wedges on shutdown keeps its wrapper alive, and an unbounded
+    # wait here would never return (see the note in dev-duel.sh).
+    deadline=$((SECONDS + 10))
+    while [ "$SECONDS" -lt "$deadline" ] && any_alive; do
+        sleep 1
+    done
+    kill -KILL "${PIDS[@]}" 2>/dev/null
 }
 trap cleanup EXIT INT TERM
 

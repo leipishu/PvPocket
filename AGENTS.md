@@ -156,7 +156,12 @@ CELL=1.21.1-fabric scripts/dev-duel.sh     # 换一格
 `dev-duel.sh` 与 `dev-clients.sh` 的分工：前者自己管服务端（Ctrl+C 全停，服务端控制台不可交互），
 后者假设服务端已在别处跑着（控制台还能敲命令）。`dev-duel.sh` 等的是服务端日志里的 `Done (`
 而不是端口——Minecraft 在初始化早期就 bind 了端口，那时连上去会被踢，而 `--quickPlayMultiplayer`
-被踢一次就停在标题界面，测试的人还得手工点。
+被踢一次就停在标题界面，测试的人还得手工点。`Done (` 之后**还要等 `Arena gallery ready`**：
+场地是服务端启动事件之后在服务端线程上铺的，冷缓存下卡 7–30 秒（接着报
+`Can't keep up ... 199 ticks behind`），这段时间连进去的客户端会一直停在 `Connecting to server`。
+收工也不靠客户端进程退出——客户端 JVM 关闭时可能卡住（dev 环境关服看门狗抛
+`ClassNotFoundException`），`./gradlew` 就永不返回，`wait` 一挂服务端就永远不停；
+现在按服务端日志里「没人了」判断。
 
 服务端的 stdin 必须挂在一个**永不 EOF** 的管道上：后台进程的 stdin 默认是 `/dev/null`，
 Minecraft 读到 EOF 会立刻自己关服。`dev-duel.sh` 用 `mkfifo` + `exec 3<>` 实现，并且
