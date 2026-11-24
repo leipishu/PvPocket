@@ -622,6 +622,30 @@ public final class ArenaManager {
     }
 
     /**
+     * Whether the plot already leased to this session is exactly the one these rules describe.
+     *
+     * <p>The result page leases early, so that the countdown is the only wait left between the page
+     * and the first round; the start then asks this instead of leasing a second time. Compared on
+     * the same clamped size {@link #allocate} would use, so a rule set edited between the page and
+     * the start still rebuilds rather than starting on the wrong plot.
+     */
+    public static boolean leaseMatches(String sessionId, int sizeX, int sizeY, int sizeZ,
+                                       ArenaMap map, boolean protectTerrain,
+                                       boolean allowBreakOwn) {
+        ArenaRegion region = BY_SESSION.get(sessionId);
+        if (region == null) {
+            return false;
+        }
+        ArenaMap chosen = map == null ? ArenaMap.FLAT : map;
+        int sx = chosen.isFlat() ? clampSize(sizeX, MAX_SIZE_XZ) : clampSize(chosen.sizeX, MAX_SIZE_XZ);
+        int sy = chosen.isFlat() ? clampSize(sizeY, MAX_SIZE_Y) : clampSize(chosen.sizeY, MAX_SIZE_Y);
+        int sz = chosen.isFlat() ? clampSize(sizeZ, MAX_SIZE_XZ) : clampSize(chosen.sizeZ, MAX_SIZE_XZ);
+        return region.matches(chosen, sx, sy, sz)
+                && region.protectTerrain == protectTerrain
+                && region.allowBreakOwn == allowBreakOwn;
+    }
+
+    /**
      * Clears a cell, stamps a map into it, and registers the result as that cell's occupant.
      *
      * <p>Clearing uses the cell rectangle rather than the map's box and clears to the taller of the

@@ -6,6 +6,7 @@ import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
 import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.arena.ArenaRegion;
+import com.leipishu.pvpocket.arena.Lobby;
 import com.leipishu.pvpocket.arena.Sandbox;
 import com.leipishu.pvpocket.combat.CombatMode;
 import com.leipishu.pvpocket.combat.CombatState;
@@ -119,11 +120,15 @@ public final class SessionManager {
     /**
      * How long the result page stays up before the match starts.
      *
-     * <p>Long enough to read a handful of items, short enough not to feel like a second lobby. The
-     * page is a countdown rather than a ready check: everybody has answered before it opens, so a
-     * second gate would only add a way to stall the start.
+     * <p>Five seconds: enough to see that the page is there and read the first few lines. The page
+     * is a countdown rather than a ready check, because everybody has answered before it opens and
+     * a second gate would only add a way to stall the start.
+     *
+     * <p>Counted from the moment the plot is ready, not from the moment the page is published: the
+     * build is synchronous and can block the server for seconds, and a deadline set before it would
+     * be spent by the time the page reached the clients.
      */
-    private static final long RESULT_WINDOW_MS = 10_000L;
+    private static final long RESULT_WINDOW_MS = 5_000L;
 
     /**
      * How long the first round waits for a participant who accepted while dead, in server ticks.
@@ -372,6 +377,29 @@ public final class SessionManager {
         return sessionByPlayer.get(uuid);
     }
 
+    /**
+     * Package-private: true while this player is a live participant of a session whose result page
+     * is up.
+     *
+     * <p>The lobby is inside the duel dimension, and {@link #sessionByPlayer} is still empty there:
+     * the match mapping is written by {@code freeze}, after the countdown. Without this the
+     * stray-player guard would read every guest as somebody who walked in and move them out
+     * mid-countdown.
+     */
+    boolean isAwaitingStart(UUID uuid) {
+        String id = uuid.toString();
+        for (DuelSession session : sessions.values()) {
+            if (session.stage != SessionStage.RESULT) {
+                continue;
+            }
+            Participant p = session.participant(id);
+            if (p != null && !p.rejected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static SessionManager create(MinecraftServer server) {
         instance = new SessionManager(server);
         return instance;
@@ -522,10 +550,14 @@ public final class SessionManager {
                 continue;
             }
             if (session.stage.isPreFreeze()) {
-                // Nothing was frozen and no plot was leased, so there is nothing to undo.
                 session.voidReason = reason;
                 journal(session).append("SESSION_DROPPED", "reason", reason,
                         "stage", session.stage.name());
+                // RESULT cannot be dropped for free: the plot is leased and everybody is standing
+                // in the lobby with a snapshot on disk. The earlier stages have nothing to undo.
+                if (session.stage == SessionStage.RESULT) {
+                    releaseLobby(session);
+                }
                 transition(session, SessionStage.VOIDED);
                 ended++;
                 continue;
@@ -567,6 +599,9 @@ public final class SessionManager {
         // the re-stamp will not touch: the flat plot and any spare cell.
         ArenaManager.wipeUnstampedCells(server);
         ArenaManager.clearAll();
+        // The lobby owns no cell, so the re-stamp below never touches it; rebuild it here or a
+        // reset would leave whatever was placed on the island.
+        Lobby.build(server);
         ArenaManager.beginWarmUp();
         PvPocket.LOGGER.warn("Arena reset: {} session(s) ended, dimension wiped, re-stamping gallery",
                 ended);
@@ -1491,6 +1526,8 @@ public final class SessionManager {
         tickRoundClock();
         tickPrepare();
         tickNegotiationWindows();
+        // After the windows: a session that just left RESULT has nobody in the lobby to catch.
+        tickLobby();
         tickSurrender();
         // Drops watchers of finished series and repairs cameras on replaced bodies.
         spectators.tick();
@@ -2750,11 +2787,15 @@ public final class SessionManager {
     }
 
     /**
-     * Publishes the result page and starts the countdown.
+     * Publishes the result page, builds the plot and moves everybody into the waiting lobby.
      *
-     * <p>Every path into the match goes through here: a window nobody branched on, and a ballot
-     * that has been counted. The page is read-only, so this is also the last place a session can be
-     * voided for having fewer than two sides without anybody being mid-click.
+     * <p>Every path into the match goes through here. The order is fixed: lease and build the plot,
+     * write each participant's survival state while they still stand in their own world, then move
+     * them to the lobby island. The countdown starts once the plot is ready, so its five seconds
+     * are reading time rather than a wait for generation.
+     *
+     * <p>A player is never moved before their snapshot is on disk, and never captured after the
+     * move: the snapshot holds the position to send them back to when the series ends.
      */
     private void enterResult(DuelSession session) {
         if (session.stage != SessionStage.NEGOTIATING && session.stage != SessionStage.VOTING
@@ -2765,7 +2806,6 @@ public final class SessionManager {
             settleNegotiation(session, null);
             return;
         }
-        session.resultEndsAt = System.currentTimeMillis() + RESULT_WINDOW_MS;
         journal(session).append("RESULT_PUBLISHED",
                 "revision", session.rulesRevision,
                 "items", session.voteItems.size(),
@@ -2773,13 +2813,148 @@ public final class SessionManager {
                 "digest", session.rulesDigest);
         transition(session, SessionStage.RESULT);
         closePanels(session);
+        // Seconds of server thread: a cell-sized clear plus a paste is measured at 4-5 s cold.
+        // Paid here so the countdown ends with a plot rather than with a wait.
+        long buildMs = prepareArena(session);
+        session.resultEndsAt = System.currentTimeMillis() + RESULT_WINDOW_MS;
+        persist(session);
+        journal(session).append("RESULT_WINDOW", "ms", RESULT_WINDOW_MS, "arenaBuildMs", buildMs);
         for (Participant p : session.participants) {
             if (p.rejected) {
                 continue;
             }
             ServerPlayer target = online(p);
             if (target != null) {
+                enterLobby(session, p, target);
                 openResultPanel(target, session);
+            }
+        }
+    }
+
+    /**
+     * Leases and builds the plot while the result page is up.
+     *
+     * <p>This is the part of a start that can take seconds: clearing the cell, pasting the map or
+     * laying the flat platform, and building the barrier shelf. Taking the lease here also reserves
+     * the cell for the countdown, so no other session can take it in between.
+     *
+     * <p>A refusal is not fatal: {@code startAccepted} re-attempts the lease, and its own retry
+     * covers a grid that filled up in the meantime.
+     *
+     * @return how long the build took in milliseconds, or -1 when nothing was built
+     */
+    private long prepareArena(DuelSession session) {
+        if (!ArenaManager.isReady(server)) {
+            journal(session).append("ARENA_PREPARE_SKIPPED", "reason", "world_missing");
+            return -1;
+        }
+        // A reset re-stamps one map per tick, and a lease taken mid-rebuild would race the stamp.
+        if (ArenaManager.warmUpPending()) {
+            journal(session).append("ARENA_PREPARE_SKIPPED", "reason", "warming_up");
+            return -1;
+        }
+        DuelRules rules = DuelRules.decode(session.rules);
+        int mapIndex = rules.get("e.template");
+        if (ArenaManager.isMapBusy(mapIndex, session.id)) {
+            journal(session).append("ARENA_PREPARE_SKIPPED", "reason", "map_busy",
+                    "map", ArenaMaps.byIndex(mapIndex).id);
+            return -1;
+        }
+        long started = System.nanoTime();
+        ArenaRegion region = ArenaManager.allocate(server, session.id,
+                rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
+                ArenaMaps.byIndex(mapIndex),
+                rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
+        long ms = (System.nanoTime() - started) / 1_000_000L;
+        if (region == null) {
+            journal(session).append("ARENA_PREPARE_SKIPPED", "reason", "arena_full");
+            return -1;
+        }
+        session.arenaId = region.id;
+        journal(session).append("ARENA_PREPARED", "region", region.id,
+                "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ,
+                "map", region.map.id,
+                "origin", region.minX + "," + region.minZ,
+                "protectTerrain", region.protectTerrain,
+                "allowBreakOwn", region.allowBreakOwn,
+                "ms", ms);
+        return ms;
+    }
+
+    /**
+     * Writes one participant's survival state, then puts them on the lobby island.
+     *
+     * <p>The snapshot is taken here rather than in {@code freeze} because this is the last moment
+     * the player stands in their own world: a capture after the teleport would record the lobby as
+     * the place to send them back to. Written before the move, so nobody is ever in the dimension
+     * without a way out.
+     */
+    private void enterLobby(DuelSession session, Participant p, ServerPlayer player) {
+        if (p.snapshotFile == null) {
+            PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
+            Path file = storage.snapshotFile(session.id, p.uuid);
+            try {
+                snapshot.writeTo(file);
+            } catch (IOException e) {
+                // Left where they are: a guest in the lobby with no snapshot has no way home.
+                PvPocket.LOGGER.error("Cannot snapshot {} for the lobby; leaving them outside",
+                        p.name, e);
+                journal(session).append("LOBBY_SKIPPED", "player", p.name,
+                        "reason", "snapshot_failed");
+                return;
+            }
+            p.snapshotFile = file.getFileName().toString();
+            p.fingerprint = snapshot.fingerprint();
+            journal(session).append("SNAPSHOT_WRITTEN",
+                    "player", p.name, "fingerprint", p.fingerprint, "stage", "RESULT");
+        }
+        if (Lobby.teleport(player)) {
+            journal(session).append("LOBBY_ENTERED", "player", p.name);
+        } else {
+            journal(session).append("LOBBY_SKIPPED", "player", p.name, "reason", "world_missing");
+        }
+    }
+
+    /**
+     * Undoes what the result page did: the plot goes back to the pool, and anybody standing in the
+     * lobby is restored.
+     *
+     * <p>Called from every exit between the page and the freeze. Without it a session voided during
+     * the countdown would leave its plot leased and its players in the duel dimension holding a
+     * snapshot nobody applies.
+     */
+    private void releaseLobby(DuelSession session) {
+        broadcastPrepare(session, false);
+        for (Participant p : session.participants) {
+            if (p.snapshotFile != null) {
+                restoreParticipant(session, p);
+            }
+        }
+        ArenaManager.release(session.id);
+    }
+
+    /**
+     * Catches a lobby guest who walked off the island.
+     *
+     * <p>The lobby floats in a void dimension, so falling past it is a death with no ground to
+     * respawn on. Only {@code RESULT} is scanned: that is the only stage anybody is up there.
+     */
+    private void tickLobby() {
+        for (DuelSession session : sessions.values()) {
+            if (session.stage != SessionStage.RESULT) {
+                continue;
+            }
+            for (Participant p : session.participants) {
+                if (p.rejected) {
+                    continue;
+                }
+                ServerPlayer player = online(p);
+                if (player == null || !Lobby.belowIsland(player)) {
+                    continue;
+                }
+                journal(session).append("LOBBY_CAUGHT", "player", p.name,
+                        "y", String.format("%.1f", player.getY()));
+                Lobby.teleport(player);
             }
         }
     }
@@ -2996,6 +3171,9 @@ public final class SessionManager {
                     "remaining", liveCount(session),
                     "playingTeams", session.playingTeams().size());
             session.voidReason = "NOT_ENOUGH_TEAMS";
+            // A session dropped from the result page has already leased a plot and moved its
+            // players into the lobby, so the pre-freeze shortcut does not apply here.
+            releaseLobby(session);
             transition(session, SessionStage.VOIDED);
             inviteByTarget.values().removeIf(session.id::equals);
             closePanels(session);
@@ -3074,11 +3252,6 @@ public final class SessionManager {
             fail(accepter, "pvpocket.msg.rules.arena_not_ready");
             return;
         }
-        // A reset re-stamps one map per tick, and a lease taken mid-rebuild would race the stamp.
-        if (ArenaManager.warmUpPending()) {
-            fail(accepter, "pvpocket.msg.rules.arena_rebuilding");
-            return;
-        }
         // Checked again here rather than trusting the caller: the other side may have edited their
         // loadout between the proposal and this click.
         if (!allLoadoutsAgreed(session)) {
@@ -3092,37 +3265,55 @@ public final class SessionManager {
             return;
         }
         int mapIndex = rules.get("e.template");
-        // Checked here as well as in the panel, which may have been open for a minute while
-        // somebody else took the map.
-        if (ArenaManager.isMapBusy(mapIndex, session.id)) {
-            fail(accepter, "pvpocket.msg.rules.map_busy",
-                    ArenaMaps.byIndex(mapIndex).labelText());
-            return;
+        ArenaRegion region;
+        if (ArenaManager.leaseMatches(session.id, rules.get("e.sizeX"), rules.get("e.sizeY"),
+                rules.get("e.sizeZ"), ArenaMaps.byIndex(mapIndex),
+                rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"))) {
+            // Built while the result page was up, so the start has nothing left to wait for. No
+            // prepare notice either: there is no wait for it to explain.
+            region = ArenaManager.region(session.id);
+            journal(session).append("ARENA_REUSED", "region", region.id,
+                    "map", region.map.id,
+                    "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ);
+        } else {
+            // A reset re-stamps one map per tick, and a lease taken mid-rebuild would race the
+            // stamp. A plot already leased and built cannot be raced by the warm-up.
+            if (ArenaManager.warmUpPending()) {
+                fail(accepter, "pvpocket.msg.rules.arena_rebuilding");
+                return;
+            }
+            // Checked here as well as in the panel, which may have been open for a minute while
+            // somebody else took the map.
+            if (ArenaManager.isMapBusy(mapIndex, session.id)) {
+                fail(accepter, "pvpocket.msg.rules.map_busy",
+                        ArenaMaps.byIndex(mapIndex).labelText());
+                return;
+            }
+            // Announced before the lease: stamping a cell can block this thread for seconds, and a
+            // notice sent afterwards would arrive once the wait it explains is over.
+            broadcastPrepare(session, true);
+            region = ArenaManager.allocate(server, session.id,
+                    rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
+                    ArenaMaps.byIndex(mapIndex),
+                    rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
+            if (region == null) {
+                broadcastPrepare(session, false);
+                fail(accepter, "pvpocket.msg.rules.arena_full");
+                return;
+            }
+            session.arenaId = region.id;
+            journal(session).append("ARENA_LEASED", "region", region.id,
+                    "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ,
+                    "map", region.map.id,
+                    "mapBlocks", region.templateBlockCount(),
+                    "origin", region.minX + "," + region.minZ,
+                    "protectTerrain", region.protectTerrain,
+                    "allowBreakOwn", region.allowBreakOwn);
         }
-        // Announced before the lease: stamping a cell can block this thread for seconds, and a
-        // notice sent afterwards would arrive once the wait it explains is over.
-        broadcastPrepare(session, true);
-        ArenaRegion region = ArenaManager.allocate(server, session.id,
-                rules.get("e.sizeX"), rules.get("e.sizeY"), rules.get("e.sizeZ"),
-                ArenaMaps.byIndex(mapIndex),
-                rules.flag("f.protectTerrain"), rules.flag("f.allowBreakOwn"));
-        if (region == null) {
-            broadcastPrepare(session, false);
-            fail(accepter, "pvpocket.msg.rules.arena_full");
-            return;
-        }
-        session.arenaId = region.id;
         journal(session).append("ROSTER",
                 "size", session.participants.size(),
                 "teams", session.teamCount,
                 "shape", shapeOf(session));
-        journal(session).append("ARENA_LEASED", "region", region.id,
-                "size", region.sizeX + "x" + region.sizeY + "x" + region.sizeZ,
-                "map", region.map.id,
-                "mapBlocks", region.templateBlockCount(),
-                "origin", region.minX + "," + region.minZ,
-                "protectTerrain", region.protectTerrain,
-                "allowBreakOwn", region.allowBreakOwn);
         journal(session).append("RULES_ACCEPTED",
                 "revision", session.rulesRevision,
                 "author", session.rulesAuthor,
@@ -4067,18 +4258,25 @@ public final class SessionManager {
             if (player == null) {
                 throw new IllegalStateException("participant offline: " + p.name);
             }
-            PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
-            Path file = storage.snapshotFile(session.id, p.uuid);
-            try {
-                snapshot.writeTo(file);
-            } catch (IOException e) {
-                throw new IllegalStateException("cannot write snapshot for " + p.name, e);
+            if (p.snapshotFile == null) {
+                PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
+                Path file = storage.snapshotFile(session.id, p.uuid);
+                try {
+                    snapshot.writeTo(file);
+                } catch (IOException e) {
+                    throw new IllegalStateException("cannot write snapshot for " + p.name, e);
+                }
+                p.snapshotFile = file.getFileName().toString();
+                p.fingerprint = snapshot.fingerprint();
+                journal(session).append("SNAPSHOT_WRITTEN",
+                        "player", p.name, "fingerprint", p.fingerprint);
+            } else {
+                // Written when the result page sent them to the lobby. Capturing again here would
+                // record the lobby as the place to restore them to.
+                journal(session).append("SNAPSHOT_REUSED",
+                        "player", p.name, "fingerprint", p.fingerprint);
             }
-            p.snapshotFile = file.getFileName().toString();
-            p.fingerprint = snapshot.fingerprint();
             sessionByPlayer.put(player.getUUID(), session.id);
-            journal(session).append("SNAPSHOT_WRITTEN",
-                    "player", p.name, "fingerprint", p.fingerprint);
         }
         transition(session, SessionStage.FROZEN);
     }
@@ -5570,14 +5768,9 @@ public final class SessionManager {
         spectators.ejectAll(session.id, "ABORTED");
         broadcastHud(session, false);
         // A failed start must not leave the preparing screen up until the client watchdog fires.
-        broadcastPrepare(session, false);
         broadcastBounds(session, false);
-        for (Participant p : session.participants) {
-            if (p.snapshotFile != null) {
-                restoreParticipant(session, p);
-            }
-        }
-        ArenaManager.release(session.id);
+        // Restores anybody the result page moved into the lobby, then returns the plot.
+        releaseLobby(session);
         journal(session).append("SESSION_ABORTED", "reason", reason);
         transition(session, SessionStage.VOIDED);
     }

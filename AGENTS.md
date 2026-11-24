@@ -278,6 +278,10 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 - **准备期的 barrier 环只写空气**（`standIfAir`）。斗兽场的战斗区内缩，环正好压在沙地与看台之间
   唯一的讲台墙上，无条件写入会把那格挖成空气，而写入被 `suppressRecording` 包着，`revertRegion`
   也补不回来——每局都在同一位置留一条沟。
+- **公示页（`RESULT`）已经动过玩家了。** 它一出现就「租场地 + 建地图 → 写快照 → 传送进准备大厅」，
+  顺序不能换：先传送再拍快照，`PlayerSnapshot` 就会把大厅记成「赛后送回去的地方」。`freeze()`
+  因此只补拍没有快照的人。`RESULT` 仍在 `isPreFreeze()` 里（还能开打、还能改规则），但它**不是**
+  「取消不用还原」的阶段——从这一阶段起的每个终态都要走 `releaseLobby`（还原 + 退租）。
 - **准备大厅不是地图。** `arena.Lobby` 不占格子、不进 `ArenaMaps.ALL`、不参与租用与还原；坐标固定，
   每次开服重贴。加格子、改网格参数时不会碰到它，反过来改 `Lobby` 的常量也不会碰到网格。
 

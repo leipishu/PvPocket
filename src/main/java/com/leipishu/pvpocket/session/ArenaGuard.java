@@ -175,6 +175,11 @@ final class ArenaGuard {
         if (sessions.isSpectating(uuid)) {
             return false;
         }
+        // The result page moves everybody into the lobby before the match mapping exists; that
+        // window is the countdown, which is the same length as the grace period below.
+        if (sessions.isAwaitingStart(uuid)) {
+            return false;
+        }
         return !isExempt(uuid);
     }
 
