@@ -354,11 +354,24 @@ def chunk_sections(body):
 def section_blocks(section):
     """Yields (local_x, local_y, local_z, name, properties) for every non-air block in a section."""
     states = section.get("block_states")
-    if states is None:
-        yield from legacy_section_blocks(section)
+    if states is not None:
+        states = states[1]
+        yield from packed_section_blocks(states.get("palette"), states.get("data"))
         return
-    states = states[1]
-    palette_entry = states.get("palette")
+    # 1.13-1.17 keep the same two parts under the names 1.18 renamed.
+    palette_entry = section.get("Palette")
+    if palette_entry is not None:
+        yield from packed_section_blocks(palette_entry, section.get("BlockStates"))
+        return
+    yield from legacy_section_blocks(section)
+
+
+def packed_section_blocks(palette_entry, data_entry):
+    """Decodes a palette plus a packed long array, the layout 1.13 onward uses.
+
+    Two packings are in the wild: 1.13-1.15 let a value straddle two longs, 1.16 stopped doing
+    that. The array length tells them apart, so no DataVersion has to be threaded down here.
+    """
     if palette_entry is None:
         return
     palette = []
@@ -373,7 +386,6 @@ def section_blocks(section):
         palette.append((name, props))
     if all(name in AIRISH for name, _ in palette):
         return
-    data_entry = states.get("data")
     if len(palette) == 1:
         name, props = palette[0]
         for index in range(4096):
@@ -382,14 +394,17 @@ def section_blocks(section):
     if data_entry is None:
         return
     bits = max(4, (len(palette) - 1).bit_length())
-    per_long = 64 // bits
     mask = (1 << bits) - 1
     longs = data_entry[1]
+    padded = len(longs) == -(-4096 // (64 // bits))
     for index in range(4096):
-        long_index = index // per_long
-        if long_index >= len(longs):
-            break
-        value = (longs[long_index] >> ((index % per_long) * bits)) & mask
+        if padded:
+            value = (longs[index // (64 // bits)] >> ((index % (64 // bits)) * bits)) & mask
+        else:
+            start = index * bits
+            value = (longs[start >> 6] >> (start & 63)) & mask
+            if (start & 63) + bits > 64 and (start >> 6) + 1 < len(longs):
+                value |= (longs[(start >> 6) + 1] << (64 - (start & 63))) & mask
         if value >= len(palette):
             continue
         name, props = palette[value]
@@ -712,8 +727,11 @@ def drop_unstable(blocks):
             continue
         x, y, z = pos
         below = blocks.get((x, y - 1, z))
-        if (name.endswith("_pressure_plate") or name in ("minecraft:torch",
-                                                          "minecraft:redstone_torch")
+        if name == "minecraft:lily_pad":
+            # A lily pad floats. Solid ground under one is the reason it pops, not support.
+            supported = below is not None and below[0] in ("minecraft:water", "minecraft:ice")
+        elif (name.endswith("_pressure_plate") or name in ("minecraft:torch",
+                                                           "minecraft:redstone_torch")
               or name in FLOOR_ATTACHED):
             supported = below is not None
         else:
@@ -728,6 +746,42 @@ def drop_unstable(blocks):
     if doomed:
         print("dropped   %d block(s) that would not stay put after placement" % len(doomed))
     return len(doomed)
+
+
+def fill_edge_water(blocks, bbox):
+    """Replaces water that reaches the box edge with the ground under it.
+
+    A build cut out of a bigger world usually has an ocean running off one side. Kept as water it
+    ends in a vertical sheet one block thick at the template's rim, which reads as a cut. Only
+    water connected to the edge is touched: a pond inside the build is part of the design.
+    """
+    xs, zs = (bbox[0], bbox[3]), (bbox[2], bbox[5])
+    water = {pos for pos, (name, _) in blocks.items() if name == "minecraft:water"}
+    stack = [pos for pos in water if pos[0] in xs or pos[2] in zs]
+    seen = set()
+    while stack:
+        pos = stack.pop()
+        if pos in seen or pos not in water:
+            continue
+        seen.add(pos)
+        x, y, z = pos
+        stack.extend(((x + 1, y, z), (x - 1, y, z), (x, y, z + 1), (x, y, z - 1)))
+    columns = {}
+    for x, y, z in seen:
+        columns.setdefault((x, z), []).append(y)
+    for (x, z), levels in columns.items():
+        ground = None
+        for y in range(min(levels) - 1, bbox[1] - 1, -1):
+            entry = blocks.get((x, y, z))
+            if entry is not None and entry[0] != "minecraft:water":
+                ground = entry
+                break
+        for y in levels:
+            blocks[(x, y, z)] = ground if ground is not None else ("minecraft:stone", {})
+    if seen:
+        print("filled    %d water block(s) along the box edge, in %d column(s)"
+              % (len(seen), len(columns)))
+    return len(seen)
 
 
 def normalise(blocks):
@@ -829,10 +883,19 @@ def main(argv):
                       help="write uncompressed. Vanilla gzips these files "
                            "(StructureTemplateManager uses NbtIo.readCompressed) and the difference "
                            "is 13x: the test fixture is 178 KB plain, 13.7 KB gzipped")
+    conv.add_argument("--fill-edge-water", action="store_true",
+                      help="replace water that reaches the box edge with the ground under it, so "
+                           "an ocean cut out of a bigger world does not end in a water wall")
 
     args = parser.parse_args(argv)
     box = parse_box(args.box)
     bbox, blocks = load(args.world, box, args.strip_bedrock)
+    if getattr(args, "fill_edge_water", False):
+        fill_edge_water(blocks, bbox)
+        # Filling strands any lily pad that was floating on the water it just replaced, and
+        # dropping one can shrink the box, so both are redone rather than assumed.
+        if drop_unstable(blocks):
+            bbox, blocks = finish(blocks)
     size = report(bbox, blocks, getattr(args, "palette", False))
     if args.command == "convert":
         root = to_structure(bbox, blocks, args.data_version)
