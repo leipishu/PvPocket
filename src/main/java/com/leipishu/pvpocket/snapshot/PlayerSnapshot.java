@@ -118,7 +118,8 @@ public final class PlayerSnapshot {
     /**
      * Writes the snapshot back onto the player.
      *
-     * <p>Teleport first, then load the tag, then repair the fields the tag does not carry.
+     * <p>Teleport first, then load the tag, then repair the fields the tag does not carry. The
+     * game mode is the exception: it goes on before both, because both carry a mode of their own.
      */
     public void restore(ServerPlayer player) {
         MinecraftServer server = PvCompat.server(player);
@@ -128,7 +129,16 @@ public final class PlayerSnapshot {
             throw new IllegalStateException("Snapshot points at unknown dimension " + dimensionId);
         }
 
+        GameType mode = GameType.byName(gameMode, GameType.SURVIVAL);
         player.stopRiding();
+        // The mode is set first, on purpose. A cross-dimension teleport ships a game mode in its
+        // spawn info, and the playerdata tag ships playerGameType, which vanilla applies without a
+        // packet: a change made after the load is therefore a silent no-op whenever the tag already
+        // agrees, and the client keeps whatever the teleport told it. That is how a player restored
+        // out of the spectator hand-off came back to the overworld still a spectator.
+        if (player.gameMode.getGameModeForPlayer() != mode) {
+            Sandbox.changeGameMode(player, mode);
+        }
         PvCompat.teleport(player, world, x, y, z, yaw, pitch);
         PvNbt.load(player, playerNbt.copy(), player.level().registryAccess());
 
@@ -141,8 +151,11 @@ public final class PlayerSnapshot {
             player.setHealth(maxHealth);
         }
         player.fallDistance = fallDistance;
-        // The restore path may change mode even inside the arena dimension.
-        Sandbox.changeGameMode(player, GameType.byName(gameMode, GameType.SURVIVAL));
+        // Defensive: the tag carries the same mode, so this is a no-op on a normal restore and the
+        // repair when a snapshot predates the field.
+        if (player.gameMode.getGameModeForPlayer() != mode) {
+            Sandbox.changeGameMode(player, mode);
+        }
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
 
         if (teamName != null) {
