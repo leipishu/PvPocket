@@ -188,26 +188,33 @@ blocks)`），换尺寸的规则集仍然会重贴，那部分开销免不掉。
 
 | 项 | 值 |
 | --- | --- |
-| 结构模板 | `data/pvpocket/structure/lobby.nbt`（53 × 24 × 53，13889 方块） |
-| 生成脚本 | `scripts/map/lobby.py`（自有，和斗兽场一样由脚本生成） |
-| 位置 | 中心 `x = z = -192`，岛面 `y = 40`，出生点 `y = 41` |
+| 结构模板 | `data/pvpocket/structure/lobby.nbt`（44 × 24 × 31，7960 方块） |
+| 来源 | **House Island / LOBBY**，作者 Mirai_Minecraft，[PMC 页面](https://www.planetminecraft.com/project/house-island-lobby/)，2022-07-28 |
+| 许可 | 作者声明「You can use this map for your own purposes as you like.」——这是作者本人给的许可，不是标准协议，原文记在 `THIRD-PARTY-NOTICES.md` |
+| 位置 | 中心 `x = z = -192`，岛面 `y = 40`，出生点 `y = 41`（模板内 `(16, 4, 14)`，面朝东） |
 | 建造时机 | 每次开服（`PvBootstrap` 里 `Lobby.build`），以及 `/pvpocket arena reset` |
 
-形状是一座浮空岛，从中心往外分五层：
+**不是自己搭的，是转的。** 原来的 `scripts/map/lobby.py` 生成的那座岛已经删掉了。现在这份模板由
+世界存档转换而来，命令是：
 
-1. **水池**（半径 4.6）：水面与广场同高，池底下沉一格铺石英，池壁是一圈抬高一格的石英镶边，
-   池心立一根石英柱、顶上是海晶灯。它是岛上唯一的白色，也是玩家一进来就看着的东西。
-2. **广场**（到半径 9）：浅灰石铺地，外圈换成凿制石砖，所以广场有自己的边。
-3. **草坪**（到岛缘）：苔藓块、粗土、石头露头按噪声散布，另有八棵树（成对夹在四条对角线两侧）、
-   四张长椅与它们身后的灯柱、四处石头露头。
-4. **十字石砖路**：三格宽，从水池边一直通到岛缘，途中穿过四座石拱门。所以拱门后面就是悬空——
-   每个门都是一个看场地被贴出来的观景口。
-5. **岛缘**：两格宽的石砖与苔石砖收边；石砖路在四个正方向破口。
+```
+python scripts/map/world2struct.py convert <world> --fill-edge-water \
+    --out src/main/resources/data/pvpocket/structure/lobby.nbt
+```
 
-岛体从草皮边缘往内收一格起锥，指数 1.6 让它在近表面就迅速收窄、到深处收成尖，再挂几块坠石，
-所以从空中看是一座岛而不是一块板。
+转换时做了四件改动，`THIRD-PARTY-NOTICES.md` 里逐条记着：
 
-选这个坐标的理由：格子从 `x = z = 512` 起，岛到最近的格子约 670 格，远于 `ArenaFog.END`（384），
+1. **只保方块。** 箱子、告示牌、旗帜、物品展示框的 NBT 全丢——`world2struct.py` 不写方块实体。
+   墙上的告示牌还在，但内容是空的。
+2. **补掉贴边的水。** 这张图是从一个更大的世界里裁出来的，右侧有一条 1 格深的海一直铺到裁剪边；
+   原样保留会在岛缘立起一面一格高的水墙。`--fill-edge-water` 把与盒子边缘连通的水换成它下面的
+   地面（沙/黏土），岛中间的池塘不受影响。
+3. **顺带丢掉了 4 片睡莲。** 它们原本浮在被补掉的那片海上，地面换成沙子之后就不再合法。
+   `drop_unstable` 现在会检查睡莲下面是不是水。
+4. **补了 1.13–1.17 的区块格式。** 存档是 1.16.2（DataVersion 2586），区块用 `Palette` + `BlockStates`，
+   而读取器原来只认 1.18 之后的 `block_states`，所以第一次探测的结果是「没有方块」。
+
+选这个坐标的理由：格子从 `x = z = 512` 起，岛到最近的格子约 680 格，远于 `ArenaFog.END`（384），
 所以场内看不到大厅、大厅里也看不到任何场地。
 
 三条硬性约定：
@@ -217,8 +224,8 @@ blocks)`），换尺寸的规则集仍然会重贴，那部分开销免不掉。
   在 `RESULT` 阶段每 tick 检查一次，低于岛面 6 格就送回出生点。
 - **每次开服重贴。** 贴之前先把模板盒子（外扩 8 格）清成空气，所以上一轮有人摆的方块不会留下。
 
-改动这个结构要同时改 `Lobby` 里的 `TEMPLATE_X/Y/Z` 与 `TEMPLATE_SURFACE`：前者用来校验尺寸，
-后者决定岛面落在哪个绝对 y。脚本会把这两个数打印出来。
+换一张图要同时改 `Lobby` 里的 `TEMPLATE_X/Y/Z`、`TEMPLATE_SURFACE` 与 `TEMPLATE_SPAWN_X/Z`：
+前两个决定岛面落在哪个绝对 y，出生点那对是模板内坐标，世界坐标由 `CENTER - 尺寸/2 + 局部` 算出来。
 
 ## 8. 相关脚本
 
@@ -226,6 +233,5 @@ blocks)`），换尺寸的规则集仍然会重贴，那部分开销免不掉。
 | --- | --- |
 | `scripts/map/world2struct.py` | 世界存档 / litematic / schem → 结构模板 |
 | `scripts/map/colosseum.py` | 生成斗兽场 |
-| `scripts/map/lobby.py` | 生成准备大厅 |
 | `scripts/map/arena-verify.py` | 与第三方读取器逐块比对 |
 | `scripts/map/arena-map.py` | 读维度存档渲染俯视图 |

@@ -66,6 +66,50 @@ something a file inside a jar can be shipped under.
 
 The generator is in the repository so the shape can be changed rather than merely used.
 
+## The waiting lobby (`lobby.nbt`)
+
+`data/pvpocket/structure/lobby.nbt` is the waiting lobby, and it is **not** PvPocket's own build:
+
+| | |
+|---|---|
+| Map | **House Island / LOBBY** |
+| Author | **Mirai_Minecraft** (https://www.planetminecraft.com/member/mirai_minecraft/) |
+| Source | https://www.planetminecraft.com/project/house-island-lobby/ |
+| Published | 2022-07-28 |
+
+The author states, in the project description:
+
+> House Island is a map created specifically for developers of minecraft servers. You can use it as
+> your servers lobby.
+>
+> You can use this map for your own purposes as you like.
+
+That is a permission written by the author rather than a standard licence, so it is reproduced here
+verbatim instead of being summarised: it is the only statement of terms this file ships under, and
+it grants use without conditions. Nothing in PvPocket's own LGPL-3.0 licence applies to this file,
+and nothing here restricts the mod's source code.
+
+### Changes made
+
+Converted with `scripts/map/world2struct.py`; the build is not byte-identical to the download:
+
+1. **Format conversion** — the source is a Minecraft 1.16.2 world save (`level.dat` plus `region/`);
+   the output is a vanilla structure template (gzipped NBT). Block positions, states and palette are
+   preserved.
+2. **Entities and block entities dropped** — no item frames, armour stands, chests or their contents,
+   and no sign text. The walls and furniture stay; what was written on them does not.
+3. **Water at the cut edge filled** — the map was cropped out of a larger world, leaving a one-deep
+   sea running off its right side. Left alone it ends in a one-block water wall at the island's rim,
+   so `--fill-edge-water` replaced water connected to the box edge with the ground beneath it (sand
+   and clay). The pond inside the island is untouched.
+4. **Four lily pads dropped** — they floated on that sea, and a lily pad needs water under it, so
+   they would have popped on the first tick.
+5. **Unstable blocks dropped** — anything that would not survive placement was removed rather than
+   left to fall out, the same pass the arena maps go through.
+
+If you are the author and would rather this build were not redistributed inside a mod jar, say so and
+it will be replaced.
+
 ## Adding your own map
 
 If you add a map here, check its licence first. Shipping it in the jar is redistribution. See

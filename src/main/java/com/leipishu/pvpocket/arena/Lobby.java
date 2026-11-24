@@ -21,12 +21,12 @@ import java.util.Optional;
  * The waiting lobby: one island in the duel dimension, where the result page is read from.
  *
  * <p>Not a plot and not a map. Nothing is fought here and nothing is leased here, so it is not part
- * of the grid: it sits a thousand blocks from the nearest cell, outside both the fog and the
- * client's render distance, and it is rebuilt on every server start instead of being tracked.
+ * of the grid: it sits a thousand blocks from the nearest cell and is rebuilt on every start. The
+ * build is third-party artwork (House Island by Mirai_Minecraft; {@code THIRD-PARTY-NOTICES.md}
+ * records the permission it ships under).
  *
- * <p>The session moves every participant here the moment the result page goes up. The island
- * therefore has an edge: a guest who walks off it falls into the void, and the arena dimension has
- * no ground to respawn on. {@code Lobby#contains} also vetoes block breaks, and the session's tick
+ * <p>The island has an edge: a guest who walks off it falls into the void, and the arena dimension
+ * has no ground to respawn on. {@code Lobby#contains} vetoes block breaks, and the session's tick
  * puts a falling guest back on the island.
  */
 public final class Lobby {
@@ -34,8 +34,8 @@ public final class Lobby {
     /**
      * Centre of the island.
      *
-     * <p>The plot grid starts at {@code x = z = 512} and the lobby is 53 wide, so this is roughly
-     * 670 blocks clear of the nearest cell corner: past {@code ArenaFog.END}, which means a guest
+     * <p>The plot grid starts at {@code x = z = 512} and the lobby is 44 wide, so this is roughly
+     * 680 blocks clear of the nearest cell corner: past {@code ArenaFog.END}, which means a guest
      * never sees a plot from here and never has one loaded behind it.
      */
     public static final int CENTER_X = -192;
@@ -45,43 +45,46 @@ public final class Lobby {
     public static final int FLOOR_Y = 40;
 
     /**
-     * Where a guest stands, as the y of their feet.
-     *
-     * <p>On the plaza floor, not on the grass: the fountain basin is the only thing sunk into the
-     * island, and it is a block deep, so a guest who walks into it is still standing on the floor.
-     */
-    public static final int SPAWN_Y = FLOOR_Y + 1;
-
-    /** Where a guest stands horizontally: seven blocks south of the fountain, looking at it. */
-    public static final int SPAWN_X = CENTER_X;
-    public static final int SPAWN_Z = CENTER_Z + 7;
-
-    /** Facing the fountain, i.e. north, which is yaw 180. */
-    private static final float SPAWN_YAW = 180.0F;
-
-    /**
      * Local y of the island surface inside the template, i.e. where {@link #FLOOR_Y} comes from.
      *
-     * <p>Declared rather than derived: the template is a rectangle, so its own y=0 is the tip of
-     * the underside, not the surface. {@code scripts/map/lobby.py} prints this number, and a
-     * mismatch is logged rather than silently shifting the island.
+     * <p>Declared rather than derived: the template is a rectangle, so its own y=0 is the lowest
+     * block of the rock, not the surface. A mismatch is logged rather than silently shifting the
+     * island.
      */
-    private static final int TEMPLATE_SURFACE = 15;
+    private static final int TEMPLATE_SURFACE = 4;
 
-    /** Template footprint, for the block-protection box and the size check. */
-    private static final int TEMPLATE_X = 53;
+    /** Template footprint, for the protection box, the spawn point and the size check. */
+    private static final int TEMPLATE_X = 44;
     private static final int TEMPLATE_Y = 24;
-    private static final int TEMPLATE_Z = 53;
+    private static final int TEMPLATE_Z = 31;
 
-    /**
-     * How far around the island the protection box reaches, in blocks.
-     *
-     * <p>Wider than the build: a guest can place a block in mid-air beside the island and it would
-     * otherwise survive until the next start.
-     */
-    private static final int PROTECT_MARGIN = 8;
+    /** The block a guest stands on, in the template's own coordinates: open lawn, house in view. */
+    private static final int TEMPLATE_SPAWN_X = 16;
+    private static final int TEMPLATE_SPAWN_Z = 14;
+
+    /** Where a guest stands, as the y of their feet: one above the surface block. */
+    public static final int SPAWN_Y = FLOOR_Y + 1;
+
+    /** Where a guest stands horizontally: the template's spawn block, mapped into world x and z. */
+    public static final int SPAWN_X = CENTER_X - TEMPLATE_X / 2 + TEMPLATE_SPAWN_X;
+    public static final int SPAWN_Z = CENTER_Z - TEMPLATE_Z / 2 + TEMPLATE_SPAWN_Z;
+
+    /** Facing the house, which is east, i.e. yaw 270. */
+    private static final float SPAWN_YAW = 270.0F;
 
     private static final ResourceLocation TEMPLATE = PvPocket.id("lobby");
+
+    /**
+     * How far the clear box reaches around the island, in blocks.
+     *
+     * <p>Fixed rather than derived from the template: the box has to erase what a previous version
+     * of the lobby left behind, not just what this one is about to stamp. A resized build whose
+     * clear box only covered itself would leave the old rock hanging under the new island.
+     */
+    private static final int CLEAR_REACH = 32;
+
+    /** How far below the surface the clear box reaches, for the same reason. */
+    private static final int CLEAR_DEPTH = 20;
 
     private Lobby() {
     }
@@ -114,7 +117,7 @@ public final class Lobby {
         int originZ = CENTER_Z - size.getZ() / 2;
         int originY = FLOOR_Y - TEMPLATE_SURFACE;
         long started = System.nanoTime();
-        int erased = clear(world, originX, originY, originZ, size);
+        int erased = clear(world, originY + size.getY() + 2);
         StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(true)
                 .setKnownShape(false)
@@ -127,13 +130,13 @@ public final class Lobby {
                 erased, (System.nanoTime() - started) / 1_000_000L);
     }
 
-    /** Empties the template's box plus a margin, so a restart does not keep what a guest placed. */
-    private static int clear(ServerLevel world, int originX, int originY, int originZ, Vec3i size) {
+    /** Empties the island's volume: what a guest placed, and what an older build left. */
+    private static int clear(ServerLevel world, int topY) {
         var air = Blocks.AIR.defaultBlockState();
         int erased = 0;
-        for (int x = originX - PROTECT_MARGIN; x < originX + size.getX() + PROTECT_MARGIN; x++) {
-            for (int z = originZ - PROTECT_MARGIN; z < originZ + size.getZ() + PROTECT_MARGIN; z++) {
-                for (int y = originY - 2; y < originY + size.getY() + 2; y++) {
+        for (int x = CENTER_X - CLEAR_REACH; x <= CENTER_X + CLEAR_REACH; x++) {
+            for (int z = CENTER_Z - CLEAR_REACH; z <= CENTER_Z + CLEAR_REACH; z++) {
+                for (int y = FLOOR_Y - CLEAR_DEPTH; y < topY; y++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     if (world.getBlockState(pos).isAir()) {
                         continue;
@@ -167,19 +170,18 @@ public final class Lobby {
      * Whether this position belongs to the lobby.
      *
      * <p>Asked by the block-break veto. The lobby is rebuilt at every start, so a broken block is
-     * not permanent, but a guest punching a hole in the dais during a countdown is still worth
-     * refusing.
+     * not permanent, but a guest punching a hole in the island during a countdown is still worth
+     * refusing. The box is the volume {@link #clear} empties, so a block a guest can place is a
+     * block the veto covers.
      */
     public static boolean contains(Level world, BlockPos pos) {
         if (!ArenaManager.isArena(world)) {
             return false;
         }
-        int reachX = TEMPLATE_X / 2 + PROTECT_MARGIN;
-        int reachZ = TEMPLATE_Z / 2 + PROTECT_MARGIN;
-        return Math.abs(pos.getX() - CENTER_X) <= reachX
-                && Math.abs(pos.getZ() - CENTER_Z) <= reachZ
-                && pos.getY() >= FLOOR_Y - TEMPLATE_SURFACE - 2
-                && pos.getY() <= FLOOR_Y + TEMPLATE_Y;
+        return Math.abs(pos.getX() - CENTER_X) <= CLEAR_REACH
+                && Math.abs(pos.getZ() - CENTER_Z) <= CLEAR_REACH
+                && pos.getY() >= FLOOR_Y - CLEAR_DEPTH
+                && pos.getY() < FLOOR_Y + TEMPLATE_Y;
     }
 
     /** True when the player has fallen past the island, i.e. is about to leave the world. */

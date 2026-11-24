@@ -22,7 +22,7 @@
 | 查界面有没有遮挡 | `scripts/check-ui.sh` |
 | 把世界存档 / litematic 转成结构模板 | `python scripts/map/world2struct.py convert ...` |
 | 生成斗兽场 | `python scripts/map/colosseum.py --out ...` |
-| 生成准备大厅 | `python scripts/map/lobby.py --out ...` |
+| 转准备大厅（贴边水会补成地面） | `python scripts/map/world2struct.py convert ... --fill-edge-water` |
 | 给服务端发指令 | `python scripts/map/rcon.py "execute as Dev1 run ..."` |
 | 保证 Dev1 是管理员（op） | `python scripts/ensure-ops.py`（十格全写，`--cell` 只写一格） |
 | 重生成十格的 `gen-src`（改完 `src/` 之后） | `scripts/port/gen-all.sh` |
