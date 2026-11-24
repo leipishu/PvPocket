@@ -34,8 +34,8 @@ public final class Lobby {
     /**
      * Centre of the island.
      *
-     * <p>The plot grid starts at {@code x = z = 512} and the lobby is 55 wide, so this is roughly
-     * 700 blocks clear of the nearest cell corner: past {@code ArenaFog.END}, which means a guest
+     * <p>The plot grid starts at {@code x = z = 512} and the lobby is 53 wide, so this is roughly
+     * 670 blocks clear of the nearest cell corner: past {@code ArenaFog.END}, which means a guest
      * never sees a plot from here and never has one loaded behind it.
      */
     public static final int CENTER_X = -192;
@@ -47,16 +47,16 @@ public final class Lobby {
     /**
      * Where a guest stands, as the y of their feet.
      *
-     * <p>On the raised dais at the centre, not on the grass: {@code FLOOR_Y + 2} is one block above
-     * the dais slab, which itself sits one block above the surface.
+     * <p>On the plaza floor, not on the grass: the fountain basin is the only thing sunk into the
+     * island, and it is a block deep, so a guest who walks into it is still standing on the floor.
      */
-    public static final int SPAWN_Y = FLOOR_Y + 2;
+    public static final int SPAWN_Y = FLOOR_Y + 1;
 
-    /** Where a guest stands horizontally: four blocks in front of the dais pillar. */
+    /** Where a guest stands horizontally: seven blocks south of the fountain, looking at it. */
     public static final int SPAWN_X = CENTER_X;
-    public static final int SPAWN_Z = CENTER_Z + 4;
+    public static final int SPAWN_Z = CENTER_Z + 7;
 
-    /** Facing the pillar, i.e. north, which is yaw 180. */
+    /** Facing the fountain, i.e. north, which is yaw 180. */
     private static final float SPAWN_YAW = 180.0F;
 
     /**
@@ -66,12 +66,12 @@ public final class Lobby {
      * the underside, not the surface. {@code scripts/map/lobby.py} prints this number, and a
      * mismatch is logged rather than silently shifting the island.
      */
-    private static final int TEMPLATE_SURFACE = 10;
+    private static final int TEMPLATE_SURFACE = 15;
 
     /** Template footprint, for the block-protection box and the size check. */
-    private static final int TEMPLATE_X = 55;
-    private static final int TEMPLATE_Y = 17;
-    private static final int TEMPLATE_Z = 55;
+    private static final int TEMPLATE_X = 53;
+    private static final int TEMPLATE_Y = 24;
+    private static final int TEMPLATE_Z = 53;
 
     /**
      * How far around the island the protection box reaches, in blocks.
