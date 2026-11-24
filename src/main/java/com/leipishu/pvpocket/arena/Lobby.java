@@ -8,6 +8,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -16,6 +20,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlac
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * The waiting lobby: one island in the duel dimension, where the result page is read from.
@@ -118,6 +123,7 @@ public final class Lobby {
         int originY = FLOOR_Y - TEMPLATE_SURFACE;
         long started = System.nanoTime();
         int erased = clear(world, originY + size.getY() + 2);
+        int swept = clearEntities(world, originY + size.getY() + 2);
         StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(true)
                 .setKnownShape(false)
@@ -125,9 +131,10 @@ public final class Lobby {
         BlockPos origin = new BlockPos(originX, originY, originZ);
         boolean placed = template.placeInWorld(world, origin, origin, settings,
                 RandomSource.create(0L), Block.UPDATE_CLIENTS);
-        PvPocket.LOGGER.info("Lobby {} at {},{} (surface {}, spawn {}, erased {} blocks) in {} ms",
+        PvPocket.LOGGER.info("Lobby {} at {},{} (surface {}, spawn {}, erased {} blocks, "
+                        + "swept {} entities) in {} ms",
                 placed ? "stamped" : "NOT placed", originX, originZ, FLOOR_Y, SPAWN_Y,
-                erased, (System.nanoTime() - started) / 1_000_000L);
+                erased, swept, (System.nanoTime() - started) / 1_000_000L);
     }
 
     /** Empties the island's volume: what a guest placed, and what an older build left. */
@@ -147,6 +154,36 @@ public final class Lobby {
             }
         }
         return erased;
+    }
+
+    /**
+     * Removes every entity that is not a player from the island's volume.
+     *
+     * <p>{@link #clear} empties blocks, not entities. An item dropped by an older build of the
+     * island therefore stays in the world save, and the next build stamps the new surface around
+     * it: a guest then walks over a lantern that has not been a block for weeks and picks it up.
+     */
+    private static int clearEntities(ServerLevel world, int topY) {
+        return discard(world, topY, entity -> !(entity instanceof Player));
+    }
+
+    /** Removes dropped items only, so a session starts on a clean floor. */
+    public static int clearDroppedItems(ServerLevel world) {
+        if (world == null) {
+            return 0;
+        }
+        return discard(world, FLOOR_Y + TEMPLATE_Y, entity -> entity instanceof ItemEntity);
+    }
+
+    private static int discard(ServerLevel world, int topY, Predicate<Entity> which) {
+        AABB box = new AABB(CENTER_X - CLEAR_REACH, FLOOR_Y - CLEAR_DEPTH, CENTER_Z - CLEAR_REACH,
+                CENTER_X + CLEAR_REACH + 1, topY, CENTER_Z + CLEAR_REACH + 1);
+        int removed = 0;
+        for (Entity entity : world.getEntitiesOfClass(Entity.class, box, which)) {
+            entity.discard();
+            removed++;
+        }
+        return removed;
     }
 
     /**

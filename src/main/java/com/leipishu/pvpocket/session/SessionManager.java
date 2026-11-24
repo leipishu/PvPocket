@@ -2908,6 +2908,12 @@ public final class SessionManager {
             journal(session).append("SNAPSHOT_WRITTEN",
                     "player", p.name, "fingerprint", p.fingerprint, "stage", "RESULT");
         }
+        // A clean floor before anybody lands on it: the lobby keeps whatever the world save has
+        // been holding, and a guest who picks up a leftover item carries it into the round.
+        int litter = Lobby.clearDroppedItems(ArenaManager.world(PvCompat.server(player)));
+        if (litter > 0) {
+            journal(session).append("LOBBY_SWEPT", "player", p.name, "items", litter);
+        }
         if (Lobby.teleport(player)) {
             journal(session).append("LOBBY_ENTERED", "player", p.name);
         } else {

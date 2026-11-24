@@ -697,6 +697,7 @@ def needs_support(name):
     return (name.endswith("_pressure_plate")
             or name in ("minecraft:torch", "minecraft:redstone_torch",
                         "minecraft:wall_torch", "minecraft:redstone_wall_torch")
+            or name == "minecraft:sugar_cane"
             or name in FLOOR_ATTACHED)
 
 
@@ -711,41 +712,60 @@ FLOOR_ATTACHED = ("minecraft:redstone_wire", "minecraft:rail", "minecraft:powere
 # then removes itself; any entity crossing `tripwire` flips `attached`, which reverts the arena.
 SELF_DESTRUCTING = ("minecraft:fire", "minecraft:soul_fire", "minecraft:tripwire")
 
+# Soil sugar cane stands on. The water it needs is beside that soil, not beside the cane, so a
+# cane planted on a shore whose water was filled in is one the game removes.
+SUGAR_SOIL = ("minecraft:dirt", "minecraft:grass_block", "minecraft:podzol",
+              "minecraft:coarse_dirt", "minecraft:sand", "minecraft:red_sand",
+              "minecraft:mud", "minecraft:mycelium")
+
 
 def drop_unstable(blocks):
     """Removes blocks that cannot survive being placed.
 
     A block that pops after the plot baseline is captured leaves the arena permanently one block
     off its own map, and every revert puts it back just in time for it to pop again.
+
+    Repeats until nothing more falls, because a stalk of sugar cane stands on a stalk of sugar
+    cane: removing the bottom one has to make the next one doomed in turn.
     """
-    doomed = []
-    for pos, (name, props) in blocks.items():
-        if name in SELF_DESTRUCTING:
-            doomed.append(pos)
-            continue
-        if not needs_support(name):
-            continue
-        x, y, z = pos
-        below = blocks.get((x, y - 1, z))
-        if name == "minecraft:lily_pad":
-            # A lily pad floats. Solid ground under one is the reason it pops, not support.
-            supported = below is not None and below[0] in ("minecraft:water", "minecraft:ice")
-        elif (name.endswith("_pressure_plate") or name in ("minecraft:torch",
-                                                           "minecraft:redstone_torch")
-              or name in FLOOR_ATTACHED):
-            supported = below is not None
-        else:
-            # A wall torch can be attached on any of the four sides; the facing property decides
-            # which, but accepting any neighbour is enough to tell "attached" from "floating".
-            supported = any((x + dx, y, z + dz) in blocks
-                            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-        if not supported:
-            doomed.append(pos)
-    for pos in doomed:
-        del blocks[pos]
-    if doomed:
-        print("dropped   %d block(s) that would not stay put after placement" % len(doomed))
-    return len(doomed)
+    dropped = 0
+    for _ in range(16):
+        doomed = [pos for pos, (name, props) in blocks.items()
+                  if not survives(name, props, pos, blocks)]
+        if not doomed:
+            break
+        for pos in doomed:
+            del blocks[pos]
+        dropped += len(doomed)
+    if dropped:
+        print("dropped   %d block(s) that would not stay put after placement" % dropped)
+    return dropped
+
+
+def survives(name, props, pos, blocks):
+    """Whether one block keeps its place once the template is stamped."""
+    if name in SELF_DESTRUCTING:
+        return False
+    if not needs_support(name):
+        return True
+    x, y, z = pos
+    below = blocks.get((x, y - 1, z))
+    if name == "minecraft:lily_pad":
+        # A lily pad floats. Solid ground under one is the reason it pops, not support.
+        return below is not None and below[0] in ("minecraft:water", "minecraft:ice")
+    if name == "minecraft:sugar_cane":
+        # The water a cane needs stands beside the soil, not beside the cane.
+        return (below is not None and below[0] in SUGAR_SOIL
+                and any(blocks.get((x + dx, y - 1, z + dz), ("",))[0] == "minecraft:water"
+                        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))))
+    if (name.endswith("_pressure_plate") or name in ("minecraft:torch",
+                                                     "minecraft:redstone_torch")
+            or name in FLOOR_ATTACHED):
+        return below is not None
+    # A wall torch can be attached on any of the four sides; the facing property decides which,
+    # but accepting any neighbour is enough to tell "attached" from "floating".
+    return any((x + dx, y, z + dz) in blocks
+               for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
 
 
 def fill_edge_water(blocks, bbox):
