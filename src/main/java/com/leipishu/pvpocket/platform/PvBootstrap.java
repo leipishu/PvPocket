@@ -2,6 +2,7 @@ package com.leipishu.pvpocket.platform;
 
 import com.leipishu.pvpocket.PvPocket;
 import com.leipishu.pvpocket.arena.ArenaManager;
+import com.leipishu.pvpocket.arena.Lobby;
 import com.leipishu.pvpocket.combat.CombatState;
 import com.leipishu.pvpocket.combat.UsePolicy;
 import com.leipishu.pvpocket.command.PvPocketCommands;
@@ -42,6 +43,9 @@ public final class PvBootstrap {
                 // The copy layout is read before the gallery is filled: it says which extra cells
                 // each map owns, and a slot number is a stable address across restarts.
                 ArenaManager.loadLayout(server);
+                // The lobby is not a cell and not a map: it is one build at fixed coordinates,
+                // rebuilt here so a restart repairs whatever a guest left behind.
+                Lobby.build(server);
                 // Each map owns one cell of the duel dimension and stays stamped there, so
                 // "select the colosseum" means "teleport to its coordinates".
                 ArenaManager.beginWarmUp();

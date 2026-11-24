@@ -22,6 +22,7 @@
 | 查界面有没有遮挡 | `scripts/check-ui.sh` |
 | 把世界存档 / litematic 转成结构模板 | `python scripts/map/world2struct.py convert ...` |
 | 生成斗兽场 | `python scripts/map/colosseum.py --out ...` |
+| 生成准备大厅 | `python scripts/map/lobby.py --out ...` |
 | 给服务端发指令 | `python scripts/map/rcon.py "execute as Dev1 run ..."` |
 | 保证 Dev1 是管理员（op） | `python scripts/ensure-ops.py`（十格全写，`--cell` 只写一格） |
 | 重生成十格的 `gen-src`（改完 `src/` 之后） | `scripts/port/gen-all.sh` |
@@ -102,7 +103,7 @@ Run → Edit Configurations 里改 Interpreter path。
 | 目录 | 放什么 |
 | --- | --- |
 | `checks/` | 三个 `*Check.java`，由 `check-logic.sh` 编译并逐个运行，退出码 0 才算过 |
-| `map/` | 地图工具：转换、校验、俯视图渲染、斗兽场生成、RCON |
+| `map/` | 地图工具：转换、校验、俯视图渲染、斗兽场与准备大厅生成、RCON |
 | `ui/` | 窗口截图与按键（PowerShell）。**给 AI Agent 做界面验证用的，普通开发不需要** |
 | `mojmap/` | Yarn→Mojmap 迁移工具。**一次性，已完成**，只在需要重跑迁移时用 |
 | `port/` | 版本差：`gen.py` 生成 `versions/<cell>/gen-src/`，改名表是 `*.tsv` |

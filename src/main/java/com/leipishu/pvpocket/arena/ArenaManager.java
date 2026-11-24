@@ -1282,6 +1282,12 @@ public final class ArenaManager {
         if (!(world instanceof ServerLevel) || !isArena(world)) {
             return true;
         }
+        // The lobby is not a leased plot, so it has no protection of its own. It is rebuilt at
+        // every start, which is not the same as being unbreakable mid-countdown.
+        if (Lobby.contains(world, pos)) {
+            PvCompat.overlay(player, PvLang.t("pvpocket.msg.arena.protected").withStyle(ChatFormatting.GRAY));
+            return false;
+        }
         ArenaRegion region = regionAt(pos);
         if (region == null) {
             return true;

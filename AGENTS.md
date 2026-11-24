@@ -278,6 +278,8 @@ python scripts/check-content.py 1.21.1-fabric --verify-jar <客户端 jar>   # �
 - **准备期的 barrier 环只写空气**（`standIfAir`）。斗兽场的战斗区内缩，环正好压在沙地与看台之间
   唯一的讲台墙上，无条件写入会把那格挖成空气，而写入被 `suppressRecording` 包着，`revertRegion`
   也补不回来——每局都在同一位置留一条沟。
+- **准备大厅不是地图。** `arena.Lobby` 不占格子、不进 `ArenaMaps.ALL`、不参与租用与还原；坐标固定，
+  每次开服重贴。加格子、改网格参数时不会碰到它，反过来改 `Lobby` 的常量也不会碰到网格。
 
 ### 4. 界面（画布只有 426×240）
 

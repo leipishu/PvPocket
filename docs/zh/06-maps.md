@@ -181,11 +181,40 @@ blocks)`），换尺寸的规则集仍然会重贴，那部分开销免不掉。
 5. 在语言文件两份里各加一条 `pvpocket.map.<id>`。
 6. 更新 `THIRD-PARTY-NOTICES.md` 的表格与改编说明。
 
-## 7. 相关脚本
+## 7. 准备大厅
+
+公示页期间玩家站的地方。**它不是地图，也不占格子**：没有 `ArenaMap` 条目，不出现在选图里，
+不参与租用与还原，所以也不能当成 `e.template` 选到。
+
+| 项 | 值 |
+| --- | --- |
+| 结构模板 | `data/pvpocket/structure/lobby.nbt`（55 × 17 × 55，13011 方块） |
+| 生成脚本 | `scripts/map/lobby.py`（自有，和斗兽场一样由脚本生成） |
+| 位置 | 中心 `x = z = -192`，岛面 `y = 40`，出生点 `y = 42` |
+| 建造时机 | 每次开服（`PvBootstrap` 里 `Lobby.build`），以及 `/pvpocket arena reset` |
+
+形状是一座浮空岛：中央铺装广场与灯柱、四条石砖路通到四座拱门、八棵小树、八盏路灯，外圈石砖
+收边。岛体下面收成锥形，所以从空中看是一座岛而不是一块板。
+
+选这个坐标的理由：格子从 `x = z = 512` 起，岛到最近的格子约 700 格，远于 `ArenaFog.END`（384），
+所以场内看不到大厅、大厅里也看不到任何场地。
+
+三条硬性约定：
+
+- **不可破坏。** `ArenaManager.allowBreak` 先查 `Lobby.contains`，在岛范围内一律拒绝。
+- **掉落会拉回。** 岛悬在虚空里，掉出去等于一次无处复活的下坠；`SessionManager.tickLobby`
+  在 `RESULT` 阶段每 tick 检查一次，低于岛面 6 格就送回出生点。
+- **每次开服重贴。** 贴之前先把模板盒子（外扩 8 格）清成空气，所以上一轮有人摆的方块不会留下。
+
+改动这个结构要同时改 `Lobby` 里的 `TEMPLATE_X/Y/Z` 与 `TEMPLATE_SURFACE`：前者用来校验尺寸，
+后者决定岛面落在哪个绝对 y。脚本会把这两个数打印出来。
+
+## 8. 相关脚本
 
 | 脚本 | 作用 |
 | --- | --- |
 | `scripts/map/world2struct.py` | 世界存档 / litematic / schem → 结构模板 |
 | `scripts/map/colosseum.py` | 生成斗兽场 |
+| `scripts/map/lobby.py` | 生成准备大厅 |
 | `scripts/map/arena-verify.py` | 与第三方读取器逐块比对 |
 | `scripts/map/arena-map.py` | 读维度存档渲染俯视图 |
