@@ -9,14 +9,11 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.leipishu.pvpocket.client.compat.PvScreens;
+import com.leipishu.pvpocket.client.compat.PvSkins;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
-import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.DeltaTracker;
-import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -285,7 +282,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             int x = centreX - rowW / 2;
             for (int team : line) {
                 int w = chipWidth(tr, teams.get(team), payload, plan.pips(), plan.padR());
-                drawChip(ctx, client, tr, payload, teams.get(team), team, scoreOf(scores, team),
+                drawChip(ctx, tr, payload, teams.get(team), team, scoreOf(scores, team),
                         plan.pips(), x, y, w, eliminated);
                 x += w + plan.gap();
             }
@@ -370,7 +367,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * <p>A side that is out of the round keeps its chip so the row does not reflow mid-round; the
      * wash and the pips fade towards the panel instead.
      */
-    private static void drawChip(GuiGraphics ctx, Minecraft client, Font tr,
+    private static void drawChip(GuiGraphics ctx, Font tr,
                                  MatchHudPayload payload, List<Row> members, int team, int score,
                                  boolean pips, int x, int y, int w, Set<UUID> eliminated) {
         boolean alive = false;
@@ -391,7 +388,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         int headX = x + CHIP_PAD_L;
         int headY = y + (CHIP_H - HEAD) / 2;
         for (Row row : members) {
-            drawHead(ctx, client, row.uuid(), headX, headY, eliminated.contains(row.uuid()));
+            drawHead(ctx, row.uuid(), headX, headY, eliminated.contains(row.uuid()));
             headX += HEAD + HEAD_GAP;
         }
         int scoreX = headX - HEAD_GAP + SCORE_GAP;
@@ -497,7 +494,7 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         int y = screenH - bottom - stackH;
         for (int i = 0; i < shown.size(); i++) {
             int team = shown.get(i);
-            drawChip(ctx, client, tr, payload, teams.get(team), team, scoreOf(scores, team), pips,
+            drawChip(ctx, tr, payload, teams.get(team), team, scoreOf(scores, team), pips,
                     x, y + i * (CHIP_H + CHIP_ROW_GAP), cardW, eliminated);
         }
         PvMatrix.pop(ctx);
@@ -511,11 +508,10 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
      * <p>The wash sits on top of the face, so it reads the same for every skin and needs no
      * shader or item-specific texture path.
      */
-    private static void drawHead(GuiGraphics ctx, Minecraft client, UUID uuid,
-                                 int x, int y, boolean eliminated) {
+    private static void drawHead(GuiGraphics ctx, UUID uuid, int x, int y, boolean eliminated) {
         PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
                 PvTheme.alpha(0xFF000000, 0.55F));
-        PlayerFaceRenderer.draw(ctx, skinOf(client, uuid), x, y, HEAD);
+        PvSkins.draw(ctx, uuid.toString(), x, y, HEAD);
         if (eliminated) {
             PvDraw.rect(ctx, x, y, HEAD, HEAD, PvTheme.alpha(0xFF8A8A8A, 0.72F));
         }
@@ -526,24 +522,6 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
             return PvLang.str("pvpocket.gui.hud.single_round");
         }
         return PvLang.str("pvpocket.gui.hud.round", payload.round(), payload.maxRounds());
-    }
-
-    /**
-     * Returns the player's skin, from the live entity when it is loaded and the default table
-     * otherwise.
-     *
-     * <p>The other side may not be in this client's world, spectating or between rounds, and a
-     * default head is better than a missing row.
-     */
-    private static PlayerSkin skinOf(Minecraft client, UUID uuid) {
-        if (client.level != null) {
-            for (AbstractClientPlayer player : client.level.players()) {
-                if (player.getUUID().equals(uuid)) {
-                    return player.getSkin();
-                }
-            }
-        }
-        return DefaultPlayerSkin.get(uuid);
     }
 
     // ------------------------------------------------------------------ parsing

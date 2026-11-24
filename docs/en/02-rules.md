@@ -340,14 +340,14 @@ each player may branch off it once, and the roster then votes item by item to me
 8. The merged set bumps `rulesRevision` and becomes the new main (v2), written to the session and
    the journal; then the session enters **`RESULT`**.
 9. `RESULT` is the **result page**, and it is a HUD layer rather than a panel: a banner across the
-   top spells out "A VS B" at display size (its position and size ignore the scoreboard's own HUD
-   settings), a plate in the top right carries the countdown, and a card down the left edge lists
-   the final rules and loadout item by item. **The player can walk around** while it counts down.
-   **The moment it goes up it does two things**: it leases and builds the plot (clearing the cell,
-   laying the platform or pasting the map), and it moves everybody to the **waiting lobby** in the
-   duel dimension (the island in `06-maps.md`). The countdown starts once the plot is ready, so the
-   ten seconds are reading time and the fight begins the moment they run out.
-   `/pvpocket review` brings the layer back.
+   top carries each side's face and name with a VS between them (its position and size ignore the
+   scoreboard's own HUD settings), a plate in the top right carries the countdown, and a card down
+   the left edge lists the final rules and loadout item by item. **The player can walk around**
+   while it counts down. **The moment it goes up it does two things**: it leases and builds the
+   plot (clearing the cell, laying the platform or pasting the map), and it moves everybody to the
+   **waiting lobby** in the duel dimension (the island in `06-maps.md`). The countdown starts once
+   the plot is ready, so the ten seconds are reading time and the fight begins the moment they run
+   out. `/pvpocket review` brings the layer back.
 
 The rule set carries `rulesRevision`, shown in the panel's top right. v1 is what the challenger sent
 and v2 is the merged result. There is no re-proposal after the merge, because the branch window opens

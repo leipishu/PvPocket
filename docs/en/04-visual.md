@@ -381,15 +381,19 @@ background is uncontrolled), therefore:
 
 ### 4.3 Display type (the result banner)
 
-The "A VS B" on the result page is the only display type in the mod, and it follows different rules
+The banner on the result page is the only display type in the mod, and it follows different rules
 from a panel title:
 
-- **The size comes from the room available, and is never fixed.** Up to 3× (an 8px face becomes
-  24px); the floor is "whatever fits", because a smaller name beats one that overflows its plate or
-  runs under a corner plate.
+- **The faces are a fixed 18px and only the names scale.** A face at 2× is a blurred face, so it
+  stays out of the scale; the names go up to 2× (an 8px face becomes 16px). Two sides put the faces
+  on the outside (`face name vs name face`); four sides give each name its own face.
+- **The size comes from the room available, and is never fixed.** Below 0.6× the faces are dropped
+  and the width goes back to the names, because a name that cannot be read is worse than a missing
+  picture.
 - **The outline is one text unit**, so it scales with the glyphs and lands at two or three screen
   pixels. Four offset passes plus the fill: no second font file, and a resource pack that changes
   the face changes the outline with it.
+- **The VS mark is 0.5× the names**, one level down: it is a separator, not the subject.
 - **`ClientPrefs.hudAnchor/hudScale` are not read.** The banner and the left-hand card are placed
   from the screen corners: a scoreboard moved to the bottom left must not take the banner with it.
 - Body text stays at 1.0× 8px. Hierarchy comes from size and colour, never from bold (bold is a

@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
 import com.leipishu.pvpocket.client.compat.PvInput;
+import com.leipishu.pvpocket.client.compat.PvSkins;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -8,14 +9,9 @@ import com.leipishu.pvpocket.client.gui.PvWidget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
-import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * The team cards: one card per side, each with a colour bar, a title and a column of slots.
@@ -349,7 +345,7 @@ public class RosterBoard extends PvWidget {
         }
 
         int headY = sy + (SLOT_H - HEAD) / 2;
-        PlayerFaceRenderer.draw(ctx, skinOf(member.uuid), rowX + 2, headY, HEAD);
+        PvSkins.draw(ctx, member.uuid, rowX + 2, headY, HEAD);
 
         int textY = sy + (SLOT_H - 8) / 2;
         int nameColor = rejected ? PvTheme.TEXT_MUTED : PvTheme.TEXT;
@@ -383,24 +379,6 @@ public class RosterBoard extends PvWidget {
         if (plus) {
             ctx.fill(capX + CAP / 2, capY + 4, capX + CAP / 2 + 1, capY + CAP - 4, glyph);
         }
-    }
-
-    static PlayerSkin skinOf(String uuid) {
-        UUID id;
-        try {
-            id = UUID.fromString(uuid);
-        } catch (IllegalArgumentException e) {
-            return DefaultPlayerSkin.get(new UUID(0L, 0L));
-        }
-        Minecraft client = Minecraft.getInstance();
-        if (client.level != null) {
-            for (AbstractClientPlayer player : client.level.players()) {
-                if (player.getUUID().equals(id)) {
-                    return player.getSkin();
-                }
-            }
-        }
-        return DefaultPlayerSkin.get(id);
     }
 
     // ------------------------------------------------------------------ input

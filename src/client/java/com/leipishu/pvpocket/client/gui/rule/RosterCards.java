@@ -1,8 +1,8 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
+import com.leipishu.pvpocket.client.compat.PvSkins;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -80,7 +80,7 @@ public final class RosterCards {
         for (int row = 0; row < side.size(); row++) {
             int ry = cy + HEAD_H + row * ROW_H;
             String uuid = side.get(row);
-            PlayerFaceRenderer.draw(ctx, RosterBoard.skinOf(uuid), cx + 6, ry, FACE);
+            PvSkins.draw(ctx, uuid, cx + 6, ry, FACE);
             PvDraw.textFitLeft(ctx, tr, nameOf(uuid, names), cx + 6 + FACE + 4, ry,
                     cw - FACE - 18, PvTheme.TEXT);
         }

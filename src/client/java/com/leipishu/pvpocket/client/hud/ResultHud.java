@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.hud;
 
 import com.leipishu.pvpocket.client.compat.PvScreens;
+import com.leipishu.pvpocket.client.compat.PvSkins;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvMatrix;
@@ -24,14 +25,14 @@ import java.util.Map;
 /**
  * The result page, drawn as a HUD instead of as a screen.
  *
- * <p>A banner across the top names the sides at display size, a corner plate carries the
- * countdown, and a card down the left edge lists what was decided. No screen is opened, so the
+ * <p>A banner across the top carries the two faces with their side names, a corner plate carries
+ * the countdown, and a card down the left edge lists what was decided. No screen is opened, so the
  * countdown runs while the player walks around the lobby.
  *
  * <p>Layout comes from the screen corners, not from the player's HUD preferences: a scoreboard
  * moved to the bottom left does not take the banner with it. The names are the vanilla face drawn
- * at up to three times its size with a one-unit outline, which makes a display face out of a
- * bitmap font without a second font file, and survives a resource pack.
+ * at up to twice its size with a one-unit outline, which makes a display face out of a bitmap font
+ * without a second font file, and survives a resource pack.
  */
 public final class ResultHud implements PvClientPlatform.HudLayer {
 
@@ -42,9 +43,15 @@ public final class ResultHud implements PvClientPlatform.HudLayer {
     /** Air either side of the VS mark. */
     private static final int VS_GAP = 9;
     /** The VS mark is this fraction of the names' size: present, but never the loudest thing. */
-    private static final float VS_RATIO = 0.58F;
+    private static final float VS_RATIO = 0.5F;
     /** Largest the names are drawn at. Beyond this the banner competes with the world. */
-    private static final float MAX_NAME_SCALE = 3.0F;
+    private static final float MAX_NAME_SCALE = 2.0F;
+    /** Smallest the names are drawn at before the faces are dropped to make room. */
+    private static final float MIN_NAME_SCALE = 0.6F;
+    /** Side faces, square, in pixels. Not scaled: a face at 2x is a blurred face. */
+    private static final int HEAD = 18;
+    /** Air between a face and the name it belongs to. */
+    private static final int HEAD_GAP = 5;
     /** Countdown bar along the banner's bottom edge. */
     private static final int BAR_H = 2;
     private static final int BAR_INSET = 4;
@@ -150,26 +157,36 @@ public final class ResultHud implements PvClientPlatform.HudLayer {
     }
 
     /**
-     * Draws the names and the VS mark, sized to fill the room left between the corner plates.
+     * Draws the faces, the names and the VS mark, sized to fill the room between the corner plates.
      *
-     * <p>The scale is whatever fits, up to {@link #MAX_NAME_SCALE}. There is no floor: a floor
-     * would either overflow the plate or push the row under a corner plate, and a smaller name is
-     * better than a name drawn over something else.
+     * <p>Faces are a fixed size and only the names scale, so the row reads as two people first and
+     * as text second. The scale is whatever fits, up to {@link #MAX_NAME_SCALE}; below
+     * {@link #MIN_NAME_SCALE} the faces are dropped and the names take the room back, because a
+     * name that cannot be read is worse than a picture that is not there.
      */
     private static void drawBanner(GuiGraphics ctx, Font tr, ResultOpenPayload payload,
                                    int screenW, int room) {
-        List<String> sides = sides(payload);
+        List<Side> sides = sides(payload);
         if (sides.isEmpty()) {
             return;
         }
         String vs = PvLang.str("pvpocket.hud.result.vs");
         int vsNatural = tr.width(vs);
-        int natural = (sides.size() - 1) * (vsNatural + VS_GAP * 2);
-        for (String side : sides) {
-            natural += tr.width(side);
+        int textW = Math.round((sides.size() - 1) * vsNatural * VS_RATIO);
+        for (Side side : sides) {
+            textW += tr.width(side.label());
         }
-        float scale = Math.min(MAX_NAME_SCALE, (float) room / Math.max(1, natural));
-        int plateW = Math.round(natural * scale) + BANNER_PAD_X * 2;
+        int gaps = (sides.size() - 1) * VS_GAP * 2;
+        int faceW = sides.size() * (HEAD + HEAD_GAP);
+        boolean faces = true;
+        float scale = Math.min(MAX_NAME_SCALE,
+                (float) (room - gaps - faceW) / Math.max(1, textW));
+        if (scale < MIN_NAME_SCALE) {
+            faces = false;
+            faceW = 0;
+            scale = Math.min(MAX_NAME_SCALE, (float) (room - gaps) / Math.max(1, textW));
+        }
+        int plateW = Math.round(textW * scale) + gaps + faceW + BANNER_PAD_X * 2;
         int x = (screenW - plateW) / 2;
         int y = HudPlate.TOP;
 
@@ -178,22 +195,40 @@ public final class ResultHud implements PvClientPlatform.HudLayer {
                 PvTheme.alpha(PvTheme.CARD, 0.80F * appearT));
         drawBar(ctx, payload, x, y, plateW);
 
-        // The bar owns the bottom two pixels, so the text is centred in what is left.
+        // The bar owns the bottom two pixels, so the row is centred in what is left.
         int inner = BANNER_H - BAR_H;
         int nameY = y + (inner - Math.round(8F * scale)) / 2;
+        int faceY = y + (inner - HEAD) / 2;
         float vsScale = scale * VS_RATIO;
         int vsY = y + (inner - Math.round(8F * vsScale)) / 2;
+        // Two sides put the faces on the outside, which is the versus shape; four sides have no
+        // outside to speak of, so each name carries its own face instead.
+        boolean outer = sides.size() == 2;
         int cx = x + BANNER_PAD_X;
         for (int i = 0; i < sides.size(); i++) {
-            String side = sides.get(i);
-            drawBig(ctx, tr, side, cx, nameY, scale, PvTheme.TEXT);
-            cx += Math.round(tr.width(side) * scale);
+            Side side = sides.get(i);
+            if (faces && (i == 0 || !outer)) {
+                drawFace(ctx, side.uuid(), cx, faceY);
+                cx += HEAD + HEAD_GAP;
+            }
+            drawBig(ctx, tr, side.label(), cx, nameY, scale, PvTheme.TEXT);
+            cx += Math.round(tr.width(side.label()) * scale);
             if (i < sides.size() - 1) {
                 cx += VS_GAP;
                 drawBig(ctx, tr, vs, cx, vsY, vsScale, PvTheme.ACCENT);
                 cx += Math.round(vsNatural * vsScale) + VS_GAP;
+            } else if (faces && outer) {
+                cx += HEAD_GAP;
+                drawFace(ctx, side.uuid(), cx, faceY);
             }
         }
+    }
+
+    /** One side's face, with the same dark ring the scoreboard's heads carry. */
+    private static void drawFace(GuiGraphics ctx, String uuid, int x, int y) {
+        PvDraw.roundRect(ctx, x - 1, y - 1, HEAD + 2, HEAD + 2, 2,
+                PvTheme.alpha(0xFF000000, 0.55F * appearT));
+        PvSkins.draw(ctx, uuid, x, y, HEAD);
     }
 
     /** The countdown as a bar draining along the banner's bottom edge. */
@@ -373,8 +408,12 @@ public final class ResultHud implements PvClientPlatform.HudLayer {
     // ------------------------------------------------------------------ text
 
     /** One entry per side, its members joined by the language's list separator. */
-    private static List<String> sides(ResultOpenPayload payload) {
-        List<String> out = new ArrayList<>();
+    /** One side of the banner: the name as drawn, and a face to put beside it. */
+    private record Side(String label, String uuid) {
+    }
+
+    private static List<Side> sides(ResultOpenPayload payload) {
+        List<Side> out = new ArrayList<>();
         List<List<String>> roster = RosterShape.decode(payload.roster());
         if (roster == null) {
             return out;
@@ -383,14 +422,19 @@ public final class ResultHud implements PvClientPlatform.HudLayer {
         String join = PvLang.str("pvpocket.hud.result.join");
         for (List<String> side : roster) {
             List<String> members = new ArrayList<>();
+            String face = "";
             for (String uuid : side) {
                 String name = names.get(uuid);
-                if (name != null && !name.isEmpty()) {
-                    members.add(name);
+                if (name == null || name.isEmpty()) {
+                    continue;
                 }
+                if (face.isEmpty()) {
+                    face = uuid;
+                }
+                members.add(name);
             }
             if (!members.isEmpty()) {
-                out.add(String.join(join, members));
+                out.add(new Side(String.join(join, members), face));
             }
         }
         return out;

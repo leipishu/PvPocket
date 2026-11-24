@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.gui.rule;
 
 import com.leipishu.pvpocket.client.compat.PvInput;
+import com.leipishu.pvpocket.client.compat.PvSkins;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvTheme;
@@ -9,13 +10,8 @@ import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.PlayerFaceRenderer;
-import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * The player picker, drawn on the screen's modal layer.
@@ -132,7 +128,7 @@ public class PlayerPicker extends PvWidget {
                     PvDraw.roundRect(ctx, px + 6, ry, PANEL_W - 12, ROW_H - 2, 3,
                             PvTheme.CARD_HOVER);
                 }
-                PlayerFaceRenderer.draw(ctx, skinOf(entry[1]), px + 12, ry + (ROW_H - 14) / 2, 14);
+                PvSkins.draw(ctx, entry[1], px + 12, ry + (ROW_H - 14) / 2, 14);
                 PvDraw.textFitLeft(ctx, tr, entry[0], px + 32, ry + (ROW_H - 8) / 2,
                         PANEL_W - 90, PvTheme.TEXT);
                 PvDraw.textRight(ctx, tr, PvLang.str("pvpocket.gui.roster.picker_add"),
@@ -154,24 +150,6 @@ public class PlayerPicker extends PvWidget {
         String hint = PvLang.str("pvpocket.gui.roster.picker_hint");
         PvDraw.text(ctx, tr, PvDraw.fit(tr, hint, PANEL_W - 24),
                 px + 12, py + ph - FOOT_H + 8, PvTheme.TEXT_MUTED);
-    }
-
-    private static PlayerSkin skinOf(String uuid) {
-        UUID id;
-        try {
-            id = UUID.fromString(uuid);
-        } catch (IllegalArgumentException e) {
-            return DefaultPlayerSkin.get(new UUID(0L, 0L));
-        }
-        Minecraft client = Minecraft.getInstance();
-        if (client.level != null) {
-            for (AbstractClientPlayer player : client.level.players()) {
-                if (player.getUUID().equals(id)) {
-                    return player.getSkin();
-                }
-            }
-        }
-        return DefaultPlayerSkin.get(id);
     }
 
     @Override
