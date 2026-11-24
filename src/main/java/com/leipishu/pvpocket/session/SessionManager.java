@@ -1321,6 +1321,14 @@ public final class SessionManager {
         if (session.pendingWinnerTeam >= 0) {
             int team = session.pendingWinnerTeam;
             String reason = session.pendingReason;
+            // The client asks for its respawn the moment the death screen would have shown, and
+            // the settle is the only thing that comes later: without this the player whose death
+            // decided the round stands on the plot, alive and in survival, for the whole beat.
+            // The verdict stays on the session — it is what the settle reads.
+            Participant me = session.participant(player.getStringUUID());
+            if (me != null && me.eliminated) {
+                handToSpectator(session, me, player);
+            }
             afterDeathBeat(() -> settle(session, reason, team));
             return;
         }
@@ -1374,19 +1382,39 @@ public final class SessionManager {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        ArenaRegion region = ArenaManager.region(session.id);
-        if (me == null || me.surrendered || region == null || !me.eliminated) {
+        if (me == null || me.surrendered || !me.eliminated) {
             return;
         }
-        Sandbox.changeGameMode(player, GameType.SPECTATOR);
-        ArenaManager.teleportToSpawn(player, region, me.teamIndex(), me.member,
-                Math.max(1, session.teamMembers(me.teamIndex()).size()));
+        if (!handToSpectator(session, me, player)) {
+            return;
+        }
         // The round is still live, so the "decided but unapplied" record is stale.
         session.pendingWinner = null;
         session.pendingReason = null;
         persist(session);
         player.displayClientMessage(PvLang.t("pvpocket.msg.round.eliminated")
                 .withStyle(ChatFormatting.GRAY), false);
+    }
+
+    /**
+     * Puts an eliminated participant on their spawn as a spectator.
+     *
+     * <p>Shared by the two ways a death can play out: while the round goes on, and for the death
+     * that decided it. Either way the player is out, and a live body in survival is something
+     * neither the round nor the settle can use. The bookkeeping stays with the caller, since one
+     * of them has to keep the pending verdict for the settle and the other has to clear it.
+     *
+     * @return whether the player was handed over; false when there is no plot to put them on
+     */
+    private boolean handToSpectator(DuelSession session, Participant me, ServerPlayer player) {
+        ArenaRegion region = ArenaManager.region(session.id);
+        if (region == null) {
+            return false;
+        }
+        Sandbox.changeGameMode(player, GameType.SPECTATOR);
+        ArenaManager.teleportToSpawn(player, region, me.teamIndex(), me.member,
+                Math.max(1, session.teamMembers(me.teamIndex()).size()));
+        return true;
     }
 
     /**

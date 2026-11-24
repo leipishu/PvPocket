@@ -215,7 +215,9 @@ spawn.
 
 A duel death respawns them on their own spawn pad and hands them to spectator mode from there, so
 death, respawn and hand-off all happen inside the arena: no trip through the overworld. The respawn
-point is borrowed at the moment of death and given back as soon as they are back on their feet.
+point is borrowed at the moment of death and given back as soon as they are back on their feet. The
+death that ends the round takes the same path: the hand-off happens on the respawn tick, so the
+player is never left standing on the pad in survival while the death beat plays out.
 
 Spectating is allowed by default; the challenger can turn it off in rule group B.
 
