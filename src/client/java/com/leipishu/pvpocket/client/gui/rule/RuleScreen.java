@@ -642,8 +642,7 @@ public class RuleScreen extends PvScreen {
                     PvButton.Style.GHOST, this::onClose);
             stack.add(primary);
             // The proposer's answer is the send itself, so this is their only way out of a window
-            // other people are still holding open. Absent once the ballot starts: the votes are
-            // already cast and the window has a deadline of its own.
+            // others still hold open. Gone once the ballot starts: those votes are not theirs.
             if (payload.role() == RulesOpenPayload.ROLE_PROPOSER
                     && payload.window().deadlineMsLeft() > 0) {
                 stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.withdraw"),

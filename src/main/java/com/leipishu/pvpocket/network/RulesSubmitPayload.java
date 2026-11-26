@@ -15,9 +15,8 @@ import net.minecraft.resources.ResourceLocation;
  * <p>{@code roster} is the team cards, {@code "uuid,uuid;uuid"}. It only means anything on the
  * first send, the one that turns a draft into an invite, and is empty afterwards.
  *
- * <p>Past the draft these are branch operations: {@link #ACTION_ACCEPT} means no change and starts
- * nothing, {@link #ACTION_PROPOSE} files or amends this player's branch. {@link #ACTION_WITHDRAW}
- * is the proposer's own exit and voids the invite for everybody.
+ * <p>Past the draft: {@link #ACTION_ACCEPT} means no change and starts nothing,
+ * {@link #ACTION_PROPOSE} files or amends a branch, {@link #ACTION_WITHDRAW} voids the invite.
  */
 public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPacketPayload {
 
