@@ -90,9 +90,11 @@ jobs:
             gradle-${{ runner.os }}-${{ matrix.mc }}-
             gradle-${{ runner.os }}-
       - name: 编译两格
+        # A NeoForge cell keeps client classes in main (one jar, no client source set), so it
+        # only has compileJava.
         run: |
           ./gradlew :$FABRIC_CELL:compileJava :$FABRIC_CELL:compileClientJava \
-            :$NEOFORGE_CELL:compileJava :$NEOFORGE_CELL:compileClientJava \
+            :$NEOFORGE_CELL:compileJava \
             --console=plain
       - name: 逻辑自检
         run: bash scripts/check-logic.sh
