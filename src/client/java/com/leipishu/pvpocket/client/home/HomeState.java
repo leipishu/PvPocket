@@ -42,6 +42,13 @@ public final class HomeState {
         }
     }
 
+    /** The map's name in the reader's language; an unknown id falls back to the id itself. */
+    public static String mapLabel(String map) {
+        String key = "pvpocket.map." + map;
+        String text = com.leipishu.pvpocket.i18n.PvLang.str(key);
+        return text.equals(key) ? map : text;
+    }
+
     /**
      * One finished series, from this player's side.
      *
@@ -53,9 +60,7 @@ public final class HomeState {
                           String rounds, String opponents, String teamMates) {
 
         public String mapLabel() {
-            String key = "pvpocket.map." + map;
-            String text = com.leipishu.pvpocket.i18n.PvLang.str(key);
-            return text.equals(key) ? map : text;
+            return HomeState.mapLabel(map);
         }
 
         public List<Round> roundList() {

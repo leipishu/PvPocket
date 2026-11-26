@@ -33,7 +33,10 @@ import net.minecraft.network.chat.Component;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -826,6 +829,7 @@ public class HomeScreen extends PvScreen {
         int h = contentH();
         HomeState.Stats stats = HomeState.stats();
         boolean any = stats.any();
+        double played = Math.max(1, stats.matches());
 
         String[][] cards = {
                 {PvLang.str("pvpocket.gui.home.stats.matches"), Integer.toString(stats.matches())},
@@ -837,34 +841,113 @@ public class HomeScreen extends PvScreen {
                 {PvLang.str("pvpocket.gui.home.stats.rounds"),
                         stats.roundWins() + " / " + stats.rounds()},
                 {PvLang.str("pvpocket.gui.home.stats.streak"), Integer.toString(stats.bestStreak())},
+                {PvLang.str("pvpocket.gui.home.stats.avg_damage"),
+                        HomeText.average(stats.damage() / played, any)},
+                {PvLang.str("pvpocket.gui.home.stats.avg_kills"),
+                        HomeText.average(stats.kills() / played, any)},
         };
 
-        if (w >= 240) {
-            int gap = 8;
-            int colW = (w - gap) / 2;
-            int cardH = 40;
-            for (int i = 0; i < cards.length; i++) {
-                int cx = x + (i % 2) * (colW + gap);
-                int cy = y + (i / 2) * (cardH + 4);
-                drawStatCard(ctx, tr, cx, cy, colW, cardH, cards[i][0], cards[i][1],
+        // Two columns on a wide well, one line per metric on a narrow one. Rows that do not fit are
+        // dropped rather than drawn past the panel: the smallest canvas has room for four cards.
+        boolean wide = w >= 240;
+        int columns = wide ? 2 : 1;
+        int rowH = wide ? 44 : 17;
+        int rows = Math.max(1, (h - 18) / rowH);
+        int shown = Math.min(cards.length, rows * columns);
+        if (wide) {
+            int colW = (w - 8) / 2;
+            for (int i = 0; i < shown; i++) {
+                int cx = x + (i % 2) * (colW + 8);
+                int cy = y + (i / 2) * rowH;
+                drawStatCard(ctx, tr, cx, cy, colW, 40, cards[i][0], cards[i][1],
                         i == 1 && any);
             }
-            drawWinStrip(ctx, x, y + 3 * (cardH + 4) + 6, w);
         } else {
-            // One column of label and value lines: two columns at this width leave 70px per card,
-            // narrower than "1,820" plus its label.
-            for (int i = 0; i < cards.length; i++) {
-                int cy = y + i * 17;
+            for (int i = 0; i < shown; i++) {
+                int cy = y + i * rowH;
                 int valueW = PvDraw.fittedWidth(tr, cards[i][1], w / 2);
                 PvDraw.textFitLeft(ctx, tr, cards[i][0], x, cy, w - valueW - 8,
                         PvTheme.TEXT_MUTED);
                 PvDraw.textFitRight(ctx, tr, cards[i][1], x + w, cy, w / 2, PvTheme.TEXT);
             }
         }
+        int used = ((shown + columns - 1) / columns) * rowH;
+        int stripY = y + used + 4;
+        drawWinStrip(ctx, x, stripY, w);
+        drawBreakdown(ctx, tr, x, stripY + 14, w, h - used - 18);
         if (!any) {
             PvDraw.text(ctx, tr, PvDraw.fit(tr, PvLang.str("pvpocket.gui.home.stats.empty"), w),
                     x, y + h - 12, PvTheme.TEXT_MUTED);
         }
+    }
+
+    /**
+     * The two most useful breakdowns the history already holds: which maps and which opponents.
+     *
+     * <p>Drawn only when the cards left room for it, which the smallest canvas never does. Both
+     * columns are tallies of finished series, so a 2v2 counts once per opponent, which is what
+     * "played against them" means.
+     */
+    private void drawBreakdown(GuiGraphics ctx, Font tr, int x, int y, int w, int available) {
+        if (available < 46 || w < 240) {
+            return;
+        }
+        List<HomeState.History> records = HomeState.history();
+        if (records.isEmpty()) {
+            return;
+        }
+        int half = (w - 8) / 2;
+        drawTally(ctx, tr, x, y, half, "maps", tally(records, HomeState.History::map, 3), true);
+        drawTally(ctx, tr, x + half + 8, y, half, "rivals",
+                tally(records, HomeState.History::opponents, 3), false);
+    }
+
+    private void drawTally(GuiGraphics ctx, Font tr, int x, int y, int w, String titleKey,
+                           List<Map.Entry<String, int[]>> rows, boolean isMap) {
+        PvDraw.text(ctx, tr, PvLang.str("pvpocket.gui.home.stats." + titleKey), x, y,
+                PvTheme.TEXT_MUTED);
+        int rowY = y + 11;
+        for (Map.Entry<String, int[]> entry : rows) {
+            String name = isMap ? HomeState.mapLabel(entry.getKey()) : entry.getKey();
+            String count = PvLang.str("pvpocket.gui.home.stats.tally",
+                    entry.getValue()[0], entry.getValue()[1]);
+            int countW = tr.width(count);
+            PvDraw.textFitLeft(ctx, tr, name, x, rowY, w - countW - 6, PvTheme.TEXT_DIM);
+            PvDraw.textRight(ctx, tr, count, x + w, rowY, PvTheme.TEXT_DIM);
+            rowY += 11;
+        }
+    }
+
+    /**
+     * Counts finished series per key, most played first.
+     *
+     * <p>{@code keys} may return a comma-separated list, which is how the payload carries a 2v2's
+     * opponents; the map id never contains one, so the same split serves both.
+     */
+    private static List<Map.Entry<String, int[]>> tally(List<HomeState.History> records,
+                                                        Function<HomeState.History, String> keys,
+                                                        int limit) {
+        Map<String, int[]> counts = new LinkedHashMap<>();
+        for (HomeState.History record : records) {
+            String raw = keys.apply(record);
+            if (raw == null || raw.isEmpty()) {
+                continue;
+            }
+            for (String token : raw.split(",")) {
+                String key = token.trim();
+                if (key.isEmpty()) {
+                    continue;
+                }
+                int[] count = counts.computeIfAbsent(key, ignored -> new int[2]);
+                count[0]++;
+                if (record.won()) {
+                    count[1]++;
+                }
+            }
+        }
+        List<Map.Entry<String, int[]>> out = new ArrayList<>(counts.entrySet());
+        out.sort((a, b) -> Integer.compare(b.getValue()[0], a.getValue()[0]));
+        return out.size() > limit ? out.subList(0, limit) : out;
     }
 
     private void drawStatCard(GuiGraphics ctx, Font tr, int x, int y, int w, int h,

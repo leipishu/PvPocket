@@ -69,6 +69,11 @@ What the numbers mean:
   environment kills count for nobody; so do kills inside your own side.
 - **Rounds won** counts each round's winner, summed across every series.
 - **Best streak** is a high-water mark: a loss resets the current streak, never the best one.
+- **Damage / kills per match** divide the career totals by the match count, so they are the same
+  numbers as "total damage", just averaged.
+- **Maps and opponents** group the history by map id and by opponent name, keeping the three most
+  played and showing "N played, M won". A 2v2 counts once per opponent, which is what "played
+  against them" means. The two columns are dropped when the panel has no room for them.
 - History keeps the newest 200 series per player; the lifetime counters are never trimmed.
 
 ### Starting a duel

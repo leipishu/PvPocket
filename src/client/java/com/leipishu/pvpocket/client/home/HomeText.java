@@ -98,6 +98,14 @@ public final class HomeText {
         return String.format(java.util.Locale.ROOT, "%.2f", value);
     }
 
+    /** One decimal, or an em dash when there is nothing to divide. */
+    public static String average(double value, boolean any) {
+        if (!any) {
+            return "—";
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f", value);
+    }
+
     /** Thousands separators for the damage total. */
     public static String number(long value) {
         return String.format(java.util.Locale.ROOT, "%,d", value);
