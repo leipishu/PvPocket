@@ -166,6 +166,13 @@ So every environment option is visible: `e.timeOfDay` gives four distinct skies 
 levels of cloud and brightness. Vanilla stops at the horizon and leaves nothing below it, which in
 a void reads as a black half-sphere; this dome is a closed sphere, so looking down has colour too.
 
+**The prepare lobby is the exception.** It shares the dimension and the clock, but it is a waiting
+room: always clear, and lit by the overworld's day. The client records the overworld clock on the
+way out and runs it forward at twenty ticks a second (`OverworldClock`); the lobby's light uses the
+`getSkyDarken` that clock implies (`LobbyLight` plus `LobbyLightMixin`), or a noon sky would sit
+over blocks lit as midnight. No plot is visible from the lobby (fog ends at 384 blocks, the nearest
+plot is about 680 away), so overriding that level-wide value changes nothing else on screen.
+
 ## 6. Networking
 
 All traffic uses custom payloads, registered in `PvPayloads`, with sending and validation in

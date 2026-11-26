@@ -10,6 +10,7 @@ import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.audio.PvCues;
+import com.leipishu.pvpocket.client.render.OverworldClock;
 import com.leipishu.pvpocket.client.gui.match.ReconnectScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
@@ -246,6 +247,8 @@ public final class PvPocketClient {
         // The preparing panel is armed by a payload and opened from here, see PrepareNotice.
         platform.onClientTick(PrepareNotice::tick);
         platform.onClientTick(PvPocketClient::openReconnectIfReady);
+        // The lobby's sky follows the overworld, and this is where the sample is taken.
+        platform.onClientTick(() -> OverworldClock.tick(Minecraft.getInstance()));
         // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
         PvAuditHarness.register();
 

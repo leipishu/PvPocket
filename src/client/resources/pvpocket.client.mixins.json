@@ -16,6 +16,7 @@
     "GuiScreenMixin",
 //?}
     "HandledScreenAccessor",
+    "LobbyLightMixin",
 //? if >=26.2 {
     "HudCrosshairMixin",
 //?} else {

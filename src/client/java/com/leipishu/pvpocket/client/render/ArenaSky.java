@@ -3,8 +3,10 @@ package com.leipishu.pvpocket.client.render;
 import com.leipishu.pvpocket.client.platform.PvClientPlatform;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.leipishu.pvpocket.arena.Lobby;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 
@@ -106,7 +108,10 @@ public final class ArenaSky {
 //?} else {
         Vec3 cam = frame.camera().getPosition();
 //?}
-        Sky sky = Sky.of(level);
+        // The lobby is in this dimension but is not part of the match: its sky is always clear and
+        // follows the overworld, so a waiting room never sits under the round's fixed weather.
+        boolean lobby = Lobby.contains(level, BlockPos.containing(cam.x, cam.y, cam.z));
+        Sky sky = Sky.of(level, lobby);
         float radius = radius(client);
         poses.pushPose();
         // Vertices are sent in world coordinates, so the camera offset is cancelled here.
@@ -330,28 +335,47 @@ public final class ArenaSky {
             this.downB = mix(mix(NIGHT_DOWN_B, DAY_DOWN_B, day), OVERCAST_DOWN_B, overcast);
         }
 
-        static Sky of(ClientLevel level) {
+        static Sky of(ClientLevel level, boolean lobby) {
             // 0 at sunrise, 0.25 at noon, 0.5 at dusk, 0.75 at midnight. The server freezes the
             // clock for a fixed e.timeOfDay, so these are the four fixed settings as well.
-//? if >=26.1 {
-            // The overworld clock, because that is the one PvCompat#setDayTime writes.
-            long dayTime = level.getOverworldClockTime();
-//?} else {
-            long dayTime = level.getDayTime();
-//?}
+            long dayTime = lobby ? OverworldClock.now(dayTimeOf(level)) : dayTimeOf(level);
             float time = (float) ((dayTime % 24000L) / 24000.0D);
             float angle = time * TAU;
             float sunY = (float) Math.sin(angle);
             // A slight tilt keeps the arc off the exact east-west line, which reads as a wall.
             Vec3 sun = new Vec3(Math.cos(angle), sunY, 0.28D).normalize();
-            float day = smoothstep(-0.12F, 0.18F, sunY);
+            float day = daylight(dayTime);
             // Twilight peaks while the sun crosses the horizon, and is gone by mid-morning.
             float dusk = clamp01(1.0F - Math.abs(sunY) / 0.22F) * (1.0F - day * 0.35F);
-            boolean raining = level.isRaining();
-            boolean thundering = level.isThundering();
+            boolean raining = !lobby && level.isRaining();
+            boolean thundering = !lobby && level.isThundering();
             float overcast = thundering ? 0.85F : raining ? 0.55F : 0.0F;
             return new Sky((float) sun.x, (float) sun.y, (float) sun.z, day, dusk, overcast);
         }
+    }
+
+    /**
+     * How much daylight the given clock time carries: 1 at noon, 0 at midnight.
+     *
+     * <p>Shared with {@link LobbyLight}, so the lobby's sky and the lobby's light cannot disagree.
+     */
+    static float daylight(long dayTime) {
+        float time = (float) ((dayTime % 24000L) / 24000.0D);
+        return smoothstep(-0.12F, 0.18F, (float) Math.sin(time * TAU));
+    }
+
+    /**
+     * The dimension's day time in ticks.
+     *
+     * <p>26.x keeps it on the overworld clock, which is the one {@code PvCompat#setDayTime} writes;
+     * 1.21.x keeps it on the level.
+     */
+    static long dayTimeOf(ClientLevel level) {
+//? if >=26.1 {
+        return level.getOverworldClockTime();
+//?} else {
+        return level.getDayTime();
+//?}
     }
 
     private static void quad(VertexConsumer vc, Matrix4f matrix,
