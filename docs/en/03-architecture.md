@@ -148,14 +148,23 @@ at `x = z = -192` with its surface at `y = 40`, about 680 blocks from the neares
 behind). Its blocks cannot be broken, and a guest who falls off is put back by the tick.
 
 The dimension is void, with a barrier buffer ring around each map. Boundaries are drawn client-side
-as a light curtain; the server only judges position. The sky is painted over the whole sphere by
-`client.render.ArenaSky`: vanilla stops at the horizon and leaves nothing below it, which in a void
-reads as a black half-sphere. The colours are the mod's own three-stop gradient (deep blue overhead,
-pale at the horizon, a little deeper underneath), dimmed by `getSkyDarken` over the day with the
-zenith dimmed harder than the horizon, because the vanilla sky colour is reached three ways across
-the five versions.
-The cost is the sun, moon, stars and clouds: they are drawn before the sky pass and leave no depth
-behind, so anything drawn later covers them.
+as a light curtain; the server only judges position. The sky is drawn in one pass by
+`client.render.ArenaSky`, in four layers:
+
+- **Dome**: the mod's own three-stop gradient (deep blue overhead, pale at the horizon, a little
+  deeper underneath), moved between day, night and twilight by the world clock. The warm band is
+  only on the sun's side of the horizon, so dusk is orange on one half and blue on the other.
+- **Clouds**: a broken horizontal sheet. Cells come from a hash and fade out with distance: the
+  sheet is a plane inside a sphere, and without the fade its edge would be a straight line across
+  the sky. Sparse and white when clear, denser and grey in rain, nearly solid in a thunderstorm.
+- **Sun and moon**: camera-facing squares placed by the clock's sine, each with a wider, fainter
+  halo.
+- **Stars**: 220 hashed directions in the upper hemisphere, faded out by daylight and cloud cover.
+
+So every environment option is visible: `e.timeOfDay` gives four distinct skies for "morning",
+"noon", "dusk" and "midnight", with "natural" letting the clock run; `e.weather` gives three
+levels of cloud and brightness. Vanilla stops at the horizon and leaves nothing below it, which in
+a void reads as a black half-sphere; this dome is a closed sphere, so looking down has colour too.
 
 ## 6. Networking
 
