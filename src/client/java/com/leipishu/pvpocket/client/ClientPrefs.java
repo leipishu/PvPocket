@@ -77,6 +77,13 @@ public final class ClientPrefs {
          * settings page shows.
          */
         boolean resultScreen = true;
+        /**
+         * Whether a shader pack is switched off while the player is in the arena.
+         *
+         * <p>Defaults to true, including when the field is absent: the arena's sky is ordinary
+         * geometry, and a pack treats it as distant terrain.
+         */
+        boolean disableShadersInArena = true;
     }
 
     private static boolean loaded;
@@ -86,6 +93,7 @@ public final class ClientPrefs {
     private static int hudScale = DEFAULT_HUD_SCALE;
     private static int hudAnchor = HUD_ANCHOR_TOP;
     private static boolean resultScreen = true;
+    private static boolean disableShadersInArena = true;
 
     private ClientPrefs() {
     }
@@ -112,6 +120,7 @@ public final class ClientPrefs {
                     hudScale = clampHudScale(parsed.hudScale);
                     hudAnchor = clampHudAnchor(parsed.hudAnchor);
                     resultScreen = parsed.resultScreen;
+                    disableShadersInArena = parsed.disableShadersInArena;
                 }
             } catch (Exception e) {
                 // A bad preference file costs a theme, not a launch.
@@ -204,6 +213,16 @@ public final class ClientPrefs {
         save();
     }
 
+    /** Whether a shader pack is switched off while the player is in the arena. */
+    public static boolean disableShadersInArena() {
+        return disableShadersInArena;
+    }
+
+    public static void setDisableShadersInArena(boolean value) {
+        disableShadersInArena = value;
+        save();
+    }
+
     /** Where the match HUD draws: {@link #HUD_ANCHOR_TOP} or {@link #HUD_ANCHOR_BOTTOM_LEFT}. */
     public static int hudAnchor() {
         return hudAnchor;
@@ -227,6 +246,7 @@ public final class ClientPrefs {
         out.hudScale = hudScale;
         out.hudAnchor = hudAnchor;
         out.resultScreen = resultScreen;
+        out.disableShadersInArena = disableShadersInArena;
         try {
             Files.createDirectories(file().getParent());
             PvPocketStorage.writeAtomically(file(),

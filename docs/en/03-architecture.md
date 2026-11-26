@@ -173,6 +173,13 @@ So every environment option is visible: `e.timeOfDay` gives four distinct skies 
 levels of cloud and brightness. Vanilla stops at the horizon and leaves nothing below it, which in
 a void reads as a black half-sphere; this dome is a closed sphere, so looking down has colour too.
 
+**Shaders are switched off on entry.** This sky is ordinary geometry drawn after the translucent
+pass, so a pack reads it as distant terrain: its fog, ambient occlusion and tone mapping land on a
+surface that is meant to be sky, while the pack's own sky sits hidden underneath. The settings page
+therefore carries "Disable shaders in the arena", on by default (`ShaderGuard`): off on entry, back
+on when leaving, reached by reflection (Iris and Oculus share a package), never written to disk, and
+a pack the player turns back on inside the arena stays on.
+
 **The prepare lobby is the exception.** It shares the dimension and the clock, but it is a waiting
 room: always clear, and lit by the overworld's day. The client records the overworld clock on the
 way out and runs it forward at twenty ticks a second (`OverworldClock`); the lobby's light uses the

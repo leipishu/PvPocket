@@ -11,6 +11,7 @@ import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
 import com.leipishu.pvpocket.client.audio.PvCues;
 import com.leipishu.pvpocket.client.render.OverworldClock;
+import com.leipishu.pvpocket.client.render.ShaderGuard;
 import com.leipishu.pvpocket.client.gui.match.ReconnectScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
@@ -249,6 +250,9 @@ public final class PvPocketClient {
         platform.onClientTick(PvPocketClient::openReconnectIfReady);
         // The lobby's sky follows the overworld, and this is where the sample is taken.
         platform.onClientTick(() -> OverworldClock.tick(Minecraft.getInstance()));
+        // Shader packs read the arena's geometry sky as terrain: off on entry, back on when
+        // the player leaves.
+        ShaderGuard.register(platform);
         // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
         PvAuditHarness.register();
 

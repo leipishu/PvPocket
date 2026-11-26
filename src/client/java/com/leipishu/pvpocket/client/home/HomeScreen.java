@@ -17,6 +17,7 @@ import com.leipishu.pvpocket.client.gui.PvToggle;
 import com.leipishu.pvpocket.client.gui.PvWidget;
 import com.leipishu.pvpocket.client.gui.match.MatchListScreen;
 import com.leipishu.pvpocket.client.preset.PresetStore;
+import com.leipishu.pvpocket.client.render.ShaderGuard;
 import com.leipishu.pvpocket.i18n.PvLang;
 import com.leipishu.pvpocket.network.HomeStatePayload;
 import com.leipishu.pvpocket.network.SpectateRequestPayload;
@@ -554,6 +555,16 @@ public class HomeScreen extends PvScreen {
         hudAnchor.tooltip = PvLang.str("pvpocket.gui.home.settings.hud_anchor_hint");
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.hud_anchor"), hudAnchor,
                 null));
+
+        // The arena's sky is geometry, and a pack reads it as terrain; the switch is on by default
+        // because the result of leaving the pack on is worse than a reload on the way in.
+        PvToggle shaderGuard = new PvToggle(ClientPrefs.disableShadersInArena());
+        shaderGuard.onChange(value -> ClientPrefs.setDisableShadersInArena(value == 1));
+        shaderGuard.tooltip = PvLang.str(ShaderGuard.present()
+                ? "pvpocket.gui.home.settings.shader_guard_hint"
+                : "pvpocket.gui.home.settings.shader_guard_missing");
+        pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.shader_guard"),
+                shaderGuard, null));
 
         // Its own section: how many records a page holds is about the data, not about colours.
         pane.add(new SettingRow(PvLang.str("pvpocket.gui.home.settings.match")));
