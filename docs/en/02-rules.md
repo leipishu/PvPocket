@@ -319,6 +319,11 @@ each player may branch off it once, and the roster then votes item by item to me
    **After submitting, the panel becomes a read-only waiting page** ("Submitted; waiting for the
    others"): no further edits and no second submit. The window closes as soon as the last player
    answers, or at the deadline, where silence counts as no change.
+   **The challenger may withdraw during the window**: a "Withdraw invite" button at the foot of the
+   panel voids the session (`VOIDED`) after a confirmation, discards any branches already filed, and
+   tells the others in one line. Withdrawing is available in `NEGOTIATING` only — once the ballot
+   starts, those votes belong to other people. Nor should the challenger use "decline" to mean
+   withdraw: that only drops them from the roster, and the rest can still play.
 5. **No branches at all** skips voting and goes straight to the result page.
 6. Otherwise each branch is diffed against main to build the **ballot**: one item for the whole
    arrangement; one item per rule; one item per loadout row, where the candidates are whole rows;

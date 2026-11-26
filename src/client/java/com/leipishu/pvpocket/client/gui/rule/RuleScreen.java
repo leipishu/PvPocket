@@ -5,6 +5,7 @@ import com.leipishu.pvpocket.arena.ArenaMaps;
 import com.leipishu.pvpocket.client.gui.PvBadge;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvChips;
+import com.leipishu.pvpocket.client.gui.PvConfirm;
 import com.leipishu.pvpocket.client.gui.PvCycle;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvLayout;
@@ -640,6 +641,14 @@ public class RuleScreen extends PvScreen {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.close"),
                     PvButton.Style.GHOST, this::onClose);
             stack.add(primary);
+            // The proposer's answer is the send itself, so this is their only way out of a window
+            // other people are still holding open. Absent once the ballot starts: the votes are
+            // already cast and the window has a deadline of its own.
+            if (payload.role() == RulesOpenPayload.ROLE_PROPOSER
+                    && payload.window().deadlineMsLeft() > 0) {
+                stack.add(new PvButton(PvLang.str("pvpocket.gui.rule.button.withdraw"),
+                        PvButton.Style.DANGER, this::askWithdraw));
+            }
         } else {
             primary = new PvButton(PvLang.str("pvpocket.gui.rule.button.accept"),
                     PvButton.Style.PRIMARY,
@@ -1133,6 +1142,28 @@ public class RuleScreen extends PvScreen {
         }
         roots.clear();
         init();
+    }
+
+    /**
+     * Asks before voiding the invite for everybody.
+     *
+     * <p>A dialog rather than a second press: this is the only button in the panel that destroys
+     * other people's work, and the branches already filed go with it.
+     */
+    private void askWithdraw() {
+        setOverlay(new PvConfirm(
+                PvLang.str("pvpocket.gui.rule.withdraw_title"),
+                PvLang.str("pvpocket.gui.rule.withdraw_body"),
+                PvLang.str("pvpocket.gui.rule.withdraw_note"),
+                PvTheme.DANGER,
+                PvLang.str("pvpocket.gui.rule.button.withdraw"),
+                PvButton.Style.DANGER,
+                PvLang.str("pvpocket.gui.rule.button.cancel"),
+                () -> {
+                    dismissOverlay();
+                    submit(RulesSubmitPayload.ACTION_WITHDRAW);
+                },
+                this::dismissOverlay));
     }
 
     private void submit(int action) {

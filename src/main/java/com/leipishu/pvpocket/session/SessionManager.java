@@ -1752,6 +1752,7 @@ public final class SessionManager {
         applyRulesToSession(session, rules);
         session.rulesRevision = 0;
         session.rulesAuthor = proposer.getStringUUID();
+        session.proposerUuid = proposer.getStringUUID();
         // Rows are numbered before anything can be branched off them; see LoadoutEntry#ref.
         mainLoadout(session);
 
@@ -2204,6 +2205,21 @@ public final class SessionManager {
             }
             // Past the draft, closing the panel decides nothing: the window runs on and the player
             // reopens with /pvpocket review. A refusal is an explicit button, not an Esc.
+            return;
+        }
+
+        if (action == RulesSubmitPayload.ACTION_WITHDRAW) {
+            if (!uuid.equals(proposerOf(session))) {
+                // Everyone else already has a way out: "reject" drops them, not the invite.
+                fail(player, "pvpocket.msg.rules.not_proposer");
+                return;
+            }
+            if (session.stage != SessionStage.NEGOTIATING) {
+                // A ballot under way has votes from people the withdrawer does not own.
+                fail(player, "pvpocket.msg.rules.vote_closed");
+                return;
+            }
+            withdrawInvite(session, player);
             return;
         }
 
@@ -3250,6 +3266,39 @@ public final class SessionManager {
                 other.displayClientMessage(line.copy().withStyle(ChatFormatting.DARK_GRAY), false);
             }
         }
+    }
+
+    /**
+     * The player who sent the invite.
+     *
+     * <p>{@link DuelSession#proposerUuid} is authoritative. The fallback covers a session written
+     * before the field existed: anything still in {@code NEGOTIATING} has not merged a ballot, so
+     * its {@code rulesAuthor} is still the proposer.
+     */
+    private static String proposerOf(DuelSession session) {
+        return session.proposerUuid != null ? session.proposerUuid : session.rulesAuthor;
+    }
+
+    /**
+     * Takes an invite back and voids the session for everybody.
+     *
+     * <p>Only reachable from {@code NEGOTIATING}, which is before the freeze: no snapshot has been
+     * written and no plot leased, so there is nothing to roll back. Branches filed so far are
+     * discarded with the session; the journal records how many, because a withdraw that silently
+     * ate three people's edits is otherwise indistinguishable from one that ate none.
+     */
+    private void withdrawInvite(DuelSession session, ServerPlayer actor) {
+        journal(session).append("INVITE_WITHDRAWN",
+                "proposer", actor.getName().getString(),
+                "revision", session.rulesRevision,
+                "branches", session.branches.size(),
+                "players", liveCount(session));
+        session.voidReason = "WITHDRAWN";
+        transition(session, SessionStage.VOIDED);
+        // Before the panels close: this line is the only thing that explains why they shut.
+        broadcastParticipants(session,
+                PvLang.t("pvpocket.msg.rules.withdrawn", actor.getName().getString()));
+        closePanels(session);
     }
 
     /** Freeze, snapshot, teleport, start. The rule panel is the only caller. */

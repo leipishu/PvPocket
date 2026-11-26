@@ -86,6 +86,8 @@ What the numbers mean:
 5. Each of them picks "Accept and start", "Edit and re-propose" or "Reject". **The match starts once
    everybody has answered and two sides still have somebody on them.** A refusal only takes that
    player off the roster: invite four, one declines, and the remaining three still play.
+   The challenger can withdraw the whole invite during the five-minute window, after a
+   confirmation; once voting starts, the button is gone.
 6. The **result page** comes up first: a banner across the top carries each side's face and name
    with a VS between them, the countdown sits in the top right, and a card down the left lists the
    final rules and loadout. **It is a HUD layer, not a panel**, so the player can walk around while

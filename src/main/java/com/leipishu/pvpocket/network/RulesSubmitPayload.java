@@ -16,7 +16,8 @@ import net.minecraft.resources.ResourceLocation;
  * first send, the one that turns a draft into an invite, and is empty afterwards.
  *
  * <p>Past the draft these are branch operations: {@link #ACTION_ACCEPT} means no change and starts
- * nothing, {@link #ACTION_PROPOSE} files or amends this player's branch.
+ * nothing, {@link #ACTION_PROPOSE} files or amends this player's branch. {@link #ACTION_WITHDRAW}
+ * is the proposer's own exit and voids the invite for everybody.
  */
 public record RulesSubmitPayload(int action, String rules, String roster) implements CustomPacketPayload {
 
@@ -28,6 +29,14 @@ public record RulesSubmitPayload(int action, String rules, String roster) implem
     public static final int ACTION_REJECT = 2;
     /** Close the panel without deciding anything; the window keeps running. */
     public static final int ACTION_DISMISS = 3;
+    /**
+     * The proposer takes the whole invite back during the branch window.
+     *
+     * <p>Distinct from {@link #ACTION_REJECT}, which drops one player from a roster the others may
+     * still play. Only the player who sent the invite may withdraw, and only while the window is
+     * open; a ballot already under way is not theirs to cancel.
+     */
+    public static final int ACTION_WITHDRAW = 4;
 
     public static final Type<RulesSubmitPayload> ID =
             new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "rules_submit"));

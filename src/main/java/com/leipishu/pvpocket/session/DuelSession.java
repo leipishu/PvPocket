@@ -66,6 +66,15 @@ public final class DuelSession {
     public int rulesRevision;
     /** Uuid of the player who authored the current revision. */
     public String rulesAuthor;
+    /**
+     * Uuid of the player who sent the invite, fixed for the life of the session.
+     *
+     * <p>Not the same as {@link #rulesAuthor}, which moves to whoever merged the ballot. Only the
+     * proposer may withdraw an invite, so that question needs an answer that voting cannot change.
+     * Null on sessions written before the field existed; callers fall back to {@link #rulesAuthor},
+     * which is the proposer for anything still in {@code NEGOTIATING}.
+     */
+    public String proposerUuid;
     /** Uuid of the player whose answer the session is waiting on. */
     public String awaitingUuid;
 
