@@ -649,7 +649,11 @@ public final class SessionManager {
         deferred.add(() -> {
             ServerPlayer online = server.getPlayerList().getPlayer(joining);
             if (online != null) {
-                homes.rescue(online);
+                // A participant is not a stray: rescue sends players home, and the reconnect
+                // prompt would put them straight back on the bench a tick later.
+                if (!isInMatch(online)) {
+                    homes.rescue(online);
+                }
                 offerReconnect(online);
             }
         });
@@ -668,7 +672,12 @@ public final class SessionManager {
     private void offerReconnect(ServerPlayer player) {
         DuelSession session = liveSessionOf(player);
         if (session == null) {
-            return;
+            // No mapping before the freeze, and the result page is the one pre-freeze stage that
+            // has already moved the player into the dimension.
+            session = findOpenSession(player.getUUID());
+            if (session == null || session.stage != SessionStage.RESULT) {
+                return;
+            }
         }
         Participant p = session.participant(player.getStringUUID());
         if (p == null || p.surrendered || p.abandoned) {
@@ -704,6 +713,25 @@ public final class SessionManager {
         player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.accept").setStyle(accept)
                 .append(Component.literal("  "))
                 .append(PvLang.t("pvpocket.msg.reconnect.decline").setStyle(decline)), false);
+    }
+
+    /**
+     * True while this player still belongs to a match that has not ended.
+     *
+     * <p>The stray-player rescue must not touch them: it sends players home, and a participant is
+     * not a stray. Both lookups are needed, because the session mapping is only written at the
+     * freeze while the result page has already moved everybody.
+     */
+    private boolean isInMatch(ServerPlayer player) {
+        DuelSession session = liveSessionOf(player);
+        if (session == null) {
+            session = findOpenSession(player.getUUID());
+        }
+        if (session == null) {
+            return false;
+        }
+        Participant p = session.participant(player.getStringUUID());
+        return p != null && !p.rejected && !p.abandoned;
     }
 
     /** The session this player is a live participant of, or null. */
