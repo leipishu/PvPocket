@@ -66,6 +66,23 @@ public final class Participant {
     public boolean surrendered;
 
     /**
+     * When this player stopped being present, or {@code 0} while they are here.
+     *
+     * <p>Set when the connection drops and again at a round start that finds them away. Presence is
+     * the only thing that decides whether they are teleported in: a round never starts with
+     * somebody who is away, and a player who comes back mid-round watches until the next one
+     * begins. Cleared by accepting the reconnect prompt.
+     */
+    public long goneSince;
+
+    /**
+     * True once this player turned down the reconnect prompt, or never came back before the series
+     * ended. Per-series and terminal, like {@link #surrendered}, but it takes one player out rather
+     * than a whole side: their team-mates keep playing.
+     */
+    public boolean abandoned;
+
+    /**
      * This player's loadout, encoded by {@code Loadout.encode()}.
      *
      * <p>Every participant in a session holds the same value; written by

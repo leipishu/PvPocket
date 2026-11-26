@@ -64,6 +64,30 @@ onwards must go through `releaseLobby` (restore plus release); only `DRAFT` / `N
 can really be dropped for free. **"Has snapshots" is equivalent to "must restore"**, and that
 invariant is what crash reconciliation is built on.
 
+### Disconnects and reconnects
+
+A dropped connection is handled as two separate questions, because a round can be replayed and a
+series' loadout and score cannot.
+
+- **A drop during a round** eliminates that player from the round (`DISCONNECT`) and the round plays
+  on: the body is gone, so nobody can kill it and the clock would be the only way out. The **series
+  does not end**; they stay on the roster for the next round, with `goneSince` recording when they
+  left.
+- **Login asks once**: chat carries "[ Reconnect ] [ Give up ]", the same as
+  `/pvpocket reconnect accept|decline`. Until they answer they are a spectator above their spawn pad:
+  they can neither hit nor be hit.
+- **A reconnect enters only at a round start.** `startRound` teleports in participants who are online
+  and not waiting, and nobody else. A round already under way keeps them spectating until the next
+  one; reconnecting between rounds works the same way. There is no mid-round entry, because the
+  loadout, the spawn and the score were fixed the moment the round began.
+- **Giving up** is terminal for that player only (`abandoned`): the snapshot goes back, the screen is
+  cleared, and the team-mates play on. The series ends only when nobody on the side is left, or when
+  the round loses its last opposition — the same path a surrender takes.
+- **The round boundary waits**: after a settle, if a side has nobody online, `startDueRounds` holds
+  the boundary for up to 60 seconds (`RECONNECT_HOLD_MS`) instead of cutting the series, and records
+  `CUT` only when nobody comes back. That window exists only at a round boundary, which is also the
+  only place a reconnect can enter.
+
 ## 4. Snapshots and restore
 
 **The snapshot is written when the result page goes up, not at the freeze.** The order is "write the

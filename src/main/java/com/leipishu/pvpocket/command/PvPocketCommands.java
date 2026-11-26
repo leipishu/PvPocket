@@ -63,6 +63,11 @@ public final class PvPocketCommands {
         root.then(Commands.literal("help").executes(PvPocketCommands::help));
         root.then(Commands.literal("review").executes(PvPocketCommands::review));
         root.then(Commands.literal("surrender").executes(PvPocketCommands::surrender));
+        // The prompt at login carries these two as click events; typed they do the same thing.
+        root.then(Commands.literal("reconnect")
+                .executes(PvPocketCommands::reconnectHelp)
+                .then(Commands.literal("accept").executes(PvPocketCommands::reconnectAccept))
+                .then(Commands.literal("decline").executes(PvPocketCommands::reconnectDecline)));
         root.then(Commands.literal("status").executes(PvPocketCommands::status));
         root.then(Commands.literal("arena")
                 .executes(PvPocketCommands::arena)
@@ -130,6 +135,8 @@ public final class PvPocketCommands {
         helpLine(source, "/pvpocket duel", "pvpocket.command.help.duel");
         helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
         helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
+        helpLine(source, "/pvpocket reconnect <accept|decline>",
+                "pvpocket.command.help.reconnect");
         helpLine(source, "/pvpocket status", "pvpocket.command.help.status");
         helpLine(source, "/pvpocket arena", "pvpocket.command.help.arena");
         helpLine(source, "/pvpocket arena reset", "pvpocket.command.help.arena_reset");
@@ -168,6 +175,30 @@ public final class PvPocketCommands {
     private static int surrender(CommandContext<CommandSourceStack> ctx) {
         try {
             SessionManager.get().surrender(ctx.getSource().getPlayerOrException());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int reconnectHelp(CommandContext<CommandSourceStack> ctx) {
+        ctx.getSource().sendSuccess(() -> PvLang.t("pvpocket.command.reconnect.usage")
+                .withStyle(ChatFormatting.GRAY), false);
+        return 1;
+    }
+
+    private static int reconnectAccept(CommandContext<CommandSourceStack> ctx) {
+        try {
+            SessionManager.get().reconnectAccept(ctx.getSource().getPlayerOrException());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int reconnectDecline(CommandContext<CommandSourceStack> ctx) {
+        try {
+            SessionManager.get().reconnectDecline(ctx.getSource().getPlayerOrException());
             return 1;
         } catch (Exception e) {
             return 0;

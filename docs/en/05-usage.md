@@ -245,6 +245,21 @@ out of the series**, not out of one round.
 - It takes effect the moment the request passes, so it works between rounds too - no need to start
   another one first.
 
+### Disconnects and reconnects
+
+A dropped connection loses that round, but it does not end the series — unless you give up.
+
+- **Login asks once**: two lines in chat, "[ Reconnect ] [ Give up ]", the same as
+  `/pvpocket reconnect accept` / `/pvpocket reconnect decline`. Until you answer you are a spectator
+  above your spawn pad: you can neither hit nor be hit.
+- **A reconnect enters only when the next round begins.** If the current round is already live you
+  keep watching until it ends, and reconnecting between rounds works the same way. There is no
+  mid-round entry: the loadout, the spawn and the score were fixed when the round began.
+- **Giving up** affects only you: items and position are restored at once and your team-mates play
+  on. Only when nobody on the side is left does it amount to the whole side leaving.
+- Between rounds, if a side has nobody online, the server waits up to 60 seconds before recording a
+  `CUT`; that window exists for reconnects.
+
 ### The result card
 
 When a whole series ends — not a single round — every participant gets a result card. The server
@@ -295,6 +310,8 @@ client and scripts and operators can only speak commands.
 | `/pvpocket duel` | Open the rule panel: pick the players, set the sides and the rules there; takes no arguments |
 | `/pvpocket review` | Reopen the rule panel |
 | `/pvpocket surrender` | Leave the series (not one round). With three or more sides only yours is out and the rest play on |
+| `/pvpocket reconnect accept` | Rejoin a running match: watch until the next round begins (the chat button at login does the same) |
+| `/pvpocket reconnect decline` | Give up this match: items and position are restored at once, team-mates play on |
 | `/pvpocket status` | Current session's stage, round, score and rule summary |
 | `/pvpocket list` | Open the match list |
 | `/pvpocket spectate <id prefix>` | Enter a match directly, bypassing the panel |
@@ -403,6 +420,8 @@ able to rescue a stuck player.
 | Start refused, "arena is rebuilding" | The previous `arena reset` has not finished stamping; wait until `/pvpocket arena` shows the full map count |
 | Start refused, "in use by another duel" | One map, one duel; pick another |
 | Player stuck in the duel dimension | `/pvpocket guard false`, teleport them out manually, or wait five seconds for the automatic ejection |
+| Reconnected but not back on the plot | Expected. A reconnect enters only when the next round begins; while this one is live you watch |
+| No reconnect prompt at login | The match is over, or you are not on its roster. `/pvpocket status` shows the stage |
 | Surrender does nothing | "Allow surrender" is off in rule group G |
 | Player lost items | Find the session's `SNAPSHOT_TAKEN` / `RESTORED` sequence in `pvpocket/journal/` |
 | The text in the panels looks smeared, Chinese especially | Not the mod — it is the client's font. Vanilla draws Chinese with a 16×16 bitmap squeezed into a 9px line height; install a TrueType resource pack covering both scripts. See the note at the top of the [`README`](README.md) |

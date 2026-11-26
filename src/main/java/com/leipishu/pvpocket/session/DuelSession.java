@@ -284,7 +284,8 @@ public final class DuelSession {
     }
 
     /**
-     * Members of a side still playing the series: declined invites and a surrendered side out.
+     * Members of a side still playing the series: declined invites, a surrendered side and players
+     * who abandoned the match out.
      *
      * <p>The distinction from {@link #activeMembers(int)} is what a surrender means. A side that
      * gives up keeps its roster and its score - the scoreboard still shows both - but nothing that
@@ -293,7 +294,7 @@ public final class DuelSession {
     public List<Participant> contestingMembers(int team) {
         List<Participant> out = new ArrayList<>();
         for (Participant p : activeMembers(team)) {
-            if (!p.surrendered) {
+            if (!p.surrendered && !p.abandoned) {
                 out.add(p);
             }
         }

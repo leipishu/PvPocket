@@ -59,7 +59,7 @@ origin. That is what makes several duels genuinely simultaneous and mutually inv
 ## Scope
 
 **In:** negotiated rules, 1.8 and modern combat, multi-round series, per-player loadout editor,
-spectating with camera binding, disconnect recovery, terrain protection and restore, stray-player
+spectating with camera binding, disconnect recovery (re-entry only at a round boundary), terrain protection and restore, stray-player
 protection, arena rebuild.
 
 **Out:** matchmaking, persistent rankings, cross-server, spectator chat, replays.

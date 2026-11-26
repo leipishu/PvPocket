@@ -57,6 +57,7 @@ import net.minecraft.network.protocol.game.ClientboundClearTitlesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -145,6 +146,15 @@ public final class SessionManager {
      * the accept packet, and anything longer is a disconnect.
      */
     private static final int ABSENT_GRACE_TICKS = 40;
+
+    /**
+     * How long a round boundary waits for a side with nobody present, in milliseconds.
+     *
+     * <p>Between rounds is the only moment a returning player can be taken back, so a dropped
+     * connection gets one window here before the series is cut. Long enough for a client to
+     * reconnect and answer the prompt; short enough that the other side is not left waiting.
+     */
+    private static final long RECONNECT_HOLD_MS = 60_000L;
 
     /**
      * Upper bound on how long a participant can stay off the plot before the boundary rule
@@ -268,6 +278,13 @@ public final class SessionManager {
     private final Map<String, Long> roundStartedAt = new HashMap<>();
     /** Session id -> wall-clock time the next round may begin, for the intermission. */
     private final Map<String, Long> roundReadyAt = new HashMap<>();
+    /**
+     * Session id -> when the boundary started waiting for a side with nobody present.
+     *
+     * <p>Separate from {@link #roundReadyAt}, which is retried every second: this one remembers
+     * when the wait began so {@link #RECONNECT_HOLD_MS} can expire it into a cut.
+     */
+    private final Map<String, Long> absentSince = new HashMap<>();
     /**
      * Session id -> the intermission second last pushed to clients.
      *
@@ -625,8 +642,169 @@ public final class SessionManager {
             ServerPlayer online = server.getPlayerList().getPlayer(joining);
             if (online != null) {
                 homes.rescue(online);
+                offerReconnect(online);
             }
         });
+    }
+
+    /**
+     * Asks a returning participant whether they want their place back.
+     *
+     * <p>Asked rather than assumed: a player who logs in to check something else should not be
+     * dropped into a fight. Until they answer they are a spectator, and a round already running
+     * will not take them; the next one will.
+     *
+     * <p>Not asked before the freeze. Nothing has started there, so there is nothing to reconnect
+     * to; the countdown puts them in like everybody else.
+     */
+    private void offerReconnect(ServerPlayer player) {
+        DuelSession session = liveSessionOf(player);
+        if (session == null) {
+            return;
+        }
+        Participant p = session.participant(player.getStringUUID());
+        if (p == null || p.surrendered || p.abandoned) {
+            return;
+        }
+        if (session.stage == SessionStage.RESULT) {
+            // Nothing has started and the countdown is itself the round boundary, so being back is
+            // all it takes: no question, and no reason to be marked away.
+            p.goneSince = 0;
+            persist(session);
+            enterLobby(session, p, player);
+            return;
+        }
+        if (session.stage.isPreFreeze() || p.goneSince == 0) {
+            return;
+        }
+        // Parked before the question: whatever they answer, a live round must not gain a body that
+        // can hit or be hit. The spawn pad is where the next round will put them anyway.
+        parkForIntermission(session, player, p, ArenaManager.region(session.id));
+        journal(session).append("RECONNECT_OFFERED", "player", p.name,
+                "stage", session.stage.name(), "round", session.round);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.ask",
+                        session.round, session.maxRounds, scoreLine(session))
+                .withStyle(ChatFormatting.GOLD), false);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.wait")
+                .withStyle(ChatFormatting.GRAY), false);
+        Style accept = PvCompat.hoverText(PvCompat.clickCommand(
+                        Style.EMPTY.withColor(ChatFormatting.GREEN), "/pvpocket reconnect accept"),
+                PvLang.t("pvpocket.msg.reconnect.accept_hover"));
+        Style decline = PvCompat.hoverText(PvCompat.clickCommand(
+                        Style.EMPTY.withColor(ChatFormatting.RED), "/pvpocket reconnect decline"),
+                PvLang.t("pvpocket.msg.reconnect.decline_hover"));
+        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.accept").setStyle(accept)
+                .append(Component.literal("  "))
+                .append(PvLang.t("pvpocket.msg.reconnect.decline").setStyle(decline)), false);
+    }
+
+    /** The session this player is a live participant of, or null. */
+    private DuelSession liveSessionOf(ServerPlayer player) {
+        String sessionId = sessionByPlayer.get(player.getUUID());
+        if (sessionId == null) {
+            return null;
+        }
+        DuelSession session = sessions.get(sessionId);
+        if (session == null || session.stage.isTerminal()) {
+            return null;
+        }
+        return session;
+    }
+
+    /**
+     * The returning player takes their place back.
+     *
+     * <p>Nothing moves them here: a running round keeps them on the spectator bench, and
+     * {@code startRound} puts them in when the next one begins. That is the only moment a round can
+     * absorb a player: mid-round the loadout, the spawn and the score are already settled.
+     */
+    public void reconnectAccept(ServerPlayer player) {
+        DuelSession session = liveSessionOf(player);
+        if (session == null) {
+            fail(player, "pvpocket.msg.reconnect.none");
+            return;
+        }
+        Participant p = session.participant(player.getStringUUID());
+        if (p == null || p.surrendered || p.abandoned) {
+            fail(player, "pvpocket.msg.reconnect.none");
+            return;
+        }
+        if (p.goneSince == 0) {
+            fail(player, "pvpocket.msg.reconnect.already");
+            return;
+        }
+        p.goneSince = 0;
+        if (session.stage == SessionStage.ROUND_ACTIVE && !p.eliminated) {
+            // They are watching this round, not fighting it. A spectator that counts as standing
+            // would keep the round from ever ending.
+            p.eliminated = true;
+        }
+        journal(session).append("RECONNECT_ACCEPTED", "player", p.name,
+                "stage", session.stage.name(), "round", session.round);
+        persist(session);
+        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.accepted",
+                session.round + 1).withStyle(ChatFormatting.GREEN), false);
+    }
+
+    /**
+     * The returning player gives up their place.
+     *
+     * <p>Terminal for this series and only for them: the side keeps playing with whoever is left,
+     * which is what makes this different from a surrender.
+     */
+    public void reconnectDecline(ServerPlayer player) {
+        DuelSession session = liveSessionOf(player);
+        if (session == null) {
+            fail(player, "pvpocket.msg.reconnect.none");
+            return;
+        }
+        Participant p = session.participant(player.getStringUUID());
+        if (p == null || p.surrendered || p.abandoned) {
+            fail(player, "pvpocket.msg.reconnect.none");
+            return;
+        }
+        if (p.goneSince == 0) {
+            fail(player, "pvpocket.msg.reconnect.already");
+            return;
+        }
+        abandon(session, p, player);
+    }
+
+    /**
+     * Takes one player out of the series without touching their side.
+     *
+     * <p>Mirrors {@code applySurrender} one member at a time: the snapshot goes back, the screen is
+     * cleared, and the side keeps playing with whoever is left. The series only ends when this
+     * leaves nobody contesting, or when the round loses its last opposition.
+     */
+    private void abandon(DuelSession session, Participant p, ServerPlayer player) {
+        p.abandoned = true;
+        p.goneSince = 0;
+        p.eliminated = true;
+        journal(session).append("PLAYER_ABANDONED", "player", p.name,
+                "stage", session.stage.name(),
+                "remaining", session.contestingMembers(p.teamIndex()).size(),
+                "teams", session.contestingTeams().size());
+        if (p.snapshotFile != null && restoreParticipant(session, p)) {
+            // Restored and sent home; nothing else to clear.
+        } else {
+            clearMatchScreen(player);
+        }
+        broadcastHud(session, true);
+        List<Integer> left = session.contestingTeams();
+        if (left.size() <= 1) {
+            forfeit(session, player, left.isEmpty() ? leaderTeam(session) : left.get(0));
+            return;
+        }
+        if (session.stage == SessionStage.ROUND_ACTIVE) {
+            // The round may have lost its last opposition rather than its last player.
+            int winner = lastTeamStanding(session);
+            if (winner >= 0) {
+                settle(session, "DISCONNECT", winner);
+                return;
+            }
+        }
+        persist(session);
     }
 
     /**
@@ -699,8 +877,9 @@ public final class SessionManager {
     /**
      * Starts any round whose intermission has elapsed.
      *
-     * <p>Runs from {@code tick()}. A round that cannot start because a participant logged out voids
-     * the series instead of throwing out of the tick loop.
+     * <p>Runs from {@code tick()}. A boundary with fewer than two sides present is held open for
+     * {@link #RECONNECT_HOLD_MS} and then cut, rather than started short-handed or thrown out of
+     * the tick loop.
      */
     private void startDueRounds() {
         if (roundReadyAt.isEmpty()) {
@@ -726,13 +905,38 @@ public final class SessionManager {
                 roundReadyAt.put(id, System.currentTimeMillis() + CORPSE_IDLE_MS);
                 continue;
             }
+            int present = presentSides(session);
+            if (present < 2) {
+                // Not enough people to fight. Hold the boundary open for a reconnect rather than
+                // ending the series on the first dropped packet: this is where one can come back.
+                Long since = absentSince.get(id);
+                if (since == null) {
+                    absentSince.put(id, now);
+                    journal(session).append("ROUND_HELD", "reason", "sides_present", present);
+                    broadcastParticipants(session, PvLang.t("pvpocket.msg.round.holding",
+                            RECONNECT_HOLD_MS / 1000L));
+                    roundReadyAt.put(id, now + 1000L);
+                    continue;
+                }
+                if (now - since < RECONNECT_HOLD_MS) {
+                    roundReadyAt.put(id, now + 1000L);
+                    continue;
+                }
+                absentSince.remove(id);
+                session.seriesEndReason = "CUT";
+                journal(session).append("SERIES_CUT", "reason", "no_sides_present",
+                        "waitedMs", now - since);
+                finishSeries(session, leaderTeam(session, absentTeam(session)));
+                continue;
+            }
+            absentSince.remove(id);
             try {
                 startRound(session);
             } catch (RuntimeException e) {
                 // startRound bumps the round counter before it can fail; a cut counts no round.
                 session.round = before;
                 if (session.participants.stream()
-                        .anyMatch(p -> !p.surrendered && online(p) == null)) {
+                        .anyMatch(p -> !p.surrendered && !p.abandoned && online(p) == null)) {
                     // A participant logged off during the intermission; that ends the series.
                     session.seriesEndReason = "CUT";
                     journal(session).append("SERIES_CUT", "reason", "participant_offline");
@@ -853,7 +1057,7 @@ public final class SessionManager {
     /** True while any participant of this session is a corpse. */
     private boolean anyDead(DuelSession session) {
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -862,6 +1066,25 @@ public final class SessionManager {
             }
         }
         return false;
+    }
+
+    /**
+     * Sides that have somebody standing by for the next round.
+     *
+     * <p>Online and not away: a player sitting at the reconnect prompt is still deciding, so the
+     * round does not count them until they answer.
+     */
+    private int presentSides(DuelSession session) {
+        int sides = 0;
+        for (int team : session.contestingTeams()) {
+            for (Participant p : session.contestingMembers(team)) {
+                if (p.goneSince == 0 && online(p) != null) {
+                    sides++;
+                    break;
+                }
+            }
+        }
+        return sides;
     }
 
     public void onDisconnect(ServerPlayer player) {
@@ -882,15 +1105,37 @@ public final class SessionManager {
             return;
         }
         DuelSession session = sessions.get(sessionId);
-        if (session == null || session.stage != SessionStage.ROUND_ACTIVE) {
+        if (session == null || session.stage.isTerminal()) {
             return;
         }
         Participant me = session.participant(player.getStringUUID());
-        if (me == null || me.surrendered) {
+        if (me == null || me.surrendered || me.abandoned) {
             return;
         }
-        // Leaving is an elimination, not a verdict on the round: the last member of a side ends it.
-        deferred.add(() -> eliminate(session, me, "DISCONNECT"));
+        String uuid = player.getStringUUID();
+        long now = System.currentTimeMillis();
+        // Deferred, so the session is not mutated while the disconnect unwinds.
+        deferred.add(() -> {
+            DuelSession live = sessions.get(sessionId);
+            if (live == null || live.stage.isTerminal()) {
+                return;
+            }
+            Participant p = live.participant(uuid);
+            if (p == null || p.surrendered || p.abandoned) {
+                return;
+            }
+            // Recorded for every stage, not only the live round: somebody who drops between
+            // rounds is still away when the next one starts.
+            p.goneSince = now;
+            journal(live).append("PLAYER_AWAY", "player", p.name, "stage", live.stage.name());
+            if (live.stage == SessionStage.ROUND_ACTIVE) {
+                // The body is gone, so nobody can kill it and the round would only end on the
+                // clock. Elimination is per round, so the next round can still have them back.
+                eliminate(live, p, "DISCONNECT");
+            } else {
+                persist(live);
+            }
+        });
     }
 
     /**
@@ -1221,7 +1466,7 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             // A side that left is out of the verdict too: its players are standing in survival with
             // full health, which would read as a lead.
-            if (p.rejected || p.surrendered) {
+            if (p.rejected || p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -1461,7 +1706,7 @@ public final class SessionManager {
      */
     private void parkForIntermission(DuelSession session, ServerPlayer player, Participant p,
                                      ArenaRegion region) {
-        if (region == null || p.surrendered) {
+        if (region == null || p.surrendered || p.abandoned) {
             return;
         }
         Sandbox.changeGameMode(player, GameType.SPECTATOR);
@@ -1561,7 +1806,7 @@ public final class SessionManager {
                     continue;
                 }
                 String key = session.id + "/" + p.uuid;
-                if (p.surrendered) {
+                if (p.surrendered || p.abandoned) {
                     // Back in survival, standing in their own world by design: the plot's bounds
                     // are not theirs to keep, and the countdown would kill them a second time.
                     boundaryExits.remove(key);
@@ -4348,21 +4593,28 @@ public final class SessionManager {
         var arenaWorld = ArenaManager.world(server);
         applyEnvironment(arenaWorld, rules);
         clearBoundaryExits(session);
-        // Elimination is per round: every side starts each round with everybody standing.
-        for (Participant p : session.participants) {
-            p.eliminated = false;
-        }
         int prepare = Math.max(0, rules.get("a.countdown"));
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 // A side that left the series is not teleported in, armed, or counted as absent:
                 // its members are back in survival and have no part in this round.
+                p.eliminated = true;
                 continue;
             }
             ServerPlayer player = online(p);
-            if (player == null) {
-                throw new IllegalStateException("participant offline: " + p.name);
+            // Away: a dropped connection, or a prompt not answered yet. Out of this round; the
+            // next start can take them back. Only reachable when every side has somebody present.
+            if (player == null || p.goneSince > 0) {
+                p.eliminated = true;
+                if (p.goneSince == 0) {
+                    p.goneSince = System.currentTimeMillis();
+                }
+                journal(session).append("ROUND_START_ABSENT", "player", p.name,
+                        "online", player != null, "round", session.round);
+                continue;
             }
+            p.eliminated = false;
+            p.goneSince = 0;
             if (!player.isAlive()) {
                 // Reachable after a crash or a stop taken on the death screen. Reviving keeps every
                 // round starting from the same state.
@@ -4442,7 +4694,7 @@ public final class SessionManager {
             broadcastHud(session, true);
             broadcastBounds(session, true);
             for (Participant p : session.participants) {
-                if (p.surrendered) {
+                if (p.surrendered || p.abandoned) {
                     continue;
                 }
                 ServerPlayer player = online(p);
@@ -4471,16 +4723,20 @@ public final class SessionManager {
             journal(session).append("PREPARE_WALL_REMOVED", "blocks", removed);
         }
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
             if (player == null) {
-                // Somebody left during the preparation window; they never fought, so cut it.
-                session.seriesEndReason = "CUT";
-                journal(session).append("SERIES_CUT", "reason", "participant_offline");
-                finishSeries(session, leaderTeam(session, absentTeam(session)));
-                return;
+                // Dropped during the preparation window, so they never fought. Out of this round
+                // only; the next start can take them back.
+                p.eliminated = true;
+                if (p.goneSince == 0) {
+                    p.goneSince = System.currentTimeMillis();
+                }
+                journal(session).append("ROUND_START_ABSENT", "player", p.name,
+                        "online", false, "round", session.round);
+                continue;
             }
             player.setInvulnerable(false);
         }
@@ -4503,11 +4759,18 @@ public final class SessionManager {
                 "spawns", region == null ? "-" : spawnsOf(region));
         roundStartedAt.put(session.id, System.currentTimeMillis());
         transition(session, SessionStage.ROUND_ACTIVE);
+        // A round that starts with fewer than two sides standing is not a round: settle it now,
+        // because the clock would otherwise run on a fight nobody can have.
+        List<Integer> standing = session.survivingTeams();
+        if (standing.size() < 2) {
+            settle(session, "DISCONNECT", standing.isEmpty() ? leaderTeam(session) : standing.get(0));
+            return;
+        }
         broadcastHud(session, true);
         // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -4553,7 +4816,7 @@ public final class SessionManager {
             if (second != entry.getValue().announced()) {
                 prepareDeadlines.put(id, new Prepare(entry.getValue().at(), second));
                 for (Participant p : session.participants) {
-                    if (p.surrendered) {
+                    if (p.surrendered || p.abandoned) {
                         continue;
                     }
                     ServerPlayer player = online(p);
@@ -4726,15 +4989,8 @@ public final class SessionManager {
 
         int seriesWinner = seriesWinnerTeam(session);
         boolean decided = seriesDecided(session);
-        if (!decided && session.participants.stream()
-                .anyMatch(p -> !p.rejected && !p.surrendered && online(p) == null)) {
-            // Somebody left, so the series is cut now rather than failing in the intermission.
-            // Cut always finishes, even with no leader: a cut tied series has no winner.
-            session.seriesEndReason = "CUT";
-            journal(session).append("SERIES_CUT", "reason", "participant_offline");
-            finishSeries(session, leaderTeam(session, absentTeam(session)));
-            return;
-        }
+        // An offline participant does not cut the series here: the round boundary is where they
+        // can come back, and startDueRounds holds it open for them.
         if (!decided) {
             beginIntermission(session, region, arenaWorld, winnerTeam);
             return;
@@ -5222,6 +5478,8 @@ public final class SessionManager {
         if (pendingSurrender != null) {
             closeSurrenderPrompt(session, pendingSurrender);
         }
+        // A boundary that was waiting for a reconnect has nothing left to wait for.
+        absentSince.remove(session.id);
         // Ejected before the snapshots are restored, because restoring teleports the participants.
         spectators.ejectAll(session.id, "SERIES_END");
 
@@ -5502,7 +5760,7 @@ public final class SessionManager {
                 : boundsOf(region, mode);
         PrepareScreensPayload screens = screensOf(session);
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -5563,7 +5821,7 @@ public final class SessionManager {
     private void broadcastPrepare(DuelSession session, boolean active) {
         PrepareStatusPayload payload = new PrepareStatusPayload(session.id, active);
         for (Participant p : session.participants) {
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -5578,7 +5836,7 @@ public final class SessionManager {
         for (Participant p : session.participants) {
             // A side that left has its own screen cleared once, on the way out; a live scoreboard
             // pushed at it again every round would read as "still in the match".
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -5626,10 +5884,10 @@ public final class SessionManager {
                 first = false;
             }
         }
-        // A surrendered side is greyed for the rest of the series, not just for the round it left
-        // in, so its flag is folded in here rather than into the per-round field.
+        // A surrendered side is greyed for the rest of the series, and an away player is greyed
+        // because they are not fighting. Both fold into the same per-round field.
         for (Participant p : session.participants) {
-            if ((!p.eliminated && !p.surrendered) || p.rejected) {
+            if ((!p.eliminated && !p.surrendered && p.goneSince == 0) || p.rejected) {
                 continue;
             }
             if (eliminated.length() > 0) {
@@ -5861,7 +6119,7 @@ public final class SessionManager {
             ((PlayerManagerInvoker) PvCompat.server(player).getPlayerList())
                     .pvpocket$savePlayerData(player);
             sessionByPlayer.remove(player.getUUID());
-            if (p.surrendered) {
+            if (p.surrendered || p.abandoned) {
                 // Nothing of the match may stay on the screen of a player who left it: the bar,
                 // the plot outline and the preparation curtain all go with the session mapping.
                 clearMatchScreen(player);
@@ -5876,11 +6134,13 @@ public final class SessionManager {
                 PvPocket.LOGGER.warn("Restore digest mismatch for {} in session {}: {}",
                         p.name, session.id, diff);
             }
-            // A side that surrendered gets its state back mid-series, so it must not be told the
-            // match is over: the others are still fighting.
+            // A side that surrendered, or one player who gave up their own place, gets its state
+            // back mid-series: neither should be told the match is over.
             player.displayClientMessage(PvLang.t(p.surrendered
                             ? "pvpocket.msg.duel.surrendered_restored"
-                            : "pvpocket.msg.series.restored")
+                            : p.abandoned
+                                    ? "pvpocket.msg.reconnect.left"
+                                    : "pvpocket.msg.series.restored")
                     .withStyle(ChatFormatting.GREEN), false);
             return true;
         } catch (Exception e) {
