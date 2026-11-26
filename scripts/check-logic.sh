@@ -7,6 +7,12 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
 
+# Gradle writes the classpath with File.pathSeparator, so the separator follows the host OS.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) CP_SEP=';' ;;
+    *) CP_SEP=':' ;;
+esac
+
 # Rule logic needs one cell; mixin targets are checked on both, since NeoForge patches vanilla
 # call sites. The checks read the generated tree, where a //? marker has already been resolved.
 FABRIC_CELL="${FABRIC_CELL:-1.21.1-fabric}"
@@ -16,18 +22,19 @@ FABRIC_BUILD="versions/$FABRIC_CELL/build"
 # The probes compile against the cell's class files, and no javac reads a class file newer than
 # itself, so use the newest JDK: 1.21.1 cells emit level 21, 26.1 cells emit level 25.
 find_jdk() {
-    local candidate
+    local candidate version best="" best_version=0
     # Read line by line: the paths contain spaces, so word splitting a $(...) would cut them up.
     while IFS= read -r candidate; do
-        if [ -n "$candidate" ] && [ -x "$candidate/bin/javac" ]; then
-            if "$candidate/bin/javac" -version 2>&1 | grep -qE '^javac (2[1-9]|[3-9][0-9])'; then
-                echo "$candidate/bin"
-                return 0
-            fi
+        [ -n "$candidate" ] && [ -x "$candidate/bin/javac" ] || continue
+        version="$("$candidate/bin/javac" -version 2>&1 \
+            | sed -n 's/^javac \([0-9][0-9]*\).*/\1/p')"
+        if [ -n "$version" ] && [ "$version" -ge 21 ] && [ "$version" -gt "$best_version" ]; then
+            best="$candidate/bin"
+            best_version="$version"
         fi
     done < <(printf '%s\n' "/c/Program Files/Java"/jdk-* "${JAVA_HOME:-}" \
-            /usr/lib/jvm/java-2*-openjdk-amd64 2>/dev/null | sort -Vr)
-    return 1
+            /usr/lib/jvm/java-2*-openjdk-amd64 2>/dev/null)
+    [ -n "$best" ] && echo "$best"
 }
 JDK="$(find_jdk)" || { echo "[logic] 找不到 JDK 21 或更新（设 JAVA_HOME 或装到默认路径）" >&2; exit 2; }
 
@@ -53,7 +60,7 @@ FABRIC_CP_FILE="$(classpath_file "$FABRIC_CELL")" || exit 2
 FABRIC_CP="$(tr -d '\r\n' < "$FABRIC_CP_FILE")"
 
 # LoadoutContentCheck reads en_us.json out of a real game jar, picked from that classpath.
-MC_CLIENT="$(tr ';' '\n' < "$FABRIC_CP_FILE" | grep -iE 'minecraft-clientOnly-.*\.jar$' \
+MC_CLIENT="$(tr "$CP_SEP" '\n' < "$FABRIC_CP_FILE" | grep -iE 'minecraft-clientOnly-.*\.jar$' \
     | grep -v sources | head -1)"
 
 GEN="versions/$FABRIC_CELL/gen-src"
@@ -63,7 +70,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # The compile step needs MC as well: ItemKind signatures mention net.minecraft.item.Item.
-CP="$FABRIC_BUILD/classes/java/main;$OUT;$FABRIC_CP"
+CP="$FABRIC_BUILD/classes/java/main${CP_SEP}$OUT${CP_SEP}$FABRIC_CP"
 SOURCES=$(ls "$ROOT"/scripts/checks/*Check.java 2>/dev/null)
 if [ -z "$SOURCES" ]; then
     echo "[logic] scripts/checks/ 下没有 *Check.java" >&2
@@ -96,7 +103,7 @@ if NEOFORGE_CP_FILE="$(classpath_file "$NEOFORGE_CELL")"; then
     NEOFORGE_CP="$(tr -d '\r\n' < "$NEOFORGE_CP_FILE")"
     echo "[logic] NeoForge 的 mixin 目标（$NEOFORGE_CELL）"
     "$JDK/java" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 \
-        -classpath "$OUT;$NEOFORGE_CP" MixinTargetCheck \
+        -classpath "$OUT${CP_SEP}$NEOFORGE_CP" MixinTargetCheck \
         --src "$NEOFORGE_GEN/main/java" --src "$NEOFORGE_GEN/client/java" \
         --src "$NEOFORGE_GEN/neoforge/java" \
         --src "$NEOFORGE_GEN/client-neoforge/java" || FAILED=1

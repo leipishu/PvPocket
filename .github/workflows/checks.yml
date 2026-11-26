@@ -1,0 +1,149 @@
+name: checks
+
+# Static checks gate every push and pull request. The compile + logic matrix covers one
+# Minecraft version per job, because MixinTargetCheck needs both loaders of that version.
+# The full jar build runs on demand and weekly (Sunday 18:00 UTC, Monday 02:00 Beijing).
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: 静态检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 源码与资源
+        run: |
+          set -e
+          python scripts/check-boundary.py
+          python scripts/check-content.py --all
+          python scripts/check-lang.py --strict
+          python scripts/check-rules.py --docs
+          python scripts/check-run-configs.py
+          python scripts/check-comments.py
+      - name: 生成树校验
+        run: |
+          set -e
+          for mc in 1.21.1 1.21.11 26.1 26.2 26.3; do
+            python scripts/port/gen.py --mc "$mc" --src src --out "/tmp/gen/$mc" \
+              --table "scripts/port/$mc.tsv"
+          done
+
+  logic:
+    name: 编译与自检 ${{ matrix.mc }}
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ['1.21.1', '1.21.11', '26.1', '26.2', '26.3']
+    env:
+      FABRIC_CELL: ${{ matrix.mc }}-fabric
+      NEOFORGE_CELL: ${{ matrix.mc }}-neoforge
+    steps:
+      - uses: actions/checkout@v4
+      # Two toolchains: 1.21.x compiles at level 21, 26.x at level 25. The Gradle daemon needs
+      # 25 or newer, so the second install is the default JAVA_HOME.
+      - uses: actions/setup-java@v4
+        id: jdk21
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-java@v4
+        id: jdk25
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: 改写 gradle.properties 的 Windows 路径
+        run: |
+          set -e
+          sed -i "s|^org.gradle.java.home=.*|org.gradle.java.home=${{ steps.jdk25.outputs.path }}|" gradle.properties
+          sed -i "s|^org.gradle.java.installations.paths=.*|org.gradle.java.installations.paths=${{ steps.jdk21.outputs.path }},${{ steps.jdk25.outputs.path }}|" gradle.properties
+          grep -E '^org.gradle.java' gradle.properties
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/caches/fabric-loom
+            ~/.gradle/caches/neoformruntime
+            ~/.gradle/wrapper
+            .gradle/loom-cache
+          key: gradle-${{ runner.os }}-${{ matrix.mc }}-${{ hashFiles('gradle/**', 'versions/**/build.gradle', 'settings.gradle', 'build.gradle') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ matrix.mc }}-
+            gradle-${{ runner.os }}-
+      - name: 编译两格
+        run: |
+          ./gradlew :$FABRIC_CELL:compileJava :$FABRIC_CELL:compileClientJava \
+            :$NEOFORGE_CELL:compileJava :$NEOFORGE_CELL:compileClientJava \
+            --console=plain
+      - name: 逻辑自检
+        run: bash scripts/check-logic.sh
+      - name: 失败留档
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-${{ matrix.mc }}
+          path: |
+            versions/*/build/logic-check
+            versions/*/build/reports
+          if-no-files-found: ignore
+          retention-days: 7
+
+  dist:
+    name: 全量产物
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        id: jdk21
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-java@v4
+        id: jdk25
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: 改写 gradle.properties 的 Windows 路径
+        run: |
+          set -e
+          sed -i "s|^org.gradle.java.home=.*|org.gradle.java.home=${{ steps.jdk25.outputs.path }}|" gradle.properties
+          sed -i "s|^org.gradle.java.installations.paths=.*|org.gradle.java.installations.paths=${{ steps.jdk21.outputs.path }},${{ steps.jdk25.outputs.path }}|" gradle.properties
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/caches/fabric-loom
+            ~/.gradle/caches/neoformruntime
+            ~/.gradle/wrapper
+            .gradle/loom-cache
+          key: gradle-${{ runner.os }}-all-${{ hashFiles('gradle/**', 'versions/**/build.gradle', 'settings.gradle', 'build.gradle') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - name: 构建十格
+        run: ./gradlew buildAll --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/**/*.jar
+          retention-days: 14

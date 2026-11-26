@@ -212,7 +212,7 @@ PvPocket/
 | `scripts/dev-clients.sh` | 开发 | 只拉起开发客户端并自动加入本地服务端 |
 | `scripts/dev.cmd` | 开发 | 上一行的 Windows 入口，双击即可，`scripts\dev.cmd 1.21.11-neoforge` 换格 |
 | `scripts/check-logic.sh` | 开发 / CI | 编译并运行 `scripts/checks/*Check.java`，再核 mixin 目标 |
-| `scripts/check-ui.sh` | 开发 / CI | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出 |
+| `scripts/check-ui.sh` | 开发 | 界面遮挡审计：遍历全部界面与两种画布，有遮挡即非零退出（要真实客户端，不进托管 CI） |
 | `scripts/map/world2struct.py` | 开发 / 加地图 | 世界存档、`.litematic`、`.schem` → 结构模板 |
 | `scripts/map/colosseum.py` | 加地图 | 生成斗兽场模板 |
 | `scripts/map/arena-verify.py` | 加地图 | 与第三方读取器逐块比对，验证转换正确 |
@@ -229,6 +229,10 @@ PvPocket/
 ## 验证
 
 **编译通过不等于可用。** 下面五项按改动范围选：
+
+CI（`.github/workflows/checks.yml`）覆盖其中能离线的部分：每次 push / PR 跑静态检查（边界、配装、
+语言、规则、运行配置、注释、生成树），再按版本矩阵编译两格并跑 `scripts/check-logic.sh`；每周与
+手动触发跑 `buildAll`，把十个 jar 传成 artifact。界面审计要真实客户端，只在本地跑。
 
 1. **编译**：`./gradlew :<cell>:compileJava :<cell>:compileClientJava`。
 2. **跑一局**：规则、会话、配装、网络的改动至少要在两端跑完一整局。服务端 journal
