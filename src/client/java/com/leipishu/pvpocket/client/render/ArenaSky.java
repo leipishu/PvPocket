@@ -82,9 +82,14 @@ public final class ArenaSky {
     /** Stars in the upper hemisphere: enough for a clear night, cheap enough for one batch. */
     private static final int STARS = 220;
 
-    /** Cloud cells across the layer, and how far the layer reaches. */
-    private static final int CLOUD_CELLS = 26;
+    /** Cloud cells across one layer, and how far the slab reaches horizontally. */
+    private static final int CLOUD_CELLS = 22;
     private static final float CLOUD_SPAN = 1.5F;
+
+    /** The cloud slab: this many sheets stacked between these two shares of the sky radius. */
+    private static final int CLOUD_LAYERS = 4;
+    private static final float CLOUD_BOTTOM = 0.30F;
+    private static final float CLOUD_TOP = 0.56F;
 
     private ArenaSky() {
     }
@@ -117,12 +122,12 @@ public final class ArenaSky {
         // Vertices are sent in world coordinates, so the camera offset is cancelled here.
         poses.translate(-cam.x, -cam.y, -cam.z);
         PvWorldGeometry.draw(frame, poses, PvRenderTypes.debugQuads(), (vc, matrix) -> {
-            // Back to front: the dome is the backdrop, the cloud layer sits inside it, and the
-            // discs and stars are nearest. Depth is on, so this order only decides the blends.
+            // Back to front: the dome, then the discs and stars at nine tenths of it, then the
+            // cloud slab. Clouds last so a thin sheet dims the sun rather than hiding it.
             dome(vc, matrix, cam, radius, sky);
-            clouds(vc, matrix, cam, radius, sky);
             discs(vc, matrix, cam, radius, sky);
-            stars(vc, matrix, cam, radius, sky);
+            stars(vc, matrix, cam, radius, sky, seconds());
+            clouds(vc, matrix, cam, radius, sky);
         });
         poses.popPose();
     }
@@ -187,46 +192,62 @@ public final class ArenaSky {
     // ------------------------------------------------------------------ clouds
 
     /**
-     * A broken sheet of cloud above the camera.
+     * The cloud slab above the camera: several broken sheets stacked, not one flat plane.
      *
-     * <p>Cells are hashed rather than textured, and fade out with distance: the layer is a plane
-     * inside a sphere, so without the fade its edge would be a hard line across the sky.
+     * <p>One plane reads as a painted ceiling. Four sheets sharing the same horizontal noise, each
+     * with a small per-layer jitter, read as a volume: the silhouette wobbles with height, the
+     * middle of the slab is denser than its top and bottom, and the lower sheets are darker, which
+     * is the only lighting a vertex-coloured cloud can have.
+     *
+     * <p>Drawn from the top sheet down. The slab is always above the camera, so the top sheet is
+     * the furthest thing in it, and drawing back to front is what makes the stack translucent
+     * instead of showing only its nearest sheet.
      */
     private static void clouds(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius,
                                Sky sky) {
-        float height = radius * 0.42F;
         float span = radius * CLOUD_SPAN;
         float cell = span * 2.0F / CLOUD_CELLS;
-        float threshold = sky.overcast > 0.55F ? 0.28F : sky.overcast > 0.05F ? 0.40F : 0.62F;
+        float threshold = sky.overcast > 0.55F ? 0.26F : sky.overcast > 0.05F ? 0.38F : 0.60F;
         // Dimmed with the daylight as well: a white sheet over a midnight sky reads as a bug.
-        float base = (1.0F - sky.overcast * 0.55F) * (0.22F + 0.78F * sky.day);
-        float cloudR = mix(0.96F, 0.62F, sky.overcast) * base;
-        float cloudG = mix(0.97F, 0.64F, sky.overcast) * base;
-        float cloudB = mix(1.0F, 0.68F, sky.overcast) * base;
-        for (int i = 0; i < CLOUD_CELLS; i++) {
-            for (int j = 0; j < CLOUD_CELLS; j++) {
-                float cx = -span + (i + 0.5F) * cell;
-                float cz = -span + (j + 0.5F) * cell;
-                float dist = (float) Math.sqrt(cx * cx + cz * cz);
-                if (dist > radius * 0.98F) {
-                    continue;
+        float dim = (1.0F - sky.overcast * 0.55F) * (0.22F + 0.78F * sky.day);
+        float baseR = mix(0.97F, 0.60F, sky.overcast) * dim;
+        float baseG = mix(0.98F, 0.62F, sky.overcast) * dim;
+        float baseB = mix(1.0F, 0.66F, sky.overcast) * dim;
+        for (int layer = CLOUD_LAYERS - 1; layer >= 0; layer--) {
+            float t = CLOUD_LAYERS == 1 ? 0.5F : layer / (float) (CLOUD_LAYERS - 1);
+            float y = (float) cam.y + radius * mix(CLOUD_BOTTOM, CLOUD_TOP, t);
+            // Thin at the top and bottom, dense through the middle.
+            float profile = 1.0F - Math.abs(t - 0.5F) * 1.2F;
+            // The top of the slab catches the light; the bottom sits in its own shadow.
+            float shade = 0.74F + 0.26F * t;
+            float layerAlpha = 0.30F * profile;
+            for (int i = 0; i < CLOUD_CELLS; i++) {
+                for (int j = 0; j < CLOUD_CELLS; j++) {
+                    float cx = -span + (i + 0.5F) * cell;
+                    float cz = -span + (j + 0.5F) * cell;
+                    float dist = (float) Math.sqrt(cx * cx + cz * cz);
+                    if (dist > radius * 0.98F) {
+                        continue;
+                    }
+                    float density = hash(i, j, 17) * 0.60F + hash(i / 2, j / 2, 91) * 0.40F;
+                    // A little per-layer drift, so the stack has ragged edges rather than a
+                    // straight extrusion of one sheet.
+                    density += (hash(i, j, 200 + layer) - 0.5F) * 0.10F;
+                    if (density < threshold) {
+                        continue;
+                    }
+                    float alpha = (density - threshold) / (1.0F - threshold) * layerAlpha;
+                    alpha *= smoothstep(0.98F, 0.55F, dist / radius);
+                    if (alpha <= 0.01F) {
+                        continue;
+                    }
+                    quad(vc, matrix,
+                            (float) cam.x + cx, y, (float) cam.z + cz,
+                            (float) cam.x + cx + cell, y, (float) cam.z + cz,
+                            (float) cam.x + cx + cell, y, (float) cam.z + cz + cell,
+                            (float) cam.x + cx, y, (float) cam.z + cz + cell,
+                            baseR * shade, baseG * shade, baseB * shade, alpha);
                 }
-                float density = (hash(i, j, 17) * 0.65F + hash(i / 2, j / 2, 91) * 0.35F);
-                if (density < threshold) {
-                    continue;
-                }
-                float alpha = (density - threshold) / (1.0F - threshold) * 0.55F;
-                alpha *= smoothstep(0.98F, 0.55F, dist / radius);
-                if (alpha <= 0.01F) {
-                    continue;
-                }
-                float y = (float) cam.y + height;
-                quad(vc, matrix,
-                        (float) cam.x + cx, y, (float) cam.z + cz,
-                        (float) cam.x + cx + cell, y, (float) cam.z + cz,
-                        (float) cam.x + cx + cell, y, (float) cam.z + cz + cell,
-                        (float) cam.x + cx, y, (float) cam.z + cz + cell,
-                        cloudR, cloudG, cloudB, alpha);
             }
         }
     }
@@ -278,7 +299,8 @@ public final class ArenaSky {
      * <p>Directions come from a hash rather than a table, so the field is the same on every client
      * and costs no memory. They fade out with daylight and with cloud cover.
      */
-    private static void stars(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius, Sky sky) {
+    private static void stars(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius, Sky sky,
+                              float seconds) {
         float visibility = (1.0F - sky.day) * (1.0F - sky.overcast);
         if (visibility <= 0.02F) {
             return;
@@ -288,7 +310,11 @@ public final class ArenaSky {
             float elevation = 0.08F + hash(i, 7, 73) * 0.92F;
             float horizontal = (float) Math.sqrt(Math.max(0.0D, 1.0D - elevation * elevation));
             Vec3 dir = new Vec3(Math.cos(theta) * horizontal, elevation, Math.sin(theta) * horizontal);
-            float alpha = visibility * (0.30F + 0.70F * hash(i, 11, 19));
+            // Its own phase and rate, so the field shimmers rather than pulsing as one.
+            float phase = hash(i, 17, 53) * TAU;
+            float rate = 0.9F + hash(i, 19, 61) * 1.8F;
+            float twinkle = 0.55F + 0.45F * (float) Math.sin(seconds * rate + phase);
+            float alpha = visibility * (0.30F + 0.70F * hash(i, 11, 19)) * twinkle;
             float size = radius * (0.0016F + 0.0026F * hash(i, 13, 29));
             disc(vc, matrix, cam, radius * 0.92F, dir, size, 1.0F, 1.0F, 1.0F, alpha);
         }
@@ -352,6 +378,16 @@ public final class ArenaSky {
             float overcast = thundering ? 0.85F : raining ? 0.55F : 0.0F;
             return new Sky((float) sun.x, (float) sun.y, (float) sun.z, day, dusk, overcast);
         }
+    }
+
+    /**
+     * Wall-clock seconds for the twinkle phase.
+     *
+     * <p>Not the game time: the arena's clock can be frozen by {@code e.timeOfDay}, and a frozen
+     * clock would freeze the stars too.
+     */
+    private static float seconds() {
+        return (System.currentTimeMillis() % 3_600_000L) / 1000.0F;
     }
 
     /**

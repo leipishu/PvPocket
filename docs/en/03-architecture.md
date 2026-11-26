@@ -154,12 +154,18 @@ as a light curtain; the server only judges position. The sky is drawn in one pas
 - **Dome**: the mod's own three-stop gradient (deep blue overhead, pale at the horizon, a little
   deeper underneath), moved between day, night and twilight by the world clock. The warm band is
   only on the sun's side of the horizon, so dusk is orange on one half and blue on the other.
-- **Clouds**: a broken horizontal sheet. Cells come from a hash and fade out with distance: the
-  sheet is a plane inside a sphere, and without the fade its edge would be a straight line across
-  the sky. Sparse and white when clear, denser and grey in rain, nearly solid in a thunderstorm.
+- **Clouds**: four stacked horizontal sheets. They share one horizontal noise field and jitter a
+  little per layer, so from below the result is a slab with thickness rather than a ceiling; the
+  middle is denser than the top and bottom, and the lower sheets are darker. Cells come from a hash
+  and fade out with distance: the sheets are planes inside a sphere, and without the fade their
+  edges would be straight lines across the sky. Sparse and white when clear, denser and grey in
+  rain, nearly solid in a thunderstorm. Drawn after the discs, so a thin part dims the sun instead
+  of cutting it out.
 - **Sun and moon**: camera-facing squares placed by the clock's sine, each with a wider, fainter
   halo.
 - **Stars**: 220 hashed directions in the upper hemisphere, faded out by daylight and cloud cover.
+  Each has its own phase and rate, so the field twinkles instead of pulsing as one. The phase runs
+  on wall-clock time, not on the world clock: a fixed time must not freeze the stars too.
 
 So every environment option is visible: `e.timeOfDay` gives four distinct skies for "morning",
 "noon", "dusk" and "midnight", with "natural" letting the clock run; `e.weather` gives three
