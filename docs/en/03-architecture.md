@@ -83,10 +83,16 @@ series' loadout and score cannot.
 - **Giving up** is terminal for that player only (`abandoned`): the snapshot goes back, the screen is
   cleared, and the team-mates play on. The series ends only when nobody on the side is left, or when
   the round loses its last opposition — the same path a surrender takes.
-- **The round boundary waits**: after a settle, if a side has nobody online, `startDueRounds` holds
-  the boundary for up to 60 seconds (`RECONNECT_HOLD_MS`) instead of cutting the series, and records
-  `CUT` only when nobody comes back. That window exists only at a round boundary, which is also the
-  only place a reconnect can enter.
+- **A side with nobody online is out at once.** At any moment (mid-round or between rounds) a side
+  with not one player in the world is eliminated immediately and never enters the reconnect flow:
+  there is no client to ask and nobody to wait for. `hasAnyOnline` draws the line, and it is not the
+  same as "online but has not answered". With three or more sides only that side leaves and the
+  rest play on; with two the series ends there, recorded as `DISCONNECT` (shown as "Disconnect" on
+  the result card and in history).
+- **The round boundary still waits** when every side has somebody online and one of them simply has
+  not answered the prompt: `startDueRounds` holds for up to 60 seconds (`RECONNECT_HOLD_MS`) before
+  recording `CUT`. That window exists only at a round boundary, which is also the only place a
+  reconnect can enter.
 
 ## 4. Snapshots and restore
 

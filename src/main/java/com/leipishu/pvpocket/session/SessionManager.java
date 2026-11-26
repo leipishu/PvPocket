@@ -941,6 +941,14 @@ public final class SessionManager {
                 roundReadyAt.put(id, System.currentTimeMillis() + CORPSE_IDLE_MS);
                 continue;
             }
+            // A side with nobody in the world is out before the boundary starts holding: the hold
+            // is for somebody who is online and still deciding, not for an empty side.
+            for (int team : new ArrayList<>(session.contestingTeams())) {
+                eliminateOfflineSide(session, team);
+            }
+            if (session.stage != SessionStage.ROUND_READY) {
+                continue;   // that elimination ended the series
+            }
             int present = presentSides(session);
             if (present < 2) {
                 // Not enough people to fight. Hold the boundary open for a reconnect rather than
@@ -1171,6 +1179,8 @@ public final class SessionManager {
             } else {
                 persist(live);
             }
+            // A side with nobody left in the world cannot come back: no prompt can reach them.
+            eliminateOfflineSide(live, p.teamIndex());
         });
     }
 
@@ -3686,6 +3696,74 @@ public final class SessionManager {
         }
     }
 
+    /** Whether anybody on this side is in the world right now. */
+    private boolean hasAnyOnline(DuelSession session, int team) {
+        for (Participant p : session.contestingMembers(team)) {
+            if (online(p) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Takes a whole side out because nobody on it is online.
+     *
+     * <p>No reconnect window: there is no client to answer a prompt and no player to wait for, and
+     * holding the other side through the window would only delay the obvious. Each member is marked
+     * as having abandoned the match, the same terminal state as turning the prompt down, so the
+     * restore, the greyed card and the series-end bookkeeping are all shared with that path.
+     */
+    private void eliminateOfflineSide(DuelSession session, int team) {
+        if (session.stage.isTerminal() || hasAnyOnline(session, team)) {
+            return;
+        }
+        List<Participant> members = session.contestingMembers(team);
+        if (members.isEmpty()) {
+            return;
+        }
+        for (Participant p : members) {
+            p.abandoned = true;
+            p.goneSince = 0;
+            p.eliminated = true;
+        }
+        journal(session).append("SIDE_OFFLINE", "team", team,
+                "players", members.size(),
+                "teams", session.contestingTeams().size());
+        MutableComponent line = PvLang.t("pvpocket.msg.duel.team_offline",
+                teamName(session, team)).withStyle(ChatFormatting.RED);
+        for (Participant p : session.participants) {
+            ServerPlayer member = online(p);
+            if (member != null) {
+                member.displayClientMessage(line.copy(), false);
+            }
+        }
+        List<Integer> left = session.contestingTeams();
+        // Only when the series goes on without them: ending it restores everybody anyway, and a
+        // deferred restore queued twice is a second journal line for the same debt.
+        if (left.size() > 1) {
+            for (Participant p : members) {
+                if (p.snapshotFile != null) {
+                    restoreParticipant(session, p);
+                }
+            }
+        }
+        broadcastHud(session, true);
+        if (left.size() <= 1) {
+            forfeit(session, null, left.isEmpty() ? leaderTeam(session) : left.get(0), "DISCONNECT");
+            return;
+        }
+        if (session.stage == SessionStage.ROUND_ACTIVE) {
+            // The round may have lost its last opposition rather than its last player.
+            int winner = lastTeamStanding(session);
+            if (winner >= 0) {
+                settle(session, "DISCONNECT", winner);
+                return;
+            }
+        }
+        persist(session);
+    }
+
     /**
      * The player who sent the invite.
      *
@@ -4220,19 +4298,30 @@ public final class SessionManager {
      * </p>
      */
     private void forfeit(DuelSession session, ServerPlayer player, int winnerTeam) {
+        forfeit(session, player, winnerTeam, "SURRENDER");
+    }
+
+    /**
+     * Ends the series in {@code winnerTeam}'s favour, with {@code reason} as the cause.
+     *
+     * <p>That code is what the result card and the history row print, so a side that lost every
+     * player to a disconnect does not read as a surrender.
+     */
+    private void forfeit(DuelSession session, ServerPlayer player, int winnerTeam, String reason) {
         journal(session).append("SERIES_FORFEITED",
                 "player", player == null ? "-" : player.getName().getString(),
                 "winnerTeam", winnerTeam,
+                "reason", reason,
                 "score", scoreLine(session),
                 "round", session.round,
                 "stage", session.stage.name());
         if (session.stage == SessionStage.ROUND_ACTIVE) {
             // The round is logged with no winner; the series has one.
             journal(session).append("ROUND_ENDED",
-                    "round", session.round, "reason", "SURRENDER", "winner", null);
+                    "round", session.round, "reason", reason, "winner", null);
             // Logged with no winner, since recordSeries refuses a series with no settled round.
             long startedAt = roundStartedAt.getOrDefault(session.id, System.currentTimeMillis());
-            session.roundLog.add(new DuelSession.RoundLog(-1, "SURRENDER",
+            session.roundLog.add(new DuelSession.RoundLog(-1, reason,
                     Math.max(0L, System.currentTimeMillis() - startedAt)));
             session.pendingWinner = null;
             session.pendingReason = null;
@@ -4241,8 +4330,8 @@ public final class SessionManager {
             transition(session, SessionStage.ROUND_SETTLED);
         }
         roundReadyAt.remove(session.id);
-        session.seriesEndReason = "SURRENDER";
-        // No per-player line here: the surrender was announced to the whole session by the caller.
+        session.seriesEndReason = reason;
+        // No per-player line here: the caller has already announced why the series ended.
         finishSeries(session, winnerTeam);
     }
 
@@ -5848,6 +5937,7 @@ public final class SessionManager {
         String becauseKey = switch (session.seriesEndReason == null ? "" : session.seriesEndReason) {
             case "SURRENDER" -> "pvpocket.msg.series.because.surrender";
             case "CUT" -> "pvpocket.msg.series.because.cut";
+            case "DISCONNECT" -> "pvpocket.msg.series.because.disconnect";
             case "DRAW" -> "pvpocket.msg.series.because.draw";
             default -> null;
         };

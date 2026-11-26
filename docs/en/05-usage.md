@@ -257,8 +257,10 @@ A dropped connection loses that round, but it does not end the series — unless
   mid-round entry: the loadout, the spawn and the score were fixed when the round began.
 - **Giving up** affects only you: items and position are restored at once and your team-mates play
   on. Only when nobody on the side is left does it amount to the whole side leaving.
-- Between rounds, if a side has nobody online, the server waits up to 60 seconds before recording a
-  `CUT`; that window exists for reconnects.
+- **A side with nobody online is out at once**, mid-round or between rounds: there is no client to
+  ask and nobody to wait for. With three or more sides only that side leaves; the rest play on.
+- Between rounds, if every side still has somebody online and one of them simply has not answered
+  the prompt, the server waits up to 60 seconds before recording a `CUT`.
 
 ### The result card
 
