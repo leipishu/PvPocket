@@ -1661,10 +1661,8 @@ public final class SessionManager {
         if (session.pendingWinnerTeam >= 0) {
             int team = session.pendingWinnerTeam;
             String reason = session.pendingReason;
-            // The client asks for its respawn the moment the death screen would have shown, and
-            // the settle is the only thing that comes later: without this the player whose death
-            // decided the round stands on the plot, alive and in survival, for the whole beat.
-            // The verdict stays on the session — it is what the settle reads.
+            // The client respawns as the death screen shows, before the settle runs: the verdict
+            // stays on the session, and without it the deciding player stands there alive.
             Participant me = session.participant(player.getStringUUID());
             if (me != null && me.eliminated) {
                 handToSpectator(session, me, player);

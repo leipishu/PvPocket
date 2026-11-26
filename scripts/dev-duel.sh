@@ -43,9 +43,8 @@ cleanup() {
         echo
         echo "[duel] 关闭客户端..."
         kill -TERM "$CLIENTS_PID" 2>/dev/null
-        # Bounded, because the wrapper does not always come back: a client JVM that wedges on
-        # shutdown (NeoForge's dev-env shutdown watchdog throws ClassNotFoundException instead of
-        # halting) keeps its ./gradlew alive, and an unbounded wait here would hang the trap.
+        # Bounded: a client JVM that wedges on shutdown (NeoForge's watchdog throws
+        # ClassNotFoundException) keeps its ./gradlew alive, and a bare wait would hang the trap.
         client_deadline=$((SECONDS + 10))
         while kill -0 "$CLIENTS_PID" 2>/dev/null && [ "$SECONDS" -lt "$client_deadline" ]; do
             sleep 1
@@ -163,20 +162,16 @@ else
         exit 1
     fi
 
-    # `Done (` is not the same as ready. The mod stamps the whole arena gallery on the server
-    # thread right after the start event, which freezes the server for 7-30s on a cold cache (the
-    # log says "Can't keep up ... 199 ticks behind" when it comes back). A client launched into
-    # that window can sit on "Connecting to server" and never join, which is exactly the Dev1
-    # hang: the run that failed had the clients started 10s before the gallery was done.
+    # `Done (` is not the same as ready: the arena gallery is stamped on the server thread
+    # afterwards, freezing it for 7-30s; a client launched into that window cannot join yet.
     echo "[duel] 等场地铺完（这期间服务端是卡住的，客户端连不进去）..."
     GALLERY_TIMEOUT="${PVP_GALLERY_TIMEOUT:-180}"
     gallery_deadline=$((SECONDS + GALLERY_TIMEOUT))
     while [ "$SECONDS" -lt "$gallery_deadline" ]; do
         if grep -q 'Arena gallery ready' "$SERVER_LOG" 2>/dev/null; then
             echo "[duel] 场地就绪：$(grep -m1 'Arena gallery ready' "$SERVER_LOG" | tr -d '\r')"
-            # The stamping leaves a tick backlog ("Can't keep up ... 199 ticks behind" comes
-            # after that line), and vanilla drains it at up to ten ticks a loop. Three seconds
-            # covers a full backlog; connecting before that is what the clients must not do.
+            # The stamping leaves a tick backlog that vanilla drains at up to ten ticks a loop.
+            # Three seconds covers it, and connecting before that leaves the client stuck.
             sleep 3
             break
         fi
@@ -217,13 +212,8 @@ cat <<EOF
        在这里按 Ctrl+C 会先关客户端，再把服务端一起停掉。
 EOF
 
-# Wait on the server's player list rather than on the client wrappers. A client JVM that wedges
-# on shutdown keeps its ./gradlew alive forever, and then a bare `wait` never returns — the trap
-# never fires and the server stays up after every window is closed. "Nobody online any more" is
-# the signal that actually means the session is over.
-#
-# Only when this script owns the server: a reused one brings a log full of somebody else's
-# joins and leaves, which would read as "already empty" and stop the clients on the spot.
+# Wait on the server's player list, not the client wrappers: a wedged client JVM keeps its
+# ./gradlew alive, and a reused server's log already holds other people's joins and leaves.
 if [ -n "$SERVER_PID" ]; then
     JOIN_TIMEOUT="${PVP_JOIN_TIMEOUT:-120}"
     CLIENTS_STARTED=$SECONDS

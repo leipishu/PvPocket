@@ -167,10 +167,8 @@ ext.pvpocketRunDir = { String dir ->
     rootProject.file("runs/${project.name}/${dir}")
 }
 
-// The dev server gets no usable console stdin (Gradle does not forward it, see AGENTS.md), so
-// `op Dev1` cannot be typed while it runs and ops.json is the only way in. Written before every
-// runServer launch, for every cell, and merged rather than replaced so a hand-edited op list
-// survives. Same reason the usernames live here: one place for ten cells.
+// The dev server has no usable console stdin (see AGENTS.md), so ops.json is the only way to
+// make Dev1 an operator: written before each runServer launch and merged, never replaced.
 def ensureOps = tasks.register('ensureDevOps', Exec) {
     group = 'pvpocket'
     description = "Makes Dev1 an operator in this cell's server run directory."

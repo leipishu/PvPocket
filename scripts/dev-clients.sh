@@ -25,12 +25,8 @@ if ! port_open; then
 fi
 echo "[dev] 服务端在 $ADDR 已就绪"
 
-# Each client needs its own run dir and username: a shared dir makes two JVMs fight over
-# logs/latest.log, and a shared username is rejected as a duplicate login.
-#
-# One at a time. Three cold JVMs (registries, textures, resource reload) landing on the server in
-# the same second is what starves the machine, and a connection that arrives in that window can
-# be left on "Connecting to server" for good.
+# Each client needs its own run dir and username (a shared dir makes two JVMs fight over
+# logs/latest.log, and a duplicate login is refused). Three cold JVMs at once starve the machine.
 STAGGER="${PVP_CLIENT_STAGGER:-4}"
 PIDS=()
 for i in $(seq 1 "$COUNT"); do

@@ -131,11 +131,8 @@ public final class PlayerSnapshot {
 
         GameType mode = GameType.byName(gameMode, GameType.SURVIVAL);
         player.stopRiding();
-        // The mode is set first, on purpose. A cross-dimension teleport ships a game mode in its
-        // spawn info, and the playerdata tag ships playerGameType, which vanilla applies without a
-        // packet: a change made after the load is therefore a silent no-op whenever the tag already
-        // agrees, and the client keeps whatever the teleport told it. That is how a player restored
-        // out of the spectator hand-off came back to the overworld still a spectator.
+        // Set the mode before the teleport: spawn info carries a game mode and playerGameType
+        // is applied without a packet, so a later change is a no-op once the tag agrees.
         if (player.gameMode.getGameModeForPlayer() != mode) {
             Sandbox.changeGameMode(player, mode);
         }
