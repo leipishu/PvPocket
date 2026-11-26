@@ -220,6 +220,9 @@ public final class ArenaSky {
         // The underside is in the cloud's own shadow; the sides catch more of the light.
         float underShade = 0.86F;
         float sideShade = 0.94F;
+        // Fair-weather cloud is thin: at full opacity it reads as a lid over the arena. A solid
+        // overcast is the opposite case, and keeps the opacity it had.
+        float opacity = clamp01(0.45F + sky.overcast * 2.0F);
         for (int di = -reach; di <= reach; di++) {
             for (int dj = -reach; dj <= reach; dj++) {
                 int ci = baseI + di;
@@ -238,7 +241,7 @@ public final class ArenaSky {
                 if (dist > radius * 0.98F) {
                     continue;
                 }
-                float alpha = smoothstep(0.98F, 0.62F, dist / radius);
+                float alpha = smoothstep(0.98F, 0.62F, dist / radius) * opacity;
                 if (alpha <= 0.01F) {
                     continue;
                 }

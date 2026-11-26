@@ -157,8 +157,9 @@ as a light curtain; the server only judges position. The sky is drawn in one pas
 - **Clouds**: a layer of solid cells, the vanilla shape: each is 16 blocks across and 6 thick, and
   only its bottom and the sides facing air are built (the top is never in view, since the slab is
   always above the camera). The whole layer drifts at 1.6 blocks a second. Cells are hashed at a
-  quarter resolution, so they clump into clouds rather than speckle; sparse and white when clear,
-  denser and grey in rain, nearly solid in a thunderstorm. Drawn after the discs, so a cloud dims
+  quarter resolution, so they clump into clouds rather than speckle; sparse, white and only 0.45
+  opaque when clear (fully opaque reads as a lid over the arena), denser, grey and opaque in rain,
+  nearly solid in a thunderstorm. Drawn after the discs, so a cloud dims
   the sun rather than cutting it out, and the alpha fades out near the dome, or the layer would
   end in a hard ring across the sky.
 - **Sun and moon**: camera-facing squares placed by the clock's sine, each with a wider, fainter
