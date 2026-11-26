@@ -9,6 +9,7 @@ import com.leipishu.pvpocket.client.gui.prepare.PrepareNotice;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
+import com.leipishu.pvpocket.client.gui.match.ReconnectScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
 import com.leipishu.pvpocket.client.home.HomeClient;
@@ -41,6 +42,7 @@ import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PresetShareResultPayload;
 import com.leipishu.pvpocket.network.RulesClosePayload;
 import com.leipishu.pvpocket.network.PrepareStatusPayload;
+import com.leipishu.pvpocket.network.ReconnectOfferPayload;
 import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.SeriesResultPayload;
@@ -84,6 +86,14 @@ public final class PvPocketClient {
             PvPocket.LOGGER.info("Received rules_open for session {} role {}",
                     payload.sessionId(), payload.role());
             PvScreens.open(Minecraft.getInstance(), new RuleScreen(payload));
+        });
+
+        platform.onServerPacket(ReconnectOfferPayload.ID, payload -> {
+            PvPocket.LOGGER.info("Received reconnect_offer for session {}", payload.sessionId());
+            // A screen, not a line: chat reads as an announcement rather than a question. Opened
+            // from the tick, since the offer can arrive before the level has finished loading.
+            pendingReconnect = payload;
+            openReconnectIfReady();
         });
 
         platform.onServerPacket(VoteOpenPayload.ID, payload -> {
@@ -221,10 +231,31 @@ public final class PvPocketClient {
         ArenaSky.register();
         // The preparing panel is armed by a payload and opened from here, see PrepareNotice.
         platform.onClientTick(PrepareNotice::tick);
+        platform.onClientTick(PvPocketClient::openReconnectIfReady);
         // No-op unless -Dpvpocket.audit=true. Walks every screen at two canvas sizes. See PvAudit.
         PvAuditHarness.register();
 
         PvPocket.LOGGER.info("PvPocket client bootstrap complete (platform: {})", platform.name());
+    }
+
+    /**
+     * Opens the reconnect screen once there is a world and nothing else on screen.
+     *
+     * <p>The offer is sent on join, which can be before the client has finished receiving the
+     * level; a screen set in that window is replaced by the join sequence. Held until the first
+     * tick with a player and no other screen.
+     */
+    private static void openReconnectIfReady() {
+        if (pendingReconnect == null) {
+            return;
+        }
+        Minecraft client = Minecraft.getInstance();
+        if (client.level == null || client.player == null || PvScreens.current(client) != null) {
+            return;
+        }
+        ReconnectOfferPayload payload = pendingReconnect;
+        pendingReconnect = null;
+        PvScreens.open(client, new ReconnectScreen(payload));
     }
 
     /**
@@ -234,6 +265,8 @@ public final class PvPocketClient {
      * can land in the same batch. {@link #applyPendingState} retries from the client tick.
      */
     private static CombatStatePayload pending;
+    /** A reconnect offer that arrived before the world was up. */
+    private static ReconnectOfferPayload pendingReconnect;
 
     /**
      * The session id of the last series whose card this client showed.

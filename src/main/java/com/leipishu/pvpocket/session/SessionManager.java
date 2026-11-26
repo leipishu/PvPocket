@@ -26,6 +26,8 @@ import com.leipishu.pvpocket.network.MatchHudPayload;
 import com.leipishu.pvpocket.network.PrepareScreensPayload;
 import com.leipishu.pvpocket.network.PrepareStatusPayload;
 import com.leipishu.pvpocket.network.PvPocketNetworking;
+import com.leipishu.pvpocket.network.ReconnectAnswerPayload;
+import com.leipishu.pvpocket.network.ReconnectOfferPayload;
 import com.leipishu.pvpocket.network.ResultOpenPayload;
 import com.leipishu.pvpocket.network.RulesOpenPayload;
 import com.leipishu.pvpocket.network.RulesSubmitPayload;
@@ -57,7 +59,6 @@ import net.minecraft.network.protocol.game.ClientboundClearTitlesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -699,20 +700,14 @@ public final class SessionManager {
         parkForIntermission(session, player, p, ArenaManager.region(session.id));
         journal(session).append("RECONNECT_OFFERED", "player", p.name,
                 "stage", session.stage.name(), "round", session.round);
-        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.ask",
-                        session.round, session.maxRounds, scoreLine(session))
-                .withStyle(ChatFormatting.GOLD), false);
-        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.wait")
-                .withStyle(ChatFormatting.GRAY), false);
-        Style accept = PvCompat.hoverText(PvCompat.clickCommand(
-                        Style.EMPTY.withColor(ChatFormatting.GREEN), "/pvpocket reconnect accept"),
-                PvLang.t("pvpocket.msg.reconnect.accept_hover"));
-        Style decline = PvCompat.hoverText(PvCompat.clickCommand(
-                        Style.EMPTY.withColor(ChatFormatting.RED), "/pvpocket reconnect decline"),
-                PvLang.t("pvpocket.msg.reconnect.decline_hover"));
-        player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.accept").setStyle(accept)
-                .append(Component.literal("  "))
-                .append(PvLang.t("pvpocket.msg.reconnect.decline").setStyle(decline)), false);
+        boolean asked = PvPocketNetworking.sendReconnectOffer(player,
+                new ReconnectOfferPayload(session.id, session.round, session.maxRounds,
+                        scoreLine(session)));
+        if (!asked) {
+            // A client without the screen still needs a way in, and the command is that way.
+            player.displayClientMessage(PvLang.t("pvpocket.msg.reconnect.fallback")
+                    .withStyle(ChatFormatting.GOLD), false);
+        }
     }
 
     /**
@@ -804,6 +799,25 @@ public final class SessionManager {
             return;
         }
         abandon(session, p, player);
+    }
+
+    /**
+     * The answer from the reconnect screen.
+     *
+     * <p>The session id is checked against this player's own session, so a screen left open across
+     * a series cannot answer the next one.
+     */
+    public void onReconnectAnswer(ServerPlayer player, ReconnectAnswerPayload answer) {
+        DuelSession session = liveSessionOf(player);
+        if (session == null || !session.id.equals(answer.sessionId())) {
+            fail(player, "pvpocket.msg.reconnect.none");
+            return;
+        }
+        if (answer.accept()) {
+            reconnectAccept(player);
+        } else {
+            reconnectDecline(player);
+        }
     }
 
     /**
@@ -4956,7 +4970,9 @@ public final class SessionManager {
             broadcastHud(session, true);
             broadcastBounds(session, true);
             for (Participant p : session.participants) {
-                if (p.surrendered || p.abandoned) {
+                // An away player is watching, not playing: "the round goes live in 5" is not for
+                // them, and it is the line that reads as "you were put back in".
+                if (p.surrendered || p.abandoned || p.goneSince > 0) {
                     continue;
                 }
                 ServerPlayer player = online(p);
@@ -5032,7 +5048,7 @@ public final class SessionManager {
         // Re-pushed, so the client drops the white preparation curtain for the open arena.
         broadcastBounds(session, true);
         for (Participant p : session.participants) {
-            if (p.surrendered || p.abandoned) {
+            if (p.surrendered || p.abandoned || p.goneSince > 0) {
                 continue;
             }
             ServerPlayer player = online(p);
@@ -5078,7 +5094,7 @@ public final class SessionManager {
             if (second != entry.getValue().announced()) {
                 prepareDeadlines.put(id, new Prepare(entry.getValue().at(), second));
                 for (Participant p : session.participants) {
-                    if (p.surrendered || p.abandoned) {
+                    if (p.surrendered || p.abandoned || p.goneSince > 0) {
                         continue;
                     }
                     ServerPlayer player = online(p);

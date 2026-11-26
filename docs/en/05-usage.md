@@ -249,9 +249,10 @@ out of the series**, not out of one round.
 
 A dropped connection loses that round, but it does not end the series — unless you give up.
 
-- **Login asks once**: two lines in chat, "[ Reconnect ] [ Give up ]", the same as
-  `/pvpocket reconnect accept` / `/pvpocket reconnect decline`. Until you answer you are a spectator
-  above your spawn pad: you can neither hit nor be hit.
+- **Login asks once, on a screen**: "Reconnect" or "Give up", the same as
+  `/pvpocket reconnect accept` / `/pvpocket reconnect decline`. Esc closes it unanswered, which
+  leaves you on the bench; after that the commands are the only way to answer. Until you answer you
+  are a spectator above your spawn pad: you can neither hit nor be hit.
 - **A reconnect enters only when the next round begins.** If the current round is already live you
   keep watching until it ends, and reconnecting between rounds works the same way. There is no
   mid-round entry: the loadout, the spawn and the score were fixed when the round began.
@@ -318,7 +319,7 @@ client and scripts and operators can only speak commands.
 | `/pvpocket review` | Reopen the rule panel |
 | `/pvpocket rematch` | Replay the last series with its rules, loadout and roster (valid for ten minutes; the card's Rematch button does the same) |
 | `/pvpocket surrender` | Leave the series (not one round). With three or more sides only yours is out and the rest play on |
-| `/pvpocket reconnect accept` | Rejoin a running match: watch until the next round begins (the chat button at login does the same) |
+| `/pvpocket reconnect accept` | Rejoin a running match: watch until the next round begins (the screen at login does the same) |
 | `/pvpocket reconnect decline` | Give up this match: items and position are restored at once, team-mates play on |
 | `/pvpocket status` | Current session's stage, round, score and rule summary |
 | `/pvpocket list` | Open the match list |

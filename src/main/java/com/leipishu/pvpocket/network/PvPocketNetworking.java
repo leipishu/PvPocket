@@ -279,6 +279,19 @@ public final class PvPocketNetworking {
     }
 
     /**
+     * Asks one returning player whether they want their place back.
+     *
+     * @return false when the client does not know the payload, so the caller can fall back to chat
+     */
+    public static boolean sendReconnectOffer(ServerPlayer player, ReconnectOfferPayload payload) {
+        if (!PvPlatform.get().canSend(player, ReconnectOfferPayload.ID)) {
+            return false;
+        }
+        PvPlatform.get().send(player, payload);
+        return true;
+    }
+
+    /**
      * Re-validates a blocking request and pushes the resulting authoritative state back down.
      *
      * <p>Only the client knows whether a mouse button is held, but every reason to refuse is

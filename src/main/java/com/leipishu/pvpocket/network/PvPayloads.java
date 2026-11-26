@@ -5,7 +5,7 @@ import com.leipishu.pvpocket.session.SessionManager;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * Registry of the 22 payloads plus the handler entry points for the client-to-server ones.
+ * Registry of every payload plus the handler entry points for the client-to-server ones.
  *
  * <p>Registration goes through {@link PvPlatform#registerPlayToServer} and
  * {@link PvPlatform#registerPlayToClient}, inbound packets through
@@ -39,6 +39,7 @@ public final class PvPayloads {
         platform.registerPlayToServer(HomeRequestPayload.ID, HomeRequestPayload.CODEC);
         platform.registerPlayToServer(HomeActionPayload.ID, HomeActionPayload.CODEC);
         platform.registerPlayToServer(SurrenderAnswerPayload.ID, SurrenderAnswerPayload.CODEC);
+        platform.registerPlayToServer(ReconnectAnswerPayload.ID, ReconnectAnswerPayload.CODEC);
     }
 
     /** Server to client: state the server pushes, drawn by the client. */
@@ -62,6 +63,7 @@ public final class PvPayloads {
         platform.registerPlayToClient(PresetShareResultPayload.ID, PresetShareResultPayload.CODEC);
         platform.registerPlayToClient(SeriesResultPayload.ID, SeriesResultPayload.CODEC);
         platform.registerPlayToClient(SurrenderStatePayload.ID, SurrenderStatePayload.CODEC);
+        platform.registerPlayToClient(ReconnectOfferPayload.ID, ReconnectOfferPayload.CODEC);
     }
 
     /**
@@ -134,6 +136,12 @@ public final class PvPayloads {
             SessionManager sessions = SessionManager.get();
             if (sessions != null) {
                 sessions.onSurrenderAnswer(player, payload.approve());
+            }
+        });
+        platform.onServerReceive(ReconnectAnswerPayload.ID, (player, payload) -> {
+            SessionManager sessions = SessionManager.get();
+            if (sessions != null) {
+                sessions.onReconnectAnswer(player, payload);
             }
         });
     }

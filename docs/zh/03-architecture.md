@@ -65,8 +65,10 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 
 - **回合中掉线**：这个人立刻判本局出局（`DISCONNECT`），回合照常打完——尸体不在场上，不判出局就
   只能等计时器。但**系列赛不结束**，下一局开始前他仍在名册上（`goneSince` 记下离开的时刻）。
-- **登录时问一次**：聊天栏给「[ 重连 ] [ 放弃 ]」两个按钮，等价于
-  `/pvpocket reconnect accept|decline`。确认之前人是旁观模式，停在本方出生点上方，打不到人也不挨打。
+- **登录时问一次**：服务端推 `ReconnectOfferPayload`，客户端在世界加载完成后弹一个只有「重连 /
+  放弃」的界面（Esc 关掉等于暂不回答，仍然旁观）。等价于 `/pvpocket reconnect accept|decline`，
+  后者在界面被关掉之后是唯一入口。确认之前人是旁观模式，停在本方出生点上方，打不到人也不挨打。
+  不做成聊天行：提示到达时人已经站在场地里，聊天行读起来像「没问就放进来了」。
 - **重连只在回合开始时入场**：`startRound` 只把「在线且不在等待」的参与者传进场。回合已经开打就
   继续旁观到下一局；局间重连也一样，先旁观，下一局开始才回到生存。**不存在回合中途入场**，
   因为配装、出生点与比分在开局那一刻就定死了，中途塞一个人等于把这三样在一个人身上重算一次。
@@ -129,7 +131,7 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 
 ## 6. 网络协议
 
-全部走 Fabric 的自定义 payload，注册集中在 `PvPocketNetworking`。
+全部走自定义 payload，注册集中在 `PvPayloads`，发送与校验在 `PvPocketNetworking`。
 
 | 方向 | 包 | 用途 |
 | --- | --- | --- |
@@ -141,7 +143,8 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 | C→S | `SpectateRequestPayload` | 列表 / 进入 / 退出 / 切换 / 解除 |
 | C→S | `PresetSharePayload` | 发布 / 取用分享码 |
 | C→S | `HomeRequestPayload` | 「给我一份主页面快照」 |
-| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局；OP 3 还能复制分区、收回分区、重建场地、开关滞留保护 |
+| C→S | `HomeActionPayload` | 发起决斗 / 用规则预设开局 / 用配装预设开局 / 原班再来；OP 3 还能复制分区、收回分区、重建场地、开关滞留保护 |
+| C→S | `ReconnectAnswerPayload` | 回答重连提示：接受（下一局入场）/ 放弃 |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | 规则面板开/关 |
 | S→C | `VoteOpenPayload` / `VoteProgressPayload` | 投票面板开 / 参与进度 |
 | S→C | `ResultOpenPayload` | 结果公示 HUD：项表 + 票数 + 最终编排 + 倒计时 |
@@ -154,6 +157,7 @@ DRAFT ──发送邀请──> NEGOTIATING ──有分支──> VOTING ──
 | S→C | `PresetShareResultPayload` | 分享码的结果：状态码 + 预设内容 |
 | S→C | `HomeStatePayload` | 主页面快照：生涯计数、历史、进行中对局、状态位；OP 另带场地分区表 |
 | S→C | `SeriesResultPayload` | 系列赛结束时的结算卡片：比分、逐局战绩、双方名单、时长与结束原因 |
+| S→C | `ReconnectOfferPayload` | 重连提示：局数、总比分；客户端在世界加载完成后弹屏 |
 
 **主页面是唯一由客户端主动要求打开的界面**，其余界面都是服务端推过来的。它因此自带一对
 请求/应答：`HomeRequestPayload`（空包）→ `HomeStatePayload`。快照不推送，只在玩家打开面板

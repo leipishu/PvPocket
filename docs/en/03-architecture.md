@@ -73,9 +73,12 @@ series' loadout and score cannot.
   on: the body is gone, so nobody can kill it and the clock would be the only way out. The **series
   does not end**; they stay on the roster for the next round, with `goneSince` recording when they
   left.
-- **Login asks once**: chat carries "[ Reconnect ] [ Give up ]", the same as
-  `/pvpocket reconnect accept|decline`. Until they answer they are a spectator above their spawn pad:
-  they can neither hit nor be hit.
+- **Login asks once**: the server pushes `ReconnectOfferPayload` and the client opens a screen with
+  only "Reconnect" and "Give up" once the level has loaded (Esc closes it unanswered, which keeps
+  them on the bench). The same as `/pvpocket reconnect accept|decline`, which stays the only way back
+  in after the screen is closed. Until they answer they are a spectator above their spawn pad: they
+  can neither hit nor be hit. Not a chat line, because by the time it arrives the player is already
+  standing in the arena, and a line reads as "let in without being asked".
 - **A reconnect enters only at a round start.** `startRound` teleports in participants who are online
   and not waiting, and nobody else. A round already under way keeps them spectating until the next
   one; reconnecting between rounds works the same way. There is no mid-round entry, because the
@@ -156,7 +159,8 @@ behind, so anything drawn later covers them.
 
 ## 6. Networking
 
-All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
+All traffic uses custom payloads, registered in `PvPayloads`, with sending and validation in
+`PvPocketNetworking`.
 
 | Dir | Payload | Purpose |
 | --- | --- | --- |
@@ -169,7 +173,8 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | C→S | `SpectateRequestPayload` | List / join / leave / cycle / detach |
 | C→S | `PresetSharePayload` | Publish / fetch a share code |
 | C→S | `HomeRequestPayload` | "Give me a home-panel snapshot" |
-| C→S | `HomeActionPayload` | Start a duel / from a rule preset / from a loadout preset; at OP 3 also copy or take back a plot, rebuild the arena and toggle the stray guard |
+| C→S | `HomeActionPayload` | Start a duel / from a rule preset / from a loadout preset / rematch; at OP 3 also copy or take back a plot, rebuild the arena and toggle the stray guard |
+| C→S | `ReconnectAnswerPayload` | Answer the reconnect prompt: rejoin (next round) or give the place up |
 | S→C | `RulesOpenPayload` / `RulesClosePayload` | Rule panel open / close |
 | S→C | `LoadoutOpenPayload` | Loadout editor open |
 | S→C | `MatchListPayload` | Match list |
@@ -180,6 +185,7 @@ All traffic uses Fabric custom payloads, registered in `PvPocketNetworking`.
 | S→C | `PresetShareResultPayload` | Share-code outcome: a status code plus the preset body |
 | S→C | `HomeStatePayload` | Home snapshot: career counters, history, live matches, state flags; operators also get the plot table |
 | S→C | `SeriesResultPayload` | End-of-series card: score, round-by-round outcomes, both rosters, length and reason |
+| S→C | `ReconnectOfferPayload` | Reconnect prompt: round, rounds and score; the client opens the screen once the level has loaded |
 
 **The home panel is the only screen the client asks for**; every other screen is pushed by the
 server. It therefore carries its own request/response pair: `HomeRequestPayload` (empty) →
