@@ -90,8 +90,6 @@
   "pvpocket.rule.g.enderPearl.hint": "关闭后末影珍珠无法投掷。",
   "pvpocket.rule.g.allowSurrender.label": "允许投降",
   "pvpocket.rule.g.allowSurrender.hint": "关闭后只能通过击杀或超时结束这一局。",
-  "pvpocket.rule.g.showOpponentHealth.label": "显示对手血量",
-  "pvpocket.rule.g.showOpponentHealth.hint": "在界面上方显示对手的生命值。",
   "pvpocket.rule.g.chatScope.label": "决斗中聊天",
   "pvpocket.rule.g.chatScope.hint": "限制对局期间的聊天可见范围。",
   "pvpocket.rule.g.deathParticles.label": "死亡粒子特效",

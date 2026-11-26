@@ -4,7 +4,7 @@
 
 ## 1. The model
 
-A duel's rules are an **ordered key/value snapshot**: 35 configurable rules plus one read-only
+A duel's rules are an **ordered key/value snapshot**: 34 configurable rules plus one read-only
 informational entry, in seven groups.
 
 | Group | Subject | Count |
@@ -15,7 +15,7 @@ informational entry, in seven groups.
 | D | Loadout (items, pickups, crafting) | 3 |
 | E | Arena (size, map, boundary, environment) | 8 |
 | F | Blocks (placing, breaking) | 3 |
-| G | Other (pearls, surrender, display, chat, death particles) | 6 |
+| G | Other (pearls, surrender, chat, death particles) | 5 |
 
 Rules are declared in `RuleCatalog`; their text lives in the language files
 (`pvpocket.rule.<id>.label` / `.hint` / `.c<N>` / `.unit`). **The rule id is the wire format** —
@@ -109,11 +109,10 @@ what the panel shows.
 - **Terrain protection** — `f.protectTerrain` · toggle · default On. When on, the map's own blocks cannot be broken and only blocks placed this round can be removed. When off the plot can be dug through, and the terrain is still restored when the round ends.
 - **Allow breaking your own blocks** — `f.allowBreakOwn` · toggle · default On. Applies only to blocks placed during this duel; whether the map itself can be broken is up to Terrain protection.
 
-**Other** — Pearls, surrender, display
+**Other** — Pearls, surrender, chat
 
 - **Allow ender pearls** — `g.enderPearl` · toggle · default Off. When off, ender pearls cannot be thrown.
 - **Allow surrender** — `g.allowSurrender` · toggle · default On. When off, a round can only end by a kill or by the clock.
-- **Show opponent health** — `g.showOpponentHealth` · toggle · default On. Show the opponent's health at the top of the screen (the bar does not draw it at present; the rule is kept for when it returns).
 - **Chat during the duel** — `g.chatScope` · choice · default Server-wide · Server-wide / Team only / Muted. Restricts who can see chat during the match.
 - **Death particles** — `g.deathParticles` · toggle · default On. A duel death drops no items; a burst of particles appears where the player fell instead. Off still drops nothing, only without the effect.
 - **Particle intensity** — `g.deathParticleIntensity` · choice · default Standard · Subtle / Standard / Grand. Sets the number of layers and particles; has no effect while death particles are off.
@@ -139,11 +138,11 @@ sets that behave identically cannot produce two different digests.
 
 Method: whether the rule id has a reader outside `RuleCatalog`. Measured on the current tree:
 
-**36 rules exist, 35 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
-note). All 35 configurable rules are written to the session and the journal and affect a duel; none
+**35 rules exist, 34 of them configurable** (`c.modeConflict` is `fixed` and only prints the conflict
+note). All 34 configurable rules are written to the session and the journal and affect a duel; none
 is "record only".
 
-### In effect (35)
+### In effect (34)
 
 | Group | Rules |
 | --- | --- |
@@ -153,7 +152,7 @@ is "record only".
 | D | `d.allowPickup`, `d.allowCrafting`, `d.allowConsumables` |
 | E | `e.template`, `e.sizeX`, `e.sizeY`, `e.sizeZ`, `e.boundary`, `e.timeOfDay`, `e.weather`, `e.hazard` |
 | F | `f.allowPlace`, `f.protectTerrain`, `f.allowBreakOwn` |
-| G | `g.enderPearl`, `g.allowSurrender`, `g.showOpponentHealth`, `g.chatScope`, `g.deathParticles`, `g.deathParticleIntensity` |
+| G | `g.enderPearl`, `g.allowSurrender`, `g.chatScope`, `g.deathParticles`, `g.deathParticleIntensity` |
 
 **Every rule is read through `Rulebook`** (`rules/Rulebook.java`): "does this rule apply" is a method
 there, and callers name no ids and do no bit arithmetic. A new rule needs a getter in that file or it
@@ -162,8 +161,8 @@ is not wired up.
 The first two in group A arrived with the series split, the four in group B were wired up together
 with NvN, the eight in groups C/E with the damage-and-survival slice, the last four in group A with
 the timing-and-outcome slice, `f.allowPlace` with `d.allowConsumables` and `g.enderPearl` with the
-use-restriction slice, the other two in D with the interaction slice, `g.showOpponentHealth` and
-`g.chatScope` in G with the display slice,
+use-restriction slice, the other two in D with the interaction slice, `g.chatScope` in G with the
+display slice,
 `g.deathParticles` and `g.deathParticleIntensity` with the death-presentation slice.
 Where each one is read:
 
@@ -244,14 +243,6 @@ Where each one is read:
   the rule. Every branch of `internalOnSlotClick` asks `canTakeItems` before moving a stack out, and
   the ingredients are only consumed in `onTakeItem` — so a refused take is a refused craft, not
   quietly eaten materials.
-- **`g.showOpponentHealth`** — one boolean rides along in `MatchHudPayload`; **the switch ships, the
-  numbers do not**. Both sides are standing in the same arena, so this client already holds every
-  participant's health, and posting twenty floats per tick to say what the entity already says would
-  be the most expensive thing in the payload. So the client reads `getHealth()` itself, and draws
-  nothing when the player is not in its world rather than inventing full health. The local player's
-  own row is skipped — the vanilla bar is four pixels away. The stacked three-or-four-side layout
-  shows no health: 16px per row cannot hold a number per member, and a per-side total carries no
-  information in a 4v4.
 - **`g.chatScope`** — registered on `ServerMessageEvents.ALLOW_CHAT_MESSAGE` (the head of
   `PlayerManager#broadcast`); returning false cancels vanilla's fan-out and the line is delivered
   here instead. "Team only" is not a per-recipient filter, it is a different recipient list, so the
@@ -276,7 +267,7 @@ Where each one is read:
 
 ### There is no "recorded only" left
 
-**All 35 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
+**All 34 configurable rules now affect a duel.** There is also one non-setting: `c.modeConflict` is
 `fixed` and only prints the "1.8 mode conflicts with some rules" note; it has no value.
 
 This section stays because it records a discipline: **when adding a rule, ask who reads it.** A line

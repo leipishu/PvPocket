@@ -5590,7 +5590,6 @@ public final class SessionManager {
         }
         return new MatchHudPayload(true, session.round, session.maxRounds, session.winsNeeded,
                 scores.toString(), roster.toString(), eliminated.toString(),
-                session.rulebook().showOpponentHealth(),
                 intermissionSecondsLeft(session), roundClock(session), roundClockDown(session));
     }
 

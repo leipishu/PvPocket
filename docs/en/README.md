@@ -67,7 +67,7 @@ If the panel is closed with Esc, `/pvpocket review` reopens it.
 | D Loadout         | Entry items and pickup          | Swapping between rounds, pickup, crafting, consumables                             |
 | E Arena           | Map, bounds, environment        | Map, size, boundary rule, time of day, weather, hazards (incl. fall damage)        |
 | F Blocks          | Placement, breaking             | Placement, terrain protection, block filter                                        |
-| G Other           | Pearls, surrender, display      | Ender pearls, surrender, opponent health, chat scope                               |
+| G Other           | Pearls, surrender, chat         | Ender pearls, surrender, chat scope, death particles                               |
 
 Full meanings, and what each one actually changes, are in [`02-rules.md`](02-rules.md).
 

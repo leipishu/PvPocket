@@ -22,7 +22,7 @@ separate game mode; it is the same rule set with a different roster.
 ### 1. Terms first, then the fight
 
 The challenger opens a rule panel, sets the terms and sends them to everyone else. Each of them can
-accept, edit and re-send, or decline. What everyone agrees to is a **versioned snapshot of 38
+accept, edit and re-send, or decline. What everyone agrees to is a **versioned snapshot of 35
 rules**, not a list of toggles. Any edit bumps the revision, and agreement to the old one stops
 counting.
 
@@ -68,7 +68,7 @@ protection, arena rebuild.
 
 | Document | Contents |
 | --- | --- |
-| [02-rules](02-rules.md) | The 38 rules, in full, with meanings |
+| [02-rules](02-rules.md) | The 35 rules, in full, with meanings |
 | [03-architecture](03-architecture.md) | Server architecture, session state machine, dimension and cells |
 | [04-visual](04-visual.md) | UI visual and motion specification |
 | [05-usage](05-usage.md) | Deployment, commands, player flow, operations |

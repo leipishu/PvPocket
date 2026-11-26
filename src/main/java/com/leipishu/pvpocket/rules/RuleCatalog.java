@@ -90,7 +90,6 @@ public final class RuleCatalog {
         // G. other
         add(RuleDefinition.toggle("g.enderPearl", RuleGroup.G, false));
         add(RuleDefinition.toggle("g.allowSurrender", RuleGroup.G, true));
-        add(RuleDefinition.toggle("g.showOpponentHealth", RuleGroup.G, true));
         // Server-wide by default: a 1v1 has no team, so team-only chat would be silent.
         add(RuleDefinition.enumOf("g.chatScope", RuleGroup.G, 0, choices("g.chatScope", 3)));
         // Death loot is always suppressed inside a duel; these two only shape the send-off.

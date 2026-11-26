@@ -90,8 +90,6 @@
   "pvpocket.rule.g.enderPearl.hint": "When off, ender pearls cannot be thrown.",
   "pvpocket.rule.g.allowSurrender.label": "Allow surrender",
   "pvpocket.rule.g.allowSurrender.hint": "When off, a round can only end by a kill or by the clock.",
-  "pvpocket.rule.g.showOpponentHealth.label": "Show opponent health",
-  "pvpocket.rule.g.showOpponentHealth.hint": "Show the opponent's health at the top of the screen.",
   "pvpocket.rule.g.chatScope.label": "Chat during the duel",
   "pvpocket.rule.g.chatScope.hint": "Restricts who can see chat during the match.",
   "pvpocket.rule.g.deathParticles.label": "Death particles",

@@ -162,16 +162,6 @@ public final class Rulebook {
         return rules.flag("g.allowSurrender");
     }
 
-    /**
-     * {@code g.showOpponentHealth}: draw the other side's health in the match bar.
-     *
-     * <p>Only the switch travels to the client. Both sides share the arena, so the client already
-     * holds every participant's health in its own world.
-     */
-    public boolean showOpponentHealth() {
-        return rules.flag("g.showOpponentHealth");
-    }
-
     /** Chat scope ({@code g.chatScope}): 0 server-wide, 1 team only, 2 muted. */
     public ChatScope chatScope() {
         return switch (rules.get("g.chatScope")) {

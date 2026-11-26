@@ -19,7 +19,6 @@ import net.minecraft.resources.ResourceLocation;
 public record MatchHudPayload(boolean active,
                               int round, int maxRounds, int winsNeeded,
                               String scores, String teams, String eliminated,
-                              boolean showHealth,
                               int secondsLeft,
                               int clock, boolean clockDown)
         implements CustomPacketPayload {
@@ -27,7 +26,7 @@ public record MatchHudPayload(boolean active,
     public static final Type<MatchHudPayload> ID =
             new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "match_hud"));
 
-    /** Hand-written rather than {@code PacketCodec.tuple}: eleven fields, three of them strings. */
+    /** Hand-written rather than {@code PacketCodec.tuple}: ten fields, three of them strings. */
     public static final StreamCodec<RegistryFriendlyByteBuf, MatchHudPayload> CODEC = StreamCodec.ofMember(
             (value, buf) -> {
                 buf.writeBoolean(value.active);
@@ -37,7 +36,6 @@ public record MatchHudPayload(boolean active,
                 buf.writeUtf(value.scores);
                 buf.writeUtf(value.teams);
                 buf.writeUtf(value.eliminated);
-                buf.writeBoolean(value.showHealth);
                 buf.writeVarInt(value.secondsLeft);
                 buf.writeVarInt(value.clock);
                 buf.writeBoolean(value.clockDown);
@@ -50,14 +48,13 @@ public record MatchHudPayload(boolean active,
                     buf.readUtf(),
                     buf.readUtf(),
                     buf.readUtf(),
-                    buf.readBoolean(),
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readBoolean()));
 
     /** The "hide it" packet. One instance is enough; it is immutable. */
     public static MatchHudPayload hidden() {
-        return new MatchHudPayload(false, 0, 0, 0, "", "", "", false, 0, -1, false);
+        return new MatchHudPayload(false, 0, 0, 0, "", "", "", 0, -1, false);
     }
 
     @Override

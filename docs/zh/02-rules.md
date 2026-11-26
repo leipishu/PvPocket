@@ -4,7 +4,7 @@
 
 ## 1. 规则模型
 
-一场决斗的规则是一份**有序的键值快照**，由 35 条可配置规则加 1 条只读提示项组成，分七组：
+一场决斗的规则是一份**有序的键值快照**，由 34 条可配置规则加 1 条只读提示项组成，分七组：
 
 | 组 | 主题 | 条数 |
 | --- | --- | --- |
@@ -14,7 +14,7 @@
 | D | 配装（进场物品、拾取、合成） | 3 |
 | E | 场地（尺寸、模板、边界、环境） | 8 |
 | F | 方块（放置、破坏） | 3 |
-| G | 其他（珍珠、投降、显示、聊天、死亡粒子） | 6 |
+| G | 其他（珍珠、投降、聊天、死亡粒子） | 5 |
 
 规则定义在 `RuleCatalog`，文本在语言文件（`pvpocket.rule.<id>.label` / `.hint` / `.c<N>` / `.unit`）。
 **规则 id 就是线格式**，改名等于改协议；新增规则只能追加，不能重排既有 id。
@@ -92,11 +92,10 @@
 - **地形保护** — `f.protectTerrain` · 开关 · 默认 开。开启后地图本身的方块不可破坏，只有本局放置的方块能拆。关闭后可以挖穿场地，本局结束时地形仍会复原。
 - **允许拆除自己放置的方块** — `f.allowBreakOwn` · 开关 · 默认 开。只对本次对局中放置的方块生效，场地本体是否可破坏由「地形保护」决定。
 
-**其他** — 珍珠、投降与显示
+**其他** — 珍珠、投降、聊天与死亡粒子
 
 - **允许末影珍珠** — `g.enderPearl` · 开关 · 默认 关。关闭后末影珍珠无法投掷。
 - **允许投降** — `g.allowSurrender` · 开关 · 默认 开。关闭后只能通过击杀或超时结束这一局。
-- **显示对手血量** — `g.showOpponentHealth` · 开关 · 默认 开。在界面上方显示对手的生命值（当前版本的对局条暂不绘制血量，规则保留）。
 - **决斗中聊天** — `g.chatScope` · 单选 · 默认 全服 / 仅队友 / 禁言。限制对局期间的聊天可见范围。
 - **死亡粒子特效** — `g.deathParticles` · 开关 · 默认 开。决斗中阵亡时物品一律不掉落，改为在倒地处迸发一团粒子；关闭后依然不掉落，只是没有特效。
 - **粒子强度** — `g.deathParticleIntensity` · 单选 · 默认 标准 / 简约 / 华丽。决定特效叠加的粒子层数与数量；关闭死亡粒子时此行不生效。
@@ -121,10 +120,10 @@
 
 判定方法：规则 id 在 `RuleCatalog` 之外是否还有读取点。实测结果如下。
 
-**共 36 条，其中 35 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
-35 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
+**共 35 条，其中 34 条可配置**（`c.modeConflict` 是 `fixed`，只用来在面板上说明冲突）。
+34 条可配置规则全部写入会话、进日志，并且真正影响对局；没有一条是"仅记录"。
 
-### 已生效（35 条）
+### 已生效（34 条）
 
 | 组 | 规则 |
 | --- | --- |
@@ -134,7 +133,7 @@
 | D | `d.allowPickup`、`d.allowCrafting`、`d.allowConsumables` |
 | E | `e.template`、`e.sizeX`、`e.sizeY`、`e.sizeZ`、`e.boundary`、`e.timeOfDay`、`e.weather`、`e.hazard` |
 | F | `f.allowPlace`、`f.protectTerrain`、`f.allowBreakOwn` |
-| G | `g.enderPearl`、`g.allowSurrender`、`g.showOpponentHealth`、`g.chatScope`、`g.deathParticles`、`g.deathParticleIntensity` |
+| G | `g.enderPearl`、`g.allowSurrender`、`g.chatScope`、`g.deathParticles`、`g.deathParticleIntensity` |
 
 **所有规则都从 `Rulebook` 读**（`rules/Rulebook.java`）：一条规则"怎么算生效"是它自己的方法，
 调用方不写 id、不做位运算。加规则时先在那里加一个 getter，否则等于没接。
@@ -142,7 +141,7 @@
 A 组前两条是拆开赛制后接上的，B 组的四条是随 NvN 一起接上的，C/E 组的八条是「伤害与生存」
 切片接上的，A 组后四条是「计时与胜负」切片接上的，`f.allowPlace` 与 `d.allowConsumables` /
 `g.enderPearl` 是「使用限制」切片接上的，
-D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHealth` 与 `chatScope` 是「界面」切片接上的，
+D 组另外两条是「交互限制」切片接上的，G 组的 `chatScope` 是「界面」切片接上的，
 `g.deathParticles` 与 `g.deathParticleIntensity` 是「死亡表现」切片接上的，各自的读取点：
 
 - **`a.maxRounds` / `a.winsNeeded`** — `seriesDecided` 在每局结束时先看局数是否打满、再看有没有人
@@ -203,12 +202,6 @@ D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHe
   回两个结果槽（工作台 3×3 与背包 2×2）。只拦工作台会留下背包那格当绕过路径。
   `internalOnSlotClick` 的每条分支都会先问 `canTakeItems`，而合成材料是在 `onTakeItem` 里扣的，
   拿不出来就扣不到，所以拒绝取出等于拒绝合成，不会白吃材料。
-- **`g.showOpponentHealth`** — 随 `MatchHudPayload` 下发一个布尔，**只下发开关不下发数值**：
-  两边都站在同一个场地里，客户端本来就握着每个参与者的血量，为了说一句实体自己已经说了的话
-  而每 tick 发二十个浮点数，会是这个载荷里最贵的东西。所以数字由客户端读 `getHealth()`，
-  读不到（人不在本客户端的世界里）就不画，而不是画成满血。自己那一行跳过——原版血条就在
-  四像素外。3 方以上的堆叠布局不出血量：一行 16px 放不下逐人数字，而逐队总和在 4v4 里没有
-  信息量。
 - **`g.chatScope`** — 挂在 `ServerMessageEvents.ALLOW_CHAT_MESSAGE`（`PlayerManager#broadcast`
   的头部），返回 false 就取消了原版的群发，改由我们自己发。「仅队友」不是给每个收件人加过滤，
   而是换一份收件人名单，所以必须接管群发。
@@ -225,7 +218,7 @@ D 组另外两条是「交互限制」切片接上的，G 组的 `showOpponentHe
 
 ### 现在没有"仅记录"了
 
-**35 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
+**34 条可配置规则全部真正影响对局。** 另有 1 条不是配置项：`c.modeConflict` 是 `fixed` 类型，
 只用来在面板上说明「1.8 模式与某些规则冲突」，没有取值可言。
 
 这一节保留下来是因为它记的是一条纪律：**加规则时先问「谁读它」**。写进 `RuleCatalog` 只说明
