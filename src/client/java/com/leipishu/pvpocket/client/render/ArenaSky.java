@@ -82,14 +82,15 @@ public final class ArenaSky {
     /** Stars in the upper hemisphere: enough for a clear night, cheap enough for one batch. */
     private static final int STARS = 220;
 
-    /** Cloud cells across one layer, and how far the slab reaches horizontally. */
-    private static final int CLOUD_CELLS = 22;
-    private static final float CLOUD_SPAN = 1.5F;
+    /** Side of one cloud cell in blocks, and how thick the slab is. */
+    private static final int CLOUD_CELL = 16;
+    private static final float CLOUD_THICKNESS = 6.0F;
 
-    /** The cloud slab: this many sheets stacked between these two shares of the sky radius. */
-    private static final int CLOUD_LAYERS = 4;
-    private static final float CLOUD_BOTTOM = 0.30F;
-    private static final float CLOUD_TOP = 0.56F;
+    /** How high the slab sits above the camera, as a share of the sky radius. */
+    private static final float CLOUD_HEIGHT = 0.45F;
+
+    /** Blocks per second the layer drifts, so it reads as weather rather than as terrain. */
+    private static final float CLOUD_DRIFT = 1.6F;
 
     private ArenaSky() {
     }
@@ -127,7 +128,7 @@ public final class ArenaSky {
             dome(vc, matrix, cam, radius, sky);
             discs(vc, matrix, cam, radius, sky);
             stars(vc, matrix, cam, radius, sky, seconds());
-            clouds(vc, matrix, cam, radius, sky);
+            clouds(vc, matrix, cam, radius, sky, seconds());
         });
         poses.popPose();
     }
@@ -192,64 +193,90 @@ public final class ArenaSky {
     // ------------------------------------------------------------------ clouds
 
     /**
-     * The cloud slab above the camera: several broken sheets stacked, not one flat plane.
+     * The cloud layer: a grid of solid cells, each drawn as a bottom and the sides that face air.
      *
-     * <p>One plane reads as a painted ceiling. Four sheets sharing the same horizontal noise, each
-     * with a small per-layer jitter, read as a volume: the silhouette wobbles with height, the
-     * middle of the slab is denser than its top and bottom, and the lower sheets are darker, which
-     * is the only lighting a vertex-coloured cloud can have.
+     * <p>This is the vanilla shape, not a painted sheet. A cell is {@link #CLOUD_CELL} blocks
+     * across and {@link #CLOUD_THICKNESS} thick, so from below a cloud has an edge you can see
+     * along and sides that catch a different shade; the layer drifts, which separates clouds from
+     * terrain. Only the bottom and the exposed sides are built: the slab is always above the
+     * camera, so its top is never in view.
      *
-     * <p>Drawn from the top sheet down. The slab is always above the camera, so the top sheet is
-     * the furthest thing in it, and drawing back to front is what makes the stack translucent
-     * instead of showing only its nearest sheet.
+     * <p>Cells are hashed at a quarter resolution so they clump into blobs; the alpha fades out
+     * near the dome, since a hard edge there would be a ring across the horizon.
      */
     private static void clouds(VertexConsumer vc, Matrix4f matrix, Vec3 cam, float radius,
-                               Sky sky) {
-        float span = radius * CLOUD_SPAN;
-        float cell = span * 2.0F / CLOUD_CELLS;
-        float threshold = sky.overcast > 0.55F ? 0.26F : sky.overcast > 0.05F ? 0.38F : 0.60F;
-        // Dimmed with the daylight as well: a white sheet over a midnight sky reads as a bug.
-        float dim = (1.0F - sky.overcast * 0.55F) * (0.22F + 0.78F * sky.day);
-        float baseR = mix(0.97F, 0.60F, sky.overcast) * dim;
-        float baseG = mix(0.98F, 0.62F, sky.overcast) * dim;
-        float baseB = mix(1.0F, 0.66F, sky.overcast) * dim;
-        for (int layer = CLOUD_LAYERS - 1; layer >= 0; layer--) {
-            float t = CLOUD_LAYERS == 1 ? 0.5F : layer / (float) (CLOUD_LAYERS - 1);
-            float y = (float) cam.y + radius * mix(CLOUD_BOTTOM, CLOUD_TOP, t);
-            // Thin at the top and bottom, dense through the middle.
-            float profile = 1.0F - Math.abs(t - 0.5F) * 1.2F;
-            // The top of the slab catches the light; the bottom sits in its own shadow.
-            float shade = 0.74F + 0.26F * t;
-            float layerAlpha = 0.30F * profile;
-            for (int i = 0; i < CLOUD_CELLS; i++) {
-                for (int j = 0; j < CLOUD_CELLS; j++) {
-                    float cx = -span + (i + 0.5F) * cell;
-                    float cz = -span + (j + 0.5F) * cell;
-                    float dist = (float) Math.sqrt(cx * cx + cz * cz);
-                    if (dist > radius * 0.98F) {
-                        continue;
-                    }
-                    float density = hash(i, j, 17) * 0.60F + hash(i / 2, j / 2, 91) * 0.40F;
-                    // A little per-layer drift, so the stack has ragged edges rather than a
-                    // straight extrusion of one sheet.
-                    density += (hash(i, j, 200 + layer) - 0.5F) * 0.10F;
-                    if (density < threshold) {
-                        continue;
-                    }
-                    float alpha = (density - threshold) / (1.0F - threshold) * layerAlpha;
-                    alpha *= smoothstep(0.98F, 0.55F, dist / radius);
-                    if (alpha <= 0.01F) {
-                        continue;
-                    }
-                    quad(vc, matrix,
-                            (float) cam.x + cx, y, (float) cam.z + cz,
-                            (float) cam.x + cx + cell, y, (float) cam.z + cz,
-                            (float) cam.x + cx + cell, y, (float) cam.z + cz + cell,
-                            (float) cam.x + cx, y, (float) cam.z + cz + cell,
-                            baseR * shade, baseG * shade, baseB * shade, alpha);
+                               Sky sky, float seconds) {
+        float bottom = (float) cam.y + radius * CLOUD_HEIGHT;
+        float top = bottom + CLOUD_THICKNESS;
+        float scroll = seconds * CLOUD_DRIFT;
+        int reach = (int) (radius * 0.98F / CLOUD_CELL);
+        int baseI = (int) Math.floor((cam.x + scroll) / CLOUD_CELL);
+        int baseJ = (int) Math.floor(cam.z / CLOUD_CELL);
+        float threshold = sky.overcast > 0.55F ? 0.40F : sky.overcast > 0.05F ? 0.48F : 0.62F;
+        float dim = (1.0F - sky.overcast * 0.55F) * (0.24F + 0.76F * sky.day);
+        float baseR = mix(0.98F, 0.62F, sky.overcast) * dim;
+        float baseG = mix(0.99F, 0.64F, sky.overcast) * dim;
+        float baseB = mix(1.0F, 0.68F, sky.overcast) * dim;
+        // The underside is in the cloud's own shadow; the sides catch more of the light.
+        float underShade = 0.86F;
+        float sideShade = 0.94F;
+        for (int di = -reach; di <= reach; di++) {
+            for (int dj = -reach; dj <= reach; dj++) {
+                int ci = baseI + di;
+                int cj = baseJ + dj;
+                if (!solid(ci, cj, threshold)) {
+                    continue;
+                }
+                float x0 = ci * CLOUD_CELL - scroll;
+                float z0 = cj * CLOUD_CELL;
+                float x1 = x0 + CLOUD_CELL;
+                float z1 = z0 + CLOUD_CELL;
+                float cx = x0 + CLOUD_CELL * 0.5F;
+                float cz = z0 + CLOUD_CELL * 0.5F;
+                float dist = (float) Math.sqrt((cx - cam.x) * (cx - cam.x)
+                        + (cz - cam.z) * (cz - cam.z));
+                if (dist > radius * 0.98F) {
+                    continue;
+                }
+                float alpha = smoothstep(0.98F, 0.62F, dist / radius);
+                if (alpha <= 0.01F) {
+                    continue;
+                }
+                // Bottom face, seen from below.
+                quad(vc, matrix, x0, bottom, z0, x1, bottom, z0, x1, bottom, z1, x0, bottom, z1,
+                        baseR * underShade, baseG * underShade, baseB * underShade, alpha);
+                // Sides, only where the neighbour is air.
+                if (!solid(ci - 1, cj, threshold)) {
+                    quad(vc, matrix, x0, bottom, z0, x0, bottom, z1, x0, top, z1, x0, top, z0,
+                            baseR * sideShade, baseG * sideShade, baseB * sideShade, alpha);
+                }
+                if (!solid(ci + 1, cj, threshold)) {
+                    quad(vc, matrix, x1, bottom, z1, x1, bottom, z0, x1, top, z0, x1, top, z1,
+                            baseR * sideShade, baseG * sideShade, baseB * sideShade, alpha);
+                }
+                if (!solid(ci, cj - 1, threshold)) {
+                    quad(vc, matrix, x1, bottom, z0, x0, bottom, z0, x0, top, z0, x1, top, z0,
+                            baseR * sideShade, baseG * sideShade, baseB * sideShade, alpha);
+                }
+                if (!solid(ci, cj + 1, threshold)) {
+                    quad(vc, matrix, x0, bottom, z1, x1, bottom, z1, x1, top, z1, x0, top, z1,
+                            baseR * sideShade, baseG * sideShade, baseB * sideShade, alpha);
                 }
             }
         }
+    }
+
+    /**
+     * Whether one cloud cell is solid.
+     *
+     * <p>Three octaves: a coarse one that makes the blobs, a middle one that rags their edges, and
+     * a per-cell one that breaks the grid. Sampled at quarter, half and full resolution.
+     */
+    private static boolean solid(int ci, int cj, float threshold) {
+        float density = hash(ci / 4, cj / 4, 17) * 0.62F
+                + hash(ci / 2, cj / 2, 91) * 0.28F
+                + hash(ci, cj, 33) * 0.10F;
+        return density >= threshold;
     }
 
     // ------------------------------------------------------------------ sun and moon
@@ -387,7 +414,9 @@ public final class ArenaSky {
      * clock would freeze the stars too.
      */
     private static float seconds() {
-        return (System.currentTimeMillis() % 3_600_000L) / 1000.0F;
+        // nanoTime rather than a wall clock with a modulo: the cloud drift multiplies this, and a
+        // wrap would slide the whole layer a few thousand blocks in one frame.
+        return (float) (System.nanoTime() / 1.0E9D);
     }
 
     /**

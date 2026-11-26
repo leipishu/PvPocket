@@ -154,13 +154,13 @@ as a light curtain; the server only judges position. The sky is drawn in one pas
 - **Dome**: the mod's own three-stop gradient (deep blue overhead, pale at the horizon, a little
   deeper underneath), moved between day, night and twilight by the world clock. The warm band is
   only on the sun's side of the horizon, so dusk is orange on one half and blue on the other.
-- **Clouds**: four stacked horizontal sheets. They share one horizontal noise field and jitter a
-  little per layer, so from below the result is a slab with thickness rather than a ceiling; the
-  middle is denser than the top and bottom, and the lower sheets are darker. Cells come from a hash
-  and fade out with distance: the sheets are planes inside a sphere, and without the fade their
-  edges would be straight lines across the sky. Sparse and white when clear, denser and grey in
-  rain, nearly solid in a thunderstorm. Drawn after the discs, so a thin part dims the sun instead
-  of cutting it out.
+- **Clouds**: a layer of solid cells, the vanilla shape: each is 16 blocks across and 6 thick, and
+  only its bottom and the sides facing air are built (the top is never in view, since the slab is
+  always above the camera). The whole layer drifts at 1.6 blocks a second. Cells are hashed at a
+  quarter resolution, so they clump into clouds rather than speckle; sparse and white when clear,
+  denser and grey in rain, nearly solid in a thunderstorm. Drawn after the discs, so a cloud dims
+  the sun rather than cutting it out, and the alpha fades out near the dome, or the layer would
+  end in a hard ring across the sky.
 - **Sun and moon**: camera-facing squares placed by the clock's sine, each with a wider, fainter
   halo.
 - **Stars**: 220 hashed directions in the upper hemisphere, faded out by daylight and cloud cover.
