@@ -157,6 +157,14 @@ public final class SessionManager {
     private static final long RECONNECT_HOLD_MS = 60_000L;
 
     /**
+     * How long a finished series can be replayed with one press, in milliseconds.
+     *
+     * <p>Long enough for the result card to be read and a decision to be made, short enough that
+     * "rematch" still means the people who were just here rather than a stale roster.
+     */
+    private static final long REMATCH_WINDOW_MS = 10L * 60L * 1000L;
+
+    /**
      * Upper bound on how long a participant can stay off the plot before the boundary rule
      * applies, in milliseconds.
      *
@@ -2005,6 +2013,143 @@ public final class SessionManager {
         journal(session).append("SESSION_DRAFTED", "proposer", me.name);
         persist(session);
         openPanel(proposer, session, RulesOpenPayload.ROLE_DRAFT);
+    }
+
+    /**
+     * Starts a new series from a finished one: same people, same rules, same loadout.
+     *
+     * <p>Not a restart of the old session. The archived one keeps its score and its history; this
+     * creates a fresh draft and sends it through the ordinary invite path, so everybody still gets
+     * the panel and still answers. What it saves is the part nobody wants to repeat: drawing the
+     * cards and setting every rule again.
+     *
+     * <p>Whoever is gone is dropped rather than refused. A rematch exists to start now, and an
+     * invite that waits for somebody who logged off is not that.
+     */
+    public void rematch(ServerPlayer player, String sessionId) {
+        if (sessionByPlayer.containsKey(player.getUUID())) {
+            fail(player, "pvpocket.msg.duel.self_busy");
+            return;
+        }
+        // One open session at a time: the invite path looks the session up by player, so a second
+        // draft would be created and then never found again.
+        if (findOpenSession(player.getUUID()) != null) {
+            fail(player, "pvpocket.msg.duel.own_pending");
+            return;
+        }
+        DuelSession old = sessionId == null || sessionId.isEmpty()
+                ? lastFinishedFor(player.getUUID())
+                : sessions.get(sessionId);
+        if (old == null || old.stage != SessionStage.ARCHIVED
+                || old.participant(player.getStringUUID()) == null) {
+            fail(player, "pvpocket.msg.rematch.none");
+            return;
+        }
+        if (System.currentTimeMillis() - old.updatedAt > REMATCH_WINDOW_MS) {
+            fail(player, "pvpocket.msg.rematch.expired");
+            return;
+        }
+        DuelRules rules = DuelRules.decode(old.rules);
+        DuelSession fresh = createDraftFrom(player, old, rules);
+        String roster = onlineRoster(old, player.getUUID());
+        List<List<String>> sides = RosterShape.decode(roster);
+        if (sides == null || sides.size() < MIN_TEAMS) {
+            // Not enough people left for two sides. Keep the terms and let the roster be redrawn,
+            // rather than throwing the rules away with the players.
+            journal(fresh).append("REMATCH_SHORT", "from", old.id,
+                    "sides", sides == null ? 0 : sides.size());
+            openPanel(player, fresh, RulesOpenPayload.ROLE_DRAFT);
+            player.displayClientMessage(PvLang.t("pvpocket.msg.rematch.short")
+                    .withStyle(ChatFormatting.YELLOW), false);
+            return;
+        }
+        journal(fresh).append("REMATCH_STARTED", "from", old.id, "roster", roster);
+        // The panel's own send path: same validation, same messages, same stage change.
+        onRulesSubmit(player, RulesSubmitPayload.ACTION_PROPOSE, rules.encode(), roster);
+        if (fresh.stage == SessionStage.DRAFT) {
+            // The invite was refused, most likely because somebody became busy in between.
+            openPanel(player, fresh, RulesOpenPayload.ROLE_DRAFT);
+        }
+    }
+
+    /**
+     * The newest archived series this player was in, for the command without an id.
+     *
+     * <p>Scanned rather than remembered: sessions are never dropped, and the command has to work
+     * after a restart, when no in-memory pointer survives.
+     */
+    private DuelSession lastFinishedFor(UUID uuid) {
+        String id = uuid.toString();
+        DuelSession best = null;
+        for (DuelSession session : sessions.values()) {
+            if (session.stage != SessionStage.ARCHIVED || session.participant(id) == null) {
+                continue;
+            }
+            if (best == null || session.updatedAt > best.updatedAt) {
+                best = session;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * A fresh draft carrying a finished series' terms and the exact set it fought with.
+     *
+     * <p>The loadout is seeded onto the proposer before the roster is submitted, because
+     * {@code submitRoster} seeds every newcomer from {@code sharedLoadout}, which is the first
+     * participant holding a set. That is how the same items come back instead of the proposer's
+     * personal book, which may have been edited since.
+     */
+    private DuelSession createDraftFrom(ServerPlayer proposer, DuelSession from, DuelRules rules) {
+        DuelSession session = new DuelSession();
+        session.id = UUID.randomUUID().toString();
+        session.createdAt = System.currentTimeMillis();
+        session.updatedAt = session.createdAt;
+        Participant me = new Participant(proposer.getStringUUID(), proposer.getName().getString(),
+                0, 0);
+        Loadout previous = sharedLoadout(from);
+        me.loadout = previous.encode();
+        me.loadoutDigest = previous.digest();
+        session.participants.add(me);
+        session.teamCount = MIN_TEAMS;
+        applyRulesToSession(session, rules);
+        session.rulesRevision = 0;
+        session.rulesAuthor = proposer.getStringUUID();
+        session.proposerUuid = proposer.getStringUUID();
+        // Rows are numbered before anything can be branched off them; see LoadoutEntry#ref.
+        mainLoadout(session);
+        sessions.put(session.id, session);
+        journal(session).append("SESSION_DRAFTED", "proposer", me.name, "rematchOf", from.id);
+        persist(session);
+        return session;
+    }
+
+    /**
+     * The finished series' arrangement with everybody who is gone dropped.
+     *
+     * <p>Busy counts as gone: somebody already in another duel would be refused by
+     * {@code submitRoster}, and that refusal would take the whole rematch down with it.
+     */
+    private String onlineRoster(DuelSession from, UUID proposer) {
+        List<List<String>> sides = new ArrayList<>();
+        for (int team = 0; team < Math.max(1, from.teamCount); team++) {
+            List<Participant> members = new ArrayList<>(from.activeMembers(team));
+            members.sort(Comparator.comparingInt(p -> p.member));
+            List<String> side = new ArrayList<>();
+            for (Participant p : members) {
+                UUID uuid = UUID.fromString(p.uuid);
+                boolean here = server.getPlayerList().getPlayer(uuid) != null;
+                boolean free = uuid.equals(proposer)
+                        || (sessionByPlayer.get(uuid) == null && findOpenSession(uuid) == null);
+                if (here && free) {
+                    side.add(p.uuid);
+                }
+            }
+            if (!side.isEmpty()) {
+                sides.add(side);
+            }
+        }
+        return sides.isEmpty() ? "" : RosterShape.encode(sides);
     }
 
     /**
@@ -5276,6 +5421,7 @@ public final class SessionManager {
                     removeArenaCopy(player, action.arg());
                 }
             }
+            case HomeActionPayload.ACTION_REMATCH -> rematch(player, action.arg());
             case HomeActionPayload.ACTION_ARENA_RESET -> {
                 if (requireOperator(player, "reset")) {
                     resetArenaFromPanel(player);

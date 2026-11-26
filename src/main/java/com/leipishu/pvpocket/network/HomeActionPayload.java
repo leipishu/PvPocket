@@ -32,6 +32,12 @@ public record HomeActionPayload(int action, String arg) implements CustomPacketP
     public static final int ACTION_GUARD = 5;
     /** Operator: take one plot away from the map named in {@code arg}. */
     public static final int ACTION_ARENA_REMOVE = 6;
+    /**
+     * Start a new series from a finished one, named by the session id in {@code arg}.
+     *
+     * <p>An empty argument means the newest one the caller was in, which is what the command sends.
+     */
+    public static final int ACTION_REMATCH = 7;
 
     public static final Type<HomeActionPayload> ID = new Type<>(ResourceLocation.fromNamespaceAndPath("pvpocket", "home_action"));
 

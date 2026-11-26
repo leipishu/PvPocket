@@ -1,11 +1,14 @@
 package com.leipishu.pvpocket.client.gui.result;
 
 import com.leipishu.pvpocket.PvPocket;
+import com.leipishu.pvpocket.client.compat.PvScreens;
 import com.leipishu.pvpocket.client.gui.PvButton;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvScreen;
 import com.leipishu.pvpocket.client.gui.PvTheme;
+import com.leipishu.pvpocket.client.home.HomeClient;
 import com.leipishu.pvpocket.client.home.HomeText;
+import com.leipishu.pvpocket.network.HomeActionPayload;
 import com.leipishu.pvpocket.i18n.PvLang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -51,6 +54,7 @@ public class SeriesResultScreen extends PvScreen {
 
     private final MatchResult result;
     private final PvButton export;
+    private final PvButton rematch;
     private final PvButton close;
 
     /** Drawing the poster instead of the panel this frame. */
@@ -66,6 +70,9 @@ public class SeriesResultScreen extends PvScreen {
         this.export = new PvButton(PvLang.str("pvpocket.gui.result.export"),
                 PvButton.Style.NORMAL, this::requestPoster).size(64, 20);
         this.export.tooltip = PvLang.str("pvpocket.gui.result.export_hint");
+        this.rematch = new PvButton(PvLang.str("pvpocket.gui.result.rematch"),
+                PvButton.Style.PRIMARY, this::askRematch).size(64, 20);
+        this.rematch.tooltip = PvLang.str("pvpocket.gui.result.rematch_hint");
         this.close = new PvButton(PvLang.str("pvpocket.gui.result.close"),
                 PvButton.Style.GHOST, this::onClose).size(48, 20);
     }
@@ -79,8 +86,10 @@ public class SeriesResultScreen extends PvScreen {
         chromeW = 0;
         chromeH = bandH();
         export.height = compact() ? 18 : 20;
+        rematch.height = export.height;
         close.height = export.height;
         roots.add(export);
+        roots.add(rematch);
         roots.add(close);
         setFocus(null);
     }
@@ -151,6 +160,9 @@ public class SeriesResultScreen extends PvScreen {
             export.y = btnY;
             close.x = wx + ww - close.width;
             close.y = btnY;
+            // Right-aligned next to Close: the two that leave this screen sit together.
+            rematch.x = close.x - rematch.width - 6;
+            rematch.y = btnY;
         }
     }
 
@@ -320,6 +332,17 @@ public class SeriesResultScreen extends PvScreen {
         String key = "pvpocket.gui.home.reason." + reason.toLowerCase(java.util.Locale.ROOT);
         String text = PvLang.str(key);
         return text.equals(key) ? reason : text;
+    }
+
+    /**
+     * Asks the server for a new series with the same people, rules and loadout.
+     *
+     * <p>Closing first: the server answers with a rule panel, and a result card on top of it would
+     * hide the thing the player is supposed to press.
+     */
+    private void askRematch() {
+        HomeClient.send(new HomeActionPayload(HomeActionPayload.ACTION_REMATCH, result.sessionId()));
+        PvScreens.open(Minecraft.getInstance(), null);
     }
 
     // ------------------------------------------------------------------ poster

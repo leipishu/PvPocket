@@ -62,6 +62,8 @@ public final class PvPocketCommands {
         // them could be pressed.
         root.then(Commands.literal("help").executes(PvPocketCommands::help));
         root.then(Commands.literal("review").executes(PvPocketCommands::review));
+        // The result card carries the same action as a button; this is the way back to it.
+        root.then(Commands.literal("rematch").executes(PvPocketCommands::rematch));
         root.then(Commands.literal("surrender").executes(PvPocketCommands::surrender));
         // The prompt at login carries these two as click events; typed they do the same thing.
         root.then(Commands.literal("reconnect")
@@ -134,6 +136,7 @@ public final class PvPocketCommands {
                 .withStyle(ChatFormatting.AQUA), false);
         helpLine(source, "/pvpocket duel", "pvpocket.command.help.duel");
         helpLine(source, "/pvpocket review", "pvpocket.command.help.review");
+        helpLine(source, "/pvpocket rematch", "pvpocket.command.help.rematch");
         helpLine(source, "/pvpocket surrender", "pvpocket.command.help.surrender");
         helpLine(source, "/pvpocket reconnect <accept|decline>",
                 "pvpocket.command.help.reconnect");
@@ -175,6 +178,15 @@ public final class PvPocketCommands {
     private static int surrender(CommandContext<CommandSourceStack> ctx) {
         try {
             SessionManager.get().surrender(ctx.getSource().getPlayerOrException());
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int rematch(CommandContext<CommandSourceStack> ctx) {
+        try {
+            SessionManager.get().rematch(ctx.getSource().getPlayerOrException(), "");
             return 1;
         } catch (Exception e) {
             return 0;

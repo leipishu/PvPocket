@@ -265,6 +265,11 @@ A dropped connection loses that round, but it does not end the series — unless
 When a whole series ends — not a single round — every participant gets a result card. The server
 pushes it, so no panel has to be opened for it; `Esc` closes it and returns to the game.
 
+The card also carries **Rematch** (and `/pvpocket rematch`): within ten minutes of the end it
+opens a fresh invite with this series' rules, loadout and roster. Whoever is online drops straight
+into the panel and answers; whoever is gone is dropped from the roster. If that leaves fewer than
+two sides, only a draft with the old rules is opened, so the roster can be redrawn.
+
 From top to bottom:
 
 - **One headline.** In Chinese it is two lines, the verdict and the same verdict in English, because
@@ -309,6 +314,7 @@ client and scripts and operators can only speak commands.
 | `/pvpocket help` | Show help (same as bare `/pvpocket`) |
 | `/pvpocket duel` | Open the rule panel: pick the players, set the sides and the rules there; takes no arguments |
 | `/pvpocket review` | Reopen the rule panel |
+| `/pvpocket rematch` | Replay the last series with its rules, loadout and roster (valid for ten minutes; the card's Rematch button does the same) |
 | `/pvpocket surrender` | Leave the series (not one round). With three or more sides only yours is out and the rest play on |
 | `/pvpocket reconnect accept` | Rejoin a running match: watch until the next round begins (the chat button at login does the same) |
 | `/pvpocket reconnect decline` | Give up this match: items and position are restored at once, team-mates play on |
