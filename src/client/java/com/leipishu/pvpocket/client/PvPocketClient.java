@@ -9,6 +9,7 @@ import com.leipishu.pvpocket.client.gui.prepare.PrepareNotice;
 import com.leipishu.pvpocket.client.gui.prepare.PrepareScreen;
 import com.leipishu.pvpocket.client.gui.result.MatchResult;
 import com.leipishu.pvpocket.client.gui.result.SeriesResultScreen;
+import com.leipishu.pvpocket.client.audio.PvCues;
 import com.leipishu.pvpocket.client.gui.match.ReconnectScreen;
 import com.leipishu.pvpocket.client.gui.rule.RuleScreen;
 import com.leipishu.pvpocket.client.gui.rule.VoteScreen;
@@ -85,6 +86,10 @@ public final class PvPocketClient {
         platform.onServerPacket(RulesOpenPayload.ID, payload -> {
             PvPocket.LOGGER.info("Received rules_open for session {} role {}",
                     payload.sessionId(), payload.role());
+            if (payload.role() == RulesOpenPayload.ROLE_REVIEWER) {
+                // Only an invite is news; reopening your own panel is not.
+                PvCues.invite();
+            }
             PvScreens.open(Minecraft.getInstance(), new RuleScreen(payload));
         });
 
@@ -92,6 +97,7 @@ public final class PvPocketClient {
             PvPocket.LOGGER.info("Received reconnect_offer for session {}", payload.sessionId());
             // A screen, not a line: chat reads as an announcement rather than a question. Opened
             // from the tick, since the offer can arrive before the level has finished loading.
+            PvCues.reconnect();
             pendingReconnect = payload;
             openReconnectIfReady();
         });
@@ -128,6 +134,8 @@ public final class PvPocketClient {
             } else {
                 PrepareNotice.cancel(payload.sessionId());
                 PrepareScreen.dismiss(payload.sessionId());
+                // The wait is over and the arena is live: the one cue that has to arrive on time.
+                PvCues.roundStart();
             }
         });
 
@@ -186,6 +194,12 @@ public final class PvPocketClient {
 
         // The result card honours the local switch; the server sends it to every participant.
         platform.onServerPacket(SeriesResultPayload.ID, payload -> {
+            // Before the local switch: with the card turned off this chime is the only sign the
+            // series ended.
+            MatchResult ending = MatchResult.parse(payload);
+            if (ending != null) {
+                PvCues.seriesEnd(ending.won());
+            }
             if (!ClientPrefs.resultScreen()) {
                 return;
             }

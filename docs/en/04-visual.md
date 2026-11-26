@@ -432,6 +432,21 @@ Implemented in `PvAnim`. Four principles:
 
 `PvTheme.MOTION = false` disables every transition at once (all states snap into place).
 
+### 5.1 Sound
+
+Five cues in a duel, all of them vanilla sounds; the mod ships no audio files:
+
+| When | Sound | Why that one |
+| --- | --- | --- |
+| Invite received | Note block bell, high and quiet | The panel may be one you opened yourself; only an invite rings |
+| Round goes live | Note block pling | The prepare screen's wait is over, and this one has to be on time |
+| You are out | Note block bass | A dull thud, not a fanfare; a team-mate going out is silent |
+| Series over | Advancement chime on a win, bass on a loss | With the card turned off, this is the only feedback |
+| Reconnect prompt | Note block bell, lower | The player may be looking elsewhere, and the screen makes no noise |
+
+Volumes sit between 0.35 and 0.55. A duel has no ambient track, so anything loud here becomes the
+loudest thing in the match.
+
 ## 6. Copy rules
 
 This is the hard constraint added in this revision; it ranks with colour and radius.

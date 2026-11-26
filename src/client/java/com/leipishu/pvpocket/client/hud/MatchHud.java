@@ -1,6 +1,7 @@
 package com.leipishu.pvpocket.client.hud;
 
 import com.leipishu.pvpocket.client.ClientPrefs;
+import com.leipishu.pvpocket.client.audio.PvCues;
 import com.leipishu.pvpocket.client.gui.PvAnim;
 import com.leipishu.pvpocket.client.gui.PvDraw;
 import com.leipishu.pvpocket.client.gui.PvMatrix;
@@ -114,7 +115,41 @@ public final class MatchHud implements PvClientPlatform.HudLayer {
         if (state == null && next != null) {
             appearT = 0F;
         }
+        if (next != null) {
+            announceOwnElimination(state, next);
+        }
         state = next;
+    }
+
+    /**
+     * Plays the "you are out" cue the first time this player's uuid shows up in the list.
+     *
+     * <p>The list is per round, so the uuid leaves it at the next start and can sound again. Only
+     * this player's own name is worth a sound; a team-mate going out is on screen already.
+     */
+    private static void announceOwnElimination(MatchHudPayload previous, MatchHudPayload next) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null) {
+            return;
+        }
+        String me = client.player.getStringUUID();
+        boolean now = contains(next.eliminated(), me);
+        boolean before = previous != null && contains(previous.eliminated(), me);
+        if (now && !before) {
+            PvCues.eliminated();
+        }
+    }
+
+    private static boolean contains(String csv, String uuid) {
+        if (csv == null || csv.isEmpty()) {
+            return false;
+        }
+        for (String part : csv.split(",")) {
+            if (part.equals(uuid)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Dropped on disconnect so a stale scoreboard cannot survive into the next server. */
